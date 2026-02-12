@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+/* Dark mode por clase (next-themes) */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Paleta Perfilio: Azul #1a365d, Gris #cbd5e0, Naranja #f6ad55 */
+:root {
+  --background: #ffffff;
+  --foreground: #1a365d;
+  --brand-blue: #1a365d;
+  --brand-blue-light: #2c5282;
+  --brand-gray: #4a5568;
+  --brand-gray-muted: #cbd5e0;
+  --brand-orange: #f6ad55;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-brand-blue: #1a365d;
+  --color-brand-gray: #cbd5e0;
+  --color-brand-orange: #f6ad55;
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0f172a;
+    --foreground: #f1f5f9;
+  }
+}
+
+[data-theme="dark"],
+.dark {
+  --background: #0f172a;
+  --foreground: #f1f5f9;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
