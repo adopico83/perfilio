@@ -3,7 +3,7 @@
 /* Dark mode por clase (next-themes) */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Paleta Perfilio: Azul #1a365d, Gris #cbd5e0, Naranja #f6ad55 */
+/* Paleta Perfilio: Azul #1a365d, Gris #4a5568, Naranja #ed8936 */
 :root {
   --background: #ffffff;
   --foreground: #1a365d;
@@ -11,15 +11,16 @@
   --brand-blue-light: #2c5282;
   --brand-gray: #4a5568;
   --brand-gray-muted: #cbd5e0;
-  --brand-orange: #f6ad55;
+  --brand-orange: #ed8936;
+  --brand-orange-hover: #dd6b20;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-brand-blue: #1a365d;
-  --color-brand-gray: #cbd5e0;
-  --color-brand-orange: #f6ad55;
+  --color-brand-gray: #4a5568;
+  --color-brand-orange: #ed8936;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }

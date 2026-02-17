@@ -1,76 +1,120 @@
-import {
-  FileSpreadsheet,
-  Package,
-  Receipt,
-  MessageCircle,
-  ScanEye,
-} from 'lucide-react';
-
-const features = [
-  {
-    title: 'Presupuestos automáticos',
-    description:
-      'Genera presupuestos profesionales en segundos a partir de materiales y precios. Envíalos por email o WhatsApp y haz seguimiento del estado.',
-    icon: FileSpreadsheet,
-  },
-  {
-    title: 'Control de stock',
-    description:
-      'Lleva el inventario de materiales y productos. Alertas de stock bajo y actualización en tiempo real al generar presupuestos o facturas.',
-    icon: Package,
-  },
-  {
-    title: 'Facturas',
-    description:
-      'Emite facturas vinculadas a presupuestos o de forma independiente. Numeración automática y estados: pendiente, pagada, vencida.',
-    icon: Receipt,
-  },
-  {
-    title: 'WhatsApp',
-    description:
-      'Envía presupuestos y recordatorios por WhatsApp. Mantén la comunicación con tus clientes desde la misma plataforma.',
-    icon: MessageCircle,
-  },
-  {
-    title: 'IA Vision',
-    description:
-      'Sube fotos de obras o listados y deja que la IA sugiera materiales y cantidades. Acelera la creación de presupuestos con visión artificial.',
-    icon: ScanEye,
-  },
-];
-
 export function Features() {
+  const features = [
+    {
+      icon: '🤖',
+      title: 'Asistente IA 24/7',
+      description:
+        'Gestiona emails y WhatsApps automáticamente. Responde como tú, aprende de tu negocio.',
+      gradient: 'from-blue-500 to-cyan-500',
+    },
+    {
+      icon: '📊',
+      title: 'Dashboard Inteligente',
+      description:
+        'Vista centralizada de todo tu negocio. Priorización automática de tareas urgentes.',
+      gradient: 'from-purple-500 to-pink-500',
+    },
+    {
+      icon: '📋',
+      title: 'Presupuestos Automáticos',
+      description:
+        'Genera presupuestos profesionales en minutos. PDF y envío directo al cliente.',
+      gradient: 'from-orange-500 to-red-500',
+    },
+    {
+      icon: '📦',
+      title: 'Control de Stock',
+      description:
+        'Alertas cuando falta material. Nunca pares una obra por falta de stock.',
+      gradient: 'from-green-500 to-emerald-500',
+    },
+    {
+      icon: '📄',
+      title: 'Facturación Legal',
+      description:
+        'De presupuesto a factura en un clic. IVA, numeración y envío automático.',
+      gradient: 'from-indigo-500 to-blue-500',
+    },
+    {
+      icon: '💬',
+      title: 'WhatsApp Business',
+      description:
+        'Envía presupuestos directos al móvil del cliente. Seguimiento automático.',
+      gradient: 'from-teal-500 to-cyan-500',
+    },
+  ];
+
   return (
-    <section id="features" className="border-t border-brand-gray/20 bg-brand-gray/5 px-4 py-20 dark:border-brand-gray/10 dark:bg-brand-blue/10 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-6xl">
-        <div className="text-center">
-          <h2 className="text-3xl font-bold tracking-tight text-brand-blue dark:text-white sm:text-4xl">
-            Todo lo que necesitas en una sola herramienta
+    <section id="funcionalidades" className="py-24 bg-white dark:bg-gray-900">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        {/* Header */}
+        <div className="text-center max-w-3xl mx-auto mb-16">
+          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-[#1a365d] dark:text-white mb-6">
+            Todo lo que necesitas,{' '}
+            <span className="text-[#ed8936]">con IA que trabaja por ti</span>
           </h2>
-          <p className="mt-4 text-lg text-brand-gray dark:text-brand-gray/90">
-            Diseñado para profesionales que quieren vender más y perder menos tiempo en papeleo.
+          <p className="text-lg text-[#4a5568] dark:text-gray-300">
+            Gestión empresarial completa con inteligencia artificial integrada
           </p>
         </div>
-        <div className="mt-16 grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
-          {features.map((feature) => {
-            const Icon = feature.icon;
-            return (
-              <article
-                key={feature.title}
-                className="rounded-2xl border border-brand-gray/20 bg-white p-6 shadow-sm transition-shadow hover:shadow-md dark:border-brand-gray/10 dark:bg-brand-blue/5"
-              >
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-orange/15 text-brand-orange dark:bg-brand-orange/20">
-                  <Icon className="h-6 w-6" aria-hidden />
+
+        {/* Features Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          {features.map((feature, index) => (
+            <div
+              key={index}
+              className="group relative bg-white dark:bg-gray-800 rounded-xl p-8 border border-gray-200 dark:border-gray-700 shadow-lg hover:shadow-2xl transition-all duration-300 hover:-translate-y-2"
+            >
+              {/* Gradient background on hover */}
+              <div className="absolute inset-0 bg-gradient-to-br from-[#ed8936]/5 to-[#1a365d]/5 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+
+              {/* Content */}
+              <div className="relative">
+                {/* Icon */}
+                <div className="mb-5">
+                  <div className={`inline-flex items-center justify-center w-16 h-16 rounded-lg bg-gradient-to-br ${feature.gradient} shadow-lg`}>
+                    <span className="text-3xl">{feature.icon}</span>
+                  </div>
                 </div>
-                <h3 className="mt-4 text-lg font-semibold text-brand-blue dark:text-white">
+
+                {/* Title */}
+                <h3 className="text-xl font-bold text-[#1a365d] dark:text-white mb-3">
                   {feature.title}
                 </h3>
-                <p className="mt-2 text-brand-gray dark:text-brand-gray/90">
+
+                {/* Description */}
+                <p className="text-[#4a5568] dark:text-gray-300 leading-relaxed">
                   {feature.description}
                 </p>
-              </article>
-            );
-          })}
+
+                {/* Decorative line */}
+                <div className={`mt-6 h-1 w-12 rounded-full bg-gradient-to-r ${feature.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-300`}></div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Bottom CTA */}
+        <div className="mt-16 text-center">
+          <a
+            href="#probar"
+            className="inline-flex items-center justify-center px-8 py-4 bg-[#1a365d] hover:bg-[#2d4a7c] dark:bg-[#ed8936] dark:hover:bg-[#dd6b20] text-white font-bold rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
+          >
+            Ver todas las funcionalidades
+            <svg
+              className="ml-2 h-5 w-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M13 7l5 5m0 0l-5 5m5-5H6"
+              />
+            </svg>
+          </a>
         </div>
       </div>
     </section>
