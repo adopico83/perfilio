@@ -1,19 +1,26 @@
 'use client';
 
 import { useState } from 'react';
+import Image from 'next/image';
 
 export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-50 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 shadow-sm">
+    <header className="sticky top-0 z-50 backdrop-blur-md bg-white/80 dark:bg-gray-900/80 border-b border-gray-200/50 dark:border-gray-800/50 shadow-sm">
       <nav className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="flex h-16 items-center justify-between">
+        <div className="flex h-20 items-center justify-between">
           {/* Logo */}
           <div className="flex items-center">
-            <a href="/" className="flex items-center space-x-1 text-2xl font-bold">
-              <span className="text-[#1a365d] dark:text-white">PERFILIO</span>
-              <span className="text-[#ed8936] text-3xl leading-none">.</span>
+            <a href="/" className="flex items-center gap-3 hover:opacity-90 transition-opacity">
+              <Image 
+                src="/logo.png" 
+                alt="Perfilio" 
+                width={180}
+                height={150}
+                className="h-16 w-auto"
+                priority
+              />
             </a>
           </div>
 
