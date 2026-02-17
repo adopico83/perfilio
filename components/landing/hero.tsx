@@ -157,7 +157,7 @@ export function Hero() {
                     </div>
                   </div>
                   <div className="flex space-x-2 mt-3">
-                    <button className="flex-1 bg-green-600 hover:bg-green-700 text-white text-sm font-bold py-2 px-3 rounded-lg transition-colors">
+                    <button className="flex-1 bg-[#ed8936] hover:bg-[#dd6b20] text-white text-sm font-bold py-2 px-3 rounded-lg transition-colors">
                       Enviar
                     </button>
                     <button className="flex-1 border border-green-600 dark:border-green-700 text-green-700 dark:text-green-400 text-sm font-medium py-2 px-3 rounded-lg hover:bg-green-50 dark:hover:bg-gray-700 transition-colors">

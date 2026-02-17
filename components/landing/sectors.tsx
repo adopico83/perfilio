@@ -17,7 +17,7 @@ export function Sectors() {
         'Presupuesta ventanas, gestiona stock de perfiles y programa instalaciones. Tu asistente avisa de urgencias mientras fabricas.',
       color: 'from-blue-600 to-cyan-600',
       bgColor: 'bg-blue-50 dark:bg-blue-900/10',
-      borderColor: 'border-blue-200 dark:border-blue-800',
+      borderColor: 'border-[#1e3a5f] dark:border-[#1e3a5f]',
     },
     {
       name: 'SERVICIOS',
@@ -42,7 +42,7 @@ export function Sectors() {
         'Gestiona obras, materiales y desplazamientos. Responde urgencias de clientes aunque estés en la obra.',
       color: 'from-orange-600 to-red-600',
       bgColor: 'bg-orange-50 dark:bg-orange-900/10',
-      borderColor: 'border-orange-200 dark:border-orange-800',
+      borderColor: 'border-[#1e3a5f] dark:border-[#1e3a5f]',
     },
     {
       name: 'COMERCIOS',
@@ -61,7 +61,7 @@ export function Sectors() {
         'Citas, stock, clientes y comunicaciones. Tu negocio gestionado mientras atiendes en persona.',
       color: 'from-purple-600 to-pink-600',
       bgColor: 'bg-purple-50 dark:bg-purple-900/10',
-      borderColor: 'border-purple-200 dark:border-purple-800',
+      borderColor: 'border-[#1e3a5f] dark:border-[#1e3a5f]',
     },
   ];
 

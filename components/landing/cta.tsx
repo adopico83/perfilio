@@ -74,7 +74,7 @@ export function Cta() {
           {/* Additional info */}
           <div className="mt-10 pt-10 border-t border-white/20">
             <p className="text-gray-400 text-sm">
-              Únete a cientos de PYMEs españolas que ya usan Perfilio
+              Sé de los primeros en transformar tu negocio con IA
             </p>
           </div>
         </div>
