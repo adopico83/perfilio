@@ -1,5 +1,6 @@
 import { Header } from '@/components/landing/header';
 import { Hero } from '@/components/landing/hero';
+import { DemoSection } from '@/components/landing/demo-section';
 import { Features } from '@/components/landing/features';
 import { Sectors } from '@/components/landing/sectors';
 import { Cta } from '@/components/landing/cta';
@@ -11,6 +12,7 @@ export default function Home() {
       <Header />
       <main>
         <Hero />
+        <DemoSection />
         <Features />
         <Sectors />
         <Cta />
