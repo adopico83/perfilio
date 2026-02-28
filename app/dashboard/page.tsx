@@ -26,7 +26,14 @@ export default function DashboardPage() {
       .order('created_at', { ascending: false });
 
     if (!error && data) {
-      setConversations(data);
+      // Ordenar por prioridad: urgent > normal > low
+      const priorityOrder = { urgent: 0, normal: 1, low: 2 };
+      const sorted = data.sort((a, b) => {
+        const aPriority = priorityOrder[a.priority as keyof typeof priorityOrder] ?? 1;
+        const bPriority = priorityOrder[b.priority as keyof typeof priorityOrder] ?? 1;
+        return aPriority - bPriority;
+      });
+      setConversations(sorted);
     }
     setLoading(false);
   };
@@ -35,9 +42,36 @@ export default function DashboardPage() {
     loadConversations();
   }, []);
 
+  // Clasificar mensaje
+  const classifyMessage = async (message: string): Promise<string> => {
+    try {
+      const res = await fetch('/api/classify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message }),
+      });
+      const data = await res.json();
+      return data.priority || 'normal';
+    } catch (error) {
+      console.error('Error clasificando:', error);
+      return 'normal';
+    }
+  };
+
   // Generar respuesta IA
   const generateAIResponse = async (conversationId: string, message: string) => {
     try {
+      // Primero clasificar si no tiene prioridad
+      const conversation = conversations.find(c => c.id === conversationId);
+      if (!conversation.priority || conversation.priority === 'normal') {
+        const priority = await classifyMessage(message);
+        await supabase
+          .from('conversations')
+          .update({ priority })
+          .eq('id', conversationId);
+      }
+
+      // Luego generar respuesta
       const res = await fetch('/api/assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -80,14 +114,13 @@ export default function DashboardPage() {
     setEditedText('');
   };
 
-  // Aprobar (usa versión editada si existe)
+  // Aprobar
   const approveResponse = async (conversationId: string) => {
     await supabase
       .from('conversations')
       .update({ status: 'approved' })
       .eq('id', conversationId);
 
-    // Marcar como aprobado
     await supabase
       .from('ai_responses')
       .update({ approved_at: new Date().toISOString() })
@@ -106,6 +139,21 @@ export default function DashboardPage() {
     loadConversations();
   };
 
+  // Función para obtener badge de prioridad
+  const getPriorityBadge = (priority: string) => {
+    const badges = {
+      urgent: { bg: 'bg-red-100', text: 'text-red-800', label: '🔴 Urgente' },
+      normal: { bg: 'bg-yellow-100', text: 'text-yellow-800', label: '🟡 Normal' },
+      low: { bg: 'bg-green-100', text: 'text-green-800', label: '🟢 Baja' },
+    };
+    const badge = badges[priority as keyof typeof badges] || badges.normal;
+    return (
+      <span className={`inline-block px-3 py-1 ${badge.bg} ${badge.text} text-xs rounded-full font-semibold`}>
+        {badge.label}
+      </span>
+    );
+  };
+
   if (loading) {
     return <div className="p-8">Cargando...</div>;
   }
@@ -113,7 +161,7 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-7xl mx-auto">
-      <h1 className="text-3xl font-bold mb-8 text-gray-900">Dashboard - Mensajes Pendientes</h1>
+        <h1 className="text-3xl font-bold mb-8 text-gray-900">Dashboard - Mensajes Pendientes</h1>
         
         <div className="space-y-4">
           {conversations?.map((conv: any) => {
@@ -126,11 +174,14 @@ export default function DashboardPage() {
                 {/* Header */}
                 <div className="flex justify-between items-start mb-4">
                   <div>
-                  <h3 className="font-bold text-lg text-gray-900">{conv.customer_name}</h3>
+                    <h3 className="font-bold text-lg text-gray-900">{conv.customer_name}</h3>
                     <p className="text-sm text-gray-600">{conv.customer_contact}</p>
-                    <span className="inline-block mt-2 px-3 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
-                      {conv.channel}
-                    </span>
+                    <div className="flex gap-2 mt-2">
+                      <span className="inline-block px-3 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
+                        {conv.channel}
+                      </span>
+                      {getPriorityBadge(conv.priority)}
+                    </div>
                   </div>
                   <span className="text-sm text-gray-500">
                     {new Date(conv.created_at).toLocaleDateString('es-ES')}
