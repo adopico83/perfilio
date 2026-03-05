@@ -161,7 +161,44 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-7xl mx-auto">
-        <h1 className="text-3xl font-bold mb-8 text-gray-900">Dashboard - Mensajes Pendientes</h1>
+      <div className="mb-8">
+  <h1 className="text-3xl font-bold text-gray-900 mb-4">Dashboard - Mensajes Pendientes</h1>
+  
+  {/* Contador de mensajes */}
+  <div className="flex gap-4 items-center bg-white p-4 rounded-lg shadow">
+    <div className="flex items-center gap-2">
+      <span className="text-2xl font-bold text-gray-900">
+        {conversations.length}
+      </span>
+      <span className="text-gray-600">mensajes pendientes</span>
+    </div>
+    
+    <div className="h-8 w-px bg-gray-300"></div>
+    
+    <div className="flex gap-4">
+      <div className="flex items-center gap-2">
+        <span className="text-red-600 font-semibold">
+          🔴 {conversations.filter(c => c.priority === 'urgent').length}
+        </span>
+        <span className="text-sm text-gray-600">urgentes</span>
+      </div>
+      
+      <div className="flex items-center gap-2">
+        <span className="text-yellow-600 font-semibold">
+          🟡 {conversations.filter(c => c.priority === 'normal').length}
+        </span>
+        <span className="text-sm text-gray-600">normales</span>
+      </div>
+      
+      <div className="flex items-center gap-2">
+        <span className="text-green-600 font-semibold">
+          🟢 {conversations.filter(c => c.priority === 'low').length}
+        </span>
+        <span className="text-sm text-gray-600">baja prioridad</span>
+      </div>
+    </div>
+  </div>
+</div>
         
         <div className="space-y-4">
           {conversations?.map((conv: any) => {
