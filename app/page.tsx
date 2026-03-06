@@ -5,6 +5,9 @@ import { Features } from '@/components/landing/features';
 import { Sectors } from '@/components/landing/sectors';
 import { Cta } from '@/components/landing/cta';
 import { Footer } from '@/components/landing/footer';
+import Stats from '@/components/landing/stats';
+import Pricing from '@/components/landing/pricing';
+import FAQ from '@/components/landing/faq';
 
 export default function Home() {
   return (
@@ -12,12 +15,15 @@ export default function Home() {
       <Header />
       <main>
         <Hero />
+        <Stats />  
         <DemoSection />
         <Features />
         <Sectors />
+        <Pricing />
+        <FAQ />  
         <Cta />
         <Footer />
-      </main>
+        </main>
     </div>
   );
 }
