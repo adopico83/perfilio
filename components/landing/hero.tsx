@@ -4,7 +4,19 @@ import Image from 'next/image';
 
 export function Hero() {
   return (
-    <section className="relative overflow-hidden bg-gradient-to-b from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 pt-16 pb-24 sm:pt-24 sm:pb-32">
+    <section className="relative overflow-hidden">
+  {/* Imagen de fondo */}
+  <div 
+    className="absolute inset-0 bg-cover bg-center opacity-50"
+    style={{
+      backgroundImage: "url('https://images.unsplash.com/photo-1511818966892-d7d671e672a2?w=1920&q=80')",
+    }}
+  ></div>
+  <div className="absolute inset-0 bg-gradient-to-b from-[#0f172a]/70 via-[#0f172a]/85 to-[#0f172a]"></div>
+  
+  {/* Contenido del hero */}
+  <div className="relative">
+
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 gap-12 lg:grid-cols-2 lg:gap-8 items-center">
           {/* Contenido izquierdo */}
@@ -172,6 +184,7 @@ export function Hero() {
           </div>
         </div>
       </div>
+      </div> {/* cierra el div relative */}
     </section>
   );
 }
