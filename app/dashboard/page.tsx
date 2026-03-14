@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import LogoutButton from './logout-button';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -162,7 +163,10 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-7xl mx-auto">
       <div className="mb-8">
-  <h1 className="text-3xl font-bold text-gray-900 mb-4">Dashboard - Mensajes Pendientes</h1>
+  <div className="flex justify-between items-center mb-4">
+    <h1 className="text-3xl font-bold text-gray-900">Dashboard - Mensajes Pendientes</h1>
+    <LogoutButton />
+  </div>
   
   {/* Contador de mensajes */}
   <div className="flex gap-4 items-center bg-white p-4 rounded-lg shadow">
