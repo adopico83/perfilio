@@ -42,9 +42,9 @@ export default function TestNotifyPage() {
         type="button"
         onClick={enviarPrueba}
         disabled={loading}
-        style={{ padding: '8px 16px', marginBottom: 16 }}
+        style={{ padding: '10px 20px', marginBottom: 16, fontSize: 16, cursor: loading ? 'wait' : 'pointer' }}
       >
-        {loading ? 'Enviando...' : 'POST a /api/classify'}
+        {loading ? 'Enviando...' : 'Enviar mensaje urgente de prueba'}
       </button>
       {error && <p style={{ color: 'red' }}>{error}</p>}
       {response && (
