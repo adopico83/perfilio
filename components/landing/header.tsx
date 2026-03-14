@@ -51,6 +51,13 @@ export function Header() {
               Contacto
             </a>
 
+            <a
+              href="/login"
+              className="inline-flex items-center justify-center px-5 py-2.5 bg-[#1a365d] hover:bg-[#2c5282] text-white font-medium rounded-lg transition-all duration-200 border border-[#1a365d]"
+            >
+              Acceder
+            </a>
+
             {/* CTA Button */}
             <a
               href="#probar"
@@ -133,6 +140,13 @@ export function Header() {
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Contacto
+              </a>
+              <a
+                href="/login"
+                className="inline-flex items-center justify-center px-5 py-2.5 bg-[#1a365d] hover:bg-[#2c5282] text-white font-medium rounded-lg transition-all duration-200 border border-[#1a365d]"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Acceder
               </a>
               <a
                 href="#probar"
