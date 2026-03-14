@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
 import OpenAI from 'openai';
+import { sendUrgencyAlert } from '@/lib/email';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -7,7 +9,7 @@ const openai = new OpenAI({
 
 export async function POST(request: NextRequest) {
   try {
-    const { message } = await request.json();
+    const { message, senderName, channel } = await request.json();
 
     if (!message) {
       return NextResponse.json(
@@ -45,6 +47,34 @@ Responde SOLO con una palabra: urgent, normal o low`,
     // Validar que la respuesta sea válida
     const validPriorities = ['urgent', 'normal', 'low'];
     const finalPriority = validPriorities.includes(priority) ? priority : 'normal';
+
+    // Alerta por email cuando el mensaje es urgente
+    if (finalPriority === 'urgent') {
+      const supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+          cookies: {
+            getAll() {
+              return request.cookies.getAll();
+            },
+            setAll(_cookiesToSet) {},
+          },
+        }
+      );
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const to = user?.email ?? process.env.ALERT_EMAIL;
+      if (to) {
+        await sendUrgencyAlert(
+          to,
+          message,
+          senderName ?? 'Remitente',
+          channel ?? 'N/A'
+        );
+      }
+    }
 
     return NextResponse.json({
       success: true,
