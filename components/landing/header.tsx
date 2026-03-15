@@ -3,7 +3,11 @@
 import { useState } from 'react';
 import Image from 'next/image';
 
-export function Header() {
+interface HeaderProps {
+  onOpenListaEspera?: () => void;
+}
+
+export function Header({ onOpenListaEspera }: HeaderProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
@@ -59,12 +63,22 @@ export function Header() {
             </a>
 
             {/* CTA Button */}
-            <a
-              href="#probar"
-              className="inline-flex items-center justify-center px-6 py-2.5 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-bold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
-            >
-              Probar gratis
-            </a>
+            {onOpenListaEspera ? (
+              <button
+                type="button"
+                onClick={onOpenListaEspera}
+                className="inline-flex items-center justify-center px-6 py-2.5 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-bold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
+              >
+                Probar gratis
+              </button>
+            ) : (
+              <a
+                href="#probar"
+                className="inline-flex items-center justify-center px-6 py-2.5 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-bold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
+              >
+                Probar gratis
+              </a>
+            )}
           </div>
 
           {/* Mobile menu button */}
@@ -148,13 +162,26 @@ export function Header() {
               >
                 Acceder
               </a>
-              <a
-                href="#probar"
-                className="inline-flex items-center justify-center px-6 py-2.5 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-bold rounded-lg transition-all duration-200 shadow-md"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                Probar gratis
-              </a>
+              {onOpenListaEspera ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpenListaEspera();
+                    setMobileMenuOpen(false);
+                  }}
+                  className="inline-flex items-center justify-center px-6 py-2.5 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-bold rounded-lg transition-all duration-200 shadow-md"
+                >
+                  Probar gratis
+                </button>
+              ) : (
+                <a
+                  href="#probar"
+                  className="inline-flex items-center justify-center px-6 py-2.5 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-bold rounded-lg transition-all duration-200 shadow-md"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Probar gratis
+                </a>
+              )}
             </div>
           </div>
         )}

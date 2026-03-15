@@ -3,7 +3,11 @@
 import { useState } from 'react';
 import { Sparkles, Loader2 } from 'lucide-react';
 
-export function DemoSection() {
+interface DemoSectionProps {
+  onOpenListaEspera?: () => void;
+}
+
+export function DemoSection({ onOpenListaEspera }: DemoSectionProps) {
   const [clientMessage, setClientMessage] = useState('');
   const [aiResponse, setAiResponse] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -171,12 +175,22 @@ export function DemoSection() {
           <p className="text-gray-300 mb-4">
             ¿Listo para tener tu propio asistente IA personalizado?
           </p>
-          <a
-            href="#probar"
-            className="inline-flex items-center justify-center px-8 py-4 bg-white hover:bg-gray-100 text-[#1a365d] font-bold rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
-          >
-            Empezar prueba gratuita
-          </a>
+          {onOpenListaEspera ? (
+            <button
+              type="button"
+              onClick={onOpenListaEspera}
+              className="inline-flex items-center justify-center px-8 py-4 bg-white hover:bg-gray-100 text-[#1a365d] font-bold rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
+            >
+              Empezar prueba gratuita
+            </button>
+          ) : (
+            <a
+              href="#probar"
+              className="inline-flex items-center justify-center px-8 py-4 bg-white hover:bg-gray-100 text-[#1a365d] font-bold rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
+            >
+              Empezar prueba gratuita
+            </a>
+          )}
         </div>
       </div>
     </section>

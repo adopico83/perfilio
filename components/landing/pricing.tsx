@@ -1,4 +1,8 @@
-export default function Pricing() {
+interface PricingProps {
+  onOpenListaEspera?: () => void;
+}
+
+export default function Pricing({ onOpenListaEspera }: PricingProps) {
     return (
       <section className="py-20 bg-gray-50">
         <div className="container mx-auto px-4">
@@ -43,9 +47,19 @@ export default function Pricing() {
                 </li>
               </ul>
   
-              <button className="w-full bg-[#1a365d] text-white py-3 rounded-lg font-semibold hover:bg-[#2d4a7c] transition">
-                Empezar ahora
-              </button>
+              {onOpenListaEspera ? (
+                <button
+                  type="button"
+                  onClick={onOpenListaEspera}
+                  className="w-full bg-[#1a365d] text-white py-3 rounded-lg font-semibold hover:bg-[#2d4a7c] transition"
+                >
+                  Empezar ahora
+                </button>
+              ) : (
+                <button className="w-full bg-[#1a365d] text-white py-3 rounded-lg font-semibold hover:bg-[#2d4a7c] transition">
+                  Empezar ahora
+                </button>
+              )}
             </div>
   
             {/* Plan + Módulos */}
@@ -83,9 +97,19 @@ export default function Pricing() {
                 </li>
               </ul>
   
-              <button className="w-full bg-[#ed8936] text-white py-3 rounded-lg font-semibold hover:bg-[#d77428] transition">
-                Empezar ahora
-              </button>
+              {onOpenListaEspera ? (
+                <button
+                  type="button"
+                  onClick={onOpenListaEspera}
+                  className="w-full bg-[#ed8936] text-white py-3 rounded-lg font-semibold hover:bg-[#d77428] transition"
+                >
+                  Empezar ahora
+                </button>
+              ) : (
+                <button className="w-full bg-[#ed8936] text-white py-3 rounded-lg font-semibold hover:bg-[#d77428] transition">
+                  Empezar ahora
+                </button>
+              )}
             </div>
           </div>
   

@@ -39,7 +39,11 @@ const cards = [
   },
 ];
 
-export function AgentesSection() {
+interface AgentesSectionProps {
+  onOpenListaEspera?: () => void;
+}
+
+export function AgentesSection({ onOpenListaEspera }: AgentesSectionProps) {
   return (
     <section className="relative py-20 bg-[#0f2744] overflow-hidden">
       <div className="relative mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
@@ -76,12 +80,22 @@ export function AgentesSection() {
           <p className="text-xl text-white font-medium mb-4">
             ¿Quieres ser de los primeros?
           </p>
-          <a
-            href="#"
-            className="inline-flex items-center justify-center px-8 py-3 rounded-lg font-semibold text-white bg-[#ed8936] hover:bg-[#dd6b20] transition-colors shadow-lg hover:shadow-xl"
-          >
-            Unirse a la lista de espera
-          </a>
+          {onOpenListaEspera ? (
+            <button
+              type="button"
+              onClick={onOpenListaEspera}
+              className="inline-flex items-center justify-center px-8 py-3 rounded-lg font-semibold text-white bg-[#ed8936] hover:bg-[#dd6b20] transition-colors shadow-lg hover:shadow-xl"
+            >
+              Unirse a la lista de espera
+            </button>
+          ) : (
+            <a
+              href="#"
+              className="inline-flex items-center justify-center px-8 py-3 rounded-lg font-semibold text-white bg-[#ed8936] hover:bg-[#dd6b20] transition-colors shadow-lg hover:shadow-xl"
+            >
+              Unirse a la lista de espera
+            </a>
+          )}
         </div>
       </div>
     </section>

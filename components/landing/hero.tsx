@@ -2,7 +2,11 @@
 
 import Image from 'next/image';
 
-export function Hero() {
+interface HeroProps {
+  onOpenListaEspera?: () => void;
+}
+
+export function Hero({ onOpenListaEspera }: HeroProps) {
   return (
     <section className="relative overflow-hidden">
   {/* Imagen de fondo */}
@@ -48,12 +52,22 @@ export function Hero() {
               >
                 Ver cómo funciona
               </a>
-              <a
-                href="#probar"
-                className="inline-flex items-center justify-center px-8 py-4 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-bold rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
-              >
-                Probar 14 días gratis
-              </a>
+              {onOpenListaEspera ? (
+                <button
+                  type="button"
+                  onClick={onOpenListaEspera}
+                  className="inline-flex items-center justify-center px-8 py-4 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-bold rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
+                >
+                  Probar 14 días gratis
+                </button>
+              ) : (
+                <a
+                  href="#probar"
+                  className="inline-flex items-center justify-center px-8 py-4 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-bold rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
+                >
+                  Probar 14 días gratis
+                </a>
+              )}
             </div>
 
             {/* Trust indicators */}

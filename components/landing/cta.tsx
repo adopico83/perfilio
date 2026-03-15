@@ -1,4 +1,8 @@
-export function Cta() {
+interface CtaProps {
+  onOpenListaEspera?: () => void;
+}
+
+export function Cta({ onOpenListaEspera }: CtaProps) {
   const benefits = [
     {
       icon: '✅',
@@ -37,25 +41,48 @@ export function Cta() {
 
           {/* CTA Button */}
           <div className="mb-10">
-            <a
-              href="#registro"
-              className="inline-flex items-center justify-center px-10 py-5 bg-[#ed8936] hover:bg-[#dd6b20] text-white text-lg font-bold rounded-lg transition-all duration-200 shadow-2xl hover:shadow-[0_20px_60px_rgba(237,137,54,0.4)] transform hover:scale-105"
-            >
-              Empezar ahora gratis
-              <svg
-                className="ml-3 h-6 w-6"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
+            {onOpenListaEspera ? (
+              <button
+                type="button"
+                onClick={onOpenListaEspera}
+                className="inline-flex items-center justify-center px-10 py-5 bg-[#ed8936] hover:bg-[#dd6b20] text-white text-lg font-bold rounded-lg transition-all duration-200 shadow-2xl hover:shadow-[0_20px_60px_rgba(237,137,54,0.4)] transform hover:scale-105"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M13 7l5 5m0 0l-5 5m5-5H6"
-                />
-              </svg>
-            </a>
+                Empezar ahora gratis
+                <svg
+                  className="ml-3 h-6 w-6"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 7l5 5m0 0l-5 5m5-5H6"
+                  />
+                </svg>
+              </button>
+            ) : (
+              <a
+                href="#registro"
+                className="inline-flex items-center justify-center px-10 py-5 bg-[#ed8936] hover:bg-[#dd6b20] text-white text-lg font-bold rounded-lg transition-all duration-200 shadow-2xl hover:shadow-[0_20px_60px_rgba(237,137,54,0.4)] transform hover:scale-105"
+              >
+                Empezar ahora gratis
+                <svg
+                  className="ml-3 h-6 w-6"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 7l5 5m0 0l-5 5m5-5H6"
+                  />
+                </svg>
+              </a>
+            )}
           </div>
 
           {/* Benefits badges */}
