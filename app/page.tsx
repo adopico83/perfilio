@@ -4,6 +4,7 @@ import { DemoSection } from '@/components/landing/demo-section';
 import { Features } from '@/components/landing/features';
 import { Sectors } from '@/components/landing/sectors';
 import { Cta } from '@/components/landing/cta';
+import { AgentesSection } from '@/components/landing/agentes-section';
 import { Footer } from '@/components/landing/footer';
 import Stats from '@/components/landing/stats';
 import Pricing from '@/components/landing/pricing';
@@ -19,6 +20,7 @@ export default function Home() {
         <DemoSection />
         <Features />
         <Sectors />
+        <AgentesSection />
         <Pricing />
         <FAQ />  
         <Cta />
