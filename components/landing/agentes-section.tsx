@@ -45,7 +45,20 @@ interface AgentesSectionProps {
 
 export function AgentesSection({ onOpenListaEspera }: AgentesSectionProps) {
   return (
-    <section className="relative py-20 bg-[#0f2744] overflow-hidden">
+    <section className="py-20 relative overflow-hidden">
+      {/* Foto de fondo */}
+      <div
+        className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+        style={{
+          backgroundImage:
+            'url(https://images.unsplash.com/photo-1544197150-b99a580bb7a8?w=1600&q=80)',
+        }}
+      />
+
+      {/* Gradiente oscuro encima */}
+      <div className="absolute inset-0 bg-gradient-to-b from-[#0f1f3d]/92 via-[#0f1f3d]/88 to-[#0f1f3d]/95" />
+
+      {/* Contenido */}
       <div className="relative mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-12">
           <span className="inline-block px-4 py-1.5 rounded-full text-sm font-semibold text-[#ed8936] bg-[#ed8936]/15 mb-6">
