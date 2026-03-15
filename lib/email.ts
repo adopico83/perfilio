@@ -4,8 +4,7 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 /**
  * Envía un email de alerta cuando llega un mensaje urgente.
- * Requiere RESEND_API_KEY y ALERT_EMAIL en el entorno.
- * Para "from" en producción, verifica tu dominio en Resend.
+ * Requiere RESEND_API_KEY en el entorno.
  */
 export async function sendUrgencyAlert(
   to: string,
@@ -18,10 +17,7 @@ export async function sendUrgencyAlert(
     return { success: false, error: 'RESEND_API_KEY no configurada' };
   }
 
-  const from =
-    process.env.ALERT_EMAIL != null
-      ? `Perfilio <${process.env.ALERT_EMAIL}>`
-      : 'Perfilio <onboarding@resend.dev>';
+  const from = 'Perfilio <onboarding@resend.dev>';
 
   const html = `
     <div style="font-family: sans-serif; max-width: 560px; margin: 0 auto;">
