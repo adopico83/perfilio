@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import Link from 'next/link';
 import LogoutButton from './logout-button';
 
 const supabase = createClient(
@@ -137,6 +138,11 @@ export default function DashboardPage() {
       .update({ status: 'rejected' })
       .eq('id', conversationId);
 
+    await supabase
+      .from('ai_responses')
+      .update({ rejected_at: new Date().toISOString() })
+      .eq('conversation_id', conversationId);
+
     loadConversations();
   };
 
@@ -180,7 +186,12 @@ export default function DashboardPage() {
         <span style={{ color: '#888', fontSize: '9.5px', letterSpacing: '8.2px', marginTop: '1px' }}>ALBAÑILERÍA</span>
       </div>
     </a>
-    <LogoutButton />
+    <div className="flex items-center gap-4">
+      <Link href="/historial" className="text-sm text-gray-600 hover:text-[#1a365d] transition-colors">
+        Historial
+      </Link>
+      <LogoutButton />
+    </div>
   </div>
   
   {/* Contador de mensajes */}
