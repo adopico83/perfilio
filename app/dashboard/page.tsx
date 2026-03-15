@@ -164,7 +164,22 @@ export default function DashboardPage() {
       <div className="max-w-7xl mx-auto">
       <div className="mb-8">
   <div className="flex justify-between items-center mb-4">
-    <h1 className="text-3xl font-bold text-gray-900">Dashboard - Mensajes Pendientes</h1>
+    <a href="/dashboard">
+      <div style={{ display: 'inline-flex', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 16px)', gridTemplateRows: 'repeat(2, 16px)', gap: '2px', flexShrink: 0 }}>
+            <div style={{ background: '#888' }}></div>
+            <div style={{ background: '#1a6ec7' }}></div>
+            <div style={{ background: '#888' }}></div>
+            <div style={{ background: '#1a6ec7' }}></div>
+            <div style={{ background: '#888' }}></div>
+            <div style={{ background: '#1a6ec7' }}></div>
+          </div>
+          <span style={{ color: '#1a6ec7', fontWeight: 'bold', fontSize: '34px', lineHeight: '34px', letterSpacing: '0px', padding: '0', margin: '0' }}>PINO</span>
+        </div>
+        <span style={{ color: '#888', fontSize: '9.5px', letterSpacing: '8.2px', marginTop: '1px' }}>ALBAÑILERÍA</span>
+      </div>
+    </a>
     <LogoutButton />
   </div>
   
