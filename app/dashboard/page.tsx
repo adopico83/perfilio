@@ -190,6 +190,12 @@ export default function DashboardPage() {
       <Link href="/historial" className="text-sm text-gray-600 hover:text-[#1a365d] transition-colors">
         Historial
       </Link>
+      <Link href="/presupuestos" className="text-sm text-gray-600 hover:text-[#1a365d] transition-colors">
+        Presupuestos
+      </Link>
+      <Link href="/albaranes" className="text-sm text-gray-600 hover:text-[#1a365d] transition-colors">
+        Albaranes
+      </Link>
       <Link
         href="/agente"
         className="inline-flex items-center px-4 py-2 text-sm font-medium text-[#ed8936] bg-transparent border border-[#ed8936] rounded-lg hover:bg-[#ed8936] hover:text-white transition-colors"
