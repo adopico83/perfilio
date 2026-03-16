@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
 import { X } from 'lucide-react';
+import { jsPDF } from 'jspdf';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -74,6 +75,54 @@ export default function PresupuestosPage() {
     return <span className="inline-block px-3 py-1 text-xs font-semibold rounded-full bg-gray-500/80 text-white">Borrador</span>;
   };
 
+  const descargarPDF = async (p: Presupuesto) => {
+    const { data: biz } = await supabase.from('business_profiles').select('nombre').eq('id', p.business_id).single();
+    const nombreNegocio = (biz as { nombre?: string } | null)?.nombre ?? 'Negocio';
+    const fechaStr = p.fecha ?? new Date(p.created_at).toISOString().split('T')[0];
+    const contenido = (p.presupuesto_generado ?? '').replace(/\*\*/g, '').replace(/^[-*]\s/gm, '• ').trim();
+
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const margin = 20;
+    const pageW = 210;
+    const pageH = 297;
+    let y = margin;
+
+    doc.setFontSize(18);
+    doc.setTextColor(26, 54, 93);
+    doc.text('PRESUPUESTO', margin, y);
+    y += 10;
+
+    doc.setFontSize(10);
+    doc.setTextColor(0, 0, 0);
+    doc.text(`Fecha: ${fechaStr}`, margin, y);
+    y += 6;
+    doc.text(`Cliente/Negocio: ${nombreNegocio}`, margin, y);
+    y += 10;
+
+    doc.setFontSize(11);
+    const lineHeight = 6;
+    const maxW = pageW - margin * 2;
+    const lines = doc.splitTextToSize(contenido, maxW);
+    for (const line of lines) {
+      if (y > pageH - margin - 15) {
+        doc.addPage();
+        y = margin;
+      }
+      doc.text(line, margin, y);
+      y += lineHeight;
+    }
+
+    const totalPages = doc.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.setTextColor(100, 100, 100);
+      doc.text('Generado por Perfilio', margin, pageH - 10);
+    }
+
+    doc.save(`presupuesto-${fechaStr}.pdf`);
+  };
+
   if (authChecking) {
     return (
       <div className="min-h-screen bg-[#1a365d] flex items-center justify-center">
@@ -112,6 +161,13 @@ export default function PresupuestosPage() {
                     className="px-3 py-1.5 text-sm font-medium bg-[#ed8936] hover:bg-[#dd6b20] text-white rounded-lg transition-colors"
                   >
                     Ver presupuesto completo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => descargarPDF(p)}
+                    className="px-3 py-1.5 text-sm font-medium bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-lg transition-colors"
+                  >
+                    Descargar PDF
                   </button>
                   {(p.estado ?? 'borrador') === 'borrador' && (
                     <>
