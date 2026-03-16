@@ -1,3 +1,5 @@
+import { Hammer } from 'lucide-react';
+
 export function Sectors() {
   const sectors = [
     {
@@ -7,9 +9,10 @@ export function Sectors() {
       image: 'https://images.unsplash.com/photo-1504917595217-d4dc5ebe6122?w=600&q=80',
     },
     {
-      icon: '🚿',
-      title: 'Fontanería',
-      description: 'Respuestas automáticas para urgencias y presupuestos',
+      icon: 'hammer',
+      iconComponent: Hammer,
+      title: 'Albañilería',
+      description: 'Presupuestos, albaranes y gestión de obras y reformas',
       image: 'https://images.unsplash.com/photo-1585704032915-c3400ca199e7?w=600&q=80',
     },
     {
@@ -55,7 +58,9 @@ export function Sectors() {
 
         {/* Sectors Grid */}
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {sectors.map((sector, index) => (
+        {sectors.map((sector, index) => {
+          const Icon = sector.iconComponent;
+          return (
   <div
     key={index}
     className="group relative bg-white rounded-xl shadow-lg overflow-hidden hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-2"
@@ -69,7 +74,9 @@ export function Sectors() {
     
     {/* Contenido */}
     <div className="relative p-8">
-      <div className="text-5xl mb-4">{sector.icon}</div>
+      <div className="mb-4">
+        {Icon ? <Icon className="w-12 h-12 text-[#1a365d]" /> : <span className="text-5xl">{sector.icon}</span>}
+      </div>
       <h3 className="text-2xl font-bold text-gray-900 mb-3">
         {sector.title}
       </h3>
@@ -78,7 +85,8 @@ export function Sectors() {
       </p>
     </div>
   </div>
-))}
+          );
+        })}
 
         {/* Bottom text */}
         <div className="mt-16 text-center">
