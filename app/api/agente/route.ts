@@ -114,12 +114,34 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
     const esPresupuesto = /presupuesto|precio|coste|cuánto cuesta/.test(lowerMensaje);
     if (esPresupuesto && respuesta) {
       try {
+        let importe_total: number | null = null;
+        const totalMatch = respuesta.match(/(?:total|importe total)\s*[:\s]*(\d+[.,]\d{2}|\d+)\s*(?:€|eur|euros)?/i);
+        if (totalMatch) {
+          const parsed = parseFloat(totalMatch[1].replace(',', '.'));
+          if (Number.isFinite(parsed)) importe_total = parsed;
+        }
+        if (importe_total == null) {
+          const fallback = respuesta.match(/(\d+[.,]\d{2}|\d+)\s*€?\s*$/im);
+          if (fallback) {
+            const parsed = parseFloat(fallback[1].replace(',', '.'));
+            if (Number.isFinite(parsed)) importe_total = parsed;
+          }
+        }
+
+        let cliente_nombre: string | null = null;
+        const clienteMatch = mensaje.match(/(?:cliente|para|a)\s*[:\s]*([A-Za-zÀ-ÿ\s]+?)(?:\n|,|\.|$)/i);
+        if (clienteMatch && clienteMatch[1].trim().length > 0) {
+          cliente_nombre = clienteMatch[1].trim().slice(0, 255);
+        }
+
         await supabase.from('presupuestos').insert({
           business_id,
           mensaje_cliente: mensaje,
           presupuesto_generado: respuesta,
           fecha: new Date().toISOString().split('T')[0],
           estado: 'borrador',
+          ...(importe_total != null && { importe_total }),
+          ...(cliente_nombre != null && cliente_nombre !== '' && { cliente_nombre }),
         });
       } catch (err) {
         console.error('Error guardando presupuesto:', err);

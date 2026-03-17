@@ -32,6 +32,19 @@ interface MensajeResumen {
   created_at: string;
 }
 
+interface FacturaPendienteItem {
+  id: string;
+  cliente_nombre: string | null;
+  total: number;
+}
+
+interface PresupuestoMetricaItem {
+  id: string;
+  cliente_nombre: string | null;
+  fecha: string | null;
+  importe_total: number | null;
+}
+
 export default function DashboardPage() {
   const [businessName, setBusinessName] = useState('tu negocio');
   const [counts, setCounts] = useState<ResumenCounts>({
@@ -45,6 +58,14 @@ export default function DashboardPage() {
   const [ultimosMensajes, setUltimosMensajes] = useState<MensajeResumen[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const [importePendienteCobro, setImportePendienteCobro] = useState(0);
+  const [importeTotalPresupuestado, setImporteTotalPresupuestado] = useState(0);
+  const [totalMateriales, setTotalMateriales] = useState(0);
+  const [desglosePendiente, setDesglosePendiente] = useState<FacturaPendienteItem[]>([]);
+  const [desglosePresupuestado, setDesglosePresupuestado] = useState<PresupuestoMetricaItem[]>([]);
+  const [desgloseMateriales, setDesgloseMateriales] = useState<PresupuestoMetricaItem[]>([]);
+  const [modalMetrica, setModalMetrica] = useState<'pendiente' | 'presupuestado' | 'materiales' | null>(null);
+
   useEffect(() => {
     const loadDashboard = async () => {
       try {
@@ -57,6 +78,9 @@ export default function DashboardPage() {
           facturasRes,
           presListRes,
           msgListRes,
+          facturasPendientesDataRes,
+          presupuestosMetricasRes,
+          presupuestosMaterialesRes,
         ] =
           await Promise.all([
             supabase.from('business_profiles').select('nombre').limit(1).single(),
@@ -89,6 +113,17 @@ export default function DashboardPage() {
               .eq('status', 'pending')
               .order('created_at', { ascending: false })
               .limit(3),
+            supabase
+              .from('facturas')
+              .select('id, cliente_nombre, total')
+              .eq('estado', 'pendiente'),
+            supabase
+              .from('presupuestos')
+              .select('id, cliente_nombre, fecha, importe_total'),
+            supabase
+              .from('presupuestos')
+              .select('id, cliente_nombre, fecha, importe_total')
+              .ilike('presupuesto_generado', '%material%'),
           ]);
 
         if (!bizRes.error && bizRes.data?.nombre) {
@@ -108,6 +143,22 @@ export default function DashboardPage() {
         }
         if (!msgListRes.error && msgListRes.data) {
           setUltimosMensajes(msgListRes.data as MensajeResumen[]);
+        }
+
+        if (!facturasPendientesDataRes.error && facturasPendientesDataRes.data) {
+          const list = facturasPendientesDataRes.data as { id: string; cliente_nombre: string | null; total: number }[];
+          setDesglosePendiente(list);
+          setImportePendienteCobro(list.reduce((s, f) => s + (Number(f.total) || 0), 0));
+        }
+        if (!presupuestosMetricasRes.error && presupuestosMetricasRes.data) {
+          const list = presupuestosMetricasRes.data as { id: string; cliente_nombre: string | null; fecha: string | null; importe_total: number | null }[];
+          setDesglosePresupuestado(list);
+          setImporteTotalPresupuestado(list.reduce((s, p) => s + (Number(p.importe_total) || 0), 0));
+        }
+        if (!presupuestosMaterialesRes.error && presupuestosMaterialesRes.data) {
+          const list = presupuestosMaterialesRes.data as { id: string; cliente_nombre: string | null; fecha: string | null; importe_total: number | null }[];
+          setDesgloseMateriales(list);
+          setTotalMateriales(list.reduce((s, p) => s + (Number(p.importe_total) || 0), 0));
         }
       } finally {
         setLoading(false);
@@ -298,6 +349,59 @@ export default function DashboardPage() {
 
         <section>
           <h2 className="text-sm font-semibold text-white/60 mb-3 uppercase tracking-wide">
+            Métricas económicas
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <button
+              type="button"
+              onClick={() => setModalMetrica('pendiente')}
+              className="text-left bg-[#1a365d] border border-[#ed8936]/50 rounded-xl p-4 flex flex-col gap-2 hover:bg-[#1e3a5f] transition-colors"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-[#fed7aa] uppercase tracking-wide">
+                  💰 Importe pendiente de cobro
+                </span>
+              </div>
+              <div className="text-2xl font-bold text-[#ed8936]">
+                {loading ? '—' : `${importePendienteCobro.toFixed(2)} €`}
+              </div>
+              <span className="text-xs text-white/60">Clic para ver desglose por factura</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setModalMetrica('presupuestado')}
+              className="text-left bg-[#1a365d] border border-[#ed8936]/50 rounded-xl p-4 flex flex-col gap-2 hover:bg-[#1e3a5f] transition-colors"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-[#fed7aa] uppercase tracking-wide">
+                  📄 Importe total presupuestado
+                </span>
+              </div>
+              <div className="text-2xl font-bold text-[#ed8936]">
+                {loading ? '—' : `${importeTotalPresupuestado.toFixed(2)} €`}
+              </div>
+              <span className="text-xs text-white/60">Clic para ver desglose por presupuesto</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setModalMetrica('materiales')}
+              className="text-left bg-[#1a365d] border border-[#ed8936]/50 rounded-xl p-4 flex flex-col gap-2 hover:bg-[#1e3a5f] transition-colors"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-[#fed7aa] uppercase tracking-wide">
+                  🧱 Total materiales
+                </span>
+              </div>
+              <div className="text-2xl font-bold text-[#ed8936]">
+                {loading ? '—' : `${totalMateriales.toFixed(2)} €`}
+              </div>
+              <span className="text-xs text-white/60">Clic para ver desglose</span>
+            </button>
+          </div>
+        </section>
+
+        <section>
+          <h2 className="text-sm font-semibold text-white/60 mb-3 uppercase tracking-wide">
             Accesos directos
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -411,6 +515,96 @@ export default function DashboardPage() {
             )}
           </div>
         </section>
+
+        {modalMetrica && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+            onClick={() => setModalMetrica(null)}
+          >
+            <div
+              className="bg-[#1a365d] border border-[#ed8936]/50 rounded-xl max-w-lg w-full max-h-[80vh] overflow-hidden shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-4 border-b border-white/10 flex items-center justify-between">
+                <h3 className="font-semibold text-[#fed7aa]">
+                  {modalMetrica === 'pendiente' && 'Importe pendiente de cobro'}
+                  {modalMetrica === 'presupuestado' && 'Importe total presupuestado'}
+                  {modalMetrica === 'materiales' && 'Total materiales'}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setModalMetrica(null)}
+                  className="text-white/70 hover:text-white text-2xl leading-none"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="p-4 overflow-y-auto max-h-[60vh]">
+                {modalMetrica === 'pendiente' && (
+                  <ul className="space-y-3 text-sm">
+                    {desglosePendiente.length === 0 ? (
+                      <li className="text-white/60">No hay facturas pendientes.</li>
+                    ) : (
+                      desglosePendiente.map((f) => (
+                        <li
+                          key={f.id}
+                          className="flex items-center justify-between gap-2 border-b border-white/10 pb-2 last:border-b-0"
+                        >
+                          <span className="font-medium">{f.cliente_nombre ?? 'Sin nombre'}</span>
+                          <span className="text-[#ed8936] font-semibold">{Number(f.total).toFixed(2)} €</span>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                )}
+                {modalMetrica === 'presupuestado' && (
+                  <ul className="space-y-3 text-sm">
+                    {desglosePresupuestado.length === 0 ? (
+                      <li className="text-white/60">No hay presupuestos con importe.</li>
+                    ) : (
+                      desglosePresupuestado.map((p) => (
+                        <li
+                          key={p.id}
+                          className="flex items-center justify-between gap-2 border-b border-white/10 pb-2 last:border-b-0"
+                        >
+                          <div>
+                            <p className="font-medium">{p.cliente_nombre ?? '—'}</p>
+                            <p className="text-white/60 text-xs">{p.fecha ?? '—'}</p>
+                          </div>
+                          <span className="text-[#ed8936] font-semibold">
+                            {(p.importe_total != null ? Number(p.importe_total) : 0).toFixed(2)} €
+                          </span>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                )}
+                {modalMetrica === 'materiales' && (
+                  <ul className="space-y-3 text-sm">
+                    {desgloseMateriales.length === 0 ? (
+                      <li className="text-white/60">No hay presupuestos de materiales.</li>
+                    ) : (
+                      desgloseMateriales.map((p) => (
+                        <li
+                          key={p.id}
+                          className="flex items-center justify-between gap-2 border-b border-white/10 pb-2 last:border-b-0"
+                        >
+                          <div>
+                            <p className="font-medium">{p.cliente_nombre ?? '—'}</p>
+                            <p className="text-white/60 text-xs">{p.fecha ?? '—'}</p>
+                          </div>
+                          <span className="text-[#ed8936] font-semibold">
+                            {(p.importe_total != null ? Number(p.importe_total) : 0).toFixed(2)} €
+                          </span>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
