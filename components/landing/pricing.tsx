@@ -20,7 +20,7 @@ export default function Pricing({ onOpenListaEspera }: PricingProps) {
             <div className="bg-white rounded-2xl shadow-lg p-8 border-2 border-gray-200">
               <h3 className="text-2xl font-bold text-gray-900 mb-2">Plan Base</h3>
               <div className="mb-6">
-                <span className="text-5xl font-bold text-[#1a365d]">99€</span>
+                <span className="text-5xl font-bold text-[#1a365d]">49€</span>
                 <span className="text-gray-600">/mes</span>
               </div>
               
@@ -70,7 +70,7 @@ export default function Pricing({ onOpenListaEspera }: PricingProps) {
               
               <h3 className="text-2xl font-bold text-gray-900 mb-2">Plan + Módulos</h3>
               <div className="mb-6">
-                <span className="text-5xl font-bold text-[#ed8936]">149€</span>
+                <span className="text-5xl font-bold text-[#ed8936]">79€</span>
                 <span className="text-gray-600">/mes</span>
               </div>
               

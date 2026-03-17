@@ -9,6 +9,7 @@ interface HeaderProps {
 
 export function Header({ onOpenListaEspera }: HeaderProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [showAgenteModal, setShowAgenteModal] = useState(false);
 
   return (
     <header className="sticky top-0 z-50 backdrop-blur-md bg-white/80 dark:bg-gray-900/80 border-b border-gray-200/50 dark:border-gray-800/50 shadow-sm">
@@ -155,6 +156,16 @@ export function Header({ onOpenListaEspera }: HeaderProps) {
               >
                 Contacto
               </a>
+              <button
+                type="button"
+                className="text-[#4a5568] dark:text-gray-300 hover:text-[#1a365d] dark:hover:text-white font-medium transition-colors text-left"
+                onClick={() => {
+                  setShowAgenteModal(true);
+                  setMobileMenuOpen(false);
+                }}
+              >
+                Agente IA
+              </button>
               <a
                 href="/login"
                 className="inline-flex items-center justify-center px-5 py-2.5 bg-[#1a365d] hover:bg-[#2c5282] text-white font-medium rounded-lg transition-all duration-200 border border-[#1a365d]"
@@ -186,6 +197,55 @@ export function Header({ onOpenListaEspera }: HeaderProps) {
           </div>
         )}
       </nav>
+
+      {showAgenteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div
+            className="absolute inset-0 bg-black/60"
+            onClick={() => setShowAgenteModal(false)}
+            aria-hidden
+          />
+          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-bold text-[#1a365d]">Accede al Agente IA</h2>
+              <button
+                type="button"
+                onClick={() => setShowAgenteModal(false)}
+                className="p-1.5 rounded-full hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
+                aria-label="Cerrar"
+              >
+                <span className="text-xl leading-none">&times;</span>
+              </button>
+            </div>
+            <div className="px-6 py-4 space-y-4">
+              <p className="text-sm text-gray-700">
+                El agente IA de Perfilio gestiona tu negocio de forma autónoma. Presupuestos,
+                facturas, albaranes y mucho más.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <a
+                  href="/login"
+                  className="flex-1 inline-flex items-center justify-center px-4 py-2.5 rounded-lg bg-[#1a365d] hover:bg-[#2c5282] text-white text-sm font-semibold transition-colors"
+                >
+                  Acceder
+                </a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onOpenListaEspera) {
+                      onOpenListaEspera();
+                    }
+                    setShowAgenteModal(false);
+                  }}
+                  className="flex-1 inline-flex items-center justify-center px-4 py-2.5 rounded-lg bg-[#ed8936] hover:bg-[#dd6b20] text-white text-sm font-semibold transition-colors"
+                >
+                  Unirse a la lista de espera
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </header>
   );
 }
