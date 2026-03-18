@@ -34,9 +34,14 @@ export default function AgentSidebar() {
   const [mensaje, setMensaje] = useState('');
   const [historial, setHistorial] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
+  const [grabando, setGrabando] = useState(false);
   const [error, setError] = useState('');
 
   const listRef = useRef<HTMLDivElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<BlobPart[]>([]);
+  const mediaRecorderMimeTypeRef = useRef<string>('audio/webm');
 
   const containerWidthClass = useMemo(() => {
     if (collapsed) return 'w-[56px] min-w-[56px]';
@@ -65,13 +70,13 @@ export default function AgentSidebar() {
     listRef.current.scrollTop = listRef.current.scrollHeight;
   }, [historial, loading, collapsed, mobileOpen]);
 
-  const handleEnviar = async () => {
-    if (!selectedId || !mensaje.trim()) {
+  const handleEnviarTexto = async (texto: string) => {
+    const textoTrim = texto.trim();
+    if (!selectedId || !textoTrim) {
       setError('Escribe un mensaje para el agente.');
       return;
     }
     setError('');
-    const texto = mensaje.trim();
     setMensaje('');
     setLoading(true);
     try {
@@ -79,7 +84,7 @@ export default function AgentSidebar() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          mensaje: texto,
+          mensaje: textoTrim,
           business_id: selectedId,
           historial,
         }),
@@ -92,13 +97,119 @@ export default function AgentSidebar() {
       const respuestaTexto = data.respuesta ?? '';
       setHistorial((prev) => [
         ...prev,
-        { role: 'user', content: texto },
+        { role: 'user', content: textoTrim },
         { role: 'assistant', content: respuestaTexto },
       ]);
     } catch {
       setError('Error de conexión');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleEnviar = () => {
+    void handleEnviarTexto(mensaje);
+  };
+
+  const startRecording = async () => {
+    if (grabando || loading) return;
+    if (typeof MediaRecorder === 'undefined') {
+      setError('Tu navegador no soporta grabación de audio.');
+      return;
+    }
+    if (!selectedId) {
+      setError('No hay un negocio disponible para enviar el audio.');
+      return;
+    }
+
+    setError('');
+    setGrabando(true);
+    audioChunksRef.current = [];
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+
+      const preferredMimeTypes = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/mp4',
+      ];
+
+      const chosenMimeType =
+        preferredMimeTypes.find((t) => MediaRecorder.isTypeSupported(t)) ?? '';
+
+      mediaRecorderMimeTypeRef.current = chosenMimeType || 'audio/webm';
+
+      const recorder = new MediaRecorder(
+        stream,
+        chosenMimeType ? { mimeType: chosenMimeType } : undefined
+      );
+
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (event: BlobEvent) => {
+        if (event.data && event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const mimeType = mediaRecorderMimeTypeRef.current || 'audio/webm';
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+        audioChunksRef.current = [];
+        setGrabando(false);
+        void transcribeAndSend(audioBlob);
+      };
+
+      recorder.start();
+    } catch {
+      setGrabando(false);
+      setError('No se pudo acceder al micrófono.');
+    }
+  };
+
+  const stopRecording = () => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder) return;
+
+    try {
+      if (recorder.state !== 'inactive') recorder.stop();
+      else setGrabando(false);
+    } finally {
+      // Liberar el micro lo antes posible; el blob se obtendrá en `onstop`.
+      const stream = mediaStreamRef.current;
+      if (stream) {
+        stream.getTracks().forEach((t) => t.stop());
+      }
+      mediaStreamRef.current = null;
+    }
+  };
+
+  const transcribeAndSend = async (audioBlob: Blob) => {
+    try {
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'audio.webm');
+
+      const res = await fetch('/api/transcribe', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setError(data?.error ?? 'Error al transcribir audio');
+        return;
+      }
+
+      const data = (await res.json()) as { texto?: string };
+      const textoTranscrito = (data.texto ?? '').trim();
+      if (!textoTranscrito) return;
+
+      setMensaje(textoTranscrito);
+      await handleEnviarTexto(textoTranscrito);
+    } catch {
+      setError('Error de conexión al transcribir');
     }
   };
 
@@ -210,14 +321,35 @@ export default function AgentSidebar() {
               className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/40 focus:ring-2 focus:ring-[#ed8936] focus:border-[#ed8936] outline-none resize-none"
               disabled={loading}
             />
-            <button
-              type="button"
-              onClick={handleEnviar}
-              disabled={loading || !selectedId || !mensaje.trim()}
-              className="w-full py-2.5 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? 'Enviando…' : 'Enviar'}
-            </button>
+            <div className="grid grid-cols-[1fr_44px] gap-2">
+              <button
+                type="button"
+                onClick={handleEnviar}
+                disabled={loading || grabando || !selectedId || !mensaje.trim()}
+                className="w-full py-2.5 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? 'Enviando…' : 'Enviar'}
+              </button>
+
+              <button
+                type="button"
+                aria-label={grabando ? 'Detener grabación' : 'Grabar audio'}
+                disabled={loading || !selectedId}
+                onMouseDown={() => void startRecording()}
+                onMouseUp={stopRecording}
+                onMouseLeave={stopRecording}
+                onTouchStart={() => void startRecording()}
+                onTouchEnd={stopRecording}
+                className={[
+                  'h-full py-2.5 rounded-lg border transition-colors',
+                  grabando
+                    ? 'bg-red-600 hover:bg-red-700 border-red-400/60 text-white animate-pulse shadow-[0_0_0_3px_rgba(248,113,113,0.2)]'
+                    : 'bg-white/10 hover:bg-white/15 border-white/10 text-white',
+                ].join(' ')}
+              >
+                🎤
+              </button>
+            </div>
           </div>
         </>
       )}
@@ -321,7 +453,7 @@ export default function AgentSidebar() {
                     className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/40 focus:ring-2 focus:ring-[#ed8936] focus:border-[#ed8936] outline-none resize-none"
                     disabled={loading}
                   />
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-3 gap-2">
                     <button
                       type="button"
                       onClick={nuevaConversacion}
@@ -329,10 +461,30 @@ export default function AgentSidebar() {
                     >
                       Nuevo
                     </button>
+
+                    <button
+                      type="button"
+                      aria-label={grabando ? 'Detener grabación' : 'Grabar audio'}
+                      disabled={loading || !selectedId}
+                      onMouseDown={() => void startRecording()}
+                      onMouseUp={stopRecording}
+                      onMouseLeave={stopRecording}
+                      onTouchStart={() => void startRecording()}
+                      onTouchEnd={stopRecording}
+                      className={[
+                        'py-2 rounded-lg border transition-colors',
+                        grabando
+                          ? 'bg-red-600 hover:bg-red-700 border-red-400/60 text-white animate-pulse shadow-[0_0_0_3px_rgba(248,113,113,0.2)]'
+                          : 'bg-white/10 hover:bg-white/15 border-white/10 text-white',
+                      ].join(' ')}
+                    >
+                      🎤
+                    </button>
+
                     <button
                       type="button"
                       onClick={handleEnviar}
-                      disabled={loading || !selectedId || !mensaje.trim()}
+                      disabled={loading || grabando || !selectedId || !mensaje.trim()}
                       className="py-2 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {loading ? '…' : 'Enviar'}
