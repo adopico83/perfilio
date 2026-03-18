@@ -1,15 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { useEffect, useMemo, useState } from 'react';
+import { createBrowserClient } from '@supabase/ssr';
 import Link from 'next/link';
 import LogoutButton from './logout-button';
 import { AlertTriangle, MessageCircle, FileText, Package, ArrowRight } from 'lucide-react';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 interface ResumenCounts {
   urgentes: number;
@@ -46,6 +41,15 @@ interface PresupuestoMetricaItem {
 }
 
 export default function DashboardPage() {
+  const supabase = useMemo(
+    () =>
+      createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      ),
+    []
+  );
+
   const [businessName, setBusinessName] = useState('tu negocio');
   const [counts, setCounts] = useState<ResumenCounts>({
     urgentes: 0,

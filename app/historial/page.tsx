@@ -1,14 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { useEffect, useMemo, useState } from 'react';
+import { createBrowserClient } from '@supabase/ssr';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 type Tab = 'approved' | 'rejected';
 
@@ -24,6 +19,15 @@ interface HistorialItem {
 
 export default function HistorialPage() {
   const router = useRouter();
+  const supabase = useMemo(
+    () =>
+      createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      ),
+    []
+  );
+
   const [tab, setTab] = useState<Tab>('approved');
   const [loading, setLoading] = useState(true);
   const [authChecking, setAuthChecking] = useState(true);
@@ -33,9 +37,7 @@ export default function HistorialPage() {
   // Comprobar sesión (misma lógica que dashboard)
   useEffect(() => {
     const checkAuth = async () => {
-      const { createClient: createBrowserClient } = await import('@/lib/supabase/client');
-      const client = createBrowserClient();
-      const { data: { session } } = await client.auth.getSession();
+      const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         router.replace('/login');
         return;
@@ -43,7 +45,7 @@ export default function HistorialPage() {
       setAuthChecking(false);
     };
     checkAuth();
-  }, [router]);
+  }, [router, supabase]);
 
   const loadHistorial = async () => {
     const { data: approvedData } = await supabase

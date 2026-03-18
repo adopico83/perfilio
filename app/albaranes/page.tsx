@@ -1,15 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { useEffect, useMemo, useState } from 'react';
+import { createBrowserClient } from '@supabase/ssr';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { X } from 'lucide-react';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 interface Albaran {
   id: string;
@@ -28,6 +23,15 @@ interface Albaran {
 
 export default function AlbaranesPage() {
   const router = useRouter();
+  const supabase = useMemo(
+    () =>
+      createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      ),
+    []
+  );
+
   const [loading, setLoading] = useState(true);
   const [authChecking, setAuthChecking] = useState(true);
   const [albaranes, setAlbaranes] = useState<Albaran[]>([]);
@@ -35,9 +39,7 @@ export default function AlbaranesPage() {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const { createClient: createBrowserClient } = await import('@/lib/supabase/client');
-      const client = createBrowserClient();
-      const { data: { session } } = await client.auth.getSession();
+      const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         router.replace('/login');
         return;
@@ -45,7 +47,7 @@ export default function AlbaranesPage() {
       setAuthChecking(false);
     };
     checkAuth();
-  }, [router]);
+  }, [router, supabase]);
 
   const loadAlbaranes = async () => {
     const { data } = await supabase

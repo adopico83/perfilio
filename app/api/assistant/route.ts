@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
-import { getSupabaseServer } from '@/lib/supabase-server';
+import { createServiceClient } from '@/lib/supabase/server';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
 
     if (sender_email && business_id) {
       try {
-        const supabase = getSupabaseServer();
+        const supabase = createServiceClient();
         const { data: rows } = await supabase
           .from('conversation_history')
           .select('role, content')
@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
 
     if (sender_email && business_id && aiResponse) {
       try {
-        const supabase = getSupabaseServer();
+        const supabase = createServiceClient();
         await supabase.from('conversation_history').insert([
           {
             business_id,

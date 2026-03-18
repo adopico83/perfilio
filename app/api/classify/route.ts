@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
 import OpenAI from 'openai';
 import { sendUrgencyAlert } from '@/lib/email';
+import { createServiceClient } from '@/lib/supabase/server';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -50,22 +50,17 @@ Responde SOLO con una palabra: urgent, normal o low`,
 
     // Alerta por email cuando el mensaje es urgente
     if (finalPriority === 'urgent') {
-      const supabase = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-          cookies: {
-            getAll() {
-              return request.cookies.getAll();
-            },
-            setAll(_cookiesToSet) {},
-          },
-        }
-      );
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      const to = user?.email ?? process.env.ALERT_EMAIL;
+      const supabase = createServiceClient();
+      let to = process.env.ALERT_EMAIL;
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        to = user?.email ?? to;
+      } catch {
+        // Si no hay sesión del usuario, caemos a ALERT_EMAIL.
+      }
+
       if (to) {
         await sendUrgencyAlert(
           to,

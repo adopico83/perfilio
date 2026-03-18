@@ -1,17 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { useEffect, useMemo, useState } from 'react';
+import { createBrowserClient } from '@supabase/ssr';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
 import { X } from 'lucide-react';
 import { jsPDF } from 'jspdf';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 interface Presupuesto {
   id: string;
@@ -25,6 +20,15 @@ interface Presupuesto {
 
 export default function PresupuestosPage() {
   const router = useRouter();
+  const supabase = useMemo(
+    () =>
+      createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      ),
+    []
+  );
+
   const [loading, setLoading] = useState(true);
   const [authChecking, setAuthChecking] = useState(true);
   const [presupuestos, setPresupuestos] = useState<Presupuesto[]>([]);
@@ -32,9 +36,7 @@ export default function PresupuestosPage() {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const { createClient: createBrowserClient } = await import('@/lib/supabase/client');
-      const client = createBrowserClient();
-      const { data: { session } } = await client.auth.getSession();
+      const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         router.replace('/login');
         return;
@@ -42,7 +44,7 @@ export default function PresupuestosPage() {
       setAuthChecking(false);
     };
     checkAuth();
-  }, [router]);
+  }, [router, supabase]);
 
   const loadPresupuestos = async () => {
     const { data } = await supabase

@@ -1,15 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { useEffect, useMemo, useState } from 'react';
+import { createBrowserClient } from '@supabase/ssr';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 interface BusinessProfile {
   id: string;
@@ -31,6 +26,15 @@ interface PendingMessage {
 
 export default function AgentePage() {
   const router = useRouter();
+  const supabase = useMemo(
+    () =>
+      createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      ),
+    []
+  );
+
   const [authChecking, setAuthChecking] = useState(true);
   const [businesses, setBusinesses] = useState<BusinessProfile[]>([]);
   const [selectedId, setSelectedId] = useState('');
@@ -46,9 +50,7 @@ export default function AgentePage() {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const { createClient: createBrowserClient } = await import('@/lib/supabase/client');
-      const client = createBrowserClient();
-      const { data: { session } } = await client.auth.getSession();
+      const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         router.replace('/login');
         return;
@@ -56,7 +58,7 @@ export default function AgentePage() {
       setAuthChecking(false);
     };
     checkAuth();
-  }, [router]);
+  }, [router, supabase]);
 
   const loadBusinesses = async () => {
     const { data, error: e } = await supabase
