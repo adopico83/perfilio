@@ -1,4 +1,5 @@
 import { type NextRequest } from 'next/server';
+import { NextResponse } from 'next/server';
 import { updateSession } from '@/lib/supabase/middleware';
 
 export async function middleware(request: NextRequest) {
@@ -11,6 +12,11 @@ export async function middleware(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return Response.redirect(url);
+  }
+
+  // Si el usuario intenta acceder a APIs sin estar autenticado
+  if (pathname.startsWith('/api/') && !user) {
+    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
   // Si el usuario está autenticado y intenta ir al login, redirigir al dashboard
@@ -31,8 +37,8 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - public folder
-     * - api routes (no proteger las APIs)
+     * - (API routes protegidas si no hay usuario)
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$|api).*)',
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
