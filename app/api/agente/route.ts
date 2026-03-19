@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
-import { createServiceClient } from '@/lib/supabase/server';
+import { createClient, createServiceClient } from '@/lib/supabase/server';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -41,6 +41,10 @@ export async function POST(request: NextRequest) {
       : [];
 
     const supabase = createServiceClient();
+    const supabaseAuth = await createClient();
+    const {
+      data: { user: authUser },
+    } = await supabaseAuth.auth.getUser();
     const { data: profile, error: profileError } = await supabase
       .from('business_profiles')
       .select('nombre, sector, descripcion, servicios, tarifas, contexto_adicional')
@@ -147,6 +151,19 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
           },
         },
       },
+      {
+        type: 'function',
+        function: {
+          name: 'leer_emails_recientes',
+          description:
+            'Lee los últimos 5 emails recientes del inbox del usuario conectado y devuelve remitente, asunto y resumen del cuerpo',
+          parameters: {
+            type: 'object',
+            properties: {},
+            additionalProperties: false,
+          },
+        },
+      },
     ];
 
     let messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
@@ -232,6 +249,110 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
               mensaje: r.mensaje ?? null,
             })),
           };
+        }
+        case 'leer_emails_recientes': {
+          if (!authUser?.id) {
+            return { error: 'No hay usuario autenticado para Gmail' };
+          }
+
+          const { data: tokenRow, error: tokenError } = await supabase
+            .from('gmail_tokens')
+            .select('access_token, refresh_token, expiry_date')
+            .eq('user_id', authUser.id)
+            .single();
+
+          if (tokenError || !tokenRow?.access_token) {
+            return { error: 'Gmail no conectado para este usuario' };
+          }
+
+          let accessToken: string = tokenRow.access_token;
+          const refreshToken: string | null = tokenRow.refresh_token ?? null;
+          const expiryDateMs = tokenRow.expiry_date
+            ? new Date(tokenRow.expiry_date).getTime()
+            : 0;
+
+          if (refreshToken && expiryDateMs && expiryDateMs <= Date.now()) {
+            const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams({
+                client_id: process.env.GOOGLE_CLIENT_ID ?? '',
+                client_secret: process.env.GOOGLE_CLIENT_SECRET ?? '',
+                refresh_token: refreshToken,
+                grant_type: 'refresh_token',
+              }),
+            });
+
+            if (refreshRes.ok) {
+              const refreshed = (await refreshRes.json()) as {
+                access_token?: string;
+                expires_in?: number;
+              };
+
+              if (refreshed.access_token) {
+                accessToken = refreshed.access_token;
+                const newExpiryDate = new Date(
+                  Date.now() + (refreshed.expires_in ?? 3600) * 1000
+                ).toISOString();
+
+                await supabase
+                  .from('gmail_tokens')
+                  .update({
+                    access_token: accessToken,
+                    expiry_date: newExpiryDate,
+                  })
+                  .eq('user_id', authUser.id);
+              }
+            }
+          }
+
+          const listRes = await fetch(
+            'https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=5&labelIds=INBOX',
+            {
+              headers: { Authorization: `Bearer ${accessToken}` },
+            }
+          );
+
+          if (!listRes.ok) {
+            return { error: 'No se pudieron leer emails recientes de Gmail' };
+          }
+
+          const listJson = (await listRes.json()) as {
+            messages?: Array<{ id: string }>;
+          };
+
+          const msgIds = listJson.messages ?? [];
+          const items: Array<{ remitente: string | null; asunto: string | null; resumen: string | null }> = [];
+
+          for (const msg of msgIds) {
+            const msgRes = await fetch(
+              `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=full`,
+              {
+                headers: { Authorization: `Bearer ${accessToken}` },
+              }
+            );
+            if (!msgRes.ok) continue;
+
+            const msgJson = (await msgRes.json()) as {
+              snippet?: string;
+              payload?: { headers?: Array<{ name?: string; value?: string }> };
+            };
+
+            const headers = msgJson.payload?.headers ?? [];
+            const from =
+              headers.find((h) => (h.name ?? '').toLowerCase() === 'from')?.value ?? null;
+            const subject =
+              headers.find((h) => (h.name ?? '').toLowerCase() === 'subject')?.value ??
+              null;
+
+            items.push({
+              remitente: from,
+              asunto: subject,
+              resumen: msgJson.snippet ?? null,
+            });
+          }
+
+          return { items };
         }
         default:
           return { error: `Tool no soportada: ${toolName}` };

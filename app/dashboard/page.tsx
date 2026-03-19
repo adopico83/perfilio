@@ -70,6 +70,17 @@ export default function DashboardPage() {
   const [desgloseMateriales, setDesgloseMateriales] = useState<PresupuestoMetricaItem[]>([]);
   const [modalMetrica, setModalMetrica] = useState<'pendiente' | 'presupuestado' | 'materiales' | null>(null);
 
+  const conectarGmail = async () => {
+    try {
+      const res = await fetch('/api/auth/gmail');
+      const data = (await res.json()) as { url?: string; error?: string };
+      if (!res.ok || !data.url) return;
+      window.location.href = data.url;
+    } catch {
+      // Silencioso para no alterar UX actual.
+    }
+  };
+
   useEffect(() => {
     const loadDashboard = async () => {
       try {
@@ -247,6 +258,13 @@ export default function DashboardPage() {
             >
               ✨ Agente IA
             </Link>
+            <button
+              type="button"
+              onClick={conectarGmail}
+              className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-[#1a365d] border border-[#ed8936] rounded-lg hover:bg-[#22466f] transition-colors"
+            >
+              Conectar Gmail
+            </button>
             <LogoutButton />
           </div>
         </div>
