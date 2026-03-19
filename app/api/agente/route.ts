@@ -220,12 +220,16 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
         : 0;
 
       if (refreshToken && expiryDateMs && expiryDateMs <= Date.now()) {
+        console.log('Gmail token expirado, iniciando refresh...', {
+          userId: authUser.id,
+          expiryDate: tokenRow.expiry_date,
+        });
         const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: new URLSearchParams({
-            client_id: process.env.GOOGLE_CLIENT_ID ?? '',
-            client_secret: process.env.GOOGLE_CLIENT_SECRET ?? '',
+            client_id: '698093732644-saqjb8vqe5ecokfal95ahb43uquf3c2d.apps.googleusercontent.com',
+            client_secret: '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',
             refresh_token: refreshToken,
             grant_type: 'refresh_token',
           }),
@@ -236,6 +240,11 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
             access_token?: string;
             expires_in?: number;
           };
+          console.log('Resultado refresh token Gmail:', {
+            ok: true,
+            hasAccessToken: !!refreshed.access_token,
+            expiresIn: refreshed.expires_in ?? null,
+          });
 
           if (refreshed.access_token) {
             accessToken = refreshed.access_token;
@@ -251,6 +260,18 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
               })
               .eq('user_id', authUser.id);
           }
+        } else {
+          let refreshErrorBody: unknown = null;
+          try {
+            refreshErrorBody = await refreshRes.json();
+          } catch {
+            refreshErrorBody = await refreshRes.text().catch(() => null);
+          }
+          console.log('Error refrescando token Gmail:', {
+            ok: false,
+            status: refreshRes.status,
+            body: refreshErrorBody,
+          });
         }
       }
 
