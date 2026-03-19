@@ -95,7 +95,61 @@ Puedes ayudar al usuario a gestionar mensajes de clientes, generar presupuestos,
 Fecha actual: ${fechaActual}
 Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
 
-    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+      {
+        type: 'function',
+        function: {
+          name: 'obtener_presupuestos_pendientes',
+          description:
+            'Obtiene presupuestos pendientes del negocio actual con cliente, importe y fecha',
+          parameters: {
+            type: 'object',
+            properties: {},
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'obtener_facturas_pendientes',
+          description:
+            'Obtiene facturas pendientes del negocio actual con cliente, importe y fecha',
+          parameters: {
+            type: 'object',
+            properties: {},
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'obtener_albaranes_pendientes',
+          description: 'Obtiene albaranes pendientes del negocio actual con cliente y fecha',
+          parameters: {
+            type: 'object',
+            properties: {},
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'obtener_mensajes_pendientes',
+          description:
+            'Obtiene mensajes pendientes del negocio actual con remitente y mensaje',
+          parameters: {
+            type: 'object',
+            properties: {},
+            additionalProperties: false,
+          },
+        },
+      },
+    ];
+
+    let messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
       ...historialValido.map((m) => ({ role: m.role, content: m.content })),
       { role: 'user', content: mensaje },
@@ -104,11 +158,116 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages,
+      tools,
+      tool_choice: 'auto',
       temperature: 0.7,
       max_tokens: 800,
     });
 
-    const respuesta = completion.choices[0]?.message?.content ?? '';
+    const firstMessage = completion.choices[0]?.message;
+
+    const runTool = async (toolName: string) => {
+      switch (toolName) {
+        case 'obtener_presupuestos_pendientes': {
+          const { data, error } = await supabase
+            .from('presupuestos')
+            .select('cliente_nombre, importe_total, fecha')
+            .eq('business_id', business_id)
+            .eq('estado', 'pendiente')
+            .order('fecha', { ascending: false })
+            .limit(50);
+          if (error) return { error: error.message };
+          return {
+            items: (data ?? []).map((r: any) => ({
+              cliente: r.cliente_nombre ?? null,
+              importe: r.importe_total ?? null,
+              fecha: r.fecha ?? null,
+            })),
+          };
+        }
+        case 'obtener_facturas_pendientes': {
+          const { data, error } = await supabase
+            .from('facturas')
+            .select('cliente_nombre, total, fecha')
+            .eq('business_id', business_id)
+            .eq('estado', 'pendiente')
+            .order('fecha', { ascending: false })
+            .limit(50);
+          if (error) return { error: error.message };
+          return {
+            items: (data ?? []).map((r: any) => ({
+              cliente: r.cliente_nombre ?? null,
+              importe: r.total ?? null,
+              fecha: r.fecha ?? null,
+            })),
+          };
+        }
+        case 'obtener_albaranes_pendientes': {
+          const { data, error } = await supabase
+            .from('albaranes')
+            .select('cliente_nombre, fecha')
+            .eq('business_id', business_id)
+            .eq('estado', 'pendiente')
+            .order('fecha', { ascending: false })
+            .limit(50);
+          if (error) return { error: error.message };
+          return {
+            items: (data ?? []).map((r: any) => ({
+              cliente: r.cliente_nombre ?? null,
+              fecha: r.fecha ?? null,
+            })),
+          };
+        }
+        case 'obtener_mensajes_pendientes': {
+          const { data, error } = await supabase
+            .from('ai_responses')
+            .select('remitente, mensaje')
+            .eq('business_id', business_id)
+            .eq('status', 'pending')
+            .limit(50);
+          if (error) return { error: error.message };
+          return {
+            items: (data ?? []).map((r: any) => ({
+              remitente: r.remitente ?? null,
+              mensaje: r.mensaje ?? null,
+            })),
+          };
+        }
+        default:
+          return { error: `Tool no soportada: ${toolName}` };
+      }
+    };
+
+    let respuesta = firstMessage?.content ?? '';
+
+    if (firstMessage?.tool_calls?.length) {
+      messages.push({
+        role: 'assistant',
+        content: firstMessage.content ?? '',
+        tool_calls: firstMessage.tool_calls,
+      });
+
+      for (const toolCall of firstMessage.tool_calls) {
+        if (toolCall.type !== 'function') continue;
+        const toolResult = await runTool(toolCall.function.name);
+        messages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(toolResult),
+        });
+      }
+
+      const finalCompletion = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages,
+        tools,
+        tool_choice: 'auto',
+        temperature: 0.7,
+        max_tokens: 800,
+      });
+
+      respuesta = finalCompletion.choices[0]?.message?.content ?? respuesta;
+    }
 
     const lowerMensaje = mensaje.toLowerCase();
 
