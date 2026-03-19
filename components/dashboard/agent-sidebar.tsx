@@ -186,6 +186,14 @@ export default function AgentSidebar() {
     }
   };
 
+  const toggleRecording = () => {
+    if (grabando) {
+      stopRecording();
+      return;
+    }
+    void startRecording();
+  };
+
   const transcribeAndSend = async (audioBlob: Blob) => {
     try {
       const formData = new FormData();
@@ -335,11 +343,7 @@ export default function AgentSidebar() {
                 type="button"
                 aria-label={grabando ? 'Detener grabación' : 'Grabar audio'}
                 disabled={loading || !selectedId}
-                onMouseDown={() => void startRecording()}
-                onMouseUp={stopRecording}
-                onMouseLeave={stopRecording}
-                onTouchStart={() => void startRecording()}
-                onTouchEnd={stopRecording}
+                onClick={toggleRecording}
                 className={[
                   'h-full py-2.5 rounded-lg border transition-colors',
                   grabando
@@ -466,11 +470,7 @@ export default function AgentSidebar() {
                       type="button"
                       aria-label={grabando ? 'Detener grabación' : 'Grabar audio'}
                       disabled={loading || !selectedId}
-                      onMouseDown={() => void startRecording()}
-                      onMouseUp={stopRecording}
-                      onMouseLeave={stopRecording}
-                      onTouchStart={() => void startRecording()}
-                      onTouchEnd={stopRecording}
+                      onClick={toggleRecording}
                       className={[
                         'py-2 rounded-lg border transition-colors',
                         grabando

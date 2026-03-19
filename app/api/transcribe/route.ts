@@ -23,15 +23,24 @@ export async function POST(request: NextRequest) {
     }
 
     const blob = audioBlob as unknown as Blob;
+    console.log('Tamaño blob:', blob.size, 'Tipo:', blob.type);
 
-    // Requerimiento: convertir a File con nombre audio.webm y tipo audio/webm
-    const file = new File([blob], 'audio.webm', { type: 'audio/webm' });
-
-    const transcription = await openai.audio.transcriptions.create({
-      file,
-      model: 'whisper-1',
-      language: 'es',
-    });
+    let transcription;
+    try {
+      const fileMp3 = new File([blob], 'audio.mp3', { type: 'audio/mpeg' });
+      transcription = await openai.audio.transcriptions.create({
+        file: fileMp3,
+        model: 'whisper-1',
+        language: 'es',
+      });
+    } catch {
+      const fileOgg = new File([blob], 'audio.ogg', { type: 'audio/ogg' });
+      transcription = await openai.audio.transcriptions.create({
+        file: fileOgg,
+        model: 'whisper-1',
+        language: 'es',
+      });
+    }
 
     return NextResponse.json({ texto: transcription.text });
   } catch (err) {
