@@ -163,6 +163,24 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
           },
         },
       },
+      {
+        type: 'function',
+        function: {
+          name: 'enviar_email',
+          description:
+            'Envía un email usando Gmail del usuario conectado con destinatario, asunto y cuerpo',
+          parameters: {
+            type: 'object',
+            properties: {
+              destinatario: { type: 'string' },
+              asunto: { type: 'string' },
+              cuerpo: { type: 'string' },
+            },
+            required: ['destinatario', 'asunto', 'cuerpo'],
+            additionalProperties: false,
+          },
+        },
+      },
     ];
 
     let messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
@@ -182,7 +200,64 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
 
     const firstMessage = completion.choices[0]?.message;
 
-    const runTool = async (toolName: string) => {
+    const getGmailAccessToken = async () => {
+      if (!authUser?.id) return { error: 'No hay usuario autenticado para Gmail' } as const;
+
+      const { data: tokenRow, error: tokenError } = await supabase
+        .from('gmail_tokens')
+        .select('access_token, refresh_token, expiry_date')
+        .eq('user_id', authUser.id)
+        .single();
+
+      if (tokenError || !tokenRow?.access_token) {
+        return { error: 'Gmail no conectado para este usuario' } as const;
+      }
+
+      let accessToken: string = tokenRow.access_token;
+      const refreshToken: string | null = tokenRow.refresh_token ?? null;
+      const expiryDateMs = tokenRow.expiry_date
+        ? new Date(tokenRow.expiry_date).getTime()
+        : 0;
+
+      if (refreshToken && expiryDateMs && expiryDateMs <= Date.now()) {
+        const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            client_id: process.env.GOOGLE_CLIENT_ID ?? '',
+            client_secret: process.env.GOOGLE_CLIENT_SECRET ?? '',
+            refresh_token: refreshToken,
+            grant_type: 'refresh_token',
+          }),
+        });
+
+        if (refreshRes.ok) {
+          const refreshed = (await refreshRes.json()) as {
+            access_token?: string;
+            expires_in?: number;
+          };
+
+          if (refreshed.access_token) {
+            accessToken = refreshed.access_token;
+            const newExpiryDate = new Date(
+              Date.now() + (refreshed.expires_in ?? 3600) * 1000
+            ).toISOString();
+
+            await supabase
+              .from('gmail_tokens')
+              .update({
+                access_token: accessToken,
+                expiry_date: newExpiryDate,
+              })
+              .eq('user_id', authUser.id);
+          }
+        }
+      }
+
+      return { accessToken } as const;
+    };
+
+    const runTool = async (toolName: string, toolArgs: Record<string, unknown>) => {
       switch (toolName) {
         case 'obtener_presupuestos_pendientes': {
           const { data, error } = await supabase
@@ -250,60 +325,9 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
           };
         }
         case 'leer_emails_recientes': {
-          if (!authUser?.id) {
-            return { error: 'No hay usuario autenticado para Gmail' };
-          }
-
-          const { data: tokenRow, error: tokenError } = await supabase
-            .from('gmail_tokens')
-            .select('access_token, refresh_token, expiry_date')
-            .eq('user_id', authUser.id)
-            .single();
-
-          if (tokenError || !tokenRow?.access_token) {
-            return { error: 'Gmail no conectado para este usuario' };
-          }
-
-          let accessToken: string = tokenRow.access_token;
-          const refreshToken: string | null = tokenRow.refresh_token ?? null;
-          const expiryDateMs = tokenRow.expiry_date
-            ? new Date(tokenRow.expiry_date).getTime()
-            : 0;
-
-          if (refreshToken && expiryDateMs && expiryDateMs <= Date.now()) {
-            const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-              body: new URLSearchParams({
-                client_id: process.env.GOOGLE_CLIENT_ID ?? '',
-                client_secret: process.env.GOOGLE_CLIENT_SECRET ?? '',
-                refresh_token: refreshToken,
-                grant_type: 'refresh_token',
-              }),
-            });
-
-            if (refreshRes.ok) {
-              const refreshed = (await refreshRes.json()) as {
-                access_token?: string;
-                expires_in?: number;
-              };
-
-              if (refreshed.access_token) {
-                accessToken = refreshed.access_token;
-                const newExpiryDate = new Date(
-                  Date.now() + (refreshed.expires_in ?? 3600) * 1000
-                ).toISOString();
-
-                await supabase
-                  .from('gmail_tokens')
-                  .update({
-                    access_token: accessToken,
-                    expiry_date: newExpiryDate,
-                  })
-                  .eq('user_id', authUser.id);
-              }
-            }
-          }
+          const tokenResult = await getGmailAccessToken();
+          if ('error' in tokenResult) return { error: tokenResult.error };
+          const accessToken = tokenResult.accessToken;
 
           const listRes = await fetch(
             'https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=5&labelIds=INBOX',
@@ -353,6 +377,52 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
 
           return { items };
         }
+        case 'enviar_email': {
+          const destinatario = String(toolArgs.destinatario ?? '').trim();
+          const asunto = String(toolArgs.asunto ?? '').trim();
+          const cuerpo = String(toolArgs.cuerpo ?? '').trim();
+
+          if (!destinatario || !asunto || !cuerpo) {
+            return { error: 'Faltan parámetros obligatorios para enviar email' };
+          }
+
+          const tokenResult = await getGmailAccessToken();
+          if ('error' in tokenResult) return { error: tokenResult.error };
+          const accessToken = tokenResult.accessToken;
+
+          const mime = [
+            `To: ${destinatario}`,
+            'Content-Type: text/plain; charset="UTF-8"',
+            'MIME-Version: 1.0',
+            `Subject: ${asunto}`,
+            '',
+            cuerpo,
+          ].join('\r\n');
+
+          const raw = Buffer.from(mime, 'utf8')
+            .toString('base64')
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=+$/g, '');
+
+          const sendRes = await fetch(
+            'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
+            {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ raw }),
+            }
+          );
+
+          if (!sendRes.ok) {
+            return { error: 'No se pudo enviar el email con Gmail' };
+          }
+
+          return { ok: true };
+        }
         default:
           return { error: `Tool no soportada: ${toolName}` };
       }
@@ -369,7 +439,15 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
 
       for (const toolCall of firstMessage.tool_calls) {
         if (toolCall.type !== 'function') continue;
-        const toolResult = await runTool(toolCall.function.name);
+        let parsedArgs: Record<string, unknown> = {};
+        try {
+          parsedArgs = toolCall.function.arguments
+            ? JSON.parse(toolCall.function.arguments)
+            : {};
+        } catch {
+          parsedArgs = {};
+        }
+        const toolResult = await runTool(toolCall.function.name, parsedArgs);
         messages.push({
           role: 'tool',
           tool_call_id: toolCall.id,
