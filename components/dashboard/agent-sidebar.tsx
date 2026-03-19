@@ -17,6 +17,13 @@ interface ChatMessage {
   content: string;
 }
 
+const generateConversationId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `conv_${Date.now()}`;
+};
+
 export default function AgentSidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -33,6 +40,9 @@ export default function AgentSidebar() {
   const [selectedId, setSelectedId] = useState('');
   const [mensaje, setMensaje] = useState('');
   const [historial, setHistorial] = useState<ChatMessage[]>([]);
+  const [conversationId, setConversationId] = useState('');
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [grabando, setGrabando] = useState(false);
   const [error, setError] = useState('');
@@ -42,6 +52,7 @@ export default function AgentSidebar() {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<BlobPart[]>([]);
   const mediaRecorderMimeTypeRef = useRef<string>('audio/webm');
+  const historialInicialCargadoRef = useRef(false);
 
   const containerWidthClass = useMemo(() => {
     if (collapsed) return 'w-[56px] min-w-[56px]';
@@ -49,7 +60,13 @@ export default function AgentSidebar() {
   }, [collapsed]);
 
   useEffect(() => {
-    const loadDefaultBusiness = async () => {
+    const loadInitialData = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      setCurrentUserId(user?.id ?? null);
+      setCurrentUserEmail(user?.email ?? null);
+
       const { data, error: e } = await supabase
         .from('business_profiles')
         .select('id')
@@ -62,8 +79,54 @@ export default function AgentSidebar() {
       }
     };
 
-    loadDefaultBusiness();
-  }, []);
+    void loadInitialData();
+  }, [supabase]);
+
+  useEffect(() => {
+    const loadHistorialInicial = async () => {
+      if (!selectedId || !currentUserId || historialInicialCargadoRef.current) return;
+      historialInicialCargadoRef.current = true;
+
+      const latestRowRes = await supabase
+        .from('conversation_history')
+        .select('conversation_id, business_id, user_id, created_at')
+        .eq('business_id', selectedId)
+        .eq('user_id', currentUserId)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (latestRowRes.error) {
+        console.log('Error cargando última conversación (conversation_history):', latestRowRes.error);
+      }
+
+      const latestConversationId =
+        (latestRowRes.data?.[0] as { conversation_id?: string } | undefined)?.conversation_id ??
+        null;
+      const activeConversationId = latestConversationId ?? generateConversationId();
+      setConversationId(activeConversationId);
+
+      const { data: rows, error: rowsError } = await supabase
+        .from('conversation_history')
+        .select('role, content, business_id, user_id, conversation_id, created_at')
+        .eq('business_id', selectedId)
+        .eq('user_id', currentUserId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (rowsError) {
+        console.log('Error cargando mensajes de conversation_history:', rowsError);
+      }
+
+      const mapped = ((rows ?? []) as Array<{ role: string; content: string }>)
+        .reverse()
+        .filter((r) => (r.role === 'user' || r.role === 'assistant') && typeof r.content === 'string')
+        .map((r) => ({ role: r.role as MessageRole, content: r.content }));
+
+      setHistorial(mapped);
+    };
+
+    void loadHistorialInicial();
+  }, [selectedId, currentUserId, supabase]);
 
   useEffect(() => {
     if (!listRef.current) return;
@@ -99,6 +162,28 @@ export default function AgentSidebar() {
         ...prev,
         { role: 'user', content: textoTrim },
         { role: 'assistant', content: respuestaTexto },
+      ]);
+
+      const activeConversationId = conversationId || generateConversationId();
+      if (!conversationId) setConversationId(activeConversationId);
+
+      await supabase.from('conversation_history').insert([
+        {
+          conversation_id: activeConversationId,
+          business_id: selectedId,
+          user_id: currentUserId,
+          sender_email: currentUserEmail,
+          role: 'user',
+          content: textoTrim,
+        },
+        {
+          conversation_id: activeConversationId,
+          business_id: selectedId,
+          user_id: currentUserId,
+          sender_email: currentUserEmail,
+          role: 'assistant',
+          content: respuestaTexto,
+        },
       ]);
     } catch {
       setError('Error de conexión');
@@ -224,6 +309,7 @@ export default function AgentSidebar() {
   const nuevaConversacion = () => {
     setHistorial([]);
     setError('');
+    setConversationId(generateConversationId());
   };
 
   const Panel = (
