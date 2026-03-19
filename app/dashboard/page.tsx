@@ -70,6 +70,7 @@ export default function DashboardPage() {
   const [desgloseMateriales, setDesgloseMateriales] = useState<PresupuestoMetricaItem[]>([]);
   const [modalMetrica, setModalMetrica] = useState<'pendiente' | 'presupuestado' | 'materiales' | null>(null);
   const [gmailConectado, setGmailConectado] = useState(false);
+  const [menuMovilAbierto, setMenuMovilAbierto] = useState(false);
 
   const conectarGmail = async () => {
     try {
@@ -251,7 +252,16 @@ export default function DashboardPage() {
             </div>
           </a>
 
-          <div className="flex items-center gap-4">
+          <button
+            type="button"
+            onClick={() => setMenuMovilAbierto((v) => !v)}
+            className="md:hidden inline-flex items-center justify-center w-10 h-10 rounded-lg border border-white/20 text-white hover:bg-white/10 transition-colors"
+            aria-label="Abrir menú"
+          >
+            ☰
+          </button>
+
+          <div className="hidden md:flex items-center gap-4">
             <Link href="/historial" className="text-sm text-gray-200 hover:text-white transition-colors">
               Historial
             </Link>
@@ -289,6 +299,71 @@ export default function DashboardPage() {
             <LogoutButton />
           </div>
         </div>
+
+        {menuMovilAbierto && (
+          <div className="md:hidden max-w-7xl mx-auto px-6 pb-4">
+            <div className="bg-[#111827] border border-white/10 rounded-xl p-4 flex flex-col gap-3">
+              <Link
+                href="/historial"
+                className="text-sm text-gray-200 hover:text-white transition-colors"
+                onClick={() => setMenuMovilAbierto(false)}
+              >
+                Historial
+              </Link>
+              <Link
+                href="/mensajes"
+                className="text-sm text-gray-200 hover:text-white transition-colors"
+                onClick={() => setMenuMovilAbierto(false)}
+              >
+                Mensajes
+              </Link>
+              <Link
+                href="/presupuestos"
+                className="text-sm text-gray-200 hover:text-white transition-colors"
+                onClick={() => setMenuMovilAbierto(false)}
+              >
+                Presupuestos
+              </Link>
+              <Link
+                href="/albaranes"
+                className="text-sm text-gray-200 hover:text-white transition-colors"
+                onClick={() => setMenuMovilAbierto(false)}
+              >
+                Albaranes
+              </Link>
+              <Link
+                href="/facturas"
+                className="text-sm text-gray-200 hover:text-white transition-colors"
+                onClick={() => setMenuMovilAbierto(false)}
+              >
+                Facturas
+              </Link>
+              <Link
+                href="/agente"
+                className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-[#ed8936] bg-transparent border border-[#ed8936] rounded-lg hover:bg-[#ed8936] hover:text-white transition-colors"
+                onClick={() => setMenuMovilAbierto(false)}
+              >
+                ✨ Agente IA
+              </Link>
+              {gmailConectado ? (
+                <span className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-green-300 bg-green-900/30 border border-green-500/50 rounded-lg">
+                  Gmail conectado ✓
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={conectarGmail}
+                  className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-[#1a365d] border border-[#ed8936] rounded-lg hover:bg-[#22466f] transition-colors"
+                >
+                  Conectar Gmail
+                </button>
+              )}
+              <div className="pt-1">
+                <LogoutButton />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <main className="max-w-7xl mx-auto px-6 py-8 space-y-8">
