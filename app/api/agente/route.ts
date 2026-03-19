@@ -228,8 +228,8 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: new URLSearchParams({
-            client_id: '698093732644-saqjb8vqe5ecokfal95ahb43uquf3c2d.apps.googleusercontent.com',
-            client_secret: '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',
+            client_id: process.env.GOOGLE_CLIENT_ID!,
+            client_secret: process.env.GOOGLE_CLIENT_SECRET!,
             refresh_token: refreshToken,
             grant_type: 'refresh_token',
           }),

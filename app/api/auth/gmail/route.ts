@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server';
 
 export async function GET() {
   try {
-    const clientId = '698093732644-saqjb8vqe5ecokfal95ahb43uquf3c2d.apps.googleusercontent.com';
-    const appUrl = 'http://localhost:3000';
+    const clientId = process.env.GOOGLE_CLIENT_ID!;
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL!;
 
     if (!clientId || !appUrl) {
       return NextResponse.json(

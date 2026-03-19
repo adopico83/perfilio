@@ -16,9 +16,9 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const clientId =  '698093732644-saqjb8vqe5ecokfal95ahb43uquf3c2d.apps.googleusercontent.com';
-    const clientSecret = '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';
-    const appUrl = 'http://localhost:3000';
+    const clientId = process.env.GOOGLE_CLIENT_ID!;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL!;
 
     if (!clientId || !clientSecret || !appUrl) {
       return NextResponse.redirect(
