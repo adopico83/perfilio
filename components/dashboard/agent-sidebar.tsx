@@ -324,6 +324,12 @@ export default function AgentSidebar() {
             <textarea
               value={mensaje}
               onChange={(e) => setMensaje(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleEnviar();
+                }
+              }}
               placeholder="Escribe tu mensaje…"
               rows={3}
               className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/40 focus:ring-2 focus:ring-[#ed8936] focus:border-[#ed8936] outline-none resize-none"
@@ -452,6 +458,12 @@ export default function AgentSidebar() {
                   <textarea
                     value={mensaje}
                     onChange={(e) => setMensaje(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleEnviar();
+                      }
+                    }}
                     placeholder="Escribe tu mensaje…"
                     rows={3}
                     className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/40 focus:ring-2 focus:ring-[#ed8936] focus:border-[#ed8936] outline-none resize-none"

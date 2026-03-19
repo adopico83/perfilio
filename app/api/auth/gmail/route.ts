@@ -1,7 +1,5 @@
 import { NextResponse } from 'next/server';
 
-console.log('CLIENT_ID:', !!process.env.GOOGLE_CLIENT_ID);
-console.log('APP_URL:', process.env.NEXT_PUBLIC_APP_URL);
 export async function GET() {
   try {
     const clientId = '698093732644-saqjb8vqe5ecokfal95ahb43uquf3c2d.apps.googleusercontent.com';

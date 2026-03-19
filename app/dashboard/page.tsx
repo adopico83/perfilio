@@ -69,6 +69,7 @@ export default function DashboardPage() {
   const [desglosePresupuestado, setDesglosePresupuestado] = useState<PresupuestoMetricaItem[]>([]);
   const [desgloseMateriales, setDesgloseMateriales] = useState<PresupuestoMetricaItem[]>([]);
   const [modalMetrica, setModalMetrica] = useState<'pendiente' | 'presupuestado' | 'materiales' | null>(null);
+  const [gmailConectado, setGmailConectado] = useState(false);
 
   const conectarGmail = async () => {
     try {
@@ -175,6 +176,20 @@ export default function DashboardPage() {
           setDesgloseMateriales(list);
           setTotalMateriales(list.reduce((s, p) => s + (Number(p.importe_total) || 0), 0));
         }
+
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (user?.id) {
+          const { data: gmailToken } = await supabase
+            .from('gmail_tokens')
+            .select('user_id')
+            .eq('user_id', user.id)
+            .maybeSingle();
+          setGmailConectado(!!gmailToken);
+        } else {
+          setGmailConectado(false);
+        }
       } finally {
         setLoading(false);
       }
@@ -258,13 +273,19 @@ export default function DashboardPage() {
             >
               ✨ Agente IA
             </Link>
-            <button
-              type="button"
-              onClick={conectarGmail}
-              className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-[#1a365d] border border-[#ed8936] rounded-lg hover:bg-[#22466f] transition-colors"
-            >
-              Conectar Gmail
-            </button>
+            {gmailConectado ? (
+              <span className="inline-flex items-center px-4 py-2 text-sm font-medium text-green-300 bg-green-900/30 border border-green-500/50 rounded-lg">
+                Gmail conectado ✓
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={conectarGmail}
+                className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-[#1a365d] border border-[#ed8936] rounded-lg hover:bg-[#22466f] transition-colors"
+              >
+                Conectar Gmail
+              </button>
+            )}
             <LogoutButton />
           </div>
         </div>
