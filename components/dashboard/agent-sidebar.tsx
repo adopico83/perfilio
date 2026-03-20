@@ -208,17 +208,27 @@ export default function AgentSidebar() {
     }
 
     setError('');
-    setGrabando(true);
     audioChunksRef.current = [];
 
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError('No se pudo acceder al micrófono.');
+      return;
+    }
+
+    let stream: MediaStream | null = null;
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // 1) Permiso explícito: el stream debe existir antes de crear MediaRecorder (Safari iOS).
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
+      setGrabando(true);
 
       const preferredMimeTypes = [
         'audio/webm;codecs=opus',
         'audio/webm',
         'audio/mp4',
+        'audio/mp4a',
+        'audio/aac',
       ];
 
       const chosenMimeType =
@@ -226,6 +236,7 @@ export default function AgentSidebar() {
 
       mediaRecorderMimeTypeRef.current = chosenMimeType || 'audio/webm';
 
+      // 2) MediaRecorder solo después de obtener el stream.
       const recorder = new MediaRecorder(
         stream,
         chosenMimeType ? { mimeType: chosenMimeType } : undefined
@@ -248,9 +259,23 @@ export default function AgentSidebar() {
       };
 
       recorder.start();
-    } catch {
+    } catch (err: unknown) {
+      if (stream) {
+        stream.getTracks().forEach((t) => t.stop());
+      }
+      mediaStreamRef.current = null;
+      mediaRecorderRef.current = null;
       setGrabando(false);
-      setError('No se pudo acceder al micrófono.');
+
+      const name =
+        err && typeof err === 'object' && 'name' in err ? String((err as { name: string }).name) : '';
+      if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+        setError('Necesitas permitir el acceso al micrófono en Safari');
+      } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+        setError('No se encontró ningún micrófono.');
+      } else {
+        setError('No se pudo acceder al micrófono.');
+      }
     }
   };
 
