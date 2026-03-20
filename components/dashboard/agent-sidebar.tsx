@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import ReactMarkdown from 'react-markdown';
 
@@ -312,11 +312,21 @@ export default function AgentSidebar() {
     setConversationId(generateConversationId());
   };
 
+  /** iOS/Safari: onTouchEnd + preventDefault evita que el click sintético falle o se pierda detrás de capas. */
+  const touchActivate = (fn: () => void, disabled?: boolean) => ({
+    onTouchEnd: (e: TouchEvent) => {
+      if (disabled) return;
+      e.preventDefault();
+      fn();
+    },
+  });
+
   const Panel = (
     <aside
       className={[
         'h-full bg-[#0f172a] text-white border-l border-[#1a365d]',
         'flex flex-col',
+        'touch-manipulation',
         containerWidthClass,
       ].join(' ')}
     >
@@ -327,7 +337,8 @@ export default function AgentSidebar() {
             <button
               type="button"
               onClick={nuevaConversacion}
-              className="ml-2 px-2 py-1 text-xs font-medium rounded-md bg-white/10 hover:bg-white/15 border border-white/10"
+              {...touchActivate(nuevaConversacion)}
+              className="ml-2 px-2 py-1 text-xs font-medium rounded-md bg-white/10 hover:bg-white/15 border border-white/10 touch-manipulation"
             >
               Nuevo
             </button>
@@ -339,7 +350,8 @@ export default function AgentSidebar() {
         <button
           type="button"
           onClick={() => setCollapsed((v) => !v)}
-          className="px-2 py-1 text-xs font-semibold rounded-md bg-white/5 hover:bg-white/10 border border-white/10"
+          {...touchActivate(() => setCollapsed((v) => !v))}
+          className="px-2 py-1 text-xs font-semibold rounded-md bg-white/5 hover:bg-white/10 border border-white/10 touch-manipulation"
           aria-label={collapsed ? 'Expandir panel' : 'Colapsar panel'}
         >
           {collapsed ? '»' : '«'}
@@ -425,8 +437,9 @@ export default function AgentSidebar() {
               <button
                 type="button"
                 onClick={handleEnviar}
+                {...touchActivate(handleEnviar, loading || grabando || !selectedId || !mensaje.trim())}
                 disabled={loading || grabando || !selectedId || !mensaje.trim()}
-                className="w-full py-2.5 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-2.5 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
               >
                 {loading ? 'Enviando…' : 'Enviar'}
               </button>
@@ -436,8 +449,9 @@ export default function AgentSidebar() {
                 aria-label={grabando ? 'Detener grabación' : 'Grabar audio'}
                 disabled={loading || !selectedId}
                 onClick={toggleRecording}
+                {...touchActivate(toggleRecording, loading || !selectedId)}
                 className={[
-                  'h-full py-2.5 rounded-lg border transition-colors',
+                  'h-full py-2.5 rounded-lg border transition-colors touch-manipulation',
                   grabando
                     ? 'bg-red-600 hover:bg-red-700 border-red-400/60 text-white animate-pulse shadow-[0_0_0_3px_rgba(248,113,113,0.2)]'
                     : 'bg-white/10 hover:bg-white/15 border-white/10 text-white',
@@ -461,7 +475,8 @@ export default function AgentSidebar() {
       <button
         type="button"
         onClick={() => setMobileOpen(true)}
-        className="lg:hidden fixed bottom-5 right-5 z-40 px-4 py-3 rounded-full bg-[#ed8936] text-white font-semibold shadow-lg hover:bg-[#dd6b20] transition-colors"
+        {...touchActivate(() => setMobileOpen(true))}
+        className="lg:hidden fixed bottom-5 right-5 z-40 px-4 py-3 rounded-full bg-[#ed8936] text-white font-semibold shadow-lg hover:bg-[#dd6b20] transition-colors touch-manipulation"
       >
         ✨ Agente
       </button>
@@ -469,20 +484,29 @@ export default function AgentSidebar() {
       {mobileOpen && (
         <div className="lg:hidden fixed inset-0 z-50">
           <div
-            className="absolute inset-0 bg-black/70"
+            className="absolute inset-0 z-0 bg-black/70"
             onClick={() => setMobileOpen(false)}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              setMobileOpen(false);
+            }}
             aria-hidden
           />
-          <div className="absolute right-0 top-0 bottom-0 w-[92vw] max-w-[420px]">
+          <div className="absolute right-0 top-0 bottom-0 z-10 w-[92vw] max-w-[420px] pointer-events-auto touch-manipulation">
             <div className="h-full">
               {/* Forzamos expandido en móvil */}
-              <div className="h-full bg-[#0f172a] text-white border-l border-[#1a365d] flex flex-col w-full min-w-[320px]">
+              <div
+                className="h-full bg-[#0f172a] text-white border-l border-[#1a365d] flex flex-col w-full min-w-[320px]"
+                onClick={(e) => e.stopPropagation()}
+                onTouchEnd={(e) => e.stopPropagation()}
+              >
                 <div className="h-14 px-3 flex items-center justify-between border-b border-white/10">
                   <span className="font-semibold">Agente IA ✨</span>
                   <button
                     type="button"
                     onClick={() => setMobileOpen(false)}
-                    className="px-2 py-1 text-xs font-semibold rounded-md bg-white/5 hover:bg-white/10 border border-white/10"
+                    {...touchActivate(() => setMobileOpen(false))}
+                    className="px-2 py-1 text-xs font-semibold rounded-md bg-white/5 hover:bg-white/10 border border-white/10 touch-manipulation"
                     aria-label="Cerrar panel"
                   >
                     ✕
@@ -559,7 +583,8 @@ export default function AgentSidebar() {
                     <button
                       type="button"
                       onClick={nuevaConversacion}
-                      className="py-2 bg-white/10 hover:bg-white/15 text-white font-semibold rounded-lg border border-white/10 transition-colors"
+                      {...touchActivate(nuevaConversacion)}
+                      className="py-2 bg-white/10 hover:bg-white/15 text-white font-semibold rounded-lg border border-white/10 transition-colors touch-manipulation"
                     >
                       Nuevo
                     </button>
@@ -569,8 +594,9 @@ export default function AgentSidebar() {
                       aria-label={grabando ? 'Detener grabación' : 'Grabar audio'}
                       disabled={loading || !selectedId}
                       onClick={toggleRecording}
+                      {...touchActivate(toggleRecording, loading || !selectedId)}
                       className={[
-                        'py-2 rounded-lg border transition-colors',
+                        'py-2 rounded-lg border transition-colors touch-manipulation',
                         grabando
                           ? 'bg-red-600 hover:bg-red-700 border-red-400/60 text-white animate-pulse shadow-[0_0_0_3px_rgba(248,113,113,0.2)]'
                           : 'bg-white/10 hover:bg-white/15 border-white/10 text-white',
@@ -582,8 +608,9 @@ export default function AgentSidebar() {
                     <button
                       type="button"
                       onClick={handleEnviar}
+                      {...touchActivate(handleEnviar, loading || grabando || !selectedId || !mensaje.trim())}
                       disabled={loading || grabando || !selectedId || !mensaje.trim()}
-                      className="py-2 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="py-2 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
                     >
                       {loading ? '…' : 'Enviar'}
                     </button>
