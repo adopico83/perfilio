@@ -253,50 +253,56 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-[#0f172a] text-white">
       <div className="border-b border-white/10 bg-[#0f172a]/95 backdrop-blur">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <a href="/dashboard" className="flex items-center gap-3">
-            <div style={{ display: 'inline-flex', flexDirection: 'column' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(3, 16px)',
-                    gridTemplateRows: 'repeat(2, 16px)',
-                    gap: '2px',
-                    flexShrink: 0,
-                  }}
-                >
-                  <div style={{ background: '#888' }}></div>
-                  <div style={{ background: '#1a6ec7' }}></div>
-                  <div style={{ background: '#888' }}></div>
-                  <div style={{ background: '#1a6ec7' }}></div>
-                  <div style={{ background: '#888' }}></div>
-                  <div style={{ background: '#1a6ec7' }}></div>
+          <a href="/dashboard" className="flex items-center gap-3 min-w-0">
+            {businessName === 'Pino Albañilería' ? (
+              <div style={{ display: 'inline-flex', flexDirection: 'column' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(3, 16px)',
+                      gridTemplateRows: 'repeat(2, 16px)',
+                      gap: '2px',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <div style={{ background: '#888' }}></div>
+                    <div style={{ background: '#1a6ec7' }}></div>
+                    <div style={{ background: '#888' }}></div>
+                    <div style={{ background: '#1a6ec7' }}></div>
+                    <div style={{ background: '#888' }}></div>
+                    <div style={{ background: '#1a6ec7' }}></div>
+                  </div>
+                  <span
+                    style={{
+                      color: '#1a6ec7',
+                      fontWeight: 'bold',
+                      fontSize: '34px',
+                      lineHeight: '34px',
+                      letterSpacing: '0px',
+                      padding: '0',
+                      margin: '0',
+                    }}
+                  >
+                    PINO
+                  </span>
                 </div>
                 <span
                   style={{
-                    color: '#1a6ec7',
-                    fontWeight: 'bold',
-                    fontSize: '34px',
-                    lineHeight: '34px',
-                    letterSpacing: '0px',
-                    padding: '0',
-                    margin: '0',
+                    color: '#888',
+                    fontSize: '9.5px',
+                    letterSpacing: '8.2px',
+                    marginTop: '1px',
                   }}
                 >
-                  PINO
+                  ALBAÑILERÍA
                 </span>
               </div>
-              <span
-                style={{
-                  color: '#888',
-                  fontSize: '9.5px',
-                  letterSpacing: '8.2px',
-                  marginTop: '1px',
-                }}
-              >
-                ALBAÑILERÍA
+            ) : (
+              <span className="text-white font-bold text-2xl sm:text-3xl truncate max-w-[min(100vw-8rem,28rem)]">
+                {businessName}
               </span>
-            </div>
+            )}
           </a>
 
           <button
