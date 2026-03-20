@@ -25,6 +25,13 @@ export async function POST(request: NextRequest) {
     const blob = audioBlob as unknown as Blob;
     console.log('Tamaño blob:', blob.size, 'Tipo:', blob.type);
 
+    if (blob.size < 1000) {
+      return NextResponse.json(
+        { error: 'Audio demasiado corto o vacío' },
+        { status: 400 }
+      );
+    }
+
     let transcription;
     try {
       const fileMp3 = new File([blob], 'audio.mp3', { type: 'audio/mpeg' });

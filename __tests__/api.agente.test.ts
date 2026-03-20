@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server';
 
-import { createServiceClient } from '@/lib/supabase/server';
+import { createClient, createServiceClient } from '@/lib/supabase/server';
 
 jest.mock('@/lib/supabase/server', () => ({
   createServiceClient: jest.fn(),
+  createClient: jest.fn(),
 }));
 
 const insertMock = jest.fn();
@@ -32,11 +33,16 @@ describe('POST /api/agente', () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
+    (createClient as jest.Mock).mockResolvedValue({
+      auth: {
+        getUser: jest.fn().mockResolvedValue({ data: { user: null } }),
+      },
+    });
+
     (createServiceClient as jest.Mock).mockReturnValue({
       from: jest.fn((table: string) => {
         if (table === 'business_profiles') return businessProfileQueryMock;
         if (table === 'presupuestos') return { insert: insertMock };
-        // Evitamos tocar otras tablas (facturas/albaranes) en estos tests
         return { insert: jest.fn() };
       }),
     });
@@ -55,6 +61,7 @@ describe('POST /api/agente', () => {
   });
 
   beforeAll(async () => {
+    process.env.OPENAI_API_KEY = 'test-key';
     const mod = await import('@/app/api/agente/route');
     POST = mod.POST;
   });
@@ -70,6 +77,46 @@ describe('POST /api/agente', () => {
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toContain('mensaje');
+  });
+
+  it('devuelve 400 si falta business_id', async () => {
+    const req = new NextRequest('http://localhost/api/agente', {
+      method: 'POST',
+      body: JSON.stringify({ mensaje: 'Hola', historial: [] }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toMatch(/business_id/i);
+  });
+
+  it('devuelve 200 con datos válidos', async () => {
+    createMock.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: 'Respuesta del modelo para el usuario.',
+          },
+        },
+      ],
+    });
+
+    const req = new NextRequest('http://localhost/api/agente', {
+      method: 'POST',
+      body: JSON.stringify({
+        mensaje: 'Hola, necesito información.',
+        business_id: 'biz1',
+        historial: [],
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.respuesta).toContain('Respuesta del modelo');
   });
 
   it('responde con datos válidos y guarda un presupuesto con importe_total y cliente_nombre', async () => {
@@ -117,8 +164,11 @@ describe('POST /api/agente', () => {
   it('maneja errores si "mensaje" tiene tipo incorrecto', async () => {
     const req = new NextRequest('http://localhost/api/agente', {
       method: 'POST',
-      // @ts-expect-error - probamos tipo incorrecto a propósito
-      body: JSON.stringify({ mensaje: 123, business_id: 'biz1', historial: [] }),
+      body: JSON.stringify({
+        mensaje: 123,
+        business_id: 'biz1',
+        historial: [],
+      } as unknown as { mensaje: string; business_id: string; historial: unknown[] }),
       headers: { 'Content-Type': 'application/json' },
     });
 
@@ -128,4 +178,3 @@ describe('POST /api/agente', () => {
     expect(json.error).toContain('mensaje');
   });
 });
-
