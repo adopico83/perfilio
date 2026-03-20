@@ -1,6 +1,14 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type PointerEvent,
+  type TouchEvent,
+} from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import ReactMarkdown from 'react-markdown';
 
@@ -53,6 +61,8 @@ export default function AgentSidebar() {
   const audioChunksRef = useRef<BlobPart[]>([]);
   const mediaRecorderMimeTypeRef = useRef<string>('audio/webm');
   const historialInicialCargadoRef = useRef(false);
+  /** Evita doble ejecución pointerdown + click; getUserMedia debe ir en el gesto directo (Safari iOS). */
+  const micGestureHandledRef = useRef(false);
 
   const containerWidthClass = useMemo(() => {
     if (collapsed) return 'w-[56px] min-w-[56px]';
@@ -196,7 +206,49 @@ export default function AgentSidebar() {
     void handleEnviarTexto(mensaje);
   };
 
-  const startRecording = async () => {
+  const attachRecorderToStream = (stream: MediaStream) => {
+    const preferredMimeTypes = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/mp4',
+      'audio/mp4a',
+      'audio/aac',
+    ];
+
+    const chosenMimeType =
+      preferredMimeTypes.find((t) => MediaRecorder.isTypeSupported(t)) ?? '';
+
+    mediaRecorderMimeTypeRef.current = chosenMimeType || 'audio/webm';
+
+    const recorder = new MediaRecorder(
+      stream,
+      chosenMimeType ? { mimeType: chosenMimeType } : undefined
+    );
+
+    mediaRecorderRef.current = recorder;
+
+    recorder.ondataavailable = (event: BlobEvent) => {
+      if (event.data && event.data.size > 0) {
+        audioChunksRef.current.push(event.data);
+      }
+    };
+
+    recorder.onstop = () => {
+      const mimeType = mediaRecorderMimeTypeRef.current || 'audio/webm';
+      const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+      audioChunksRef.current = [];
+      setGrabando(false);
+      void transcribeAndSend(audioBlob);
+    };
+
+    recorder.start();
+  };
+
+  /**
+   * Sin `async/await` antes de getUserMedia: Safari iOS exige que la llamada sea en la misma
+   * cadena síncrona que el gesto (puntero/teclado). El Promise se encadena con .then/.catch.
+   */
+  const requestMicAndStartRecording = () => {
     if (grabando || loading) return;
     if (typeof MediaRecorder === 'undefined') {
       setError('Tu navegador no soporta grabación de audio.');
@@ -211,71 +263,78 @@ export default function AgentSidebar() {
     audioChunksRef.current = [];
 
     if (!navigator.mediaDevices?.getUserMedia) {
-      setError('No se pudo acceder al micrófono.');
+      const msg = 'navigator.mediaDevices.getUserMedia no está disponible';
+      console.error('[agent-sidebar getUserMedia]', msg);
+      setError(msg);
       return;
     }
 
-    let stream: MediaStream | null = null;
-
     try {
-      // 1) Permiso explícito: el stream debe existir antes de crear MediaRecorder (Safari iOS).
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaStreamRef.current = stream;
-      setGrabando(true);
+      const gumPromise = navigator.mediaDevices.getUserMedia({ audio: true });
 
-      const preferredMimeTypes = [
-        'audio/webm;codecs=opus',
-        'audio/webm',
-        'audio/mp4',
-        'audio/mp4a',
-        'audio/aac',
-      ];
+      gumPromise
+        .then((stream) => {
+          try {
+            mediaStreamRef.current = stream;
+            setGrabando(true);
+            attachRecorderToStream(stream);
+          } catch (e: unknown) {
+            console.error('[agent-sidebar MediaRecorder]', e);
+            stream.getTracks().forEach((t) => t.stop());
+            mediaStreamRef.current = null;
+            mediaRecorderRef.current = null;
+            setGrabando(false);
+            const message =
+              e instanceof Error
+                ? `${e.name}: ${e.message}`
+                : typeof e === 'object' && e !== null && 'message' in e
+                  ? String((e as { message: unknown }).message)
+                  : String(e);
+            setError(message || 'Error al iniciar la grabación');
+          }
+        })
+        .catch((err: unknown) => {
+          console.error('[agent-sidebar getUserMedia]', err);
+          mediaStreamRef.current = null;
+          mediaRecorderRef.current = null;
+          setGrabando(false);
 
-      const chosenMimeType =
-        preferredMimeTypes.find((t) => MediaRecorder.isTypeSupported(t)) ?? '';
-
-      mediaRecorderMimeTypeRef.current = chosenMimeType || 'audio/webm';
-
-      // 2) MediaRecorder solo después de obtener el stream.
-      const recorder = new MediaRecorder(
-        stream,
-        chosenMimeType ? { mimeType: chosenMimeType } : undefined
-      );
-
-      mediaRecorderRef.current = recorder;
-
-      recorder.ondataavailable = (event: BlobEvent) => {
-        if (event.data && event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      recorder.onstop = () => {
-        const mimeType = mediaRecorderMimeTypeRef.current || 'audio/webm';
-        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-        audioChunksRef.current = [];
-        setGrabando(false);
-        void transcribeAndSend(audioBlob);
-      };
-
-      recorder.start();
+          const name =
+            err && typeof err === 'object' && 'name' in err
+              ? String((err as { name: string }).name)
+              : '';
+          if (name === 'NotAllowedError') {
+            setError('Permiso denegado - actívalo en Ajustes de Safari');
+            return;
+          }
+          const message =
+            err instanceof Error
+              ? `${err.name}: ${err.message}`
+              : typeof err === 'object' && err !== null && 'message' in err
+                ? String((err as { message: unknown }).message)
+                : String(err);
+          setError(message || 'Error desconocido al solicitar el micrófono');
+        });
     } catch (err: unknown) {
-      if (stream) {
-        stream.getTracks().forEach((t) => t.stop());
-      }
+      console.error('[agent-sidebar getUserMedia]', err);
       mediaStreamRef.current = null;
       mediaRecorderRef.current = null;
       setGrabando(false);
-
       const name =
-        err && typeof err === 'object' && 'name' in err ? String((err as { name: string }).name) : '';
-      if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
-        setError('Necesitas permitir el acceso al micrófono en Safari');
-      } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
-        setError('No se encontró ningún micrófono.');
-      } else {
-        setError('No se pudo acceder al micrófono.');
+        err && typeof err === 'object' && 'name' in err
+          ? String((err as { name: string }).name)
+          : '';
+      if (name === 'NotAllowedError') {
+        setError('Permiso denegado - actívalo en Ajustes de Safari');
+        return;
       }
+      const message =
+        err instanceof Error
+          ? `${err.name}: ${err.message}`
+          : typeof err === 'object' && err !== null && 'message' in err
+            ? String((err as { message: unknown }).message)
+            : String(err);
+      setError(message || 'Error síncrono al solicitar el micrófono');
     }
   };
 
@@ -301,7 +360,24 @@ export default function AgentSidebar() {
       stopRecording();
       return;
     }
-    void startRecording();
+    requestMicAndStartRecording();
+  };
+
+  const handleMicPointerDown = (disabled: boolean) => (e: PointerEvent<HTMLButtonElement>) => {
+    if (disabled) return;
+    if (e.button !== 0) return;
+    micGestureHandledRef.current = true;
+    toggleRecording();
+  };
+
+  const handleMicClick = (disabled: boolean) => (e: MouseEvent<HTMLButtonElement>) => {
+    if (disabled) return;
+    if (micGestureHandledRef.current) {
+      e.preventDefault();
+      micGestureHandledRef.current = false;
+      return;
+    }
+    toggleRecording();
   };
 
   const transcribeAndSend = async (audioBlob: Blob) => {
@@ -473,8 +549,8 @@ export default function AgentSidebar() {
                 type="button"
                 aria-label={grabando ? 'Detener grabación' : 'Grabar audio'}
                 disabled={loading || !selectedId}
-                onClick={toggleRecording}
-                {...touchActivate(toggleRecording, loading || !selectedId)}
+                onPointerDown={handleMicPointerDown(loading || !selectedId)}
+                onClick={handleMicClick(loading || !selectedId)}
                 className={[
                   'h-full py-2.5 rounded-lg border transition-colors touch-manipulation',
                   grabando
@@ -618,8 +694,8 @@ export default function AgentSidebar() {
                       type="button"
                       aria-label={grabando ? 'Detener grabación' : 'Grabar audio'}
                       disabled={loading || !selectedId}
-                      onClick={toggleRecording}
-                      {...touchActivate(toggleRecording, loading || !selectedId)}
+                      onPointerDown={handleMicPointerDown(loading || !selectedId)}
+                      onClick={handleMicClick(loading || !selectedId)}
                       className={[
                         'py-2 rounded-lg border transition-colors touch-manipulation',
                         grabando
