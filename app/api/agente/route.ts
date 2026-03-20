@@ -142,7 +142,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
         function: {
           name: 'obtener_mensajes_pendientes',
           description:
-            'Obtiene mensajes pendientes del negocio actual con remitente y mensaje',
+            'Obtiene respuestas IA del negocio pendientes de aprobación (sin aprobar ni rechazar): texto generado, borrador editado y conversación asociada',
           parameters: {
             type: 'object',
             properties: {},
@@ -279,6 +279,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
     };
 
     const runTool = async (toolName: string, toolArgs: Record<string, unknown>) => {
+      console.log('Ejecutando tool:', toolName);
       switch (toolName) {
         case 'obtener_presupuestos_pendientes': {
           const { data, error } = await supabase
@@ -331,17 +332,58 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
           };
         }
         case 'obtener_mensajes_pendientes': {
+          const { data: convRows, error: convError } = await supabase
+            .from('conversation_history')
+            .select('conversation_id')
+            .eq('business_id', business_id);
+
+          if (convError) {
+            console.log('Resultado mensajes:', null, convError);
+            return { error: convError.message };
+          }
+
+          const conversationIds = [
+            ...new Set(
+              (convRows ?? [])
+                .map((r: { conversation_id?: string | null }) => r.conversation_id)
+                .filter((id): id is string => typeof id === 'string' && id.length > 0)
+            ),
+          ];
+
+          if (conversationIds.length === 0) {
+            console.log('Resultado mensajes:', [], null);
+            return { items: [] };
+          }
+
           const { data, error } = await supabase
             .from('ai_responses')
-            .select('remitente, mensaje')
-            .eq('business_id', business_id)
-            .eq('status', 'pending')
+            .select(
+              'id, conversation_id, created_at, ai_response, edited_response, approved_at, rejected_at'
+            )
+            .in('conversation_id', conversationIds)
+            .is('approved_at', null)
+            .is('rejected_at', null)
+            .order('created_at', { ascending: false })
             .limit(50);
+
+          console.log('Resultado mensajes:', data, error);
           if (error) return { error: error.message };
           return {
-            items: (data ?? []).map((r: any) => ({
-              remitente: r.remitente ?? null,
-              mensaje: r.mensaje ?? null,
+            items: (data ?? []).map((r: {
+              id?: string;
+              conversation_id?: string | null;
+              created_at?: string | null;
+              ai_response?: string | null;
+              edited_response?: string | null;
+              approved_at?: string | null;
+              rejected_at?: string | null;
+            }) => ({
+              id: r.id ?? null,
+              conversation_id: r.conversation_id ?? null,
+              creado_en: r.created_at ?? null,
+              respuesta_ia: r.ai_response ?? null,
+              borrador_editado: r.edited_response ?? null,
+              pendiente_de_aprobacion: !r.approved_at && !r.rejected_at,
             })),
           };
         }
