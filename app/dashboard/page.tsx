@@ -86,8 +86,56 @@ export default function DashboardPage() {
   useEffect(() => {
     const loadDashboard = async () => {
       try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        const userId = user?.id;
+
+        if (!userId) {
+          setGmailConectado(false);
+          return;
+        }
+
+        const bizRes = await supabase
+          .from('business_profiles')
+          .select('id, nombre')
+          .eq('user_id', userId)
+          .limit(1)
+          .single();
+
+        const businessId = bizRes.data?.id;
+
+        if (!bizRes.error && bizRes.data?.nombre) {
+          setBusinessName(bizRes.data.nombre);
+        }
+
+        if (!businessId) {
+          setCounts({
+            urgentes: 0,
+            pendientes: 0,
+            presupuestos: 0,
+            albaranesPendientes: 0,
+            facturasPendientes: 0,
+          });
+          setUltimosPresupuestos([]);
+          setUltimosMensajes([]);
+          setDesglosePendiente([]);
+          setDesglosePresupuestado([]);
+          setDesgloseMateriales([]);
+          setImportePendienteCobro(0);
+          setImporteTotalPresupuestado(0);
+          setTotalMateriales(0);
+
+          const { data: gmailToken } = await supabase
+            .from('gmail_tokens')
+            .select('user_id')
+            .eq('user_id', userId)
+            .maybeSingle();
+          setGmailConectado(!!gmailToken);
+          return;
+        }
+
         const [
-          bizRes,
           urgentesRes,
           pendientesRes,
           presupuestosRes,
@@ -98,54 +146,60 @@ export default function DashboardPage() {
           facturasPendientesDataRes,
           presupuestosMetricasRes,
           presupuestosMaterialesRes,
-        ] =
-          await Promise.all([
-            supabase.from('business_profiles').select('nombre').limit(1).single(),
-            supabase
-              .from('conversations')
-              .select('id', { count: 'exact', head: true })
-              .eq('status', 'pending')
-              .eq('priority', 'urgent'),
-            supabase
-              .from('conversations')
-              .select('id', { count: 'exact', head: true })
-              .eq('status', 'pending'),
-            supabase.from('presupuestos').select('id', { count: 'exact', head: true }),
-            supabase
-              .from('albaranes')
-              .select('id', { count: 'exact', head: true })
-              .eq('estado', 'pendiente'),
-            supabase
-              .from('facturas')
-              .select('id', { count: 'exact', head: true })
-              .eq('estado', 'pendiente'),
-            supabase
-              .from('presupuestos')
-              .select('id, fecha, estado, created_at')
-              .order('created_at', { ascending: false })
-              .limit(3),
-            supabase
-              .from('conversations')
-              .select('id, customer_name, created_at')
-              .eq('status', 'pending')
-              .order('created_at', { ascending: false })
-              .limit(3),
-            supabase
-              .from('facturas')
-              .select('id, cliente_nombre, total')
-              .eq('estado', 'pendiente'),
-            supabase
-              .from('presupuestos')
-              .select('id, cliente_nombre, fecha, importe_total'),
-            supabase
-              .from('presupuestos')
-              .select('id, cliente_nombre, fecha, importe_total')
-              .ilike('presupuesto_generado', '%material%'),
-          ]);
-
-        if (!bizRes.error && bizRes.data?.nombre) {
-          setBusinessName(bizRes.data.nombre);
-        }
+        ] = await Promise.all([
+          supabase
+            .from('conversations')
+            .select('id', { count: 'exact', head: true })
+            .eq('business_id', businessId)
+            .eq('status', 'pending')
+            .eq('priority', 'urgent'),
+          supabase
+            .from('conversations')
+            .select('id', { count: 'exact', head: true })
+            .eq('business_id', businessId)
+            .eq('status', 'pending'),
+          supabase
+            .from('presupuestos')
+            .select('id', { count: 'exact', head: true })
+            .eq('business_id', businessId),
+          supabase
+            .from('albaranes')
+            .select('id', { count: 'exact', head: true })
+            .eq('business_id', businessId)
+            .eq('estado', 'pendiente'),
+          supabase
+            .from('facturas')
+            .select('id', { count: 'exact', head: true })
+            .eq('business_id', businessId)
+            .eq('estado', 'pendiente'),
+          supabase
+            .from('presupuestos')
+            .select('id, fecha, estado, created_at')
+            .eq('business_id', businessId)
+            .order('created_at', { ascending: false })
+            .limit(3),
+          supabase
+            .from('conversations')
+            .select('id, customer_name, created_at')
+            .eq('business_id', businessId)
+            .eq('status', 'pending')
+            .order('created_at', { ascending: false })
+            .limit(3),
+          supabase
+            .from('facturas')
+            .select('id, cliente_nombre, total')
+            .eq('business_id', businessId)
+            .eq('estado', 'pendiente'),
+          supabase
+            .from('presupuestos')
+            .select('id, cliente_nombre, fecha, importe_total')
+            .eq('business_id', businessId),
+          supabase
+            .from('presupuestos')
+            .select('id, cliente_nombre, fecha, importe_total')
+            .eq('business_id', businessId)
+            .ilike('presupuesto_generado', '%material%'),
+        ]);
 
         setCounts({
           urgentes: urgentesRes.count ?? 0,
@@ -178,19 +232,12 @@ export default function DashboardPage() {
           setTotalMateriales(list.reduce((s, p) => s + (Number(p.importe_total) || 0), 0));
         }
 
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (user?.id) {
-          const { data: gmailToken } = await supabase
-            .from('gmail_tokens')
-            .select('user_id')
-            .eq('user_id', user.id)
-            .maybeSingle();
-          setGmailConectado(!!gmailToken);
-        } else {
-          setGmailConectado(false);
-        }
+        const { data: gmailToken } = await supabase
+          .from('gmail_tokens')
+          .select('user_id')
+          .eq('user_id', userId)
+          .maybeSingle();
+        setGmailConectado(!!gmailToken);
       } finally {
         setLoading(false);
       }
