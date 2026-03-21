@@ -29,7 +29,7 @@ export function Hero({ onOpenListaEspera }: HeroProps) {
             <div className="inline-flex items-center space-x-2 bg-[#ed8936]/10 border border-[#ed8936]/20 rounded-full px-4 py-2">
               <span className="inline-flex h-2 w-2 rounded-full bg-[#ed8936] animate-pulse"></span>
               <span className="text-sm font-semibold text-[#ed8936]">
-                Nuevo: Asistente IA integrado
+                Nuevo: Agente IA integrado
               </span>
             </div>
 
