@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import Link from 'next/link';
 import LogoutButton from './logout-button';
@@ -21,10 +21,11 @@ interface PresupuestoResumen {
   created_at: string;
 }
 
-interface MensajeResumen {
+interface AgendaItem {
   id: string;
-  customer_name: string | null;
-  created_at: string;
+  titulo: string;
+  fecha: string;
+  hora: string | null;
 }
 
 interface FacturaPendienteItem {
@@ -59,7 +60,7 @@ export default function DashboardPage() {
     facturasPendientes: 0,
   });
   const [ultimosPresupuestos, setUltimosPresupuestos] = useState<PresupuestoResumen[]>([]);
-  const [ultimosMensajes, setUltimosMensajes] = useState<MensajeResumen[]>([]);
+  const [agendaEventos, setAgendaEventos] = useState<AgendaItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [importePendienteCobro, setImportePendienteCobro] = useState(0);
@@ -82,6 +83,61 @@ export default function DashboardPage() {
       // Silencioso para no alterar UX actual.
     }
   };
+
+  const loadAgenda = useCallback(async (businessIdOrEvent?: string | Event) => {
+    try {
+      let bid: string | undefined =
+        typeof businessIdOrEvent === 'string' ? businessIdOrEvent : undefined;
+      if (!bid) {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        const userId = user?.id;
+        if (!userId) {
+          setAgendaEventos([]);
+          return;
+        }
+        const bizRes = await supabase
+          .from('business_profiles')
+          .select('id')
+          .eq('user_id', userId)
+          .limit(1)
+          .single();
+        bid = bizRes.data?.id;
+      }
+      if (!bid) {
+        setAgendaEventos([]);
+        return;
+      }
+
+      const hoy = new Date();
+      const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
+
+      console.log('businessId para agenda:', bid);
+      const agendaRes = await supabase
+        .from('agenda')
+        .select('id, titulo, fecha, hora')
+        .eq('business_id', bid)
+        .eq('completado', false)
+        .gte('fecha', hoyStr)
+        .order('fecha', { ascending: true })
+        .limit(5);
+
+      const { data, error } = agendaRes;
+      console.log('Agenda:', data, error);
+
+      if (!agendaRes.error && agendaRes.data) {
+        setAgendaEventos(agendaRes.data as AgendaItem[]);
+      }
+    } catch {
+      // Silencioso: la agenda es opcional en refresco parcial.
+    }
+  }, [supabase]);
+
+  useEffect(() => {
+    window.addEventListener('agenda-actualizada', loadAgenda);
+    return () => window.removeEventListener('agenda-actualizada', loadAgenda);
+  }, [loadAgenda]);
 
   useEffect(() => {
     const loadDashboard = async () => {
@@ -118,7 +174,7 @@ export default function DashboardPage() {
             facturasPendientes: 0,
           });
           setUltimosPresupuestos([]);
-          setUltimosMensajes([]);
+          setAgendaEventos([]);
           setDesglosePendiente([]);
           setDesglosePresupuestado([]);
           setDesgloseMateriales([]);
@@ -142,7 +198,7 @@ export default function DashboardPage() {
           albaranesRes,
           facturasRes,
           presListRes,
-          msgListRes,
+          _agendaCargada,
           facturasPendientesDataRes,
           presupuestosMetricasRes,
           presupuestosMaterialesRes,
@@ -178,13 +234,7 @@ export default function DashboardPage() {
             .eq('business_id', businessId)
             .order('created_at', { ascending: false })
             .limit(3),
-          supabase
-            .from('conversations')
-            .select('id, customer_name, created_at')
-            .eq('business_id', businessId)
-            .eq('status', 'pending')
-            .order('created_at', { ascending: false })
-            .limit(3),
+          loadAgenda(businessId),
           supabase
             .from('facturas')
             .select('id, cliente_nombre, total')
@@ -211,9 +261,6 @@ export default function DashboardPage() {
 
         if (!presListRes.error && presListRes.data) {
           setUltimosPresupuestos(presListRes.data as PresupuestoResumen[]);
-        }
-        if (!msgListRes.error && msgListRes.data) {
-          setUltimosMensajes(msgListRes.data as MensajeResumen[]);
         }
 
         if (!facturasPendientesDataRes.error && facturasPendientesDataRes.data) {
@@ -244,7 +291,7 @@ export default function DashboardPage() {
     };
 
     loadDashboard();
-  }, []);
+  }, [loadAgenda, supabase]);
 
   const hora = new Date().getHours();
   const saludo = hora < 14 ? 'Buenos días' : 'Buenas tardes';
@@ -653,35 +700,40 @@ export default function DashboardPage() {
           <div className="bg-[#111827] border border-white/10 rounded-xl p-5">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold text-white/80 uppercase tracking-wide">
-                Últimos mensajes pendientes
+                Agenda
               </h2>
             </div>
             {loading ? (
               <p className="text-white/60 text-sm">Cargando...</p>
-            ) : ultimosMensajes.length === 0 ? (
-              <p className="text-white/60 text-sm">Sin mensajes pendientes. Todo al día.</p>
+            ) : agendaEventos.length === 0 ? (
+              <p className="text-white/60 text-sm">Sin eventos próximos</p>
             ) : (
               <ul className="space-y-3 text-sm">
-                {ultimosMensajes.map((m) => (
-                  <li
-                    key={m.id}
-                    className="flex items-center justify-between gap-2 border-b border-white/10 pb-2 last:border-b-0 last:pb-0"
-                  >
-                    <div>
-                      <p className="font-medium">{m.customer_name ?? 'Cliente sin nombre'}</p>
-                      <p className="text-white/60 text-xs">
-                        {new Date(m.created_at).toLocaleString('es-ES')}
-                      </p>
-                    </div>
-                    <Link
-                      href="/mensajes"
-                      className="inline-flex items-center text-xs text-[#ed8936] hover:text-[#f6ad55]"
+                {agendaEventos.map((ev) => {
+                  const [y, mo, d] = ev.fecha.split('-').map(Number);
+                  const fechaLabel = Number.isFinite(y) && Number.isFinite(mo) && Number.isFinite(d)
+                    ? new Date(y, mo - 1, d).toLocaleDateString('es-ES', {
+                        weekday: 'short',
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                      })
+                    : ev.fecha;
+                  return (
+                    <li
+                      key={ev.id}
+                      className="flex items-start justify-between gap-2 border-b border-white/10 pb-2 last:border-b-0 last:pb-0"
                     >
-                      Abrir
-                      <ArrowRight className="w-3 h-3 ml-1" />
-                    </Link>
-                  </li>
-                ))}
+                      <div>
+                        <p className="font-medium">{ev.titulo}</p>
+                        <p className="text-white/60 text-xs">
+                          {fechaLabel}
+                          {ev.hora ? ` · ${ev.hora}` : ''}
+                        </p>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>

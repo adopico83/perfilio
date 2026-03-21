@@ -181,6 +181,24 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
           },
         },
       },
+      {
+        type: 'function',
+        function: {
+          name: 'crear_recordatorio',
+          description:
+            'Crea un recordatorio o evento en la agenda del negocio con título, fecha (YYYY-MM-DD) y opcionalmente hora',
+          parameters: {
+            type: 'object',
+            properties: {
+              titulo: { type: 'string', description: 'Título del recordatorio' },
+              fecha: { type: 'string', description: 'Fecha en formato YYYY-MM-DD' },
+              hora: { type: 'string', description: 'Hora opcional (texto libre)' },
+            },
+            required: ['titulo', 'fecha'],
+            additionalProperties: false,
+          },
+        },
+      },
     ];
 
     let messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
@@ -485,6 +503,51 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
           }
 
           return { ok: true };
+        }
+        case 'crear_recordatorio': {
+          const titulo = String(toolArgs.titulo ?? '').trim();
+          const fechaRaw = String(toolArgs.fecha ?? '').trim();
+          const horaOpt = toolArgs.hora != null ? String(toolArgs.hora).trim() : '';
+
+          if (!titulo) {
+            return { error: 'El título del recordatorio es obligatorio' };
+          }
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaRaw)) {
+            return { error: 'La fecha debe tener formato YYYY-MM-DD' };
+          }
+
+          const businessIdBody =
+            typeof body.business_id === 'string'
+              ? body.business_id
+              : String(body.business_id ?? '');
+          if (!businessIdBody) {
+            return { error: 'business_id es requerido' };
+          }
+
+          const insertPayload: {
+            business_id: string;
+            titulo: string;
+            fecha: string;
+            hora?: string;
+          } = {
+            business_id: businessIdBody,
+            titulo,
+            fecha: fechaRaw,
+          };
+          if (horaOpt) {
+            insertPayload.hora = horaOpt;
+          }
+
+          const { data: row, error } = await supabase
+            .from('agenda')
+            .insert(insertPayload)
+            .select('id')
+            .single();
+
+          if (error || !row?.id) {
+            return { error: error?.message ?? 'No se pudo crear el recordatorio' };
+          }
+          return { ok: true, id: row.id as string };
         }
         default:
           return { error: `Tool no soportada: ${toolName}` };

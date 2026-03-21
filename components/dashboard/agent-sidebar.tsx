@@ -77,15 +77,22 @@ export default function AgentSidebar() {
       setCurrentUserId(user?.id ?? null);
       setCurrentUserEmail(user?.email ?? null);
 
+      if (!user?.id) {
+        setSelectedId('');
+        return;
+      }
+
       const { data, error: e } = await supabase
         .from('business_profiles')
         .select('id')
-        .order('nombre')
+        .eq('user_id', user.id)
         .limit(1)
         .single();
 
       if (!e && data?.id) {
         setSelectedId(data.id);
+      } else {
+        setSelectedId('');
       }
     };
 
@@ -153,6 +160,11 @@ export default function AgentSidebar() {
     setMensaje('');
     setLoading(true);
     try {
+      const { count: agendaCountAntes } = await supabase
+        .from('agenda')
+        .select('id', { count: 'exact', head: true })
+        .eq('business_id', selectedId);
+
       const res = await fetch('/api/agente', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -167,6 +179,18 @@ export default function AgentSidebar() {
         setError(data.error ?? 'Error al llamar al agente');
         return;
       }
+
+      const { count: agendaCountDespues } = await supabase
+        .from('agenda')
+        .select('id', { count: 'exact', head: true })
+        .eq('business_id', selectedId);
+
+      const antes = agendaCountAntes ?? 0;
+      const despues = agendaCountDespues ?? 0;
+      if (despues > antes) {
+        window.dispatchEvent(new Event('agenda-actualizada'));
+      }
+
       const respuestaTexto = data.respuesta ?? '';
       setHistorial((prev) => [
         ...prev,
