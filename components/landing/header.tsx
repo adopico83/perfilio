@@ -51,6 +51,10 @@ export function Header({ onOpenListaEspera }: HeaderProps) {
             </a>
             <a
               href="#contacto"
+              onClick={(e) => {
+                e.preventDefault();
+                onOpenListaEspera?.();
+              }}
               className="text-[#4a5568] dark:text-gray-300 hover:text-[#1a365d] dark:hover:text-white font-medium transition-colors"
             >
               Contacto
@@ -152,7 +156,11 @@ export function Header({ onOpenListaEspera }: HeaderProps) {
               <a
                 href="#contacto"
                 className="text-[#4a5568] dark:text-gray-300 hover:text-[#1a365d] dark:hover:text-white font-medium transition-colors"
-                onClick={() => setMobileMenuOpen(false)}
+                onClick={(e) => {
+                  e.preventDefault();
+                  onOpenListaEspera?.();
+                  setMobileMenuOpen(false);
+                }}
               >
                 Contacto
               </a>
