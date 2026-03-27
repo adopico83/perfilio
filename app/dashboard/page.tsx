@@ -4,7 +4,17 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import Link from 'next/link';
 import LogoutButton from './logout-button';
-import { AlertTriangle, MessageCircle, FileText, Package, ArrowRight } from 'lucide-react';
+import {
+  AlertTriangle,
+  MessageCircle,
+  FileText,
+  Package,
+  ArrowRight,
+  ChevronLeft,
+  ChevronRight,
+  Pencil,
+  Trash2,
+} from 'lucide-react';
 
 interface ResumenCounts {
   urgentes: number;
@@ -41,6 +51,25 @@ interface PresupuestoMetricaItem {
   importe_total: number | null;
 }
 
+const DIAS_SEMANA_CORTO = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+
+function construirCeldasMes(year: number, month: number) {
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const startOffset = (new Date(year, month, 1).getDay() + 6) % 7;
+  const celdas: Array<{ dia: number | null; fechaStr: string | null }> = [];
+  for (let i = 0; i < startOffset; i++) {
+    celdas.push({ dia: null, fechaStr: null });
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    const fechaStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    celdas.push({ dia: d, fechaStr });
+  }
+  while (celdas.length % 7 !== 0) {
+    celdas.push({ dia: null, fechaStr: null });
+  }
+  return celdas;
+}
+
 export default function DashboardPage() {
   const supabase = useMemo(
     () =>
@@ -73,6 +102,121 @@ export default function DashboardPage() {
   const [gmailConectado, setGmailConectado] = useState(false);
   const [gmailAccionLoading, setGmailAccionLoading] = useState(false);
   const [menuMovilAbierto, setMenuMovilAbierto] = useState(false);
+
+  const [modalAgendaAbierto, setModalAgendaAbierto] = useState(false);
+  const [mesCalendario, setMesCalendario] = useState(() => new Date());
+  const [diaDetalleFecha, setDiaDetalleFecha] = useState<string | null>(null);
+  const [agendaEditandoId, setAgendaEditandoId] = useState<string | null>(null);
+  const [draftTitulo, setDraftTitulo] = useState('');
+  const [draftHora, setDraftHora] = useState('');
+  const [agendaAccionLoading, setAgendaAccionLoading] = useState(false);
+
+  const eventosPorFecha = useMemo(() => {
+    const map = new Map<string, AgendaItem[]>();
+    for (const ev of agendaEventos) {
+      const key = (ev.fecha ?? '').slice(0, 10);
+      if (!key) continue;
+      const list = map.get(key) ?? [];
+      list.push(ev);
+      map.set(key, list);
+    }
+    for (const [, list] of map) {
+      list.sort((a, b) => (a.hora ?? '').localeCompare(b.hora ?? ''));
+    }
+    return map;
+  }, [agendaEventos]);
+
+  const abrirModalAgenda = () => {
+    setMesCalendario(new Date());
+    setDiaDetalleFecha(null);
+    setAgendaEditandoId(null);
+    setDraftTitulo('');
+    setDraftHora('');
+    setModalAgendaAbierto(true);
+  };
+
+  const cerrarModalAgenda = () => {
+    setModalAgendaAbierto(false);
+    setDiaDetalleFecha(null);
+    setAgendaEditandoId(null);
+    setDraftTitulo('');
+    setDraftHora('');
+  };
+
+  const iniciarEdicionAgenda = (ev: AgendaItem) => {
+    setAgendaEditandoId(ev.id);
+    setDraftTitulo(ev.titulo);
+    setDraftHora(ev.hora ?? '');
+  };
+
+  const cancelarEdicionAgenda = () => {
+    setAgendaEditandoId(null);
+    setDraftTitulo('');
+    setDraftHora('');
+  };
+
+  const guardarEdicionAgenda = async () => {
+    if (!agendaEditandoId || agendaAccionLoading) return;
+    const titulo = draftTitulo.trim();
+    if (!titulo) return;
+    try {
+      setAgendaAccionLoading(true);
+      const horaVal = draftHora.trim();
+      const { error } = await supabase
+        .from('agenda')
+        .update({
+          titulo,
+          hora: horaVal.length > 0 ? horaVal : null,
+        })
+        .eq('id', agendaEditandoId);
+
+      if (error) return;
+
+      setAgendaEventos((prev) =>
+        prev.map((e) =>
+          e.id === agendaEditandoId
+            ? { ...e, titulo, hora: horaVal.length > 0 ? horaVal : null }
+            : e
+        )
+      );
+      cancelarEdicionAgenda();
+    } finally {
+      setAgendaAccionLoading(false);
+    }
+  };
+
+  const eliminarEventoAgenda = async (ev: AgendaItem) => {
+    if (agendaAccionLoading) return;
+    if (!window.confirm('¿Eliminar este evento?')) return;
+    try {
+      setAgendaAccionLoading(true);
+      const { error } = await supabase.from('agenda').delete().eq('id', ev.id);
+      if (error) return;
+
+      const fechaKey = (ev.fecha ?? '').slice(0, 10);
+      setAgendaEventos((prev) => {
+        const next = prev.filter((e) => e.id !== ev.id);
+        if (diaDetalleFecha === fechaKey) {
+          const quedanEseDia = next.filter((e) => (e.fecha ?? '').slice(0, 10) === fechaKey);
+          if (quedanEseDia.length === 0) {
+            queueMicrotask(() => setDiaDetalleFecha(null));
+          }
+        }
+        return next;
+      });
+      if (agendaEditandoId === ev.id) cancelarEdicionAgenda();
+    } finally {
+      setAgendaAccionLoading(false);
+    }
+  };
+
+  const celdasCalendario = useMemo(() => {
+    const y = mesCalendario.getFullYear();
+    const m = mesCalendario.getMonth();
+    return construirCeldasMes(y, m);
+  }, [mesCalendario]);
+
+  const fechaHoyIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   const conectarGmail = async () => {
     if (gmailAccionLoading) return;
@@ -744,11 +888,21 @@ export default function DashboardPage() {
             )}
           </div>
 
-          <div className="bg-[#111827] border border-white/10 rounded-xl p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold text-white/80 uppercase tracking-wide">
+          <button
+            type="button"
+            onClick={abrirModalAgenda}
+            className="bg-[#111827] border border-white/10 rounded-xl p-5 w-full text-left cursor-pointer transition-all hover:border-[#ed8936]/55 hover:ring-1 hover:ring-[#ed8936]/25 focus:outline-none focus:ring-2 focus:ring-[#ed8936]/40 group"
+          >
+            <div className="flex items-center justify-between mb-3 gap-2">
+              <h2 className="text-sm font-semibold text-white/80 uppercase tracking-wide group-hover:text-white">
                 Agenda
               </h2>
+              <span
+                className="text-xs font-medium text-[#ed8936] opacity-80 group-hover:opacity-100 shrink-0"
+                aria-hidden
+              >
+                Ver calendario →
+              </span>
             </div>
             {loading ? (
               <p className="text-white/60 text-sm">Cargando...</p>
@@ -769,7 +923,7 @@ export default function DashboardPage() {
                   return (
                     <li
                       key={ev.id}
-                      className="flex items-start justify-between gap-2 border-b border-white/10 pb-2 last:border-b-0 last:pb-0"
+                      className="flex items-start justify-between gap-2 border-b border-white/10 pb-2 last:border-b-0 last:pb-0 pointer-events-none"
                     >
                       <div>
                         <p className="font-medium">{ev.titulo}</p>
@@ -783,8 +937,250 @@ export default function DashboardPage() {
                 })}
               </ul>
             )}
-          </div>
+          </button>
         </section>
+
+        {modalAgendaAbierto && (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-3 sm:p-4"
+            onClick={cerrarModalAgenda}
+            role="presentation"
+          >
+            <div
+              className="bg-[#1a365d] border border-[#ed8936]/60 rounded-xl w-full max-w-4xl max-h-[min(92vh,900px)] overflow-hidden shadow-xl flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="modal-agenda-titulo"
+            >
+              <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5 border-b border-white/10 shrink-0">
+                <h3 id="modal-agenda-titulo" className="text-lg font-semibold text-[#ed8936]">
+                  Calendario de agenda
+                </h3>
+                <button
+                  type="button"
+                  onClick={cerrarModalAgenda}
+                  className="text-white/80 hover:text-white text-2xl leading-none px-2 py-1 rounded-lg hover:bg-white/10 transition-colors"
+                  aria-label="Cerrar calendario"
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="px-3 sm:px-5 py-3 flex items-center justify-between gap-2 border-b border-white/10 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDiaDetalleFecha(null);
+                    setMesCalendario(
+                      (prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1)
+                    );
+                  }}
+                  className="inline-flex items-center justify-center w-10 h-10 rounded-lg border border-white/15 text-white hover:bg-white/10 transition-colors"
+                  aria-label="Mes anterior"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <p className="text-center text-base sm:text-lg font-semibold text-white capitalize flex-1 min-w-0 truncate px-1">
+                  {new Date(
+                    mesCalendario.getFullYear(),
+                    mesCalendario.getMonth(),
+                    1
+                  ).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDiaDetalleFecha(null);
+                    setMesCalendario(
+                      (prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1)
+                    );
+                  }}
+                  className="inline-flex items-center justify-center w-10 h-10 rounded-lg border border-white/15 text-white hover:bg-white/10 transition-colors"
+                  aria-label="Mes siguiente"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="overflow-y-auto flex-1 min-h-0 px-4 pb-4 sm:px-5">
+                <div className="grid grid-cols-7 gap-1 sm:gap-2 mb-2 text-center text-[10px] sm:text-xs font-semibold text-white/60 uppercase tracking-wide">
+                  {DIAS_SEMANA_CORTO.map((d) => (
+                    <div key={d} className="py-1">
+                      {d}
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-7 gap-1 sm:gap-2">
+                  {celdasCalendario.map((celda, idx) => {
+                    if (!celda.dia || !celda.fechaStr) {
+                      return (
+                        <div
+                          key={`empty-${idx}`}
+                          className="min-h-[52px] sm:min-h-[72px] rounded-lg bg-transparent"
+                        />
+                      );
+                    }
+                    const { fechaStr } = celda;
+                    const eventosDia = eventosPorFecha.get(fechaStr) ?? [];
+                    const tieneEventos = eventosDia.length > 0;
+                    const esHoy = fechaStr === fechaHoyIso;
+                    const primero = eventosDia[0];
+
+                    return (
+                      <button
+                        key={fechaStr}
+                        type="button"
+                        disabled={!tieneEventos}
+                        onClick={() => tieneEventos && setDiaDetalleFecha(fechaStr)}
+                        className={[
+                          'min-h-[52px] sm:min-h-[72px] rounded-lg border p-1 sm:p-1.5 flex flex-col items-stretch text-left transition-colors min-w-0',
+                          esHoy
+                            ? 'border-[#ed8936] bg-[#0f172a]/80'
+                            : 'border-white/10 bg-[#0f172a]/40',
+                          tieneEventos
+                            ? 'hover:bg-[#0f172a] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#ed8936]/50'
+                            : 'opacity-90 cursor-default',
+                        ].join(' ')}
+                      >
+                        <span className="text-[11px] sm:text-sm font-semibold text-white shrink-0">
+                          {celda.dia}
+                        </span>
+                        {tieneEventos && (
+                          <div className="mt-0.5 flex-1 flex flex-col justify-end min-h-0 gap-0.5">
+                            <span className="hidden sm:block text-[10px] sm:text-[11px] leading-tight text-[#ed8936] font-medium truncate">
+                              {primero?.titulo ?? 'Evento'}
+                            </span>
+                            {eventosDia.length > 1 && (
+                              <span className="hidden sm:block text-[9px] text-white/50">
+                                +{eventosDia.length - 1} más
+                              </span>
+                            )}
+                            <span className="sm:hidden flex justify-center pt-0.5">
+                              <span
+                                className="inline-block w-2 h-2 rounded-full bg-[#ed8936]"
+                                title={eventosDia.map((e) => e.titulo).join(', ')}
+                              />
+                            </span>
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {diaDetalleFecha && (
+                  <div className="mt-4 border-t border-white/10 pt-4">
+                    <p className="text-sm font-semibold text-[#ed8936] mb-3">
+                      {new Date(diaDetalleFecha + 'T12:00:00').toLocaleDateString('es-ES', {
+                        weekday: 'long',
+                        day: 'numeric',
+                        month: 'long',
+                        year: 'numeric',
+                      })}
+                    </p>
+                    <ul className="space-y-2">
+                      {(eventosPorFecha.get(diaDetalleFecha) ?? []).map((ev) => (
+                        <li
+                          key={ev.id}
+                          className="rounded-lg border border-white/10 bg-[#0f172a]/95 px-3 py-2.5"
+                        >
+                          {agendaEditandoId === ev.id ? (
+                            <div className="space-y-2">
+                              <div>
+                                <label
+                                  htmlFor={`agenda-titulo-${ev.id}`}
+                                  className="sr-only"
+                                >
+                                  Título
+                                </label>
+                                <input
+                                  id={`agenda-titulo-${ev.id}`}
+                                  type="text"
+                                  value={draftTitulo}
+                                  onChange={(e) => setDraftTitulo(e.target.value)}
+                                  disabled={agendaAccionLoading}
+                                  className="w-full px-2.5 py-2 rounded-lg bg-white/10 border border-white/20 text-white text-sm placeholder:text-white/40 focus:ring-2 focus:ring-[#ed8936]/50 focus:border-[#ed8936] outline-none"
+                                  placeholder="Título"
+                                />
+                              </div>
+                              <div>
+                                <label
+                                  htmlFor={`agenda-hora-${ev.id}`}
+                                  className="sr-only"
+                                >
+                                  Hora
+                                </label>
+                                <input
+                                  id={`agenda-hora-${ev.id}`}
+                                  type="text"
+                                  value={draftHora}
+                                  onChange={(e) => setDraftHora(e.target.value)}
+                                  disabled={agendaAccionLoading}
+                                  className="w-full px-2.5 py-2 rounded-lg bg-white/10 border border-white/20 text-white text-sm placeholder:text-white/40 focus:ring-2 focus:ring-[#ed8936]/50 focus:border-[#ed8936] outline-none"
+                                  placeholder="Hora (opcional)"
+                                />
+                              </div>
+                              <div className="flex flex-wrap gap-2 justify-end">
+                                <button
+                                  type="button"
+                                  onClick={cancelarEdicionAgenda}
+                                  disabled={agendaAccionLoading}
+                                  className="px-3 py-1.5 text-sm rounded-lg border border-white/25 text-white/90 hover:bg-white/10 transition-colors disabled:opacity-50"
+                                >
+                                  Cancelar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void guardarEdicionAgenda()}
+                                  disabled={agendaAccionLoading || !draftTitulo.trim()}
+                                  className="px-3 py-1.5 text-sm font-semibold rounded-lg bg-[#ed8936] hover:bg-[#dd6b20] text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  Guardar
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-start gap-2">
+                              <div className="min-w-0 flex-1">
+                                <p className="font-medium text-white text-sm">{ev.titulo}</p>
+                                {ev.hora ? (
+                                  <p className="text-xs text-[#ed8936] mt-1">{ev.hora}</p>
+                                ) : null}
+                              </div>
+                              <div className="flex shrink-0 items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => iniciarEdicionAgenda(ev)}
+                                  disabled={agendaAccionLoading}
+                                  className="p-2 rounded-lg text-white/80 hover:text-[#ed8936] hover:bg-white/10 transition-colors disabled:opacity-50"
+                                  title="Editar"
+                                  aria-label="Editar evento"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void eliminarEventoAgenda(ev)}
+                                  disabled={agendaAccionLoading}
+                                  className="p-2 rounded-lg text-red-400 hover:text-red-300 hover:bg-red-500/15 transition-colors disabled:opacity-50"
+                                  title="Eliminar"
+                                  aria-label="Eliminar evento"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {modalMetrica && (
           <div

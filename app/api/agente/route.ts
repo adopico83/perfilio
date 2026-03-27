@@ -199,6 +199,40 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
           },
         },
       },
+      {
+        type: 'function',
+        function: {
+          name: 'editar_recordatorio',
+          description:
+            'Actualiza un recordatorio existente en la agenda del negocio. Indica el id del evento y al menos uno de: título, fecha (YYYY-MM-DD) u hora',
+          parameters: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'UUID del evento en agenda' },
+              titulo: { type: 'string', description: 'Nuevo título' },
+              fecha: { type: 'string', description: 'Nueva fecha YYYY-MM-DD' },
+              hora: { type: 'string', description: 'Nueva hora (texto libre) o vacío para quitar' },
+            },
+            required: ['id'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'eliminar_recordatorio',
+          description: 'Elimina un recordatorio de la agenda del negocio por su id',
+          parameters: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'UUID del evento en agenda' },
+            },
+            required: ['id'],
+            additionalProperties: false,
+          },
+        },
+      },
     ];
 
     let messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
@@ -548,6 +582,90 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
             return { error: error?.message ?? 'No se pudo crear el recordatorio' };
           }
           return { ok: true, id: row.id as string };
+        }
+        case 'editar_recordatorio': {
+          const id = String(toolArgs.id ?? '').trim();
+          if (!id) {
+            return { error: 'id es obligatorio' };
+          }
+
+          const businessIdBody =
+            typeof body.business_id === 'string'
+              ? body.business_id
+              : String(body.business_id ?? '');
+          if (!businessIdBody) {
+            return { error: 'business_id es requerido' };
+          }
+
+          const updates: { titulo?: string; fecha?: string; hora?: string | null } = {};
+          if (toolArgs.titulo !== undefined) {
+            const t = String(toolArgs.titulo ?? '').trim();
+            if (!t) {
+              return { error: 'El título no puede estar vacío' };
+            }
+            updates.titulo = t;
+          }
+          if (toolArgs.fecha !== undefined) {
+            const f = String(toolArgs.fecha ?? '').trim();
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) {
+              return { error: 'La fecha debe tener formato YYYY-MM-DD' };
+            }
+            updates.fecha = f;
+          }
+          if (toolArgs.hora !== undefined) {
+            const h = String(toolArgs.hora ?? '').trim();
+            updates.hora = h.length > 0 ? h : null;
+          }
+
+          if (Object.keys(updates).length === 0) {
+            return { error: 'Indica al menos un campo a actualizar (titulo, fecha u hora)' };
+          }
+
+          const { data: row, error } = await supabase
+            .from('agenda')
+            .update(updates)
+            .eq('id', id)
+            .eq('business_id', businessIdBody)
+            .select('id')
+            .maybeSingle();
+
+          if (error) {
+            return { error: error.message };
+          }
+          if (!row?.id) {
+            return { error: 'No se encontró el evento o no pertenece a este negocio' };
+          }
+          return { ok: true, id: row.id as string };
+        }
+        case 'eliminar_recordatorio': {
+          const id = String(toolArgs.id ?? '').trim();
+          if (!id) {
+            return { error: 'id es obligatorio' };
+          }
+
+          const businessIdBody =
+            typeof body.business_id === 'string'
+              ? body.business_id
+              : String(body.business_id ?? '');
+          if (!businessIdBody) {
+            return { error: 'business_id es requerido' };
+          }
+
+          const { data: deleted, error } = await supabase
+            .from('agenda')
+            .delete()
+            .eq('id', id)
+            .eq('business_id', businessIdBody)
+            .select('id')
+            .maybeSingle();
+
+          if (error) {
+            return { error: error.message };
+          }
+          if (!deleted) {
+            return { error: 'No se encontró el evento o no pertenece a este negocio' };
+          }
+          return { ok: true };
         }
         default:
           return { error: `Tool no soportada: ${toolName}` };
