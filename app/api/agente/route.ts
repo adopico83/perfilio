@@ -77,7 +77,15 @@ Servicios que ofrece: ${servicios}
 Tarifas aproximadas: ${tarifas}
 Información adicional: ${contexto_adicional}
 Responde siempre de forma profesional, concisa y en español.
-Si te piden un presupuesto, usa las tarifas como referencia y genera uno estructurado.
+
+IMPORTANTE — herramientas de creación en base de datos:
+- La herramienta "crear_presupuesto" SOLO debe llamarse cuando el usuario pide EXPLÍCITAMENTE crear, generar o hacer un presupuesto NUEVO (p. ej. "crea un presupuesto", "genera un presupuesto para...", "hazme un presupuesto"). NO la uses si solo pregunta por presupuestos existentes, menciona la palabra "presupuesto" en contexto informativo, o quiere ver/listar/consultar presupuestos (usa entonces "listar_presupuestos" u "obtener_presupuestos_pendientes").
+- La herramienta "crear_factura" SOLO cuando pida EXPLÍCITAMENTE crear/generar/registrar una factura nueva. Para ver o listar facturas usa "listar_facturas" u "obtener_facturas_pendientes", sin crear.
+- La herramienta "crear_albaran" SOLO cuando pida EXPLÍCITAMENTE crear/generar un albarán nuevo. Para consultar o listar albaranes usa "listar_albaranes" u "obtener_albaranes_pendientes", sin crear.
+
+Si el usuario solo quiere información o listados, responde con texto y/o las herramientas de listado o pendientes; nunca invoques crear_* en esos casos.
+
+Si te piden explícitamente un presupuesto nuevo, usa las tarifas como referencia y genera uno estructurado en la respuesta y, si procede, llama a "crear_presupuesto" con el texto generado.
 Cuando el usuario pida generar una factura, sigue este flujo:
 - Si el usuario no ha dado el desglose completo, primero pregunta:
   - Nombre del cliente y NIF/CIF si lo tiene
@@ -133,6 +141,107 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
           parameters: {
             type: 'object',
             properties: {},
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'listar_presupuestos',
+          description:
+            'Lista los últimos 10 presupuestos del negocio (todos los estados). Úsala cuando el usuario pida ver, consultar o listar sus presupuestos sin crear uno nuevo.',
+          parameters: {
+            type: 'object',
+            properties: {},
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'listar_facturas',
+          description:
+            'Lista las últimas 10 facturas del negocio. Úsala cuando el usuario pida ver, consultar o listar facturas sin crear una nueva.',
+          parameters: {
+            type: 'object',
+            properties: {},
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'listar_albaranes',
+          description:
+            'Lista los últimos 10 albaranes del negocio. Úsala cuando el usuario pida ver, consultar o listar albaranes sin crear uno nuevo.',
+          parameters: {
+            type: 'object',
+            properties: {},
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'crear_presupuesto',
+          description:
+            'Guarda en el sistema un presupuesto NUEVO ya redactado. Solo llamar si el usuario pidió explícitamente crear/generar un presupuesto nuevo. Requiere el texto completo del presupuesto.',
+          parameters: {
+            type: 'object',
+            properties: {
+              texto_presupuesto: {
+                type: 'string',
+                description: 'Texto completo del presupuesto a guardar',
+              },
+              cliente_nombre: { type: 'string', description: 'Nombre del cliente si se conoce' },
+              importe_total: { type: 'number', description: 'Importe total si se conoce' },
+            },
+            required: ['texto_presupuesto'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'crear_factura',
+          description:
+            'Registra en el sistema una factura NUEVA. Solo si el usuario pidió explícitamente crear/generar una factura.',
+          parameters: {
+            type: 'object',
+            properties: {
+              descripcion_trabajos: {
+                type: 'string',
+                description: 'Descripción o conceptos de la factura',
+              },
+              total: { type: 'number', description: 'Total con IVA si aplica' },
+            },
+            required: ['descripcion_trabajos'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'crear_albaran',
+          description:
+            'Registra en el sistema un albarán NUEVO. Solo si el usuario pidió explícitamente crear/generar un albarán.',
+          parameters: {
+            type: 'object',
+            properties: {
+              descripcion_trabajos: {
+                type: 'string',
+                description: 'Descripción de trabajos o entrega',
+              },
+              total: { type: 'number', description: 'Total opcional' },
+              cliente_nombre: { type: 'string', description: 'Cliente si se conoce' },
+            },
+            required: ['descripcion_trabajos'],
             additionalProperties: false,
           },
         },
@@ -382,6 +491,158 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
               fecha: r.fecha ?? null,
             })),
           };
+        }
+        case 'listar_presupuestos': {
+          const { data, error } = await supabase
+            .from('presupuestos')
+            .select('id, cliente_nombre, importe_total, fecha, estado')
+            .eq('business_id', business_id)
+            .order('fecha', { ascending: false })
+            .limit(10);
+          if (error) return { error: error.message };
+          return {
+            items: (data ?? []).map((r: {
+              id?: string;
+              cliente_nombre?: string | null;
+              importe_total?: number | null;
+              fecha?: string | null;
+              estado?: string | null;
+            }) => ({
+              id: r.id ?? null,
+              cliente: r.cliente_nombre ?? null,
+              importe_total: r.importe_total ?? null,
+              fecha: r.fecha ?? null,
+              estado: r.estado ?? null,
+            })),
+          };
+        }
+        case 'listar_facturas': {
+          const { data, error } = await supabase
+            .from('facturas')
+            .select('id, cliente_nombre, total, fecha, estado')
+            .eq('business_id', business_id)
+            .order('fecha', { ascending: false })
+            .limit(10);
+          if (error) return { error: error.message };
+          return {
+            items: (data ?? []).map((r: {
+              id?: string;
+              cliente_nombre?: string | null;
+              total?: number | null;
+              fecha?: string | null;
+              estado?: string | null;
+            }) => ({
+              id: r.id ?? null,
+              cliente: r.cliente_nombre ?? null,
+              importe_total: r.total ?? null,
+              fecha: r.fecha ?? null,
+              estado: r.estado ?? null,
+            })),
+          };
+        }
+        case 'listar_albaranes': {
+          const { data, error } = await supabase
+            .from('albaranes')
+            .select('id, cliente_nombre, total, fecha, estado')
+            .eq('business_id', business_id)
+            .order('fecha', { ascending: false })
+            .limit(10);
+          if (error) return { error: error.message };
+          return {
+            items: (data ?? []).map((r: {
+              id?: string;
+              cliente_nombre?: string | null;
+              total?: number | null;
+              fecha?: string | null;
+              estado?: string | null;
+            }) => ({
+              id: r.id ?? null,
+              cliente: r.cliente_nombre ?? null,
+              importe_total: r.total ?? null,
+              fecha: r.fecha ?? null,
+              estado: r.estado ?? null,
+            })),
+          };
+        }
+        case 'crear_presupuesto': {
+          const texto = String(toolArgs.texto_presupuesto ?? '').trim();
+          if (!texto) {
+            return { error: 'texto_presupuesto es obligatorio' };
+          }
+          const clienteNombre =
+            toolArgs.cliente_nombre != null
+              ? String(toolArgs.cliente_nombre).trim().slice(0, 255)
+              : '';
+          const importeRaw = toolArgs.importe_total;
+          const importe_total =
+            importeRaw != null && Number.isFinite(Number(importeRaw))
+              ? Number(importeRaw)
+              : null;
+
+          const { error } = await supabase.from('presupuestos').insert({
+            business_id,
+            mensaje_cliente: mensaje,
+            presupuesto_generado: texto,
+            fecha: new Date().toISOString().split('T')[0],
+            estado: 'borrador',
+            ...(importe_total != null && { importe_total }),
+            ...(clienteNombre.length > 0 && { cliente_nombre: clienteNombre }),
+          });
+
+          if (error) return { error: error.message };
+          return { ok: true };
+        }
+        case 'crear_factura': {
+          const desc = String(toolArgs.descripcion_trabajos ?? '').trim();
+          if (!desc) {
+            return { error: 'descripcion_trabajos es obligatorio' };
+          }
+          const totalRaw = toolArgs.total;
+          const totalNum =
+            totalRaw != null && Number.isFinite(Number(totalRaw)) ? Number(totalRaw) : 0;
+          const baseImponible = totalNum ? totalNum / 1.21 : 0;
+          const iva = totalNum ? totalNum - baseImponible : 0;
+
+          const { error } = await supabase.from('facturas').insert({
+            business_id,
+            cliente_nombre: null,
+            descripcion_trabajos: desc,
+            base_imponible: Number.isFinite(baseImponible) ? baseImponible : 0,
+            iva: Number.isFinite(iva) ? iva : 0,
+            total: Number.isFinite(totalNum) ? totalNum : 0,
+            fecha: new Date().toISOString().split('T')[0],
+            estado: 'pendiente',
+          });
+
+          if (error) return { error: error.message };
+          return { ok: true };
+        }
+        case 'crear_albaran': {
+          const desc = String(toolArgs.descripcion_trabajos ?? '').trim();
+          if (!desc) {
+            return { error: 'descripcion_trabajos es obligatorio' };
+          }
+          const totalRaw = toolArgs.total;
+          const totalNum =
+            totalRaw != null && Number.isFinite(Number(totalRaw))
+              ? Number(totalRaw)
+              : null;
+          const clienteAlb =
+            toolArgs.cliente_nombre != null
+              ? String(toolArgs.cliente_nombre).trim().slice(0, 255)
+              : '';
+
+          const { error } = await supabase.from('albaranes').insert({
+            business_id,
+            cliente_nombre: clienteAlb.length > 0 ? clienteAlb : null,
+            descripcion_trabajos: desc,
+            total: totalNum,
+            fecha: new Date().toISOString().split('T')[0],
+            estado: 'pendiente',
+          });
+
+          if (error) return { error: error.message };
+          return { ok: true };
         }
         case 'obtener_mensajes_pendientes': {
           const { data: convRows, error: convError } = await supabase
@@ -709,87 +970,6 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
       });
 
       respuesta = finalCompletion.choices[0]?.message?.content ?? respuesta;
-    }
-
-    const lowerMensaje = mensaje.toLowerCase();
-
-    const esPresupuesto = /presupuesto|precio|coste|cuánto cuesta/.test(lowerMensaje);
-    if (esPresupuesto && respuesta) {
-      try {
-        let importe_total: number | null = null;
-        const totalMatch = respuesta.match(/(?:total|importe total)\s*[:\s]*(\d+[.,]\d{2}|\d+)\s*(?:€|eur|euros)?/i);
-        if (totalMatch) {
-          const parsed = parseFloat(totalMatch[1].replace(',', '.'));
-          if (Number.isFinite(parsed)) importe_total = parsed;
-        }
-        if (importe_total == null) {
-          const fallback = respuesta.match(/(\d+[.,]\d{2}|\d+)\s*€?\s*$/im);
-          if (fallback) {
-            const parsed = parseFloat(fallback[1].replace(',', '.'));
-            if (Number.isFinite(parsed)) importe_total = parsed;
-          }
-        }
-
-        let cliente_nombre: string | null = null;
-        const clienteMatch = mensaje.match(/(?:cliente|para|a)\s*[:\s]*([A-Za-zÀ-ÿ\s]+?)(?:\n|,|\.|$)/i);
-        if (clienteMatch && clienteMatch[1].trim().length > 0) {
-          cliente_nombre = clienteMatch[1].trim().slice(0, 255);
-        }
-
-        await supabase.from('presupuestos').insert({
-          business_id,
-          mensaje_cliente: mensaje,
-          presupuesto_generado: respuesta,
-          fecha: new Date().toISOString().split('T')[0],
-          estado: 'borrador',
-          ...(importe_total != null && { importe_total }),
-          ...(cliente_nombre != null && cliente_nombre !== '' && { cliente_nombre }),
-        });
-      } catch (err) {
-        console.error('Error guardando presupuesto:', err);
-      }
-    }
-
-    const esFactura = /factura|facturar|cobrar/.test(lowerMensaje);
-    if (esFactura && respuesta) {
-      try {
-        const matchImporte = mensaje.match(/(\d+[.,]?\d*)\s*(€|eur|euros)?/i);
-        const totalNum = matchImporte ? parseFloat(matchImporte[1].replace(',', '.')) : 0;
-        const baseImponible = totalNum ? totalNum / 1.21 : 0;
-        const iva = totalNum ? totalNum - baseImponible : 0;
-
-        await supabase.from('facturas').insert({
-          business_id,
-          cliente_nombre: null,
-          descripcion_trabajos: mensaje,
-          base_imponible: Number.isFinite(baseImponible) ? baseImponible : 0,
-          iva: Number.isFinite(iva) ? iva : 0,
-          total: Number.isFinite(totalNum) ? totalNum : 0,
-          fecha: new Date().toISOString().split('T')[0],
-          estado: 'pendiente',
-        });
-      } catch (err) {
-        console.error('Error guardando factura:', err);
-      }
-    }
-
-    const esAlbaran = /albar[aá]n|entrega|nota de entrega/.test(lowerMensaje);
-    if (esAlbaran && respuesta) {
-      try {
-        const matchImporte = mensaje.match(/(\d+[.,]?\d*)\s*(€|eur|euros)?/i);
-        const totalNum = matchImporte ? parseFloat(matchImporte[1].replace(',', '.')) : null;
-
-        await supabase.from('albaranes').insert({
-          business_id,
-          cliente_nombre: null,
-          descripcion_trabajos: mensaje,
-          total: totalNum,
-          fecha: new Date().toISOString().split('T')[0],
-          estado: 'pendiente',
-        });
-      } catch (err) {
-        console.error('Error guardando albarán:', err);
-      }
     }
 
     return NextResponse.json({ respuesta });
