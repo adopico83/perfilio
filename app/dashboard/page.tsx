@@ -71,16 +71,36 @@ export default function DashboardPage() {
   const [desgloseMateriales, setDesgloseMateriales] = useState<PresupuestoMetricaItem[]>([]);
   const [modalMetrica, setModalMetrica] = useState<'pendiente' | 'presupuestado' | 'materiales' | null>(null);
   const [gmailConectado, setGmailConectado] = useState(false);
+  const [gmailAccionLoading, setGmailAccionLoading] = useState(false);
   const [menuMovilAbierto, setMenuMovilAbierto] = useState(false);
 
   const conectarGmail = async () => {
+    if (gmailAccionLoading) return;
     try {
+      setGmailAccionLoading(true);
       const res = await fetch('/api/auth/gmail');
       const data = (await res.json()) as { url?: string; error?: string };
       if (!res.ok || !data.url) return;
       window.location.href = data.url;
     } catch {
       // Silencioso para no alterar UX actual.
+    } finally {
+      setGmailAccionLoading(false);
+    }
+  };
+
+  const desconectarGmail = async () => {
+    if (gmailAccionLoading) return;
+    try {
+      setGmailAccionLoading(true);
+      const res = await fetch('/api/auth/gmail/disconnect', { method: 'POST' });
+      if (res.ok) {
+        setGmailConectado(false);
+      }
+    } catch {
+      // Silencioso.
+    } finally {
+      setGmailAccionLoading(false);
     }
   };
 
@@ -110,8 +130,9 @@ export default function DashboardPage() {
         return;
       }
 
-      const hoy = new Date();
-      const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
+      // Filtrar "próximos" incluyendo hoy mismo. Usamos ISO (UTC) para evitar
+      // desajustes por zona horaria al formatear YYYY-MM-DD.
+      const hoyStr = new Date().toISOString().slice(0, 10);
 
       console.log('businessId para agenda:', bid);
       const agendaRes = await supabase
@@ -384,16 +405,26 @@ export default function DashboardPage() {
               ✨ Agente IA
             </Link>
             {gmailConectado ? (
-              <span className="inline-flex items-center px-4 py-2 text-sm font-medium text-green-300 bg-green-900/30 border border-green-500/50 rounded-lg">
-                Gmail conectado ✓
-              </span>
+              <button
+                type="button"
+                onClick={desconectarGmail}
+                disabled={gmailAccionLoading}
+                title="Pulsa para desconectar Gmail"
+                aria-label="Gmail conectado. Pulsa para desconectar"
+                className="inline-flex items-center px-4 py-2 text-sm font-medium text-green-200 bg-green-900/40 border border-green-500/60 rounded-lg hover:bg-green-900/55 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {gmailAccionLoading ? '…' : 'Gmail conectado ✓'}
+              </button>
             ) : (
               <button
                 type="button"
                 onClick={conectarGmail}
-                className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-[#1a365d] border border-[#ed8936] rounded-lg hover:bg-[#22466f] transition-colors"
+                disabled={gmailAccionLoading}
+                title="Conectar cuenta de Gmail"
+                aria-label="Conectar Gmail"
+                className="inline-flex items-center px-4 py-2 text-sm font-medium text-red-100 bg-gray-800/80 border border-red-500/45 rounded-lg hover:bg-gray-800 hover:border-red-400/60 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                Conectar Gmail
+                {gmailAccionLoading ? '…' : 'Conectar Gmail'}
               </button>
             )}
             <LogoutButton />
@@ -446,16 +477,32 @@ export default function DashboardPage() {
                 ✨ Agente IA
               </Link>
               {gmailConectado ? (
-                <span className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-green-300 bg-green-900/30 border border-green-500/50 rounded-lg">
-                  Gmail conectado ✓
-                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void desconectarGmail();
+                    setMenuMovilAbierto(false);
+                  }}
+                  disabled={gmailAccionLoading}
+                  title="Pulsa para desconectar Gmail"
+                  aria-label="Gmail conectado. Pulsa para desconectar"
+                  className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-green-200 bg-green-900/40 border border-green-500/60 rounded-lg hover:bg-green-900/55 transition-colors disabled:opacity-60 disabled:cursor-not-allowed w-full"
+                >
+                  {gmailAccionLoading ? '…' : 'Gmail conectado ✓'}
+                </button>
               ) : (
                 <button
                   type="button"
-                  onClick={conectarGmail}
-                  className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-[#1a365d] border border-[#ed8936] rounded-lg hover:bg-[#22466f] transition-colors"
+                  onClick={() => {
+                    void conectarGmail();
+                    setMenuMovilAbierto(false);
+                  }}
+                  disabled={gmailAccionLoading}
+                  title="Conectar cuenta de Gmail"
+                  aria-label="Conectar Gmail"
+                  className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-red-100 bg-gray-800/80 border border-red-500/45 rounded-lg hover:bg-gray-800 hover:border-red-400/60 transition-colors disabled:opacity-60 disabled:cursor-not-allowed w-full"
                 >
-                  Conectar Gmail
+                  {gmailAccionLoading ? '…' : 'Conectar Gmail'}
                 </button>
               )}
               <div className="pt-1">
