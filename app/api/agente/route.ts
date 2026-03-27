@@ -6,6 +6,27 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+/** YYYY-MM-DD del instante dado en la zona horaria indicada (p. ej. Europa/Madrid). */
+function formatYmdInTimeZone(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const y = parts.find((p) => p.type === 'year')?.value;
+  const m = parts.find((p) => p.type === 'month')?.value;
+  const d = parts.find((p) => p.type === 'day')?.value;
+  return `${y}-${m}-${d}`;
+}
+
+/** Suma días a una fecha civil YYYY-MM-DD. */
+function addDaysToYmd(ymd: string, days: number): string {
+  const [y, mo, da] = ymd.split('-').map(Number);
+  const u = Date.UTC(y, mo - 1, da + days);
+  return new Date(u).toISOString().slice(0, 10);
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -71,6 +92,44 @@ export async function POST(request: NextRequest) {
       day: 'numeric',
     });
 
+    let agendaContextoPrimerMensaje = '';
+    const esPrimerMensajeConversacion =
+      historialValido.length === 0 || historialValido.length === 1;
+
+    if (esPrimerMensajeConversacion) {
+      const tzAgenda = 'Europe/Madrid';
+      const hoyYmd = formatYmdInTimeZone(new Date(), tzAgenda);
+      const mananaYmd = addDaysToYmd(hoyYmd, 1);
+
+      const { data: agendaRows, error: agendaError } = await supabase
+        .from('agenda')
+        .select('titulo, fecha, hora')
+        .eq('business_id', business_id)
+        .in('fecha', [hoyYmd, mananaYmd])
+        .order('fecha', { ascending: true });
+
+      if (!agendaError && agendaRows && agendaRows.length > 0) {
+        const lineas = agendaRows.map(
+          (row: { titulo?: string | null; fecha?: string | null; hora?: string | null }) => {
+            const titulo = String(row.titulo ?? '').trim() || 'Evento';
+            const fecha = row.fecha ?? '';
+            const cuando =
+              fecha === hoyYmd ? 'hoy' : fecha === mananaYmd ? 'mañana' : fecha;
+            const horaStr = row.hora != null && String(row.hora).trim()
+              ? ` a las ${String(row.hora).trim()}`
+              : '';
+            return `- ${titulo} (${cuando}${horaStr})`;
+          }
+        );
+        agendaContextoPrimerMensaje = `
+
+PRIMER MENSAJE — Eventos en agenda (solo hoy y mañana; fechas en calendario local del negocio):
+${lineas.join('\n')}
+
+Al inicio de tu respuesta, antes de atender lo que pide el usuario, menciona de forma breve y natural (una o dos frases, tono coloquial) lo relevante de estos eventos; no hagas una lista numerada ni viñetas. Puedes usar fórmulas del estilo "Por cierto, ..." y luego enlazar con "Dicho esto," o similar antes de seguir con su petición.`;
+      }
+    }
+
     const systemPrompt = `Eres el asistente IA de ${nombre}, un negocio de ${sector}.
 ${descripcion}
 Servicios que ofrece: ${servicios}
@@ -104,7 +163,7 @@ Al inicio de cada conversación, si hay mensajes pendientes de clientes, menció
 Puedes ayudar al usuario a gestionar mensajes de clientes, generar presupuestos, facturas y albaranes.
 
 Fecha actual: ${fechaActual}
-Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.`;
+Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaContextoPrimerMensaje}`;
 
     const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       {
