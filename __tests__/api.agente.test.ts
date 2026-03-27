@@ -8,11 +8,43 @@ jest.mock('@/lib/supabase/server', () => ({
 }));
 
 const insertMock = jest.fn();
-const businessProfileQueryMock = {
-  select: jest.fn().mockReturnThis(),
-  eq: jest.fn().mockReturnThis(),
-  single: jest.fn(),
-};
+
+/** Cadena tipo Postgrest: métodos encadenables + then/catch + single/maybeSingle como promesas. */
+function createSupabaseQueryChain(options?: {
+  singleData?: unknown;
+}): Record<string, unknown> {
+  const chain: Record<string, unknown> = {};
+  const self = () => chain;
+
+  const chainMethods = [
+    'select',
+    'insert',
+    'update',
+    'delete',
+    'eq',
+    'in',
+    'order',
+    'limit',
+    'is',
+  ];
+  for (const m of chainMethods) {
+    chain[m] = jest.fn(self);
+  }
+
+  chain.single = jest.fn().mockResolvedValue({
+    data: options?.singleData ?? null,
+    error: null,
+  });
+  chain.maybeSingle = jest.fn().mockResolvedValue({ data: null, error: null });
+
+  const emptyThenResult = { data: [] as unknown[], error: null };
+  chain.then = (onFulfilled: (value: typeof emptyThenResult) => unknown) =>
+    Promise.resolve(emptyThenResult).then(onFulfilled);
+  chain.catch = (onRejected: (reason: unknown) => unknown) =>
+    Promise.resolve(emptyThenResult).catch(onRejected);
+
+  return chain;
+}
 
 const createMock = jest.fn();
 
@@ -41,22 +73,30 @@ describe('POST /api/agente', () => {
 
     (createServiceClient as jest.Mock).mockReturnValue({
       from: jest.fn((table: string) => {
-        if (table === 'business_profiles') return businessProfileQueryMock;
-        if (table === 'presupuestos') return { insert: insertMock };
-        return { insert: jest.fn() };
-      }),
-    });
+        const chain = createSupabaseQueryChain(
+          table === 'business_profiles'
+            ? {
+                singleData: {
+                  nombre: 'Mi taller',
+                  sector: 'Carpintería',
+                  descripcion: '',
+                  servicios: '',
+                  tarifas: '',
+                  contexto_adicional: '',
+                },
+              }
+            : undefined
+        );
 
-    businessProfileQueryMock.single.mockResolvedValue({
-      data: {
-        nombre: 'Mi taller',
-        sector: 'Carpintería',
-        descripcion: '',
-        servicios: '',
-        tarifas: '',
-        contexto_adicional: '',
-      },
-      error: null,
+        if (table === 'presupuestos') {
+          chain.insert = jest.fn((payload: unknown) => {
+            insertMock(payload);
+            return chain;
+          });
+        }
+
+        return chain;
+      }),
     });
   });
 
@@ -120,15 +160,39 @@ describe('POST /api/agente', () => {
   });
 
   it('responde con datos válidos y guarda un presupuesto con importe_total y cliente_nombre', async () => {
-    createMock.mockResolvedValue({
-      choices: [
-        {
-          message: {
-            content: 'Presupuesto:\nTotal: 123,45 €',
+    createMock
+      .mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: '',
+              tool_calls: [
+                {
+                  type: 'function',
+                  id: 'call_1',
+                  function: {
+                    name: 'crear_presupuesto',
+                    arguments: JSON.stringify({
+                      texto_presupuesto: 'Presupuesto para Juan Pérez. Total 123,45 €',
+                      cliente_nombre: 'Juan Pérez',
+                      importe_total: 123.45,
+                    }),
+                  },
+                },
+              ],
+            },
           },
-        },
-      ],
-    });
+        ],
+      })
+      .mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: 'Presupuesto:\nTotal: 123,45 €',
+            },
+          },
+        ],
+      });
 
     insertMock.mockResolvedValue({ data: [{}], error: null });
 
