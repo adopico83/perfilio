@@ -6,7 +6,6 @@ import Link from 'next/link';
 import LogoutButton from './logout-button';
 import {
   AlertTriangle,
-  MessageCircle,
   FileText,
   Package,
   ArrowRight,
@@ -18,10 +17,16 @@ import {
 
 interface ResumenCounts {
   urgentes: number;
-  pendientes: number;
   presupuestos: number;
   albaranesPendientes: number;
   facturasPendientes: number;
+}
+
+interface EmailReciente {
+  remitente: string | null;
+  asunto: string | null;
+  fechaIso: string | null;
+  noLeido: boolean;
 }
 
 interface PresupuestoResumen {
@@ -53,6 +58,13 @@ interface PresupuestoMetricaItem {
 
 const DIAS_SEMANA_CORTO = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
+function formatEmailFecha(iso: string | null) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' });
+}
+
 function construirCeldasMes(year: number, month: number) {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const startOffset = (new Date(year, month, 1).getDay() + 6) % 7;
@@ -83,7 +95,6 @@ export default function DashboardPage() {
   const [businessName, setBusinessName] = useState('tu negocio');
   const [counts, setCounts] = useState<ResumenCounts>({
     urgentes: 0,
-    pendientes: 0,
     presupuestos: 0,
     albaranesPendientes: 0,
     facturasPendientes: 0,
@@ -101,6 +112,9 @@ export default function DashboardPage() {
   const [modalMetrica, setModalMetrica] = useState<'pendiente' | 'presupuestado' | 'materiales' | null>(null);
   const [gmailConectado, setGmailConectado] = useState(false);
   const [gmailAccionLoading, setGmailAccionLoading] = useState(false);
+  const [emailsRecientes, setEmailsRecientes] = useState<EmailReciente[]>([]);
+  const [emailsLoading, setEmailsLoading] = useState(false);
+  const [emailsError, setEmailsError] = useState<string | null>(null);
   const [menuMovilAbierto, setMenuMovilAbierto] = useState(false);
 
   const [modalAgendaAbierto, setModalAgendaAbierto] = useState(false);
@@ -333,7 +347,6 @@ export default function DashboardPage() {
         if (!businessId) {
           setCounts({
             urgentes: 0,
-            pendientes: 0,
             presupuestos: 0,
             albaranesPendientes: 0,
             facturasPendientes: 0,
@@ -358,7 +371,6 @@ export default function DashboardPage() {
 
         const [
           urgentesRes,
-          pendientesRes,
           presupuestosRes,
           albaranesRes,
           facturasRes,
@@ -374,11 +386,6 @@ export default function DashboardPage() {
             .eq('business_id', businessId)
             .eq('status', 'pending')
             .eq('priority', 'urgent'),
-          supabase
-            .from('conversations')
-            .select('id', { count: 'exact', head: true })
-            .eq('business_id', businessId)
-            .eq('status', 'pending'),
           supabase
             .from('presupuestos')
             .select('id', { count: 'exact', head: true })
@@ -418,7 +425,6 @@ export default function DashboardPage() {
 
         setCounts({
           urgentes: urgentesRes.count ?? 0,
-          pendientes: pendientesRes.count ?? 0,
           presupuestos: presupuestosRes.count ?? 0,
           albaranesPendientes: albaranesRes.count ?? 0,
           facturasPendientes: facturasRes.count ?? 0,
@@ -457,6 +463,63 @@ export default function DashboardPage() {
 
     loadDashboard();
   }, [loadAgenda, supabase]);
+
+  useEffect(() => {
+    if (loading) return;
+    if (!gmailConectado) {
+      setEmailsRecientes([]);
+      setEmailsError(null);
+      setEmailsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setEmailsLoading(true);
+    setEmailsError(null);
+
+    void (async () => {
+      try {
+        const res = await fetch('/api/gmail/recent');
+        const data = (await res.json()) as {
+          items?: EmailReciente[];
+          error?: string | null;
+        };
+        if (cancelled) return;
+        if (!res.ok) {
+          setEmailsError('No se pudieron cargar los emails.');
+          setEmailsRecientes([]);
+          return;
+        }
+        if (data.error === 'gmail_not_connected') {
+          setEmailsError('Gmail no está disponible. Conecta de nuevo desde el menú superior.');
+          setEmailsRecientes([]);
+          return;
+        }
+        if (data.error === 'gmail_fetch_failed') {
+          setEmailsError('No se pudo acceder a Gmail. Inténtalo de nuevo más tarde.');
+          setEmailsRecientes([]);
+          return;
+        }
+        if (data.error) {
+          setEmailsError('No se pudieron cargar los emails.');
+          setEmailsRecientes([]);
+          return;
+        }
+        setEmailsRecientes(Array.isArray(data.items) ? data.items : []);
+      } catch {
+        if (!cancelled) {
+          setEmailsError('Error de conexión al cargar emails.');
+          setEmailsRecientes([]);
+        }
+      } finally {
+        if (!cancelled) setEmailsLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, gmailConectado]);
 
   const hora = new Date().getHours();
   const saludo = hora < 14 ? 'Buenos días' : 'Buenas tardes';
@@ -657,19 +720,19 @@ export default function DashboardPage() {
         )}
       </div>
 
-      <main className="max-w-7xl mx-auto px-6 py-8 space-y-8">
-        <section className="flex flex-col gap-2">
-          <h1 className="text-3xl sm:text-4xl font-bold">
+      <main className="max-w-7xl mx-auto px-6 py-4 lg:py-5 space-y-4 lg:space-y-5">
+        <section className="flex flex-col gap-1">
+          <h1 className="text-2xl sm:text-3xl font-bold">
             {saludo}, <span className="text-[#ed8936]">{businessName}</span>
           </h1>
-          <p className="text-white/70">Aquí tienes el resumen de tu negocio</p>
+          <p className="text-sm text-white/70">Aquí tienes el resumen de tu negocio</p>
         </section>
 
         <section>
-          <h2 className="text-sm font-semibold text-white/60 mb-3 uppercase tracking-wide">
+          <h2 className="text-sm font-semibold text-white/60 mb-2 uppercase tracking-wide">
             Resumen de hoy
           </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
             <div className="bg-[#111827] border border-red-500/40 rounded-xl p-4 flex flex-col gap-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-red-300 uppercase tracking-wide">
@@ -677,7 +740,7 @@ export default function DashboardPage() {
                 </span>
                 <AlertTriangle className="w-5 h-5 text-red-400" />
               </div>
-              <div className="text-3xl font-bold">{counts.urgentes}</div>
+              <div className="text-2xl sm:text-3xl font-bold">{counts.urgentes}</div>
               <Link
                 href="/mensajes"
                 className="inline-flex items-center text-xs text-red-300 hover:text-red-100 mt-1"
@@ -687,31 +750,14 @@ export default function DashboardPage() {
               </Link>
             </div>
 
-            <div className="bg-[#111827] border border-yellow-500/40 rounded-xl p-4 flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-yellow-200 uppercase tracking-wide">
-                  Mensajes pendientes
-                </span>
-                <MessageCircle className="w-5 h-5 text-yellow-300" />
-              </div>
-              <div className="text-3xl font-bold">{counts.pendientes}</div>
-              <Link
-                href="/mensajes"
-                className="inline-flex items-center text-xs text-yellow-200 hover:text-yellow-50 mt-1"
-              >
-                Ir a bandeja
-                <ArrowRight className="w-3 h-3 ml-1" />
-              </Link>
-            </div>
-
-            <div className="bg-[#111827] border border-[#ed8936]/50 rounded-xl p-4 flex flex-col gap-2">
+            <div className="bg-[#111827] border border-[#ed8936]/50 rounded-xl p-3 sm:p-4 flex flex-col gap-1.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-[#fed7aa] uppercase tracking-wide">
                   Presupuestos generados
                 </span>
                 <FileText className="w-5 h-5 text-[#ed8936]" />
               </div>
-              <div className="text-3xl font-bold">{counts.presupuestos}</div>
+              <div className="text-2xl sm:text-3xl font-bold">{counts.presupuestos}</div>
               <Link
                 href="/presupuestos"
                 className="inline-flex items-center text-xs text-[#fed7aa] hover:text-white mt-1"
@@ -728,7 +774,7 @@ export default function DashboardPage() {
                 </span>
                 <Package className="w-5 h-5 text-blue-300" />
               </div>
-              <div className="text-3xl font-bold">{counts.albaranesPendientes}</div>
+              <div className="text-2xl sm:text-3xl font-bold">{counts.albaranesPendientes}</div>
               <Link
                 href="/albaranes"
                 className="inline-flex items-center text-xs text-blue-200 hover:text-blue-50 mt-1"
@@ -738,7 +784,7 @@ export default function DashboardPage() {
               </Link>
             </div>
 
-            <div className="bg-[#111827] border border-emerald-500/40 rounded-xl p-4 flex flex-col gap-2">
+            <div className="bg-[#111827] border border-emerald-500/40 rounded-xl p-3 sm:p-4 flex flex-col gap-1.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-emerald-200 uppercase tracking-wide">
                   Facturas pendientes de cobro
@@ -757,14 +803,14 @@ export default function DashboardPage() {
         </section>
 
         <section>
-          <h2 className="text-sm font-semibold text-white/60 mb-3 uppercase tracking-wide">
+          <h2 className="text-sm font-semibold text-white/60 mb-2 uppercase tracking-wide">
             Métricas económicas
           </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <button
               type="button"
               onClick={() => setModalMetrica('pendiente')}
-              className="text-left bg-[#1a365d] border border-[#ed8936]/50 rounded-xl p-4 flex flex-col gap-2 hover:bg-[#1e3a5f] transition-colors"
+              className="text-left bg-[#1a365d] border border-[#ed8936]/50 rounded-xl p-3 sm:p-4 flex flex-col gap-1.5 hover:bg-[#1e3a5f] transition-colors"
             >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-[#fed7aa] uppercase tracking-wide">
@@ -786,7 +832,7 @@ export default function DashboardPage() {
                   📄 Importe total presupuestado
                 </span>
               </div>
-              <div className="text-2xl font-bold text-[#ed8936]">
+              <div className="text-xl sm:text-2xl font-bold text-[#ed8936]">
                 {loading ? '—' : `${importeTotalPresupuestado.toFixed(2)} €`}
               </div>
               <span className="text-xs text-white/60">Clic para ver desglose por presupuesto</span>
@@ -794,14 +840,14 @@ export default function DashboardPage() {
             <button
               type="button"
               onClick={() => setModalMetrica('materiales')}
-              className="text-left bg-[#1a365d] border border-[#ed8936]/50 rounded-xl p-4 flex flex-col gap-2 hover:bg-[#1e3a5f] transition-colors"
+              className="text-left bg-[#1a365d] border border-[#ed8936]/50 rounded-xl p-3 sm:p-4 flex flex-col gap-1.5 hover:bg-[#1e3a5f] transition-colors"
             >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-[#fed7aa] uppercase tracking-wide">
                   🧱 Total materiales
                 </span>
               </div>
-              <div className="text-2xl font-bold text-[#ed8936]">
+              <div className="text-xl sm:text-2xl font-bold text-[#ed8936]">
                 {loading ? '—' : `${totalMateriales.toFixed(2)} €`}
               </div>
               <span className="text-xs text-white/60">Clic para ver desglose</span>
@@ -809,135 +855,176 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        <section>
-          <h2 className="text-sm font-semibold text-white/60 mb-3 uppercase tracking-wide">
-            Accesos directos
+        <section aria-label="Presupuestos, agenda y correo">
+          <h2 className="text-sm font-semibold text-white/60 mb-2 uppercase tracking-wide lg:sr-only">
+            Actividad reciente
           </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Link
-              href="/agente"
-              className="group bg-[#111827] border border-[#ed8936]/60 rounded-xl p-4 flex flex-col gap-2 hover:bg-[#1f2937] transition-colors"
-            >
-              <span className="text-2xl mb-1">✨</span>
-              <span className="font-semibold">Agente IA</span>
-              <span className="text-sm text-white/70">Habla con tu asistente inteligente</span>
-            </Link>
-            <Link
-              href="/mensajes"
-              className="group bg-[#111827] border border-white/10 rounded-xl p-4 flex flex-col gap-2 hover:bg-[#1f2937] transition-colors"
-            >
-              <span className="text-2xl mb-1">📋</span>
-              <span className="font-semibold">Mensajes</span>
-              <span className="text-sm text-white/70">Revisa y aprueba respuestas</span>
-            </Link>
-            <Link
-              href="/presupuestos"
-              className="group bg-[#111827] border border-white/10 rounded-xl p-4 flex flex-col gap-2 hover:bg-[#1f2937] transition-colors"
-            >
-              <span className="text-2xl mb-1">📄</span>
-              <span className="font-semibold">Presupuestos</span>
-              <span className="text-sm text-white/70">Consulta y exporta tus presupuestos</span>
-            </Link>
-            <Link
-              href="/albaranes"
-              className="group bg-[#111827] border border-white/10 rounded-xl p-4 flex flex-col gap-2 hover:bg-[#1f2937] transition-colors"
-            >
-              <span className="text-2xl mb-1">📦</span>
-              <span className="font-semibold">Albaranes</span>
-              <span className="text-sm text-white/70">Seguimiento de entregas y facturación</span>
-            </Link>
-          </div>
-        </section>
-
-        <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-[#111827] border border-white/10 rounded-xl p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold text-white/80 uppercase tracking-wide">
-                Últimos presupuestos
-              </h2>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-3 lg:items-stretch">
+            {/* Columna: Últimos presupuestos */}
+            <div className="bg-[#111827] border border-white/10 rounded-xl p-3 sm:p-4 flex flex-col min-h-0 max-h-[min(300px,40vh)] lg:max-h-none lg:h-[340px]">
+              <div className="flex items-center justify-between shrink-0 mb-2">
+                <h3 className="text-sm font-semibold text-white/80 uppercase tracking-wide">
+                  Últimos presupuestos
+                </h3>
+              </div>
+              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+                {loading ? (
+                  <p className="text-white/60 text-xs">Cargando...</p>
+                ) : ultimosPresupuestos.length === 0 ? (
+                  <p className="text-white/60 text-xs">Aún no hay presupuestos generados.</p>
+                ) : (
+                  <ul className="space-y-2 text-xs sm:text-sm">
+                    {ultimosPresupuestos.map((p) => (
+                      <li
+                        key={p.id}
+                        className="flex items-center justify-between gap-2 border-b border-white/10 pb-1.5 last:border-b-0 last:pb-0"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">
+                            {p.fecha ?? new Date(p.created_at).toLocaleDateString('es-ES')}
+                          </p>
+                          <p className="text-white/60 text-[11px] sm:text-xs">
+                            Estado: {(p.estado ?? 'borrador').toString()}
+                          </p>
+                        </div>
+                        <Link
+                          href={`/presupuestos?id=${encodeURIComponent(p.id)}`}
+                          className="inline-flex items-center shrink-0 text-[11px] sm:text-xs text-[#ed8936] hover:text-[#f6ad55]"
+                        >
+                          Ver
+                          <ArrowRight className="w-3 h-3 ml-0.5" />
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
-            {loading ? (
-              <p className="text-white/60 text-sm">Cargando...</p>
-            ) : ultimosPresupuestos.length === 0 ? (
-              <p className="text-white/60 text-sm">Aún no hay presupuestos generados.</p>
-            ) : (
-              <ul className="space-y-3 text-sm">
-                {ultimosPresupuestos.map((p) => (
-                  <li
-                    key={p.id}
-                    className="flex items-center justify-between gap-2 border-b border-white/10 pb-2 last:border-b-0 last:pb-0"
-                  >
-                    <div>
-                      <p className="font-medium">
-                        {p.fecha ?? new Date(p.created_at).toLocaleDateString('es-ES')}
-                      </p>
-                      <p className="text-white/60 text-xs">
-                        Estado: {(p.estado ?? 'borrador').toString()}
-                      </p>
-                    </div>
-                    <Link
-                      href={`/presupuestos?id=${encodeURIComponent(p.id)}`}
-                      className="inline-flex items-center text-xs text-[#ed8936] hover:text-[#f6ad55]"
-                    >
-                      Ver
-                      <ArrowRight className="w-3 h-3 ml-1" />
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
 
-          <button
-            type="button"
-            onClick={abrirModalAgenda}
-            className="bg-[#111827] border border-white/10 rounded-xl p-5 w-full text-left cursor-pointer transition-all hover:border-[#ed8936]/55 hover:ring-1 hover:ring-[#ed8936]/25 focus:outline-none focus:ring-2 focus:ring-[#ed8936]/40 group"
-          >
-            <div className="flex items-center justify-between mb-3 gap-2">
-              <h2 className="text-sm font-semibold text-white/80 uppercase tracking-wide group-hover:text-white">
-                Agenda
-              </h2>
-              <span
-                className="text-xs font-medium text-[#ed8936] opacity-80 group-hover:opacity-100 shrink-0"
-                aria-hidden
-              >
-                Ver calendario →
-              </span>
+            {/* Columna: Agenda */}
+            <button
+              type="button"
+              onClick={abrirModalAgenda}
+              className="bg-[#111827] border border-white/10 rounded-xl p-3 sm:p-4 w-full min-h-0 max-h-[min(300px,40vh)] lg:max-h-none lg:h-[340px] text-left cursor-pointer transition-all hover:border-[#ed8936]/55 hover:ring-1 hover:ring-[#ed8936]/25 focus:outline-none focus:ring-2 focus:ring-[#ed8936]/40 group flex flex-col"
+            >
+              <div className="flex items-center justify-between gap-2 shrink-0 mb-2">
+                <h3 className="text-sm font-semibold text-white/80 uppercase tracking-wide group-hover:text-white">
+                  Agenda
+                </h3>
+                <span
+                  className="text-[11px] sm:text-xs font-medium text-[#ed8936] opacity-80 group-hover:opacity-100 shrink-0"
+                  aria-hidden
+                >
+                  Ver calendario →
+                </span>
+              </div>
+              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+                {loading ? (
+                  <p className="text-white/60 text-xs">Cargando...</p>
+                ) : agendaEventos.length === 0 ? (
+                  <p className="text-white/60 text-xs">Sin eventos próximos</p>
+                ) : (
+                  <ul className="space-y-2 text-xs sm:text-sm">
+                    {agendaEventos.map((ev) => {
+                      const [y, mo, d] = ev.fecha.split('-').map(Number);
+                      const fechaLabel = Number.isFinite(y) && Number.isFinite(mo) && Number.isFinite(d)
+                        ? new Date(y, mo - 1, d).toLocaleDateString('es-ES', {
+                            weekday: 'short',
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric',
+                          })
+                        : ev.fecha;
+                      return (
+                        <li
+                          key={ev.id}
+                          className="flex items-start justify-between gap-2 border-b border-white/10 pb-1.5 last:border-b-0 last:pb-0"
+                        >
+                          <div className="min-w-0">
+                            <p className="font-medium leading-snug">{ev.titulo}</p>
+                            <p className="text-white/60 text-[11px] sm:text-xs">
+                              {fechaLabel}
+                              {ev.hora ? ` · ${ev.hora}` : ''}
+                            </p>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            </button>
+
+            {/* Columna: Últimos emails */}
+            <div className="bg-[#111827] border border-white/10 rounded-xl p-3 sm:p-4 flex flex-col min-h-0 max-h-[min(300px,40vh)] lg:max-h-none lg:h-[340px]">
+              <div className="flex items-center justify-between shrink-0 mb-2">
+                <h3 className="text-sm font-semibold text-white/80 uppercase tracking-wide">
+                  Últimos emails
+                </h3>
+              </div>
+              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+                {!gmailConectado ? (
+                  <p className="text-white/70 text-xs leading-snug">
+                    Conecta Gmail desde el menú superior para ver la bandeja de entrada.
+                  </p>
+                ) : emailsLoading ? (
+                  <p className="text-white/60 text-xs">Cargando correos…</p>
+                ) : emailsError ? (
+                  <p className="text-red-200/95 text-xs leading-snug">{emailsError}</p>
+                ) : emailsRecientes.length === 0 ? (
+                  <p className="text-white/60 text-xs">No hay emails recientes.</p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {emailsRecientes.map((email, idx) => (
+                      <li
+                        key={`${email.fechaIso ?? ''}-${idx}`}
+                        className="border-b border-white/10 pb-1.5 last:border-b-0 last:pb-0"
+                      >
+                        <div className="flex items-start gap-1.5">
+                          {email.noLeido ? (
+                            <span
+                              className="mt-1 size-1.5 shrink-0 rounded-full bg-[#ed8936]"
+                              title="No leído"
+                              aria-hidden
+                            />
+                          ) : (
+                            <span className="mt-1 size-1.5 shrink-0" aria-hidden />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p
+                              className={`text-[11px] sm:text-xs leading-tight truncate ${
+                                email.noLeido ? 'font-semibold text-white' : 'font-medium text-white/90'
+                              }`}
+                            >
+                              {email.remitente?.trim() || '(Sin remitente)'}
+                            </p>
+                            <p
+                              className={`text-[11px] sm:text-xs leading-tight line-clamp-2 mt-0.5 ${
+                                email.noLeido ? 'font-semibold text-white' : 'text-white/80'
+                              }`}
+                            >
+                              {email.asunto?.trim() || '(Sin asunto)'}
+                            </p>
+                            <p className="text-[10px] sm:text-[11px] text-[#ed8936]/90 mt-0.5 tabular-nums">
+                              {formatEmailFecha(email.fechaIso)}
+                            </p>
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="shrink-0 mt-2 pt-2 border-t border-white/10">
+                <Link
+                  href="#"
+                  className="text-xs sm:text-sm font-medium text-[#ed8936] hover:text-[#f6ad55] transition-colors"
+                >
+                  Ver todos
+                </Link>
+              </div>
             </div>
-            {loading ? (
-              <p className="text-white/60 text-sm">Cargando...</p>
-            ) : agendaEventos.length === 0 ? (
-              <p className="text-white/60 text-sm">Sin eventos próximos</p>
-            ) : (
-              <ul className="space-y-3 text-sm">
-                {agendaEventos.map((ev) => {
-                  const [y, mo, d] = ev.fecha.split('-').map(Number);
-                  const fechaLabel = Number.isFinite(y) && Number.isFinite(mo) && Number.isFinite(d)
-                    ? new Date(y, mo - 1, d).toLocaleDateString('es-ES', {
-                        weekday: 'short',
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                      })
-                    : ev.fecha;
-                  return (
-                    <li
-                      key={ev.id}
-                      className="flex items-start justify-between gap-2 border-b border-white/10 pb-2 last:border-b-0 last:pb-0 pointer-events-none"
-                    >
-                      <div>
-                        <p className="font-medium">{ev.titulo}</p>
-                        <p className="text-white/60 text-xs">
-                          {fechaLabel}
-                          {ev.hora ? ` · ${ev.hora}` : ''}
-                        </p>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </button>
+          </div>
         </section>
 
         {modalAgendaAbierto && (
