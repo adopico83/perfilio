@@ -36,6 +36,49 @@ function parseEstadoDoc(raw: unknown): EstadoDoc | null {
   return (ESTADOS_DOC as readonly string[]).includes(s) ? (s as EstadoDoc) : null;
 }
 
+const IMAGEN_VISION_MIMES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+const MAX_IMAGEN_DECODED_BYTES = 4 * 1024 * 1024;
+
+/** Devuelve data URL lista para OpenAI vision, o null si es inválida o demasiado grande. */
+function normalizarImagenVision(
+  imagen: unknown,
+  imagenMime: unknown
+): string | null {
+  if (imagen == null || typeof imagen !== 'string') return null;
+  const s = imagen.trim();
+  if (!s) return null;
+
+  let mime: string;
+  let b64: string;
+  const marker = ';base64,';
+
+  if (s.startsWith('data:image/')) {
+    const mi = s.indexOf(marker);
+    if (mi === -1) return null;
+    mime = s.slice('data:'.length, mi).toLowerCase();
+    if (mime === 'image/jpg') mime = 'image/jpeg';
+    if (!IMAGEN_VISION_MIMES.has(mime)) return null;
+    b64 = s.slice(mi + marker.length).replace(/\s/g, '');
+  } else {
+    const rawMime =
+      typeof imagenMime === 'string' && imagenMime.trim()
+        ? imagenMime.trim().toLowerCase()
+        : 'image/jpeg';
+    mime = rawMime === 'image/jpg' ? 'image/jpeg' : rawMime;
+    if (!IMAGEN_VISION_MIMES.has(mime)) return null;
+    b64 = s.replace(/\s/g, '');
+  }
+
+  try {
+    const buf = Buffer.from(b64, 'base64');
+    if (buf.length === 0 || buf.length > MAX_IMAGEN_DECODED_BYTES) return null;
+  } catch {
+    return null;
+  }
+
+  return `data:${mime};base64,${b64}`;
+}
+
 const TIPOS_MEDICION = ['superficie', 'volumen', 'lineal', 'perimetro'] as const;
 type TipoMedicion = (typeof TIPOS_MEDICION)[number];
 
@@ -204,11 +247,17 @@ function calcularMedicionObra(toolArgs: Record<string, unknown>):
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { mensaje, business_id, historial } = body;
+    const { mensaje, business_id, historial, imagen, imagen_mime } = body;
 
-    if (!mensaje || typeof mensaje !== 'string') {
+    const mensajeTrim = typeof mensaje === 'string' ? mensaje.trim() : '';
+    const imagenDataUrl = normalizarImagenVision(imagen, imagen_mime);
+
+    if (!mensajeTrim && !imagenDataUrl) {
       return NextResponse.json(
-        { error: 'mensaje es requerido y debe ser un string' },
+        {
+          error:
+            'Envía un mensaje de texto o una imagen válida (base64 o data URL image/*)',
+        },
         { status: 400 }
       );
     }
@@ -349,6 +398,12 @@ Envío de emails (Gmail):
 Medidas y cálculos de obra:
 - Cuando el usuario mencione medidas, dimensiones, metros cuadrados/cúbicos, perímetros, metros lineales o cálculos de obra, DEBES usar la herramienta "calcular_medicion". Extrae del texto del usuario los números (largo, ancho, alto si aplica), el tipo de cálculo (superficie, volumen, lineal, perimetro), huecos a restar en superficies si los indica, y la unidad (m o cm).
 - NUNCA calcules tú en texto los totales de obra: siempre llama primero a "calcular_medicion" y basa la respuesta en el resultado que devuelve la herramienta (total, unidad, desglose).
+
+Tickets y facturas (imagen adjunta / OCR):
+- Si el mensaje incluye una imagen de ticket o factura, analízala con visión y extrae: proveedor o comercio, importe sin IVA (base imponible), cuantía de IVA, importe total, fecha del documento (YYYY-MM-DD si es posible) y una breve descripción del gasto.
+- En el MISMO turno en el que recibes por primera vez esa imagen en el mensaje del usuario, NO llames a "registrar_gasto_ticket". Primero muestra claramente en texto los datos que hayas podido leer y termina preguntando si debe registrar el gasto (p. ej. "¿Registro este gasto?").
+- Llama a "registrar_gasto_ticket" solo cuando el usuario confirme de forma explícita en un mensaje posterior (sí, adelante, regístralo, confirmo, vale…). Si corrige cifras o datos, refleja los valores acordados en la tool y, si hace falta, vuelve a pedir confirmación antes de registrar.
+- Los importes deben ser números coherentes (importe sin IVA, IVA e importe total); si algo no se lee bien, dilo y pide aclaración en lugar de inventar.
 
 Fecha actual: ${fechaActual}
 Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaContextoPrimerMensaje}`;
@@ -775,13 +830,59 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
           },
         },
       },
+      {
+        type: 'function',
+        function: {
+          name: 'registrar_gasto_ticket',
+          description:
+            'Registra en la base de datos un gasto extraído de un ticket o factura. Solo después de que el usuario haya confirmado explícitamente tras tu resumen y la pregunta "¿Registro este gasto?".',
+          parameters: {
+            type: 'object',
+            properties: {
+              proveedor: { type: 'string', description: 'Nombre del comercio o proveedor' },
+              importe: {
+                type: 'number',
+                description: 'Importe sin IVA (base imponible)',
+              },
+              iva: { type: 'number', description: 'Cuantía del IVA en la misma moneda' },
+              importe_total: { type: 'number', description: 'Total con IVA' },
+              fecha: {
+                type: 'string',
+                description: 'Fecha del documento en formato YYYY-MM-DD',
+              },
+              descripcion: {
+                type: 'string',
+                description: 'Resumen breve del concepto del gasto (opcional)',
+              },
+            },
+            required: ['proveedor', 'importe', 'iva', 'importe_total', 'fecha'],
+            additionalProperties: false,
+          },
+        },
+      },
     ];
+
+    const textoUsuario =
+      mensajeTrim ||
+      '(El usuario adjuntó una imagen, posiblemente un ticket o factura. Analízala e indica qué datos ves.)';
+
+    const userContent: OpenAI.Chat.ChatCompletionContentPart[] = [
+      { type: 'text', text: textoUsuario },
+    ];
+    if (imagenDataUrl) {
+      userContent.push({
+        type: 'image_url',
+        image_url: { url: imagenDataUrl, detail: 'auto' },
+      });
+    }
 
     let messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
       ...historialValido.map((m) => ({ role: m.role, content: m.content })),
-      { role: 'user', content: mensaje },
+      { role: 'user', content: userContent },
     ];
+
+    const maxTokensAgente = imagenDataUrl ? 1600 : 800;
 
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -789,7 +890,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
       tools,
       tool_choice: 'auto',
       temperature: 0.7,
-      max_tokens: 800,
+      max_tokens: maxTokensAgente,
     });
 
     const firstMessage = completion.choices[0]?.message;
@@ -1456,6 +1557,55 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         case 'calcular_medicion': {
           return calcularMedicionObra(toolArgs);
         }
+        case 'registrar_gasto_ticket': {
+          const proveedor = String(toolArgs.proveedor ?? '').trim();
+          const importe = Number(toolArgs.importe);
+          const iva = Number(toolArgs.iva);
+          const importeTotal = Number(toolArgs.importe_total);
+          const fecha = String(toolArgs.fecha ?? '').trim();
+          const descripcion = String(toolArgs.descripcion ?? '').trim();
+
+          if (!proveedor) {
+            return { error: 'El proveedor es obligatorio' };
+          }
+          if (
+            !Number.isFinite(importe) ||
+            !Number.isFinite(iva) ||
+            !Number.isFinite(importeTotal)
+          ) {
+            return { error: 'importe, iva e importe_total deben ser números válidos' };
+          }
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+            return { error: 'La fecha debe tener formato YYYY-MM-DD' };
+          }
+
+          const businessIdGasto =
+            typeof business_id === 'string'
+              ? business_id
+              : String(business_id ?? '');
+          if (!businessIdGasto) {
+            return { error: 'business_id es requerido' };
+          }
+
+          const { data: row, error } = await supabase
+            .from('gastos')
+            .insert({
+              business_id: businessIdGasto,
+              proveedor,
+              importe,
+              iva,
+              importe_total: importeTotal,
+              fecha,
+              descripcion: descripcion.length > 0 ? descripcion : null,
+            })
+            .select('id')
+            .single();
+
+          if (error || !row?.id) {
+            return { error: error?.message ?? 'No se pudo registrar el gasto' };
+          }
+          return { ok: true, id: row.id as string };
+        }
         default:
           return { error: `Tool no soportada: ${toolName}` };
       }
@@ -1523,7 +1673,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         tools,
         tool_choice: isLastToolRound ? 'none' : 'auto',
         temperature: 0.7,
-        max_tokens: 800,
+        max_tokens: maxTokensAgente,
       });
 
       assistantMessage = nextCompletion.choices[0]?.message;

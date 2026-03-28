@@ -106,7 +106,7 @@ describe('POST /api/agente', () => {
     POST = mod.POST;
   });
 
-  it('devuelve 400 si falta "mensaje"', async () => {
+  it('devuelve 400 si faltan mensaje e imagen', async () => {
     const req = new NextRequest('http://localhost/api/agente', {
       method: 'POST',
       body: JSON.stringify({ business_id: 'biz1', historial: [] }),
@@ -116,7 +116,44 @@ describe('POST /api/agente', () => {
     const res = await POST(req);
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toContain('mensaje');
+    expect(json.error).toMatch(/mensaje|imagen/i);
+  });
+
+  /** JPEG 1×1 válido (data URL) */
+  const tinyJpegDataUrl =
+    'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAb/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCwAA8A/9k=';
+
+  it('acepta solo imagen válida sin texto', async () => {
+    createMock.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: 'Veo el ticket.',
+          },
+        },
+      ],
+    });
+
+    const req = new NextRequest('http://localhost/api/agente', {
+      method: 'POST',
+      body: JSON.stringify({
+        mensaje: '',
+        business_id: 'biz1',
+        historial: [],
+        imagen: tinyJpegDataUrl,
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    const firstCall = createMock.mock.calls[0]?.[0] as {
+      messages: Array<{ role: string; content?: unknown }>;
+    };
+    const userMsg = firstCall.messages.filter((m) => m.role === 'user').pop();
+    expect(Array.isArray(userMsg?.content)).toBe(true);
+    const parts = userMsg?.content as Array<{ type?: string }>;
+    expect(parts.some((p) => p.type === 'image_url')).toBe(true);
   });
 
   it('devuelve 400 si falta business_id', async () => {

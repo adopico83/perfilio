@@ -6,12 +6,13 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type MouseEvent,
   type PointerEvent,
   type TouchEvent,
 } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
-import { Loader2, Pause } from 'lucide-react';
+import { Loader2, Paperclip, Pause, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 interface BusinessProfile {
@@ -35,7 +36,45 @@ interface ChatMessage {
   id: string;
   role: MessageRole;
   content: string;
+  /** Data URL solo para mostrar mensajes de usuario con imagen adjunta */
+  imagenPreview?: string;
   emailPendiente?: EmailPendienteEnMensaje;
+}
+
+/** Reduce tamaño para el body JSON (JPEG) antes de enviar al agente. */
+async function comprimirImagenParaAgente(file: File): Promise<string> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result ?? ''));
+    r.onerror = () => reject(new Error('read'));
+    r.readAsDataURL(file);
+  });
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error('img'));
+    el.src = dataUrl;
+  });
+  const maxSide = 1600;
+  let w = img.naturalWidth;
+  let h = img.naturalHeight;
+  if (w <= 0 || h <= 0) throw new Error('dims');
+  if (w > maxSide || h > maxSide) {
+    if (w >= h) {
+      h = Math.round((h * maxSide) / w);
+      w = maxSide;
+    } else {
+      w = Math.round((w * maxSide) / h);
+      h = maxSide;
+    }
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('ctx');
+  ctx.drawImage(img, 0, 0, w, h);
+  return canvas.toDataURL('image/jpeg', 0.82);
 }
 
 function parseEmailPendienteApi(
@@ -239,8 +278,10 @@ export default function AgentSidebar() {
   const [grabando, setGrabando] = useState(false);
   const [error, setError] = useState('');
   const [emailSendLoadingId, setEmailSendLoadingId] = useState<string | null>(null);
+  const [imagenPendiente, setImagenPendiente] = useState<string | null>(null);
 
   const listRef = useRef<HTMLDivElement | null>(null);
+  const fileInputImagenRef = useRef<HTMLInputElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<BlobPart[]>([]);
@@ -473,12 +514,16 @@ export default function AgentSidebar() {
 
   const handleEnviarTexto = async (texto: string) => {
     const textoTrim = texto.trim();
-    if (!selectedId || !textoTrim) {
-      setError('Escribe un mensaje para el agente.');
+    const imagenEnviar = imagenPendiente;
+    if (!selectedId || (!textoTrim && !imagenEnviar)) {
+      setError('Escribe un mensaje o adjunta una imagen del ticket.');
       return;
     }
     setError('');
     setMensaje('');
+    setImagenPendiente(null);
+    const contenidoUsuario =
+      textoTrim || '📎 Imagen adjunta (ticket / factura)';
     setHistorial((prev) => [
       ...prev,
       {
@@ -487,7 +532,8 @@ export default function AgentSidebar() {
             ? crypto.randomUUID()
             : `u_${Date.now()}`,
         role: 'user',
-        content: textoTrim,
+        content: contenidoUsuario,
+        imagenPreview: imagenEnviar ?? undefined,
       },
     ]);
     setLoading(true);
@@ -504,6 +550,7 @@ export default function AgentSidebar() {
           mensaje: textoTrim,
           business_id: selectedId,
           historial,
+          ...(imagenEnviar ? { imagen: imagenEnviar } : {}),
         }),
       });
       const data = await res.json();
@@ -552,7 +599,9 @@ export default function AgentSidebar() {
           user_id: currentUserId,
           sender_email: currentUserEmail,
           role: 'user',
-          content: textoTrim,
+          content: imagenEnviar
+            ? `${textoTrim ? `${textoTrim}\n` : ''}[Imagen adjunta: ticket o factura]`
+            : textoTrim,
         },
         {
           conversation_id: activeConversationId,
@@ -778,7 +827,25 @@ export default function AgentSidebar() {
   const nuevaConversacion = () => {
     setHistorial([]);
     setError('');
+    setImagenPendiente(null);
     setConversationId(generateConversationId());
+  };
+
+  const handleSeleccionarImagen = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setError('Selecciona un archivo de imagen.');
+      return;
+    }
+    setError('');
+    try {
+      const dataUrl = await comprimirImagenParaAgente(file);
+      setImagenPendiente(dataUrl);
+    } catch {
+      setError('No se pudo cargar la imagen. Prueba con otra foto.');
+    }
   };
 
   /** iOS/Safari: onTouchEnd + preventDefault evita que el click sintético falle o se pierda detrás de capas. */
@@ -794,6 +861,9 @@ export default function AgentSidebar() {
     loading &&
     historial.length > 0 &&
     historial[historial.length - 1]?.role === 'user';
+
+  const puedeEnviarMensaje =
+    Boolean(selectedId) && (mensaje.trim().length > 0 || Boolean(imagenPendiente));
 
   const Panel = (
     <aside
@@ -845,6 +915,13 @@ export default function AgentSidebar() {
                   msg.role === 'user' ? (
                     <div key={msg.id} className="flex justify-end">
                       <div className="max-w-[90%] px-3 py-2 rounded-xl rounded-br-md bg-[#ed8936] text-white">
+                        {msg.imagenPreview ? (
+                          <img
+                            src={msg.imagenPreview}
+                            alt=""
+                            className="mb-2 max-h-28 w-auto max-w-full rounded-md border border-white/25 object-cover"
+                          />
+                        ) : null}
                         <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
                       </div>
                     </div>
@@ -921,6 +998,26 @@ export default function AgentSidebar() {
                 {error}
               </div>
             )}
+            {imagenPendiente ? (
+              <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 p-2">
+                <img
+                  src={imagenPendiente}
+                  alt=""
+                  className="h-14 w-14 shrink-0 rounded-md border border-white/10 object-cover"
+                />
+                <p className="flex-1 min-w-0 text-xs text-white/70">
+                  Vista previa — se enviará con el próximo mensaje
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setImagenPendiente(null)}
+                  className="shrink-0 p-2 rounded-lg bg-white/10 hover:bg-white/15 border border-white/10 touch-manipulation"
+                  aria-label="Quitar imagen"
+                >
+                  <X className="size-4 text-white" aria-hidden />
+                </button>
+              </div>
+            ) : null}
             <textarea
               value={mensaje}
               onChange={(e) => setMensaje(e.target.value)}
@@ -935,13 +1032,22 @@ export default function AgentSidebar() {
               className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/40 focus:ring-2 focus:ring-[#ed8936] focus:border-[#ed8936] outline-none resize-none"
               disabled={loading}
             />
-            <div className="grid grid-cols-[1fr_44px] gap-2">
+            <div className="flex gap-2 items-stretch min-h-[44px]">
+              <button
+                type="button"
+                aria-label="Adjuntar imagen de ticket o factura"
+                disabled={loading || grabando || !selectedId}
+                onClick={() => fileInputImagenRef.current?.click()}
+                className="w-11 shrink-0 flex items-center justify-center rounded-lg border border-white/10 bg-white/10 hover:bg-white/15 text-white transition-colors disabled:opacity-50 touch-manipulation"
+              >
+                <Paperclip className="size-5" aria-hidden />
+              </button>
               <button
                 type="button"
                 onClick={handleEnviar}
-                {...touchActivate(handleEnviar, loading || grabando || !selectedId || !mensaje.trim())}
-                disabled={loading || grabando || !selectedId || !mensaje.trim()}
-                className="w-full py-2.5 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
+                {...touchActivate(handleEnviar, loading || grabando || !puedeEnviarMensaje)}
+                disabled={loading || grabando || !puedeEnviarMensaje}
+                className="flex-1 min-w-0 py-2.5 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
               >
                 {loading ? 'Enviando…' : 'Enviar'}
               </button>
@@ -953,7 +1059,7 @@ export default function AgentSidebar() {
                 onPointerDown={handleMicPointerDown(loading || !selectedId)}
                 onClick={handleMicClick(loading || !selectedId)}
                 className={[
-                  'h-full py-2.5 rounded-lg border transition-colors touch-manipulation',
+                  'w-11 shrink-0 py-2.5 rounded-lg border transition-colors touch-manipulation flex items-center justify-center',
                   grabando
                     ? 'bg-red-600 hover:bg-red-700 border-red-400/60 text-white animate-pulse shadow-[0_0_0_3px_rgba(248,113,113,0.2)]'
                     : 'bg-white/10 hover:bg-white/15 border-white/10 text-white',
@@ -970,6 +1076,14 @@ export default function AgentSidebar() {
 
   return (
     <>
+      <input
+        ref={fileInputImagenRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        aria-hidden
+        onChange={(e) => void handleSeleccionarImagen(e)}
+      />
       <audio
         ref={audioRef}
         className="hidden"
@@ -1036,6 +1150,13 @@ export default function AgentSidebar() {
                         msg.role === 'user' ? (
                           <div key={msg.id} className="flex justify-end">
                             <div className="max-w-[90%] px-3 py-2 rounded-xl rounded-br-md bg-[#ed8936] text-white">
+                              {msg.imagenPreview ? (
+                                <img
+                                  src={msg.imagenPreview}
+                                  alt=""
+                                  className="mb-2 max-h-28 w-auto max-w-full rounded-md border border-white/25 object-cover"
+                                />
+                              ) : null}
                               <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
                             </div>
                           </div>
@@ -1105,6 +1226,26 @@ export default function AgentSidebar() {
                       {error}
                     </div>
                   )}
+                  {imagenPendiente ? (
+                    <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 p-2">
+                      <img
+                        src={imagenPendiente}
+                        alt=""
+                        className="h-14 w-14 shrink-0 rounded-md border border-white/10 object-cover"
+                      />
+                      <p className="flex-1 min-w-0 text-xs text-white/70">
+                        Vista previa — se enviará con el próximo mensaje
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setImagenPendiente(null)}
+                        className="shrink-0 p-2 rounded-lg bg-white/10 hover:bg-white/15 border border-white/10 touch-manipulation"
+                        aria-label="Quitar imagen"
+                      >
+                        <X className="size-4 text-white" aria-hidden />
+                      </button>
+                    </div>
+                  ) : null}
                   <textarea
                     value={mensaje}
                     onChange={(e) => setMensaje(e.target.value)}
@@ -1119,12 +1260,21 @@ export default function AgentSidebar() {
                     className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/40 focus:ring-2 focus:ring-[#ed8936] focus:border-[#ed8936] outline-none resize-none"
                     disabled={loading}
                   />
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-4 gap-2">
+                    <button
+                      type="button"
+                      aria-label="Adjuntar imagen"
+                      disabled={loading || grabando || !selectedId}
+                      onClick={() => fileInputImagenRef.current?.click()}
+                      className="py-2 rounded-lg border border-white/10 bg-white/10 hover:bg-white/15 text-white transition-colors disabled:opacity-50 touch-manipulation flex items-center justify-center"
+                    >
+                      <Paperclip className="size-5" aria-hidden />
+                    </button>
                     <button
                       type="button"
                       onClick={nuevaConversacion}
                       {...touchActivate(nuevaConversacion)}
-                      className="py-2 bg-white/10 hover:bg-white/15 text-white font-semibold rounded-lg border border-white/10 transition-colors touch-manipulation"
+                      className="py-2 bg-white/10 hover:bg-white/15 text-white font-semibold rounded-lg border border-white/10 transition-colors touch-manipulation text-xs"
                     >
                       Nuevo
                     </button>
@@ -1148,9 +1298,9 @@ export default function AgentSidebar() {
                     <button
                       type="button"
                       onClick={handleEnviar}
-                      {...touchActivate(handleEnviar, loading || grabando || !selectedId || !mensaje.trim())}
-                      disabled={loading || grabando || !selectedId || !mensaje.trim()}
-                      className="py-2 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
+                      {...touchActivate(handleEnviar, loading || grabando || !puedeEnviarMensaje)}
+                      disabled={loading || grabando || !puedeEnviarMensaje}
+                      className="py-2 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation text-sm"
                     >
                       {loading ? '…' : 'Enviar'}
                     </button>
