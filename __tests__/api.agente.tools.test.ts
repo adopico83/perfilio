@@ -455,4 +455,131 @@ describe('POST /api/agente — tools', () => {
       expect(parsed.error).toContain('Faltan parámetros');
     });
   });
+
+  describe('calcular_medicion', () => {
+    it('superficie en m con huecos', async () => {
+      const args = JSON.stringify({
+        tipo: 'superficie',
+        dimensiones: [{ largo: 5, ancho: 4 }],
+        huecos: [{ cantidad: 2, largo: 1, ancho: 1 }],
+        unidad: 'm',
+        descripcion: 'Sala',
+      });
+      const res = await postWithTool('calcular_medicion', {}, args);
+      expect(res.status).toBe(200);
+      const secondCall = createMock.mock.calls[1]?.[0] as {
+        messages: Array<{ role: string; content?: string }>;
+      };
+      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
+      const parsed = JSON.parse(toolMsg!.content as string) as {
+        total: number;
+        unidad: string;
+        descripcion?: string;
+        desglose: string[];
+      };
+      expect(parsed.unidad).toBe('m²');
+      expect(parsed.total).toBeCloseTo(18, 5);
+      expect(parsed.descripcion).toBe('Sala');
+      expect(parsed.desglose.some((l) => l.includes('Total neto'))).toBe(true);
+    });
+
+    it('convierte cm a m²', async () => {
+      const args = JSON.stringify({
+        tipo: 'superficie',
+        dimensiones: [{ largo: 100, ancho: 100 }],
+        unidad: 'cm',
+      });
+      const res = await postWithTool('calcular_medicion', {}, args);
+      expect(res.status).toBe(200);
+      const secondCall = createMock.mock.calls[1]?.[0] as {
+        messages: Array<{ role: string; content?: string }>;
+      };
+      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
+      const parsed = JSON.parse(toolMsg!.content as string) as { total: number; unidad: string };
+      expect(parsed.unidad).toBe('m²');
+      expect(parsed.total).toBeCloseTo(1, 5);
+    });
+
+    it('volumen en m³', async () => {
+      const resVol = await postWithTool(
+        'calcular_medicion',
+        {},
+        JSON.stringify({
+          tipo: 'volumen',
+          dimensiones: [{ largo: 2, ancho: 3, alto: 1 }],
+          unidad: 'm',
+        })
+      );
+      expect(resVol.status).toBe(200);
+      const secondCall = createMock.mock.calls[1]?.[0] as {
+        messages: Array<{ role: string; content?: string }>;
+      };
+      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
+      const parsed = JSON.parse(toolMsg!.content as string) as { total: number; unidad: string };
+      expect(parsed.unidad).toBe('m³');
+      expect(parsed.total).toBeCloseTo(6, 5);
+    });
+
+    it('perímetro en ml (2×(largo+ancho))', async () => {
+      const res = await postWithTool(
+        'calcular_medicion',
+        {},
+        JSON.stringify({
+          tipo: 'perimetro',
+          dimensiones: [{ largo: 2, ancho: 3 }],
+          unidad: 'm',
+        })
+      );
+      expect(res.status).toBe(200);
+      const secondCall = createMock.mock.calls[1]?.[0] as {
+        messages: Array<{ role: string; content?: string }>;
+      };
+      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
+      const parsed = JSON.parse(toolMsg!.content as string) as { total: number; unidad: string };
+      expect(parsed.unidad).toBe('ml');
+      expect(parsed.total).toBeCloseTo(10, 5);
+    });
+
+    it('lineal suma largos', async () => {
+      const res = await postWithTool(
+        'calcular_medicion',
+        {},
+        JSON.stringify({
+          tipo: 'lineal',
+          dimensiones: [
+            { largo: 2, ancho: 0 },
+            { largo: 3, ancho: 0 },
+          ],
+          unidad: 'm',
+        })
+      );
+      expect(res.status).toBe(200);
+      const secondCall = createMock.mock.calls[1]?.[0] as {
+        messages: Array<{ role: string; content?: string }>;
+      };
+      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
+      const parsed = JSON.parse(toolMsg!.content as string) as { total: number; unidad: string };
+      expect(parsed.unidad).toBe('ml');
+      expect(parsed.total).toBeCloseTo(5, 5);
+    });
+
+    it('devuelve error si volumen sin alto', async () => {
+      const res = await postWithTool(
+        'calcular_medicion',
+        {},
+        JSON.stringify({
+          tipo: 'volumen',
+          dimensiones: [{ largo: 1, ancho: 1 }],
+          unidad: 'm',
+        })
+      );
+      expect(res.status).toBe(200);
+      const secondCall = createMock.mock.calls[1]?.[0] as {
+        messages: Array<{ role: string; content?: string }>;
+      };
+      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
+      const parsed = JSON.parse(toolMsg!.content as string) as { error?: string };
+      expect(parsed.error).toContain('alto');
+    });
+  });
 });
