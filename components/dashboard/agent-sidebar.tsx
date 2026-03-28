@@ -22,10 +22,110 @@ interface BusinessProfile {
 
 type MessageRole = 'user' | 'assistant';
 
+type EmailPendienteEstado = 'pendiente' | 'enviado' | 'cancelado';
+
+interface EmailPendienteEnMensaje {
+  para: string;
+  asunto: string;
+  cuerpo: string;
+  estado: EmailPendienteEstado;
+}
+
 interface ChatMessage {
   id: string;
   role: MessageRole;
   content: string;
+  emailPendiente?: EmailPendienteEnMensaje;
+}
+
+function parseEmailPendienteApi(
+  raw: unknown
+): { para: string; asunto: string; cuerpo: string } | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.para !== 'string' || typeof o.asunto !== 'string' || typeof o.cuerpo !== 'string') {
+    return null;
+  }
+  const para = o.para.trim();
+  const asunto = o.asunto.trim();
+  const cuerpo = o.cuerpo.trim();
+  if (!para || !asunto || !cuerpo) return null;
+  return { para, asunto, cuerpo };
+}
+
+function EmailAprobacionCard({
+  email,
+  sending,
+  onEnviar,
+  onCancelar,
+}: {
+  email: EmailPendienteEnMensaje;
+  sending: boolean;
+  onEnviar: () => void;
+  onCancelar: () => void;
+}) {
+  if (email.estado === 'enviado') {
+    return (
+      <p className="text-xs text-green-400 mt-1 font-medium" role="status">
+        Email enviado ✓
+      </p>
+    );
+  }
+  if (email.estado === 'cancelado') {
+    return (
+      <p className="text-xs text-white/65 mt-1" role="status">
+        Email cancelado
+      </p>
+    );
+  }
+  return (
+    <div className="mt-2 w-full rounded-lg border border-[#ed8936]/40 bg-[#1a365d]/90 p-3 space-y-2 text-left">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-[#ed8936]/90">
+        Borrador — pendiente de tu aprobación
+      </p>
+      <div className="space-y-1.5 text-xs">
+        <div>
+          <span className="text-white/50">Para: </span>
+          <span className="text-white break-all">{email.para}</span>
+        </div>
+        <div>
+          <span className="text-white/50">Asunto: </span>
+          <span className="text-white font-medium">{email.asunto}</span>
+        </div>
+        <div>
+          <p className="text-white/50 mb-0.5">Cuerpo:</p>
+          <pre className="whitespace-pre-wrap break-words text-white/90 text-[11px] leading-snug bg-black/20 rounded p-2 border border-white/10 max-h-36 overflow-y-auto">
+            {email.cuerpo}
+          </pre>
+        </div>
+      </div>
+      <div className="flex gap-2 pt-1">
+        <button
+          type="button"
+          onClick={onEnviar}
+          disabled={sending}
+          className="flex-1 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-semibold disabled:opacity-50 touch-manipulation inline-flex items-center justify-center gap-1"
+        >
+          {sending ? (
+            <>
+              <Loader2 className="size-3.5 animate-spin shrink-0" aria-hidden />
+              Enviando…
+            </>
+          ) : (
+            'Enviar ✓'
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={onCancelar}
+          disabled={sending}
+          className="flex-1 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-semibold disabled:opacity-50 touch-manipulation"
+        >
+          Cancelar ✗
+        </button>
+      </div>
+    </div>
+  );
 }
 
 /** Texto legible para TTS a partir del markdown del agente. */
@@ -138,6 +238,7 @@ export default function AgentSidebar() {
   const [loading, setLoading] = useState(false);
   const [grabando, setGrabando] = useState(false);
   const [error, setError] = useState('');
+  const [emailSendLoadingId, setEmailSendLoadingId] = useState<string | null>(null);
 
   const listRef = useRef<HTMLDivElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -159,6 +260,54 @@ export default function AgentSidebar() {
       URL.revokeObjectURL(ttsBlobUrlRef.current);
       ttsBlobUrlRef.current = null;
     }
+  }, []);
+
+  const handleEnviarEmailAprobado = useCallback(
+    async (
+      messageId: string,
+      ep: { para: string; asunto: string; cuerpo: string }
+    ) => {
+      setEmailSendLoadingId(messageId);
+      setError('');
+      try {
+        const res = await fetch('/api/gmail/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            para: ep.para,
+            asunto: ep.asunto,
+            cuerpo: ep.cuerpo,
+          }),
+        });
+        const data = (await res.json()) as { error?: string };
+        if (!res.ok) {
+          setError(data.error ?? 'No se pudo enviar el email');
+          return;
+        }
+        setHistorial((prev) =>
+          prev.map((m) =>
+            m.id === messageId && m.emailPendiente
+              ? { ...m, emailPendiente: { ...m.emailPendiente, estado: 'enviado' } }
+              : m
+          )
+        );
+      } catch {
+        setError('Error de conexión al enviar el email');
+      } finally {
+        setEmailSendLoadingId(null);
+      }
+    },
+    []
+  );
+
+  const handleCancelarEmailAprobacion = useCallback((messageId: string) => {
+    setHistorial((prev) =>
+      prev.map((m) =>
+        m.id === messageId && m.emailPendiente?.estado === 'pendiente'
+          ? { ...m, emailPendiente: { ...m.emailPendiente, estado: 'cancelado' } }
+          : m
+      )
+    );
   }, []);
 
   const stopTts = useCallback(() => {
@@ -375,6 +524,9 @@ export default function AgentSidebar() {
       }
 
       const respuestaTexto = data.respuesta ?? '';
+      const epApi = parseEmailPendienteApi(
+        (data as { email_pendiente?: unknown }).email_pendiente
+      );
       setHistorial((prev) => [
         ...prev,
         {
@@ -384,6 +536,9 @@ export default function AgentSidebar() {
               : `a_${Date.now()}`,
           role: 'assistant',
           content: respuestaTexto,
+          emailPendiente: epApi
+            ? { ...epApi, estado: 'pendiente' as const }
+            : undefined,
         },
       ]);
 
@@ -694,46 +849,64 @@ export default function AgentSidebar() {
                       </div>
                     </div>
                   ) : (
-                    <div key={msg.id} className="flex justify-start gap-1.5 items-start">
-                      <div className="max-w-[min(90%,calc(100%-2.5rem))] px-3 py-2 rounded-xl rounded-bl-md bg-[#0f2744] text-white border border-white/10">
-                        <div className="text-sm leading-relaxed [&>*+*]:mt-2">
-                          <ReactMarkdown
-                            components={{
-                              p: ({ children }) => <p className="text-white">{children}</p>,
-                              strong: ({ children }) => (
-                                <strong className="text-[#ed8936] font-bold">{children}</strong>
-                              ),
-                              ul: ({ children }) => (
-                                <ul className="list-disc pl-6 space-y-1 text-white">{children}</ul>
-                              ),
-                              ol: ({ children }) => (
-                                <ol className="list-decimal pl-6 space-y-1 text-white">{children}</ol>
-                              ),
-                              li: ({ children }) => <li className="text-white">{children}</li>,
-                              h1: ({ children }) => (
-                                <h1 className="text-base font-bold text-white mt-2 mb-1">
-                                  {children}
-                                </h1>
-                              ),
-                              h2: ({ children }) => (
-                                <h2 className="text-sm font-bold text-white mt-2 mb-1">{children}</h2>
-                              ),
-                              h3: ({ children }) => (
-                                <h3 className="text-sm font-bold text-white mt-1 mb-1">{children}</h3>
-                              ),
-                            }}
-                          >
-                            {msg.content}
-                          </ReactMarkdown>
+                    <div key={msg.id} className="flex justify-start w-full">
+                      <div className="max-w-[min(90%,100%)] flex flex-col gap-0">
+                        <div className="flex gap-1.5 items-start">
+                          <div className="min-w-0 max-w-[min(90%,calc(100%-2.5rem))] px-3 py-2 rounded-xl rounded-bl-md bg-[#0f2744] text-white border border-white/10">
+                            <div className="text-sm leading-relaxed [&>*+*]:mt-2">
+                              <ReactMarkdown
+                                components={{
+                                  p: ({ children }) => <p className="text-white">{children}</p>,
+                                  strong: ({ children }) => (
+                                    <strong className="text-[#ed8936] font-bold">{children}</strong>
+                                  ),
+                                  ul: ({ children }) => (
+                                    <ul className="list-disc pl-6 space-y-1 text-white">{children}</ul>
+                                  ),
+                                  ol: ({ children }) => (
+                                    <ol className="list-decimal pl-6 space-y-1 text-white">{children}</ol>
+                                  ),
+                                  li: ({ children }) => <li className="text-white">{children}</li>,
+                                  h1: ({ children }) => (
+                                    <h1 className="text-base font-bold text-white mt-2 mb-1">
+                                      {children}
+                                    </h1>
+                                  ),
+                                  h2: ({ children }) => (
+                                    <h2 className="text-sm font-bold text-white mt-2 mb-1">{children}</h2>
+                                  ),
+                                  h3: ({ children }) => (
+                                    <h3 className="text-sm font-bold text-white mt-1 mb-1">{children}</h3>
+                                  ),
+                                }}
+                              >
+                                {msg.content}
+                              </ReactMarkdown>
+                            </div>
+                          </div>
+                          <AssistantTtsButton
+                            content={msg.content}
+                            isLoading={ttsLoadingId === msg.id}
+                            isActive={ttsPlaybackMessageId === msg.id}
+                            isPaused={ttsPlaybackPaused}
+                            onToggle={() => void toggleAssistantTts(msg.id, msg.content)}
+                          />
                         </div>
+                        {msg.emailPendiente && (
+                          <EmailAprobacionCard
+                            email={msg.emailPendiente}
+                            sending={emailSendLoadingId === msg.id}
+                            onEnviar={() =>
+                              void handleEnviarEmailAprobado(msg.id, {
+                                para: msg.emailPendiente!.para,
+                                asunto: msg.emailPendiente!.asunto,
+                                cuerpo: msg.emailPendiente!.cuerpo,
+                              })
+                            }
+                            onCancelar={() => handleCancelarEmailAprobacion(msg.id)}
+                          />
+                        )}
                       </div>
-                      <AssistantTtsButton
-                        content={msg.content}
-                        isLoading={ttsLoadingId === msg.id}
-                        isActive={ttsPlaybackMessageId === msg.id}
-                        isPaused={ttsPlaybackPaused}
-                        onToggle={() => void toggleAssistantTts(msg.id, msg.content)}
-                      />
                     </div>
                   )
                 )}
@@ -867,39 +1040,57 @@ export default function AgentSidebar() {
                             </div>
                           </div>
                         ) : (
-                          <div key={msg.id} className="flex justify-start gap-1.5 items-start">
-                            <div className="max-w-[min(90%,calc(100%-2.5rem))] px-3 py-2 rounded-xl rounded-bl-md bg-[#0f2744] text-white border border-white/10">
-                              <div className="text-sm leading-relaxed [&>*+*]:mt-2">
-                                <ReactMarkdown
-                                  components={{
-                                    p: ({ children }) => <p className="text-white">{children}</p>,
-                                    strong: ({ children }) => (
-                                      <strong className="text-[#ed8936] font-bold">{children}</strong>
-                                    ),
-                                    ul: ({ children }) => (
-                                      <ul className="list-disc pl-6 space-y-1 text-white">
-                                        {children}
-                                      </ul>
-                                    ),
-                                    ol: ({ children }) => (
-                                      <ol className="list-decimal pl-6 space-y-1 text-white">
-                                        {children}
-                                      </ol>
-                                    ),
-                                    li: ({ children }) => <li className="text-white">{children}</li>,
-                                  }}
-                                >
-                                  {msg.content}
-                                </ReactMarkdown>
+                          <div key={msg.id} className="flex justify-start w-full">
+                            <div className="max-w-[min(90%,100%)] flex flex-col gap-0">
+                              <div className="flex gap-1.5 items-start">
+                                <div className="min-w-0 max-w-[min(90%,calc(100%-2.5rem))] px-3 py-2 rounded-xl rounded-bl-md bg-[#0f2744] text-white border border-white/10">
+                                  <div className="text-sm leading-relaxed [&>*+*]:mt-2">
+                                    <ReactMarkdown
+                                      components={{
+                                        p: ({ children }) => <p className="text-white">{children}</p>,
+                                        strong: ({ children }) => (
+                                          <strong className="text-[#ed8936] font-bold">{children}</strong>
+                                        ),
+                                        ul: ({ children }) => (
+                                          <ul className="list-disc pl-6 space-y-1 text-white">
+                                            {children}
+                                          </ul>
+                                        ),
+                                        ol: ({ children }) => (
+                                          <ol className="list-decimal pl-6 space-y-1 text-white">
+                                            {children}
+                                          </ol>
+                                        ),
+                                        li: ({ children }) => <li className="text-white">{children}</li>,
+                                      }}
+                                    >
+                                      {msg.content}
+                                    </ReactMarkdown>
+                                  </div>
+                                </div>
+                                <AssistantTtsButton
+                                  content={msg.content}
+                                  isLoading={ttsLoadingId === msg.id}
+                                  isActive={ttsPlaybackMessageId === msg.id}
+                                  isPaused={ttsPlaybackPaused}
+                                  onToggle={() => void toggleAssistantTts(msg.id, msg.content)}
+                                />
                               </div>
+                              {msg.emailPendiente && (
+                                <EmailAprobacionCard
+                                  email={msg.emailPendiente}
+                                  sending={emailSendLoadingId === msg.id}
+                                  onEnviar={() =>
+                                    void handleEnviarEmailAprobado(msg.id, {
+                                      para: msg.emailPendiente!.para,
+                                      asunto: msg.emailPendiente!.asunto,
+                                      cuerpo: msg.emailPendiente!.cuerpo,
+                                    })
+                                  }
+                                  onCancelar={() => handleCancelarEmailAprobacion(msg.id)}
+                                />
+                              )}
                             </div>
-                            <AssistantTtsButton
-                              content={msg.content}
-                              isLoading={ttsLoadingId === msg.id}
-                              isActive={ttsPlaybackMessageId === msg.id}
-                              isPaused={ttsPlaybackPaused}
-                              onToggle={() => void toggleAssistantTts(msg.id, msg.content)}
-                            />
                           </div>
                         )
                       )}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { getGmailAccessTokenForUser } from '@/lib/gmail/get-access-token';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -175,6 +176,10 @@ Cuando el usuario pida generar un albarán, estructura la respuesta con: cliente
 Siempre confirma al usuario que has guardado el documento en el sistema.
 Al inicio de cada conversación, si hay mensajes pendientes de clientes, menciónalos proactivamente.
 Puedes ayudar al usuario a gestionar mensajes de clientes, generar presupuestos, facturas y albaranes.
+
+Envío de emails (Gmail):
+- La herramienta "enviar_email" no envía el correo de inmediato: deja un borrador pendiente de aprobación del usuario en el chat.
+- Después de llamarla con destinatario, asunto y cuerpo, muestra en tu respuesta el borrador completo (para, asunto, texto) y advierte claramente que el usuario debe pulsar "Enviar" o "Cancelar" en el panel para confirmar o descartar el envío.
 
 Fecha actual: ${fechaActual}
 Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaContextoPrimerMensaje}`;
@@ -473,7 +478,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         function: {
           name: 'enviar_email',
           description:
-            'Envía un email usando Gmail del usuario conectado con destinatario, asunto y cuerpo',
+            'Prepara un borrador de email para Gmail: NO lo envía hasta que el usuario lo apruebe en el chat. Usa cuando quieran enviar un correo; requiere destinatario, asunto y cuerpo. Tras llamarla, explica el borrador y que debe aprobar el envío.',
           parameters: {
             type: 'object',
             properties: {
@@ -559,80 +564,11 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
 
     const getGmailAccessToken = async () => {
       if (!authUser?.id) return { error: 'No hay usuario autenticado para Gmail' } as const;
-
-      const { data: tokenRow, error: tokenError } = await supabase
-        .from('gmail_tokens')
-        .select('access_token, refresh_token, expiry_date')
-        .eq('user_id', authUser.id)
-        .single();
-
-      if (tokenError || !tokenRow?.access_token) {
-        return { error: 'Gmail no conectado para este usuario' } as const;
+      const r = await getGmailAccessTokenForUser(authUser.id);
+      if ('error' in r) {
+        return { error: r.error } as const;
       }
-
-      let accessToken: string = tokenRow.access_token;
-      const refreshToken: string | null = tokenRow.refresh_token ?? null;
-      const expiryDateMs = tokenRow.expiry_date
-        ? new Date(tokenRow.expiry_date).getTime()
-        : 0;
-
-      if (refreshToken && expiryDateMs && expiryDateMs <= Date.now()) {
-        console.log('Gmail token expirado, iniciando refresh...', {
-          userId: authUser.id,
-          expiryDate: tokenRow.expiry_date,
-        });
-        const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            client_id: process.env.GOOGLE_CLIENT_ID!,
-            client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-            refresh_token: refreshToken,
-            grant_type: 'refresh_token',
-          }),
-        });
-
-        if (refreshRes.ok) {
-          const refreshed = (await refreshRes.json()) as {
-            access_token?: string;
-            expires_in?: number;
-          };
-          console.log('Resultado refresh token Gmail:', {
-            ok: true,
-            hasAccessToken: !!refreshed.access_token,
-            expiresIn: refreshed.expires_in ?? null,
-          });
-
-          if (refreshed.access_token) {
-            accessToken = refreshed.access_token;
-            const newExpiryDate = new Date(
-              Date.now() + (refreshed.expires_in ?? 3600) * 1000
-            ).toISOString();
-
-            await supabase
-              .from('gmail_tokens')
-              .update({
-                access_token: accessToken,
-                expiry_date: newExpiryDate,
-              })
-              .eq('user_id', authUser.id);
-          }
-        } else {
-          let refreshErrorBody: unknown = null;
-          try {
-            refreshErrorBody = await refreshRes.json();
-          } catch {
-            refreshErrorBody = await refreshRes.text().catch(() => null);
-          }
-          console.log('Error refrescando token Gmail:', {
-            ok: false,
-            status: refreshRes.status,
-            body: refreshErrorBody,
-          });
-        }
-      }
-
-      return { accessToken } as const;
+      return { accessToken: r.accessToken } as const;
     };
 
     const runTool = async (toolName: string, toolArgs: Record<string, unknown>) => {
@@ -1149,42 +1085,12 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
             return { error: 'Faltan parámetros obligatorios para enviar email' };
           }
 
-          const tokenResult = await getGmailAccessToken();
-          if ('error' in tokenResult) return { error: tokenResult.error };
-          const accessToken = tokenResult.accessToken;
-
-          const mime = [
-            `To: ${destinatario}`,
-            'Content-Type: text/plain; charset="UTF-8"',
-            'MIME-Version: 1.0',
-            `Subject: ${asunto}`,
-            '',
+          return {
+            tipo: 'email_pendiente_aprobacion',
+            para: destinatario,
+            asunto,
             cuerpo,
-          ].join('\r\n');
-
-          const raw = Buffer.from(mime, 'utf8')
-            .toString('base64')
-            .replace(/\+/g, '-')
-            .replace(/\//g, '_')
-            .replace(/=+$/g, '');
-
-          const sendRes = await fetch(
-            'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
-            {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${accessToken}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ raw }),
-            }
-          );
-
-          if (!sendRes.ok) {
-            return { error: 'No se pudo enviar el email con Gmail' };
-          }
-
-          return { ok: true };
+          };
         }
         case 'crear_recordatorio': {
           const titulo = String(toolArgs.titulo ?? '').trim();
@@ -1323,6 +1229,26 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
     /** Máximo de rondas tool → API; la última usa tool_choice "none" para obligar respuesta en texto. */
     const MAX_TOOL_ROUNDS = 12;
 
+    let emailPendienteParaCliente: { para: string; asunto: string; cuerpo: string } | null = null;
+
+    const capturarEmailPendiente = (toolResult: unknown) => {
+      if (!toolResult || typeof toolResult !== 'object') return;
+      const o = toolResult as Record<string, unknown>;
+      if (o.tipo !== 'email_pendiente_aprobacion') return;
+      if (
+        typeof o.para !== 'string' ||
+        typeof o.asunto !== 'string' ||
+        typeof o.cuerpo !== 'string'
+      ) {
+        return;
+      }
+      emailPendienteParaCliente = {
+        para: o.para,
+        asunto: o.asunto,
+        cuerpo: o.cuerpo,
+      };
+    };
+
     let assistantMessage = firstMessage;
     let respuesta = assistantMessage?.content ?? '';
 
@@ -1347,6 +1273,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
           parsedArgs = {};
         }
         const toolResult = await runTool(toolCall.function.name, parsedArgs);
+        capturarEmailPendiente(toolResult);
         messages.push({
           role: 'tool',
           tool_call_id: toolCall.id,
@@ -1376,7 +1303,10 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         'No he podido generar una respuesta en texto. Prueba a reformular la pregunta o inténtalo de nuevo.';
     }
 
-    return NextResponse.json({ respuesta });
+    return NextResponse.json({
+      respuesta,
+      email_pendiente: emailPendienteParaCliente,
+    });
   } catch (error) {
     console.error('Error en /api/agente:', error);
     return NextResponse.json(

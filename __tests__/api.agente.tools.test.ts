@@ -425,22 +425,26 @@ describe('POST /api/agente — tools', () => {
       cuerpo: 'Texto',
     });
 
-    it('devuelve error si no hay token de Gmail', async () => {
-      const gmailTokens = {
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        single: jest.fn().mockResolvedValue({
-          data: null,
-          error: { message: 'no row' },
-        }),
+    it('devuelve borrador pendiente de aprobación (sin Gmail)', async () => {
+      const res = await postWithTool('enviar_email', {}, args);
+      expect(res.status).toBe(200);
+      const secondCall = createMock.mock.calls[1]?.[0] as {
+        messages: Array<{ role: string; content?: string }>;
       };
+      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
+      expect(JSON.parse(toolMsg!.content as string)).toEqual({
+        tipo: 'email_pendiente_aprobacion',
+        para: 'x@y.com',
+        asunto: 'Hola',
+        cuerpo: 'Texto',
+      });
+    });
 
+    it('devuelve error si faltan parámetros', async () => {
       const res = await postWithTool(
         'enviar_email',
-        {
-          gmail_tokens: gmailTokens as unknown as ReturnType<typeof makeThenableResult>,
-        },
-        args
+        {},
+        JSON.stringify({ destinatario: '', asunto: 'x', cuerpo: 'y' })
       );
       expect(res.status).toBe(200);
       const secondCall = createMock.mock.calls[1]?.[0] as {
@@ -448,38 +452,7 @@ describe('POST /api/agente — tools', () => {
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
       const parsed = JSON.parse(toolMsg!.content as string) as { error?: string };
-      expect(parsed.error).toBe('Gmail no conectado para este usuario');
-    });
-
-    it('devuelve { ok: true } si el email se envía correctamente', async () => {
-      const gmailTokens = {
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        single: jest.fn().mockResolvedValue({
-          data: {
-            access_token: 'tok',
-            refresh_token: null,
-            expiry_date: new Date(Date.now() + 86400000).toISOString(),
-          },
-          error: null,
-        }),
-      };
-
-      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({}) });
-
-      const res = await postWithTool(
-        'enviar_email',
-        {
-          gmail_tokens: gmailTokens as unknown as ReturnType<typeof makeThenableResult>,
-        },
-        args
-      );
-      expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[1]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      expect(JSON.parse(toolMsg!.content as string)).toEqual({ ok: true });
+      expect(parsed.error).toContain('Faltan parámetros');
     });
   });
 });

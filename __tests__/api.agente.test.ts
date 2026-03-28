@@ -157,6 +157,7 @@ describe('POST /api/agente', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.respuesta).toContain('Respuesta del modelo');
+    expect(json.email_pendiente).toBeNull();
   });
 
   it('responde con datos válidos y guarda un presupuesto con importe_total y cliente_nombre', async () => {
