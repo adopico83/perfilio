@@ -43,3 +43,21 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans), system-ui, sans-serif;
 }
+
+/* Indicador "escribiendo…" en el chat del agente (sidebar) */
+@keyframes agent-typing-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+.agent-typing-dot {
+  animation: agent-typing-dot 1.1s ease-in-out infinite;
+}

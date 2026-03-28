@@ -25,6 +25,28 @@ interface ChatMessage {
   content: string;
 }
 
+function AgentTypingIndicator() {
+  return (
+    <div className="flex justify-start" aria-live="polite">
+      <div
+        className="max-w-[90%] px-4 py-3 rounded-xl rounded-bl-md bg-[#1a365d] text-white border border-white/15"
+        role="status"
+      >
+        <span className="sr-only">El agente está escribiendo</span>
+        <div className="flex items-center gap-1.5 h-4">
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="agent-typing-dot inline-block size-1.5 rounded-full bg-white shrink-0"
+              style={{ animationDelay: `${i * 0.18}s` }}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const generateConversationId = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -158,6 +180,7 @@ export default function AgentSidebar() {
     }
     setError('');
     setMensaje('');
+    setHistorial((prev) => [...prev, { role: 'user', content: textoTrim }]);
     setLoading(true);
     try {
       const { count: agendaCountAntes } = await supabase
@@ -192,11 +215,7 @@ export default function AgentSidebar() {
       }
 
       const respuestaTexto = data.respuesta ?? '';
-      setHistorial((prev) => [
-        ...prev,
-        { role: 'user', content: textoTrim },
-        { role: 'assistant', content: respuestaTexto },
-      ]);
+      setHistorial((prev) => [...prev, { role: 'assistant', content: respuestaTexto }]);
 
       const activeConversationId = conversationId || generateConversationId();
       if (!conversationId) setConversationId(activeConversationId);
@@ -446,6 +465,11 @@ export default function AgentSidebar() {
     },
   });
 
+  const mostrarIndicadorEscribiendo =
+    loading &&
+    historial.length > 0 &&
+    historial[historial.length - 1]?.role === 'user';
+
   const Panel = (
     <aside
       className={[
@@ -491,50 +515,53 @@ export default function AgentSidebar() {
                 Escribe un mensaje para empezar.
               </div>
             ) : (
-              historial.map((msg, i) =>
-                msg.role === 'user' ? (
-                  <div key={i} className="flex justify-end">
-                    <div className="max-w-[90%] px-3 py-2 rounded-xl rounded-br-md bg-[#ed8936] text-white">
-                      <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
-                    </div>
-                  </div>
-                ) : (
-                  <div key={i} className="flex justify-start">
-                    <div className="max-w-[90%] px-3 py-2 rounded-xl rounded-bl-md bg-[#0f2744] text-white border border-white/10">
-                      <div className="text-sm leading-relaxed [&>*+*]:mt-2">
-                        <ReactMarkdown
-                          components={{
-                            p: ({ children }) => <p className="text-white">{children}</p>,
-                            strong: ({ children }) => (
-                              <strong className="text-[#ed8936] font-bold">{children}</strong>
-                            ),
-                            ul: ({ children }) => (
-                              <ul className="list-disc pl-6 space-y-1 text-white">{children}</ul>
-                            ),
-                            ol: ({ children }) => (
-                              <ol className="list-decimal pl-6 space-y-1 text-white">{children}</ol>
-                            ),
-                            li: ({ children }) => <li className="text-white">{children}</li>,
-                            h1: ({ children }) => (
-                              <h1 className="text-base font-bold text-white mt-2 mb-1">
-                                {children}
-                              </h1>
-                            ),
-                            h2: ({ children }) => (
-                              <h2 className="text-sm font-bold text-white mt-2 mb-1">{children}</h2>
-                            ),
-                            h3: ({ children }) => (
-                              <h3 className="text-sm font-bold text-white mt-1 mb-1">{children}</h3>
-                            ),
-                          }}
-                        >
-                          {msg.content}
-                        </ReactMarkdown>
+              <>
+                {historial.map((msg, i) =>
+                  msg.role === 'user' ? (
+                    <div key={i} className="flex justify-end">
+                      <div className="max-w-[90%] px-3 py-2 rounded-xl rounded-br-md bg-[#ed8936] text-white">
+                        <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
                       </div>
                     </div>
-                  </div>
-                )
-              )
+                  ) : (
+                    <div key={i} className="flex justify-start">
+                      <div className="max-w-[90%] px-3 py-2 rounded-xl rounded-bl-md bg-[#0f2744] text-white border border-white/10">
+                        <div className="text-sm leading-relaxed [&>*+*]:mt-2">
+                          <ReactMarkdown
+                            components={{
+                              p: ({ children }) => <p className="text-white">{children}</p>,
+                              strong: ({ children }) => (
+                                <strong className="text-[#ed8936] font-bold">{children}</strong>
+                              ),
+                              ul: ({ children }) => (
+                                <ul className="list-disc pl-6 space-y-1 text-white">{children}</ul>
+                              ),
+                              ol: ({ children }) => (
+                                <ol className="list-decimal pl-6 space-y-1 text-white">{children}</ol>
+                              ),
+                              li: ({ children }) => <li className="text-white">{children}</li>,
+                              h1: ({ children }) => (
+                                <h1 className="text-base font-bold text-white mt-2 mb-1">
+                                  {children}
+                                </h1>
+                              ),
+                              h2: ({ children }) => (
+                                <h2 className="text-sm font-bold text-white mt-2 mb-1">{children}</h2>
+                              ),
+                              h3: ({ children }) => (
+                                <h3 className="text-sm font-bold text-white mt-1 mb-1">{children}</h3>
+                              ),
+                            }}
+                          >
+                            {msg.content}
+                          </ReactMarkdown>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                )}
+                {mostrarIndicadorEscribiendo && <AgentTypingIndicator />}
+              </>
             )}
           </div>
 
@@ -644,43 +671,46 @@ export default function AgentSidebar() {
                       Escribe un mensaje para empezar.
                     </div>
                   ) : (
-                    historial.map((msg, i) =>
-                      msg.role === 'user' ? (
-                        <div key={i} className="flex justify-end">
-                          <div className="max-w-[90%] px-3 py-2 rounded-xl rounded-br-md bg-[#ed8936] text-white">
-                            <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
-                          </div>
-                        </div>
-                      ) : (
-                        <div key={i} className="flex justify-start">
-                          <div className="max-w-[90%] px-3 py-2 rounded-xl rounded-bl-md bg-[#0f2744] text-white border border-white/10">
-                            <div className="text-sm leading-relaxed [&>*+*]:mt-2">
-                              <ReactMarkdown
-                                components={{
-                                  p: ({ children }) => <p className="text-white">{children}</p>,
-                                  strong: ({ children }) => (
-                                    <strong className="text-[#ed8936] font-bold">{children}</strong>
-                                  ),
-                                  ul: ({ children }) => (
-                                    <ul className="list-disc pl-6 space-y-1 text-white">
-                                      {children}
-                                    </ul>
-                                  ),
-                                  ol: ({ children }) => (
-                                    <ol className="list-decimal pl-6 space-y-1 text-white">
-                                      {children}
-                                    </ol>
-                                  ),
-                                  li: ({ children }) => <li className="text-white">{children}</li>,
-                                }}
-                              >
-                                {msg.content}
-                              </ReactMarkdown>
+                    <>
+                      {historial.map((msg, i) =>
+                        msg.role === 'user' ? (
+                          <div key={i} className="flex justify-end">
+                            <div className="max-w-[90%] px-3 py-2 rounded-xl rounded-br-md bg-[#ed8936] text-white">
+                              <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
                             </div>
                           </div>
-                        </div>
-                      )
-                    )
+                        ) : (
+                          <div key={i} className="flex justify-start">
+                            <div className="max-w-[90%] px-3 py-2 rounded-xl rounded-bl-md bg-[#0f2744] text-white border border-white/10">
+                              <div className="text-sm leading-relaxed [&>*+*]:mt-2">
+                                <ReactMarkdown
+                                  components={{
+                                    p: ({ children }) => <p className="text-white">{children}</p>,
+                                    strong: ({ children }) => (
+                                      <strong className="text-[#ed8936] font-bold">{children}</strong>
+                                    ),
+                                    ul: ({ children }) => (
+                                      <ul className="list-disc pl-6 space-y-1 text-white">
+                                        {children}
+                                      </ul>
+                                    ),
+                                    ol: ({ children }) => (
+                                      <ol className="list-decimal pl-6 space-y-1 text-white">
+                                        {children}
+                                      </ol>
+                                    ),
+                                    li: ({ children }) => <li className="text-white">{children}</li>,
+                                  }}
+                                >
+                                  {msg.content}
+                                </ReactMarkdown>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      )}
+                      {mostrarIndicadorEscribiendo && <AgentTypingIndicator />}
+                    </>
                   )}
                 </div>
 
