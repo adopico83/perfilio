@@ -876,7 +876,7 @@ export default function DashboardPage() {
                       </p>
                     </div>
                     <Link
-                      href="/presupuestos"
+                      href={`/presupuestos?id=${encodeURIComponent(p.id)}`}
                       className="inline-flex items-center text-xs text-[#ed8936] hover:text-[#f6ad55]"
                     >
                       Ver

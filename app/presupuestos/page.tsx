@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
 import { X } from 'lucide-react';
@@ -18,8 +18,9 @@ interface Presupuesto {
   created_at: string;
 }
 
-export default function PresupuestosPage() {
+function PresupuestosPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = useMemo(
     () =>
       createBrowserClient(
@@ -59,10 +60,24 @@ export default function PresupuestosPage() {
     if (!authChecking) loadPresupuestos();
   }, [authChecking]);
 
+  const idFromUrl = searchParams.get('id');
+
+  useEffect(() => {
+    if (loading || !idFromUrl) return;
+    if (presupuestos.some((p) => p.id === idFromUrl)) {
+      setModalId(idFromUrl);
+    }
+  }, [loading, idFromUrl, presupuestos]);
+
+  const cerrarModal = () => {
+    setModalId(null);
+    router.replace('/presupuestos');
+  };
+
   const setEstado = async (id: string, estado: string) => {
     await supabase.from('presupuestos').update({ estado }).eq('id', id);
     loadPresupuestos();
-    setModalId(null);
+    cerrarModal();
   };
 
   const resumen = (text: string | null, max = 100) => {
@@ -71,10 +86,48 @@ export default function PresupuestosPage() {
   };
 
   const badgeEstado = (estado: string | null) => {
-    const s = (estado ?? '').toLowerCase();
-    if (s === 'aprobado') return <span className="inline-block px-3 py-1 text-xs font-semibold rounded-full bg-green-600/80 text-white">Aprobado</span>;
-    if (s === 'rechazado') return <span className="inline-block px-3 py-1 text-xs font-semibold rounded-full bg-red-600/80 text-white">Rechazado</span>;
-    return <span className="inline-block px-3 py-1 text-xs font-semibold rounded-full bg-gray-500/80 text-white">Borrador</span>;
+    const s = (estado ?? 'borrador').toLowerCase();
+    const estilos: Record<string, { label: string; className: string }> = {
+      borrador: {
+        label: 'Borrador',
+        className: 'bg-gray-500/80 text-white',
+      },
+      pendiente: {
+        label: 'Pendiente',
+        className: 'bg-amber-400/95 text-gray-900',
+      },
+      aceptado: {
+        label: 'Aceptado',
+        className: 'bg-green-600/80 text-white',
+      },
+      aprobado: {
+        label: 'Aprobado',
+        className: 'bg-green-600/80 text-white',
+      },
+      rechazado: {
+        label: 'Rechazado',
+        className: 'bg-red-600/80 text-white',
+      },
+      facturado: {
+        label: 'Facturado',
+        className: 'bg-blue-600/80 text-white',
+      },
+      pagado: {
+        label: 'Pagado',
+        className: 'bg-green-800/95 text-white',
+      },
+    };
+    const cfg = estilos[s] ?? {
+      label: estado?.trim() ? estado : 'Borrador',
+      className: 'bg-gray-500/80 text-white',
+    };
+    return (
+      <span
+        className={`inline-block px-3 py-1 text-xs font-semibold rounded-full ${cfg.className}`}
+      >
+        {cfg.label}
+      </span>
+    );
   };
 
   const descargarPDF = async (p: Presupuesto) => {
@@ -190,11 +243,11 @@ export default function PresupuestosPage() {
 
       {modalItem && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setModalId(null)} aria-hidden />
+          <div className="absolute inset-0 bg-black/60" onClick={cerrarModal} aria-hidden />
           <div className="relative w-full max-w-2xl max-h-[90vh] overflow-hidden bg-[#1a365d] rounded-xl border border-white/10 shadow-2xl flex flex-col">
             <div className="flex justify-between items-center p-4 border-b border-white/10">
               <h2 className="text-lg font-bold text-white">Presupuesto completo</h2>
-              <button type="button" onClick={() => setModalId(null)} className="p-2 text-white/80 hover:text-white rounded-lg" aria-label="Cerrar">
+              <button type="button" onClick={cerrarModal} className="p-2 text-white/80 hover:text-white rounded-lg" aria-label="Cerrar">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -218,11 +271,25 @@ export default function PresupuestosPage() {
                   <button type="button" onClick={() => setEstado(modalItem.id, 'rechazado')} className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg">Rechazar</button>
                 </>
               )}
-              <button type="button" onClick={() => setModalId(null)} className="px-4 py-2 text-sm font-medium bg-white/10 hover:bg-white/20 text-white rounded-lg">Cerrar</button>
+              <button type="button" onClick={cerrarModal} className="px-4 py-2 text-sm font-medium bg-white/10 hover:bg-white/20 text-white rounded-lg">Cerrar</button>
             </div>
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+export default function PresupuestosPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#1a365d] flex items-center justify-center">
+          <p className="text-white">Cargando...</p>
+        </div>
+      }
+    >
+      <PresupuestosPageContent />
+    </Suspense>
   );
 }

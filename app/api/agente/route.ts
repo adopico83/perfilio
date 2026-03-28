@@ -27,6 +27,14 @@ function addDaysToYmd(ymd: string, days: number): string {
   return new Date(u).toISOString().slice(0, 10);
 }
 
+const ESTADOS_DOC = ['pendiente', 'aceptado', 'rechazado', 'facturado', 'pagado'] as const;
+type EstadoDoc = (typeof ESTADOS_DOC)[number];
+
+function parseEstadoDoc(raw: unknown): EstadoDoc | null {
+  const s = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+  return (ESTADOS_DOC as readonly string[]).includes(s) ? (s as EstadoDoc) : null;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -144,6 +152,12 @@ IMPORTANTE — herramientas de creación en base de datos:
 
 Si el usuario solo quiere información o listados, responde con texto y/o las herramientas de listado o pendientes; nunca invoques crear_* en esos casos.
 
+Estado y edición de presupuestos, facturas y albaranes:
+- Estados válidos al cambiar estado: pendiente, aceptado, rechazado, facturado, pagado.
+- "cambiar_estado_presupuesto", "cambiar_estado_factura" y "cambiar_estado_albaran" requieren el id (UUID) del documento y el estado deseado.
+- Si el usuario identifica un documento por cliente o contexto (p. ej. "acepta el presupuesto de Juan Mari", "marca como pagada la factura de…"), primero usa "listar_presupuestos", "listar_facturas" o "listar_albaranes" para obtener el id correcto (y desambiguar si hay varios), y después llama a la herramienta cambiar_estado_* correspondiente.
+- Para modificar datos sin cambiar solo el estado, usa "editar_presupuesto", "editar_factura" o "editar_albaran" con el id y solo los campos que deban actualizarse (cliente_nombre, importe_total, descripcion). En presupuestos, "descripcion" actualiza el texto del presupuesto guardado (presupuesto_generado).
+
 Si te piden explícitamente un presupuesto nuevo, usa las tarifas como referencia y genera uno estructurado en la respuesta y, si procede, llama a "crear_presupuesto" con el texto generado.
 Cuando el usuario pida generar una factura, sigue este flujo:
 - Si el usuario no ha dado el desglose completo, primero pregunta:
@@ -239,6 +253,129 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
           parameters: {
             type: 'object',
             properties: {},
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'cambiar_estado_presupuesto',
+          description:
+            'Actualiza el estado de un presupuesto por id. Estados: pendiente, aceptado, rechazado, facturado, pagado. Si no tienes el id, usa listar_presupuestos antes.',
+          parameters: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'UUID del presupuesto' },
+              estado: {
+                type: 'string',
+                enum: [...ESTADOS_DOC],
+                description: 'Nuevo estado',
+              },
+            },
+            required: ['id', 'estado'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'cambiar_estado_factura',
+          description:
+            'Actualiza el estado de una factura por id. Estados: pendiente, aceptado, rechazado, facturado, pagado. Si no tienes el id, usa listar_facturas antes.',
+          parameters: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'UUID de la factura' },
+              estado: {
+                type: 'string',
+                enum: [...ESTADOS_DOC],
+                description: 'Nuevo estado',
+              },
+            },
+            required: ['id', 'estado'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'cambiar_estado_albaran',
+          description:
+            'Actualiza el estado de un albarán por id. Estados: pendiente, aceptado, rechazado, facturado, pagado. Si no tienes el id, usa listar_albaranes antes.',
+          parameters: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'UUID del albarán' },
+              estado: {
+                type: 'string',
+                enum: [...ESTADOS_DOC],
+                description: 'Nuevo estado',
+              },
+            },
+            required: ['id', 'estado'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'editar_presupuesto',
+          description:
+            'Actualiza un presupuesto existente (cliente_nombre, importe_total y/o descripcion del texto del presupuesto). Requiere id; indica solo los campos que cambien.',
+          parameters: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'UUID del presupuesto' },
+              cliente_nombre: { type: 'string', description: 'Nombre del cliente' },
+              importe_total: { type: 'number', description: 'Importe total' },
+              descripcion: {
+                type: 'string',
+                description: 'Nuevo texto del presupuesto (sustituye presupuesto_generado)',
+              },
+            },
+            required: ['id'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'editar_factura',
+          description:
+            'Actualiza una factura existente (cliente_nombre, importe_total como total con IVA, y/o descripcion de trabajos). Requiere id; indica solo los campos que cambien.',
+          parameters: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'UUID de la factura' },
+              cliente_nombre: { type: 'string', description: 'Nombre del cliente' },
+              importe_total: { type: 'number', description: 'Total con IVA (actualiza base e IVA al 21%)' },
+              descripcion: { type: 'string', description: 'Descripción / conceptos (descripcion_trabajos)' },
+            },
+            required: ['id'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'editar_albaran',
+          description:
+            'Actualiza un albarán existente (cliente_nombre, importe_total, y/o descripcion). Requiere id; indica solo los campos que cambien.',
+          parameters: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'UUID del albarán' },
+              cliente_nombre: { type: 'string', description: 'Nombre del cliente' },
+              importe_total: { type: 'number', description: 'Total' },
+              descripcion: { type: 'string', description: 'Descripción de trabajos (descripcion_trabajos)' },
+            },
+            required: ['id'],
             additionalProperties: false,
           },
         },
@@ -623,6 +760,197 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
             })),
           };
         }
+        case 'cambiar_estado_presupuesto': {
+          const id = String(toolArgs.id ?? '').trim();
+          const estado = parseEstadoDoc(toolArgs.estado);
+          if (!id) return { error: 'id es obligatorio' };
+          if (!estado) {
+            return {
+              error:
+                'estado inválido; use uno de: pendiente, aceptado, rechazado, facturado, pagado',
+            };
+          }
+          const { data: row, error } = await supabase
+            .from('presupuestos')
+            .update({ estado })
+            .eq('id', id)
+            .eq('business_id', business_id)
+            .select('id')
+            .maybeSingle();
+          if (error) return { error: error.message };
+          if (!row?.id) {
+            return { error: 'No se encontró el presupuesto o no pertenece a este negocio' };
+          }
+          return { ok: true, id: row.id as string };
+        }
+        case 'cambiar_estado_factura': {
+          const id = String(toolArgs.id ?? '').trim();
+          const estado = parseEstadoDoc(toolArgs.estado);
+          if (!id) return { error: 'id es obligatorio' };
+          if (!estado) {
+            return {
+              error:
+                'estado inválido; use uno de: pendiente, aceptado, rechazado, facturado, pagado',
+            };
+          }
+          const { data: row, error } = await supabase
+            .from('facturas')
+            .update({ estado })
+            .eq('id', id)
+            .eq('business_id', business_id)
+            .select('id')
+            .maybeSingle();
+          if (error) return { error: error.message };
+          if (!row?.id) {
+            return { error: 'No se encontró la factura o no pertenece a este negocio' };
+          }
+          return { ok: true, id: row.id as string };
+        }
+        case 'cambiar_estado_albaran': {
+          const id = String(toolArgs.id ?? '').trim();
+          const estado = parseEstadoDoc(toolArgs.estado);
+          if (!id) return { error: 'id es obligatorio' };
+          if (!estado) {
+            return {
+              error:
+                'estado inválido; use uno de: pendiente, aceptado, rechazado, facturado, pagado',
+            };
+          }
+          const { data: row, error } = await supabase
+            .from('albaranes')
+            .update({ estado })
+            .eq('id', id)
+            .eq('business_id', business_id)
+            .select('id')
+            .maybeSingle();
+          if (error) return { error: error.message };
+          if (!row?.id) {
+            return { error: 'No se encontró el albarán o no pertenece a este negocio' };
+          }
+          return { ok: true, id: row.id as string };
+        }
+        case 'editar_presupuesto': {
+          const id = String(toolArgs.id ?? '').trim();
+          if (!id) return { error: 'id es obligatorio' };
+          const updates: {
+            cliente_nombre?: string;
+            importe_total?: number;
+            presupuesto_generado?: string;
+          } = {};
+          if (toolArgs.cliente_nombre !== undefined) {
+            const c = String(toolArgs.cliente_nombre ?? '').trim().slice(0, 255);
+            if (!c) return { error: 'cliente_nombre no puede estar vacío' };
+            updates.cliente_nombre = c;
+          }
+          if (toolArgs.importe_total !== undefined) {
+            const n = Number(toolArgs.importe_total);
+            if (!Number.isFinite(n)) return { error: 'importe_total debe ser un número válido' };
+            updates.importe_total = n;
+          }
+          if (toolArgs.descripcion !== undefined) {
+            const d = String(toolArgs.descripcion ?? '').trim();
+            if (!d) return { error: 'descripcion no puede estar vacía' };
+            updates.presupuesto_generado = d;
+          }
+          if (Object.keys(updates).length === 0) {
+            return { error: 'Indica al menos un campo a actualizar (cliente_nombre, importe_total o descripcion)' };
+          }
+          const { data: row, error } = await supabase
+            .from('presupuestos')
+            .update(updates)
+            .eq('id', id)
+            .eq('business_id', business_id)
+            .select('id')
+            .maybeSingle();
+          if (error) return { error: error.message };
+          if (!row?.id) {
+            return { error: 'No se encontró el presupuesto o no pertenece a este negocio' };
+          }
+          return { ok: true, id: row.id as string };
+        }
+        case 'editar_factura': {
+          const id = String(toolArgs.id ?? '').trim();
+          if (!id) return { error: 'id es obligatorio' };
+          const updates: {
+            cliente_nombre?: string;
+            total?: number;
+            base_imponible?: number;
+            iva?: number;
+            descripcion_trabajos?: string;
+          } = {};
+          if (toolArgs.cliente_nombre !== undefined) {
+            const c = String(toolArgs.cliente_nombre ?? '').trim().slice(0, 255);
+            if (!c) return { error: 'cliente_nombre no puede estar vacío' };
+            updates.cliente_nombre = c;
+          }
+          if (toolArgs.importe_total !== undefined) {
+            const totalNum = Number(toolArgs.importe_total);
+            if (!Number.isFinite(totalNum)) {
+              return { error: 'importe_total debe ser un número válido' };
+            }
+            const baseImponible = totalNum ? totalNum / 1.21 : 0;
+            const iva = totalNum ? totalNum - baseImponible : 0;
+            updates.total = totalNum;
+            updates.base_imponible = Number.isFinite(baseImponible) ? baseImponible : 0;
+            updates.iva = Number.isFinite(iva) ? iva : 0;
+          }
+          if (toolArgs.descripcion !== undefined) {
+            const d = String(toolArgs.descripcion ?? '').trim();
+            if (!d) return { error: 'descripcion no puede estar vacía' };
+            updates.descripcion_trabajos = d;
+          }
+          if (Object.keys(updates).length === 0) {
+            return { error: 'Indica al menos un campo a actualizar (cliente_nombre, importe_total o descripcion)' };
+          }
+          const { data: row, error } = await supabase
+            .from('facturas')
+            .update(updates)
+            .eq('id', id)
+            .eq('business_id', business_id)
+            .select('id')
+            .maybeSingle();
+          if (error) return { error: error.message };
+          if (!row?.id) {
+            return { error: 'No se encontró la factura o no pertenece a este negocio' };
+          }
+          return { ok: true, id: row.id as string };
+        }
+        case 'editar_albaran': {
+          const id = String(toolArgs.id ?? '').trim();
+          if (!id) return { error: 'id es obligatorio' };
+          const updates: { cliente_nombre?: string; total?: number; descripcion_trabajos?: string } =
+            {};
+          if (toolArgs.cliente_nombre !== undefined) {
+            const c = String(toolArgs.cliente_nombre ?? '').trim().slice(0, 255);
+            if (!c) return { error: 'cliente_nombre no puede estar vacío' };
+            updates.cliente_nombre = c;
+          }
+          if (toolArgs.importe_total !== undefined) {
+            const n = Number(toolArgs.importe_total);
+            if (!Number.isFinite(n)) return { error: 'importe_total debe ser un número válido' };
+            updates.total = n;
+          }
+          if (toolArgs.descripcion !== undefined) {
+            const d = String(toolArgs.descripcion ?? '').trim();
+            if (!d) return { error: 'descripcion no puede estar vacía' };
+            updates.descripcion_trabajos = d;
+          }
+          if (Object.keys(updates).length === 0) {
+            return { error: 'Indica al menos un campo a actualizar (cliente_nombre, importe_total o descripcion)' };
+          }
+          const { data: row, error } = await supabase
+            .from('albaranes')
+            .update(updates)
+            .eq('id', id)
+            .eq('business_id', business_id)
+            .select('id')
+            .maybeSingle();
+          if (error) return { error: error.message };
+          if (!row?.id) {
+            return { error: 'No se encontró el albarán o no pertenece a este negocio' };
+          }
+          return { ok: true, id: row.id as string };
+        }
         case 'crear_presupuesto': {
           const texto = String(toolArgs.texto_presupuesto ?? '').trim();
           if (!texto) {
@@ -992,16 +1320,23 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
       }
     };
 
-    let respuesta = firstMessage?.content ?? '';
+    /** Máximo de rondas tool → API; la última usa tool_choice "none" para obligar respuesta en texto. */
+    const MAX_TOOL_ROUNDS = 12;
 
-    if (firstMessage?.tool_calls?.length) {
+    let assistantMessage = firstMessage;
+    let respuesta = assistantMessage?.content ?? '';
+
+    for (let toolRound = 0; toolRound < MAX_TOOL_ROUNDS; toolRound++) {
+      const toolCalls = assistantMessage?.tool_calls;
+      if (!toolCalls?.length) break;
+
       messages.push({
         role: 'assistant',
-        content: firstMessage.content ?? '',
-        tool_calls: firstMessage.tool_calls,
+        content: assistantMessage!.content ?? null,
+        tool_calls: toolCalls,
       });
 
-      for (const toolCall of firstMessage.tool_calls) {
+      for (const toolCall of toolCalls) {
         if (toolCall.type !== 'function') continue;
         let parsedArgs: Record<string, unknown> = {};
         try {
@@ -1019,16 +1354,26 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         });
       }
 
-      const finalCompletion = await openai.chat.completions.create({
+      const isLastToolRound = toolRound >= MAX_TOOL_ROUNDS - 1;
+      const nextCompletion = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
         messages,
         tools,
-        tool_choice: 'auto',
+        tool_choice: isLastToolRound ? 'none' : 'auto',
         temperature: 0.7,
         max_tokens: 800,
       });
 
-      respuesta = finalCompletion.choices[0]?.message?.content ?? respuesta;
+      assistantMessage = nextCompletion.choices[0]?.message;
+      const nextContent = assistantMessage?.content;
+      if (typeof nextContent === 'string' && nextContent.trim().length > 0) {
+        respuesta = nextContent;
+      }
+    }
+
+    if (!String(respuesta ?? '').trim()) {
+      respuesta =
+        'No he podido generar una respuesta en texto. Prueba a reformular la pregunta o inténtalo de nuevo.';
     }
 
     return NextResponse.json({ respuesta });
