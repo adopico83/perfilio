@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -10,6 +11,7 @@ import {
   type TouchEvent,
 } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
+import { Loader2, Pause } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 interface BusinessProfile {
@@ -21,8 +23,68 @@ interface BusinessProfile {
 type MessageRole = 'user' | 'assistant';
 
 interface ChatMessage {
+  id: string;
   role: MessageRole;
   content: string;
+}
+
+/** Texto legible para TTS a partir del markdown del agente. */
+function textoPlanoParaTts(markdown: string): string {
+  return markdown
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/`{1,3}[^`]*`{1,3}/g, ' ')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^[-*]\s+/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function AssistantTtsButton({
+  content,
+  isLoading,
+  isActive,
+  isPaused,
+  onToggle,
+}: {
+  content: string;
+  isLoading: boolean;
+  isActive: boolean;
+  isPaused: boolean;
+  onToggle: () => void;
+}) {
+  if (!textoPlanoParaTts(content).trim()) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={isLoading}
+      aria-label={
+        isLoading
+          ? 'Generando audio…'
+          : isActive && !isPaused
+            ? 'Pausar lectura'
+            : isActive && isPaused
+              ? 'Reanudar lectura'
+              : 'Escuchar respuesta en voz alta'
+      }
+      className="shrink-0 mt-0.5 size-8 flex items-center justify-center rounded-lg border border-[#ed8936]/80 bg-[#ed8936]/15 text-lg leading-none text-[#ed8936] hover:bg-[#ed8936]/28 transition-colors disabled:opacity-70 touch-manipulation"
+    >
+      {isLoading ? (
+        <Loader2 className="size-4 animate-spin text-[#ed8936]" aria-hidden />
+      ) : isActive && !isPaused ? (
+        <Pause className="size-4 text-[#ed8936]" aria-hidden />
+      ) : isActive && isPaused ? (
+        <span className="text-sm text-[#ed8936]" aria-hidden>
+          ▶
+        </span>
+      ) : (
+        <span aria-hidden>🔊</span>
+      )}
+    </button>
+  );
 }
 
 function AgentTypingIndicator() {
@@ -85,6 +147,87 @@ export default function AgentSidebar() {
   const historialInicialCargadoRef = useRef(false);
   /** Evita doble ejecución pointerdown + click; getUserMedia debe ir en el gesto directo (Safari iOS). */
   const micGestureHandledRef = useRef(false);
+
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const ttsBlobUrlRef = useRef<string | null>(null);
+  const [ttsLoadingId, setTtsLoadingId] = useState<string | null>(null);
+  const [ttsPlaybackMessageId, setTtsPlaybackMessageId] = useState<string | null>(null);
+  const [ttsPlaybackPaused, setTtsPlaybackPaused] = useState(true);
+
+  const revokeTtsBlob = useCallback(() => {
+    if (ttsBlobUrlRef.current) {
+      URL.revokeObjectURL(ttsBlobUrlRef.current);
+      ttsBlobUrlRef.current = null;
+    }
+  }, []);
+
+  const stopTts = useCallback(() => {
+    const a = audioRef.current;
+    if (a) {
+      a.pause();
+      a.removeAttribute('src');
+      a.load();
+    }
+    revokeTtsBlob();
+    setTtsPlaybackMessageId(null);
+    setTtsPlaybackPaused(true);
+  }, [revokeTtsBlob]);
+
+  useEffect(() => {
+    return () => {
+      stopTts();
+    };
+  }, [stopTts]);
+
+  const toggleAssistantTts = useCallback(
+    async (messageId: string, markdown: string) => {
+      const plain = textoPlanoParaTts(markdown).trim();
+      if (!plain) return;
+
+      const audio = audioRef.current;
+      if (ttsLoadingId === messageId) return;
+
+      if (ttsPlaybackMessageId === messageId && audio?.src) {
+        if (!audio.paused) {
+          audio.pause();
+          return;
+        }
+        await audio.play().catch(() => {});
+        return;
+      }
+
+      stopTts();
+      setTtsLoadingId(messageId);
+
+      try {
+        const res = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ texto: plain }),
+        });
+        if (!res.ok) return;
+
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        ttsBlobUrlRef.current = url;
+
+        const el = audioRef.current;
+        if (!el) {
+          revokeTtsBlob();
+          return;
+        }
+        el.src = url;
+        await el.play().catch(() => {});
+        setTtsPlaybackMessageId(messageId);
+        setTtsPlaybackPaused(false);
+      } catch {
+        revokeTtsBlob();
+      } finally {
+        setTtsLoadingId(null);
+      }
+    },
+    [ttsLoadingId, ttsPlaybackMessageId, stopTts, revokeTtsBlob]
+  );
 
   const containerWidthClass = useMemo(() => {
     if (collapsed) return 'w-[56px] min-w-[56px]';
@@ -159,7 +302,14 @@ export default function AgentSidebar() {
       const mapped = ((rows ?? []) as Array<{ role: string; content: string }>)
         .reverse()
         .filter((r) => (r.role === 'user' || r.role === 'assistant') && typeof r.content === 'string')
-        .map((r) => ({ role: r.role as MessageRole, content: r.content }));
+        .map((r) => ({
+          id:
+            typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+              ? crypto.randomUUID()
+              : `m_${Date.now()}_${Math.random()}`,
+          role: r.role as MessageRole,
+          content: r.content,
+        }));
 
       setHistorial(mapped);
     };
@@ -180,7 +330,17 @@ export default function AgentSidebar() {
     }
     setError('');
     setMensaje('');
-    setHistorial((prev) => [...prev, { role: 'user', content: textoTrim }]);
+    setHistorial((prev) => [
+      ...prev,
+      {
+        id:
+          typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : `u_${Date.now()}`,
+        role: 'user',
+        content: textoTrim,
+      },
+    ]);
     setLoading(true);
     try {
       const { count: agendaCountAntes } = await supabase
@@ -215,7 +375,17 @@ export default function AgentSidebar() {
       }
 
       const respuestaTexto = data.respuesta ?? '';
-      setHistorial((prev) => [...prev, { role: 'assistant', content: respuestaTexto }]);
+      setHistorial((prev) => [
+        ...prev,
+        {
+          id:
+            typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+              ? crypto.randomUUID()
+              : `a_${Date.now()}`,
+          role: 'assistant',
+          content: respuestaTexto,
+        },
+      ]);
 
       const activeConversationId = conversationId || generateConversationId();
       if (!conversationId) setConversationId(activeConversationId);
@@ -516,16 +686,16 @@ export default function AgentSidebar() {
               </div>
             ) : (
               <>
-                {historial.map((msg, i) =>
+                {historial.map((msg) =>
                   msg.role === 'user' ? (
-                    <div key={i} className="flex justify-end">
+                    <div key={msg.id} className="flex justify-end">
                       <div className="max-w-[90%] px-3 py-2 rounded-xl rounded-br-md bg-[#ed8936] text-white">
                         <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
                       </div>
                     </div>
                   ) : (
-                    <div key={i} className="flex justify-start">
-                      <div className="max-w-[90%] px-3 py-2 rounded-xl rounded-bl-md bg-[#0f2744] text-white border border-white/10">
+                    <div key={msg.id} className="flex justify-start gap-1.5 items-start">
+                      <div className="max-w-[min(90%,calc(100%-2.5rem))] px-3 py-2 rounded-xl rounded-bl-md bg-[#0f2744] text-white border border-white/10">
                         <div className="text-sm leading-relaxed [&>*+*]:mt-2">
                           <ReactMarkdown
                             components={{
@@ -557,6 +727,13 @@ export default function AgentSidebar() {
                           </ReactMarkdown>
                         </div>
                       </div>
+                      <AssistantTtsButton
+                        content={msg.content}
+                        isLoading={ttsLoadingId === msg.id}
+                        isActive={ttsPlaybackMessageId === msg.id}
+                        isPaused={ttsPlaybackPaused}
+                        onToggle={() => void toggleAssistantTts(msg.id, msg.content)}
+                      />
                     </div>
                   )
                 )}
@@ -620,6 +797,16 @@ export default function AgentSidebar() {
 
   return (
     <>
+      <audio
+        ref={audioRef}
+        className="hidden"
+        playsInline
+        onPlay={() => setTtsPlaybackPaused(false)}
+        onPause={() => setTtsPlaybackPaused(true)}
+        onEnded={() => {
+          stopTts();
+        }}
+      />
       {/* Desktop */}
       <div className="hidden lg:block h-[calc(100vh-0px)]">{Panel}</div>
 
@@ -672,16 +859,16 @@ export default function AgentSidebar() {
                     </div>
                   ) : (
                     <>
-                      {historial.map((msg, i) =>
+                      {historial.map((msg) =>
                         msg.role === 'user' ? (
-                          <div key={i} className="flex justify-end">
+                          <div key={msg.id} className="flex justify-end">
                             <div className="max-w-[90%] px-3 py-2 rounded-xl rounded-br-md bg-[#ed8936] text-white">
                               <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
                             </div>
                           </div>
                         ) : (
-                          <div key={i} className="flex justify-start">
-                            <div className="max-w-[90%] px-3 py-2 rounded-xl rounded-bl-md bg-[#0f2744] text-white border border-white/10">
+                          <div key={msg.id} className="flex justify-start gap-1.5 items-start">
+                            <div className="max-w-[min(90%,calc(100%-2.5rem))] px-3 py-2 rounded-xl rounded-bl-md bg-[#0f2744] text-white border border-white/10">
                               <div className="text-sm leading-relaxed [&>*+*]:mt-2">
                                 <ReactMarkdown
                                   components={{
@@ -706,6 +893,13 @@ export default function AgentSidebar() {
                                 </ReactMarkdown>
                               </div>
                             </div>
+                            <AssistantTtsButton
+                              content={msg.content}
+                              isLoading={ttsLoadingId === msg.id}
+                              isActive={ttsPlaybackMessageId === msg.id}
+                              isPaused={ttsPlaybackPaused}
+                              onToggle={() => void toggleAssistantTts(msg.id, msg.content)}
+                            />
                           </div>
                         )
                       )}
