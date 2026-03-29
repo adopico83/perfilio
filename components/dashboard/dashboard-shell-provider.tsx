@@ -4,7 +4,14 @@ import type { ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import DashboardShell from './dashboard-shell';
 
-const DASHBOARD_PREFIXES = ['/dashboard', '/mensajes', '/presupuestos', '/albaranes', '/facturas'];
+const DASHBOARD_PREFIXES = [
+  '/dashboard',
+  '/mensajes',
+  '/presupuestos',
+  '/albaranes',
+  '/diario',
+  '/facturas',
+];
 
 export default function DashboardShellProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname() || '';

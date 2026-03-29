@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
+import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import ReactMarkdown from 'react-markdown';
 
 interface BusinessProfile {
@@ -24,8 +24,10 @@ interface PendingMessage {
   aiResponse: any | null;
 }
 
-export default function AgentePage() {
+function AgentePageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const mensajePrefillHecho = useRef(false);
   const supabase = useMemo(
     () =>
       createBrowserClient(
@@ -59,6 +61,15 @@ export default function AgentePage() {
     };
     checkAuth();
   }, [router, supabase]);
+
+  useEffect(() => {
+    if (mensajePrefillHecho.current) return;
+    const m = searchParams.get('mensaje');
+    if (m) {
+      mensajePrefillHecho.current = true;
+      setMensaje(m);
+    }
+  }, [searchParams]);
 
   const loadBusinesses = async () => {
     const { data, error: e } = await supabase
@@ -237,12 +248,7 @@ export default function AgentePage() {
             >
               Nueva conversación
             </button>
-            <Link
-              href="/dashboard"
-              className="text-[#ed8936] hover:text-[#f6ad55] text-sm font-medium transition-colors"
-            >
-              ← Volver al dashboard
-            </Link>
+            <VolverAlDashboard />
           </div>
         </div>
 
@@ -535,5 +541,19 @@ export default function AgentePage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function AgentePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#1a365d] flex items-center justify-center">
+          <p className="text-white">Cargando…</p>
+        </div>
+      }
+    >
+      <AgentePageContent />
+    </Suspense>
   );
 }

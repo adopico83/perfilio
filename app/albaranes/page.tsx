@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import { X } from 'lucide-react';
 
 interface Albaran {
@@ -90,9 +90,7 @@ export default function AlbaranesPage() {
       <div className="max-w-4xl mx-auto">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-2xl font-bold text-white">Historial de albaranes</h1>
-          <Link href="/dashboard" className="text-[#ed8936] hover:text-[#f6ad55] text-sm font-medium transition-colors">
-            ← Volver al dashboard
-          </Link>
+          <VolverAlDashboard />
         </div>
 
         {loading ? (

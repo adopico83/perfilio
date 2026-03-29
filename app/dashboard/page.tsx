@@ -56,6 +56,13 @@ interface PresupuestoMetricaItem {
   importe_total: number | null;
 }
 
+interface DiarioEntradaWidget {
+  id: string;
+  obra_nombre: string;
+  fecha: string;
+  texto: string | null;
+}
+
 const DIAS_SEMANA_CORTO = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
 function formatEmailFecha(iso: string | null) {
@@ -63,6 +70,13 @@ function formatEmailFecha(iso: string | null) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
   return d.toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+function extractoDiario(texto: string | null, max = 80) {
+  if (!texto) return '—';
+  const t = texto.trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max)}…`;
 }
 
 function construirCeldasMes(year: number, month: number) {
@@ -116,6 +130,7 @@ export default function DashboardPage() {
   const [emailsLoading, setEmailsLoading] = useState(false);
   const [emailsError, setEmailsError] = useState<string | null>(null);
   const [menuMovilAbierto, setMenuMovilAbierto] = useState(false);
+  const [ultimasEntradasDiario, setUltimasEntradasDiario] = useState<DiarioEntradaWidget[]>([]);
 
   const [modalAgendaAbierto, setModalAgendaAbierto] = useState(false);
   const [mesCalendario, setMesCalendario] = useState(() => new Date());
@@ -300,7 +315,7 @@ export default function DashboardPage() {
         .eq('completado', false)
         .gte('fecha', hoyStr)
         .order('fecha', { ascending: true })
-        .limit(5);
+        .limit(4);
 
       const { data, error } = agendaRes;
       console.log('Agenda:', data, error);
@@ -359,6 +374,7 @@ export default function DashboardPage() {
           setImportePendienteCobro(0);
           setImporteTotalPresupuestado(0);
           setTotalMateriales(0);
+          setUltimasEntradasDiario([]);
 
           const { data: gmailToken } = await supabase
             .from('gmail_tokens')
@@ -405,7 +421,7 @@ export default function DashboardPage() {
             .select('id, fecha, estado, created_at')
             .eq('business_id', businessId)
             .order('created_at', { ascending: false })
-            .limit(3),
+            .limit(5),
           loadAgenda(businessId),
           supabase
             .from('facturas')
@@ -448,6 +464,28 @@ export default function DashboardPage() {
           const list = presupuestosMaterialesRes.data as { id: string; cliente_nombre: string | null; fecha: string | null; importe_total: number | null }[];
           setDesgloseMateriales(list);
           setTotalMateriales(list.reduce((s, p) => s + (Number(p.importe_total) || 0), 0));
+        }
+
+        try {
+          const diarioRes = await fetch(
+            `/api/diario?business_id=${encodeURIComponent(businessId)}`,
+            { credentials: 'include' }
+          );
+          if (diarioRes.ok) {
+            const dj = (await diarioRes.json()) as {
+              agrupado_por_obra?: Record<string, DiarioEntradaWidget[]>;
+            };
+            const grouped = dj.agrupado_por_obra ?? {};
+            const flat = Object.values(grouped).flat() as DiarioEntradaWidget[];
+            flat.sort(
+              (a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()
+            );
+            setUltimasEntradasDiario(flat.slice(0, 3));
+          } else {
+            setUltimasEntradasDiario([]);
+          }
+        } catch {
+          setUltimasEntradasDiario([]);
         }
 
         const { data: gmailToken } = await supabase
@@ -602,6 +640,9 @@ export default function DashboardPage() {
             <Link href="/albaranes" className="text-sm text-gray-200 hover:text-white transition-colors">
               Albaranes
             </Link>
+            <Link href="/diario" className="text-sm text-gray-200 hover:text-white transition-colors">
+              Diario
+            </Link>
             <Link href="/facturas" className="text-sm text-gray-200 hover:text-white transition-colors">
               Facturas
             </Link>
@@ -670,6 +711,13 @@ export default function DashboardPage() {
                 Albaranes
               </Link>
               <Link
+                href="/diario"
+                className="text-sm text-gray-200 hover:text-white transition-colors"
+                onClick={() => setMenuMovilAbierto(false)}
+              >
+                Diario
+              </Link>
+              <Link
                 href="/facturas"
                 className="text-sm text-gray-200 hover:text-white transition-colors"
                 onClick={() => setMenuMovilAbierto(false)}
@@ -720,8 +768,8 @@ export default function DashboardPage() {
         )}
       </div>
 
-      <main className="max-w-7xl mx-auto px-6 py-4 lg:py-5 space-y-4 lg:space-y-5">
-        <section className="flex flex-col gap-1">
+      <main className="max-w-7xl mx-auto px-6 py-3 lg:py-4 space-y-3 lg:space-y-3">
+        <section className="flex flex-col gap-0.5">
           <h1 className="text-2xl sm:text-3xl font-bold">
             {saludo}, <span className="text-[#ed8936]">{businessName}</span>
           </h1>
@@ -729,11 +777,11 @@ export default function DashboardPage() {
         </section>
 
         <section>
-          <h2 className="text-sm font-semibold text-white/60 mb-2 uppercase tracking-wide">
+          <h2 className="text-sm font-semibold text-white/60 mb-1.5 uppercase tracking-wide">
             Resumen de hoy
           </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-            <div className="bg-[#111827] border border-red-500/40 rounded-xl p-4 flex flex-col gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
+            <div className="bg-[#111827] border border-red-500/40 rounded-xl py-2 px-3 flex flex-col gap-1">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-red-300 uppercase tracking-wide">
                   Mensajes urgentes pendientes
@@ -750,7 +798,7 @@ export default function DashboardPage() {
               </Link>
             </div>
 
-            <div className="bg-[#111827] border border-[#ed8936]/50 rounded-xl p-3 sm:p-4 flex flex-col gap-1.5">
+            <div className="bg-[#111827] border border-[#ed8936]/50 rounded-xl py-2 px-3 flex flex-col gap-1">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-[#fed7aa] uppercase tracking-wide">
                   Presupuestos generados
@@ -767,7 +815,7 @@ export default function DashboardPage() {
               </Link>
             </div>
 
-            <div className="bg-[#111827] border border-blue-500/40 rounded-xl p-4 flex flex-col gap-2">
+            <div className="bg-[#111827] border border-blue-500/40 rounded-xl py-2 px-3 flex flex-col gap-1">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-blue-200 uppercase tracking-wide">
                   Albaranes pendientes
@@ -784,7 +832,7 @@ export default function DashboardPage() {
               </Link>
             </div>
 
-            <div className="bg-[#111827] border border-emerald-500/40 rounded-xl p-3 sm:p-4 flex flex-col gap-1.5">
+            <div className="bg-[#111827] border border-emerald-500/40 rounded-xl py-2 px-3 flex flex-col gap-1">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-emerald-200 uppercase tracking-wide">
                   Facturas pendientes de cobro
@@ -803,14 +851,14 @@ export default function DashboardPage() {
         </section>
 
         <section>
-          <h2 className="text-sm font-semibold text-white/60 mb-2 uppercase tracking-wide">
+          <h2 className="text-sm font-semibold text-white/60 mb-1.5 uppercase tracking-wide">
             Métricas económicas
           </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <button
               type="button"
               onClick={() => setModalMetrica('pendiente')}
-              className="text-left bg-[#1a365d] border border-[#ed8936]/50 rounded-xl p-3 sm:p-4 flex flex-col gap-1.5 hover:bg-[#1e3a5f] transition-colors"
+              className="text-left bg-[#1a365d] border border-[#ed8936]/50 rounded-xl py-2 px-3 flex flex-col gap-1 hover:bg-[#1e3a5f] transition-colors"
             >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-[#fed7aa] uppercase tracking-wide">
@@ -825,7 +873,7 @@ export default function DashboardPage() {
             <button
               type="button"
               onClick={() => setModalMetrica('presupuestado')}
-              className="text-left bg-[#1a365d] border border-[#ed8936]/50 rounded-xl p-4 flex flex-col gap-2 hover:bg-[#1e3a5f] transition-colors"
+              className="text-left bg-[#1a365d] border border-[#ed8936]/50 rounded-xl py-2 px-3 flex flex-col gap-1 hover:bg-[#1e3a5f] transition-colors"
             >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-[#fed7aa] uppercase tracking-wide">
@@ -840,7 +888,7 @@ export default function DashboardPage() {
             <button
               type="button"
               onClick={() => setModalMetrica('materiales')}
-              className="text-left bg-[#1a365d] border border-[#ed8936]/50 rounded-xl p-3 sm:p-4 flex flex-col gap-1.5 hover:bg-[#1e3a5f] transition-colors"
+              className="text-left bg-[#1a365d] border border-[#ed8936]/50 rounded-xl py-2 px-3 flex flex-col gap-1 hover:bg-[#1e3a5f] transition-colors"
             >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-[#fed7aa] uppercase tracking-wide">
@@ -856,12 +904,12 @@ export default function DashboardPage() {
         </section>
 
         <section aria-label="Presupuestos, agenda y correo">
-          <h2 className="text-sm font-semibold text-white/60 mb-2 uppercase tracking-wide lg:sr-only">
+          <h2 className="text-sm font-semibold text-white/60 mb-1.5 uppercase tracking-wide lg:sr-only">
             Actividad reciente
           </h2>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-3 lg:items-stretch">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-2 lg:items-stretch">
             {/* Columna: Últimos presupuestos */}
-            <div className="bg-[#111827] border border-white/10 rounded-xl p-3 sm:p-4 flex flex-col min-h-0 max-h-[min(300px,40vh)] lg:max-h-none lg:h-[340px]">
+            <div className="bg-[#111827] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0 max-h-64">
               <div className="flex items-center justify-between shrink-0 mb-2">
                 <h3 className="text-sm font-semibold text-white/80 uppercase tracking-wide">
                   Últimos presupuestos
@@ -905,7 +953,7 @@ export default function DashboardPage() {
             <button
               type="button"
               onClick={abrirModalAgenda}
-              className="bg-[#111827] border border-white/10 rounded-xl p-3 sm:p-4 w-full min-h-0 max-h-[min(300px,40vh)] lg:max-h-none lg:h-[340px] text-left cursor-pointer transition-all hover:border-[#ed8936]/55 hover:ring-1 hover:ring-[#ed8936]/25 focus:outline-none focus:ring-2 focus:ring-[#ed8936]/40 group flex flex-col"
+              className="bg-[#111827] border border-white/10 rounded-xl p-2.5 sm:p-3 w-full min-h-0 max-h-64 text-left cursor-pointer transition-all hover:border-[#ed8936]/55 hover:ring-1 hover:ring-[#ed8936]/25 focus:outline-none focus:ring-2 focus:ring-[#ed8936]/40 group flex flex-col"
             >
               <div className="flex items-center justify-between gap-2 shrink-0 mb-2">
                 <h3 className="text-sm font-semibold text-white/80 uppercase tracking-wide group-hover:text-white">
@@ -956,7 +1004,7 @@ export default function DashboardPage() {
             </button>
 
             {/* Columna: Últimos emails */}
-            <div className="bg-[#111827] border border-white/10 rounded-xl p-3 sm:p-4 flex flex-col min-h-0 max-h-[min(300px,40vh)] lg:max-h-none lg:h-[340px]">
+            <div className="bg-[#111827] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0 max-h-64">
               <div className="flex items-center justify-between shrink-0 mb-2">
                 <h3 className="text-sm font-semibold text-white/80 uppercase tracking-wide">
                   Últimos emails
@@ -1021,6 +1069,56 @@ export default function DashboardPage() {
                   className="text-xs sm:text-sm font-medium text-[#ed8936] hover:text-[#f6ad55] transition-colors"
                 >
                   Ver todos
+                </Link>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section aria-label="Diario de obra" className="w-full">
+          <h2 className="text-sm font-semibold text-white/60 mb-1.5 uppercase tracking-wide">
+            Diario de obra
+          </h2>
+          <div className="w-full lg:max-w-[50%]">
+            <div className="bg-[#111827] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0">
+              <div className="flex items-center justify-between shrink-0 mb-1.5">
+                <h3 className="text-sm font-semibold text-white/80 uppercase tracking-wide">
+                  ÚLTIMAS ENTRADAS DIARIO
+                </h3>
+              </div>
+              <div className="min-h-0 max-h-40 overflow-y-auto overscroll-contain">
+                {loading ? (
+                  <p className="text-white/60 text-xs">Cargando...</p>
+                ) : ultimasEntradasDiario.length === 0 ? (
+                  <p className="text-white/60 text-xs">Sin entradas en el diario todavía</p>
+                ) : (
+                  <ul className="space-y-1.5 text-xs sm:text-sm">
+                    {ultimasEntradasDiario.map((e) => (
+                      <li
+                        key={e.id}
+                        className="border-b border-white/10 pb-1.5 last:border-b-0 last:pb-0"
+                      >
+                        <p className="font-bold text-white truncate">{e.obra_nombre}</p>
+                        <p className="text-[11px] sm:text-xs text-white/60 tabular-nums mt-0.5">
+                          {new Date(e.fecha).toLocaleString('es-ES', {
+                            dateStyle: 'short',
+                            timeStyle: 'short',
+                          })}
+                        </p>
+                        <p className="text-white/80 text-[11px] sm:text-xs mt-0.5 line-clamp-2">
+                          {extractoDiario(e.texto)}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="shrink-0 mt-2 pt-2 border-t border-white/10">
+                <Link
+                  href="/diario"
+                  className="inline-flex items-center text-xs sm:text-sm font-medium text-[#ed8936] hover:text-[#f6ad55] transition-colors"
+                >
+                  Ver diario completo →
                 </Link>
               </div>
             </div>

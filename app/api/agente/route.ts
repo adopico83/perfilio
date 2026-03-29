@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import {
+  buildDiarioObraPdf,
+  fetchDiarioObraEntries,
+  insertDiarioObraEntry,
+  sanitizeDiarioFilePart,
+} from '@/lib/diario-obra';
 import { getGmailAccessTokenForUser } from '@/lib/gmail/get-access-token';
 
 const openai = new OpenAI({
@@ -406,6 +412,11 @@ Tickets y facturas (imagen adjunta / OCR):
 - Los importes deben ser números coherentes (importe sin IVA, IVA e importe total); si algo no se lee bien, dilo y pide aclaración en lugar de inventar.
 - Cuando "registrar_gasto_ticket" devuelva ok y hayas confirmado al usuario que el gasto se guardó, añade siempre en tu respuesta (en el mismo mensaje): "¿Quieres vincularlo a algún albarán o factura? Dime el número o el nombre del cliente y lo busco."
 - NO llames a "vincular_gasto" por iniciativa propia ni en ese mismo turno: espera a que el usuario indique a qué documento enlazarlo. Si menciona número de factura/albarán o nombre de cliente, primero usa "listar_facturas" o "listar_albaranes" para localizar el UUID correcto y, cuando lo tengas claro, llama a "vincular_gasto" con gasto_id (el id devuelto al registrar) y documentos: [{ tipo, id }].
+
+Diario de obra:
+- Usa "crear_entrada_diario" cuando el usuario quiera registrar el avance de una obra (texto dictado o escrito): obligatorio obra_nombre; opcional dirección, texto, fotos y videos como URLs (tras subir archivos al almacenamiento del diario si el flujo lo permite).
+- Tras crear la entrada, si la tool devuelve el mensaje con la pregunta del PDF, puedes repetir o reforzar la pregunta al usuario.
+- Usa "generar_pdf_diario" cuando pida exportar o descargar el diario completo de una obra; necesitas el nombre exacto de la obra. La tool devuelve una URL firmada para descarga.
 
 Fecha actual: ${fechaActual}
 Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaContextoPrimerMensaje}`;
@@ -890,6 +901,64 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
               },
             },
             required: ['gasto_id', 'documentos'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'crear_entrada_diario',
+          description:
+            'Crea una entrada en el diario de obra con texto, fotos y/o vídeos. El texto puede venir de lo que ha dictado el usuario por voz o escrito. Usar cuando el usuario quiera registrar el avance de una obra.',
+          parameters: {
+            type: 'object',
+            properties: {
+              obra_nombre: {
+                type: 'string',
+                description:
+                  "Nombre o identificador de la obra (ej: 'Reforma Calle Mayor', 'Casa García')",
+              },
+              obra_direccion: {
+                type: 'string',
+                description: 'Dirección física de la obra',
+              },
+              texto: {
+                type: 'string',
+                description:
+                  'Descripción del trabajo realizado, observaciones, materiales usados, etc.',
+              },
+              fotos: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'URLs de las fotos subidas previamente',
+              },
+              videos: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'URLs de los vídeos subidos previamente',
+              },
+            },
+            required: ['obra_nombre'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'generar_pdf_diario',
+          description:
+            'Genera un PDF con todas las entradas del diario de una obra ordenadas por fecha.',
+          parameters: {
+            type: 'object',
+            properties: {
+              obra_nombre: {
+                type: 'string',
+                description: 'Nombre de la obra cuyo diario se quiere exportar',
+              },
+            },
+            required: ['obra_nombre'],
             additionalProperties: false,
           },
         },
@@ -1736,6 +1805,129 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
           const n = documentos.length;
           return {
             mensaje: `Gasto vinculado correctamente a ${n} documento(s).`,
+          };
+        }
+        case 'crear_entrada_diario': {
+          const obraNombreDiario = String(toolArgs.obra_nombre ?? '').trim();
+          if (!obraNombreDiario) {
+            return { error: 'obra_nombre es obligatorio' };
+          }
+          const businessIdDiario =
+            typeof business_id === 'string'
+              ? business_id
+              : String(business_id ?? '');
+          if (!businessIdDiario) {
+            return { error: 'business_id es requerido' };
+          }
+          const obraDireccionDiario =
+            toolArgs.obra_direccion != null
+              ? String(toolArgs.obra_direccion).trim()
+              : undefined;
+          const textoDiario =
+            toolArgs.texto != null ? String(toolArgs.texto).trim() : undefined;
+          const fotosDiario = Array.isArray(toolArgs.fotos)
+            ? toolArgs.fotos.filter(
+                (u): u is string => typeof u === 'string' && u.trim().length > 0
+              )
+            : undefined;
+          const videosDiario = Array.isArray(toolArgs.videos)
+            ? toolArgs.videos.filter(
+                (u): u is string => typeof u === 'string' && u.trim().length > 0
+              )
+            : undefined;
+
+          const { data: entradaCreada, error: errDiario } = await insertDiarioObraEntry(
+            supabase,
+            {
+              business_id: businessIdDiario,
+              obra_nombre: obraNombreDiario,
+              obra_direccion: obraDireccionDiario || null,
+              texto: textoDiario || null,
+              fotos: fotosDiario ?? null,
+              videos: videosDiario ?? null,
+            }
+          );
+
+          if (errDiario || !entradaCreada) {
+            return {
+              error: errDiario?.message ?? 'No se pudo crear la entrada del diario',
+            };
+          }
+
+          const fechaLargaDiario = new Date(entradaCreada.fecha).toLocaleDateString('es-ES', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          });
+
+          return {
+            mensaje: `Entrada registrada en el diario de '${entradaCreada.obra_nombre}' para el ${fechaLargaDiario}. ¿Quieres generar el PDF del diario completo de esta obra?`,
+            id: entradaCreada.id,
+          };
+        }
+        case 'generar_pdf_diario': {
+          const obraNombrePdf = String(toolArgs.obra_nombre ?? '').trim();
+          if (!obraNombrePdf) {
+            return { error: 'obra_nombre es obligatorio' };
+          }
+          const businessIdPdfDiario =
+            typeof business_id === 'string'
+              ? business_id
+              : String(business_id ?? '');
+          if (!businessIdPdfDiario) {
+            return { error: 'business_id es requerido' };
+          }
+
+          const { data: entradasPdf, error: listPdfErr } = await fetchDiarioObraEntries(
+            supabase,
+            businessIdPdfDiario,
+            obraNombrePdf
+          );
+          if (listPdfErr || !entradasPdf) {
+            return { error: listPdfErr?.message ?? 'No se pudieron leer las entradas' };
+          }
+          if (entradasPdf.length === 0) {
+            return { error: 'No hay entradas en el diario para esa obra' };
+          }
+
+          let pdfBytes: Uint8Array;
+          try {
+            pdfBytes = await buildDiarioObraPdf(entradasPdf);
+          } catch (e) {
+            console.error('buildDiarioObraPdf', e);
+            return { error: 'No se pudo generar el PDF' };
+          }
+
+          const dateTagPdf = new Date().toISOString().slice(0, 10);
+          const safeObraPdf = sanitizeDiarioFilePart(obraNombrePdf);
+          const pdfPath = `${businessIdPdfDiario}/pdfs/diario_${safeObraPdf}_${dateTagPdf}.pdf`;
+
+          const { error: upPdfErr } = await supabase.storage
+            .from('diario-obra')
+            .upload(pdfPath, pdfBytes, {
+              contentType: 'application/pdf',
+              upsert: true,
+            });
+
+          if (upPdfErr) {
+            return { error: `No se pudo guardar el PDF: ${upPdfErr.message}` };
+          }
+
+          const { data: signedPdf, error: signPdfErr } = await supabase.storage
+            .from('diario-obra')
+            .createSignedUrl(pdfPath, 60 * 60 * 24 * 7);
+
+          if (signPdfErr || !signedPdf?.signedUrl) {
+            return {
+              error: signPdfErr?.message ?? 'No se pudo generar enlace de descarga del PDF',
+            };
+          }
+
+          return {
+            mensaje:
+              'PDF del diario generado. El usuario puede descargarlo con el enlace (válido varios días).',
+            url: signedPdf.signedUrl,
           };
         }
         default:

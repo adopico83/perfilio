@@ -9,11 +9,13 @@ import {
   type ChangeEvent,
   type MouseEvent,
   type PointerEvent,
+  type ReactNode,
   type TouchEvent,
 } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
-import { Loader2, Paperclip, Pause, X } from 'lucide-react';
+import { Loader2, Paperclip, Pause, Video, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import { isDiarioPdfDownloadLink } from '@/lib/diario-pdf-link';
 
 interface BusinessProfile {
   id: string;
@@ -180,6 +182,57 @@ function textoPlanoParaTts(markdown: string): string {
     .trim();
 }
 
+const agentAssistantMarkdownComponents = {
+  p: ({ children }: { children?: ReactNode }) => <p className="text-white">{children}</p>,
+  strong: ({ children }: { children?: ReactNode }) => (
+    <strong className="text-[#ed8936] font-bold">{children}</strong>
+  ),
+  ul: ({ children }: { children?: ReactNode }) => (
+    <ul className="list-disc pl-6 space-y-1 text-white">{children}</ul>
+  ),
+  ol: ({ children }: { children?: ReactNode }) => (
+    <ol className="list-decimal pl-6 space-y-1 text-white">{children}</ol>
+  ),
+  li: ({ children }: { children?: ReactNode }) => <li className="text-white">{children}</li>,
+  h1: ({ children }: { children?: ReactNode }) => (
+    <h1 className="text-base font-bold text-white mt-2 mb-1">{children}</h1>
+  ),
+  h2: ({ children }: { children?: ReactNode }) => (
+    <h2 className="text-sm font-bold text-white mt-2 mb-1">{children}</h2>
+  ),
+  h3: ({ children }: { children?: ReactNode }) => (
+    <h3 className="text-sm font-bold text-white mt-1 mb-1">{children}</h3>
+  ),
+  a: ({ href, children }: { href?: string; children?: ReactNode }) => {
+    const url = href ?? '#';
+    if (isDiarioPdfDownloadLink(url)) {
+      return (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-[#ed8936] underline underline-offset-2 decoration-[#ed8936] hover:text-[#f6ad55]"
+        >
+          <span className="shrink-0" aria-hidden>
+            📄
+          </span>
+          <span>{children}</span>
+        </a>
+      );
+    }
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-[#ed8936] underline underline-offset-2 hover:text-[#f6ad55]"
+      >
+        {children}
+      </a>
+    );
+  },
+};
+
 function AssistantTtsButton({
   content,
   isLoading,
@@ -279,9 +332,11 @@ export default function AgentSidebar() {
   const [error, setError] = useState('');
   const [emailSendLoadingId, setEmailSendLoadingId] = useState<string | null>(null);
   const [imagenPendiente, setImagenPendiente] = useState<string | null>(null);
+  const [subiendoVideo, setSubiendoVideo] = useState(false);
 
   const listRef = useRef<HTMLDivElement | null>(null);
   const fileInputImagenRef = useRef<HTMLInputElement | null>(null);
+  const fileInputVideoRef = useRef<HTMLInputElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<BlobPart[]>([]);
@@ -828,6 +883,7 @@ export default function AgentSidebar() {
     setHistorial([]);
     setError('');
     setImagenPendiente(null);
+    setSubiendoVideo(false);
     setConversationId(generateConversationId());
   };
 
@@ -845,6 +901,69 @@ export default function AgentSidebar() {
       setImagenPendiente(dataUrl);
     } catch {
       setError('No se pudo cargar la imagen. Prueba con otra foto.');
+    }
+  };
+
+  const handleSeleccionarVideo = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !selectedId) return;
+    const okMime =
+      file.type.startsWith('video/') ||
+      /^video\//i.test(file.type) ||
+      /\.(mp4|mov|webm)$/i.test(file.name);
+    if (!okMime) {
+      setError('Selecciona un vídeo (mp4, mov, etc.).');
+      return;
+    }
+    setError('');
+    const msgId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `v_${Date.now()}`;
+    setHistorial((prev) => [...prev, { id: msgId, role: 'user', content: 'Subiendo vídeo…' }]);
+    setSubiendoVideo(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('business_id', selectedId);
+      const res = await fetch('/api/diario/upload', { method: 'POST', body: form });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; url?: string };
+      if (!res.ok) {
+        setHistorial((prev) =>
+          prev.map((m) =>
+            m.id === msgId
+              ? {
+                  ...m,
+                  content: `Error al subir el vídeo: ${data.error ?? res.statusText}`,
+                }
+              : m
+          )
+        );
+        return;
+      }
+      const url = data.url ?? '';
+      const nombre = file.name;
+      setHistorial((prev) =>
+        prev.map((m) =>
+          m.id === msgId
+            ? {
+                ...m,
+                content: `Vídeo listo: ${nombre}\nURL: ${url}`,
+              }
+            : m
+        )
+      );
+    } catch {
+      setHistorial((prev) =>
+        prev.map((m) =>
+          m.id === msgId
+            ? { ...m, content: 'Error de conexión al subir el vídeo.' }
+            : m
+        )
+      );
+    } finally {
+      setSubiendoVideo(false);
     }
   };
 
@@ -931,32 +1050,7 @@ export default function AgentSidebar() {
                         <div className="flex gap-1.5 items-start">
                           <div className="min-w-0 max-w-[min(90%,calc(100%-2.5rem))] px-3 py-2 rounded-xl rounded-bl-md bg-[#0f2744] text-white border border-white/10">
                             <div className="text-sm leading-relaxed [&>*+*]:mt-2">
-                              <ReactMarkdown
-                                components={{
-                                  p: ({ children }) => <p className="text-white">{children}</p>,
-                                  strong: ({ children }) => (
-                                    <strong className="text-[#ed8936] font-bold">{children}</strong>
-                                  ),
-                                  ul: ({ children }) => (
-                                    <ul className="list-disc pl-6 space-y-1 text-white">{children}</ul>
-                                  ),
-                                  ol: ({ children }) => (
-                                    <ol className="list-decimal pl-6 space-y-1 text-white">{children}</ol>
-                                  ),
-                                  li: ({ children }) => <li className="text-white">{children}</li>,
-                                  h1: ({ children }) => (
-                                    <h1 className="text-base font-bold text-white mt-2 mb-1">
-                                      {children}
-                                    </h1>
-                                  ),
-                                  h2: ({ children }) => (
-                                    <h2 className="text-sm font-bold text-white mt-2 mb-1">{children}</h2>
-                                  ),
-                                  h3: ({ children }) => (
-                                    <h3 className="text-sm font-bold text-white mt-1 mb-1">{children}</h3>
-                                  ),
-                                }}
-                              >
+                              <ReactMarkdown components={agentAssistantMarkdownComponents}>
                                 {msg.content}
                               </ReactMarkdown>
                             </div>
@@ -1036,11 +1130,20 @@ export default function AgentSidebar() {
               <button
                 type="button"
                 aria-label="Adjuntar imagen de ticket o factura"
-                disabled={loading || grabando || !selectedId}
+                disabled={loading || grabando || !selectedId || subiendoVideo}
                 onClick={() => fileInputImagenRef.current?.click()}
                 className="w-11 shrink-0 flex items-center justify-center rounded-lg border border-white/10 bg-white/10 hover:bg-white/15 text-white transition-colors disabled:opacity-50 touch-manipulation"
               >
                 <Paperclip className="size-5" aria-hidden />
+              </button>
+              <button
+                type="button"
+                aria-label="Adjuntar vídeo para el diario de obra"
+                disabled={loading || grabando || !selectedId || subiendoVideo}
+                onClick={() => fileInputVideoRef.current?.click()}
+                className="w-11 shrink-0 flex items-center justify-center rounded-lg border border-white/10 bg-white/10 hover:bg-white/15 text-white transition-colors disabled:opacity-50 touch-manipulation"
+              >
+                <Video className="size-5" aria-hidden />
               </button>
               <button
                 type="button"
@@ -1083,6 +1186,14 @@ export default function AgentSidebar() {
         className="hidden"
         aria-hidden
         onChange={(e) => void handleSeleccionarImagen(e)}
+      />
+      <input
+        ref={fileInputVideoRef}
+        type="file"
+        accept="video/mp4,video/quicktime,video/mov,video/*"
+        className="hidden"
+        aria-hidden
+        onChange={(e) => void handleSeleccionarVideo(e)}
       />
       <audio
         ref={audioRef}
@@ -1166,25 +1277,7 @@ export default function AgentSidebar() {
                               <div className="flex gap-1.5 items-start">
                                 <div className="min-w-0 max-w-[min(90%,calc(100%-2.5rem))] px-3 py-2 rounded-xl rounded-bl-md bg-[#0f2744] text-white border border-white/10">
                                   <div className="text-sm leading-relaxed [&>*+*]:mt-2">
-                                    <ReactMarkdown
-                                      components={{
-                                        p: ({ children }) => <p className="text-white">{children}</p>,
-                                        strong: ({ children }) => (
-                                          <strong className="text-[#ed8936] font-bold">{children}</strong>
-                                        ),
-                                        ul: ({ children }) => (
-                                          <ul className="list-disc pl-6 space-y-1 text-white">
-                                            {children}
-                                          </ul>
-                                        ),
-                                        ol: ({ children }) => (
-                                          <ol className="list-decimal pl-6 space-y-1 text-white">
-                                            {children}
-                                          </ol>
-                                        ),
-                                        li: ({ children }) => <li className="text-white">{children}</li>,
-                                      }}
-                                    >
+                                    <ReactMarkdown components={agentAssistantMarkdownComponents}>
                                       {msg.content}
                                     </ReactMarkdown>
                                   </div>
@@ -1260,15 +1353,24 @@ export default function AgentSidebar() {
                     className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/40 focus:ring-2 focus:ring-[#ed8936] focus:border-[#ed8936] outline-none resize-none"
                     disabled={loading}
                   />
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
                     <button
                       type="button"
                       aria-label="Adjuntar imagen"
-                      disabled={loading || grabando || !selectedId}
+                      disabled={loading || grabando || !selectedId || subiendoVideo}
                       onClick={() => fileInputImagenRef.current?.click()}
                       className="py-2 rounded-lg border border-white/10 bg-white/10 hover:bg-white/15 text-white transition-colors disabled:opacity-50 touch-manipulation flex items-center justify-center"
                     >
                       <Paperclip className="size-5" aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Adjuntar vídeo para el diario de obra"
+                      disabled={loading || grabando || !selectedId || subiendoVideo}
+                      onClick={() => fileInputVideoRef.current?.click()}
+                      className="py-2 rounded-lg border border-white/10 bg-white/10 hover:bg-white/15 text-white transition-colors disabled:opacity-50 touch-manipulation flex items-center justify-center"
+                    >
+                      <Video className="size-5" aria-hidden />
                     </button>
                     <button
                       type="button"

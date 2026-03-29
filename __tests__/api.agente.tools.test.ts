@@ -729,4 +729,70 @@ describe('POST /api/agente — tools', () => {
       expect(parsed.mensaje).toMatch(/Gasto vinculado correctamente a 1 documento/);
     });
   });
+
+  describe('crear_entrada_diario', () => {
+    it('devuelve mensaje de éxito con nombre de obra y fecha', async () => {
+      createMock
+        .mockResolvedValueOnce(
+          toolCallMessage(
+            'crear_entrada_diario',
+            JSON.stringify({
+              obra_nombre: 'Reforma Norte',
+              texto: 'Instalación eléctrica',
+            })
+          )
+        )
+        .mockResolvedValueOnce({
+          choices: [{ message: { content: 'Respuesta final del agente.' } }],
+        });
+
+      (createServiceClient as jest.Mock).mockReturnValue({
+        from: jest.fn((table: string) => {
+          if (table === 'business_profiles') return businessProfileChain;
+          if (table === 'diario_obra') {
+            return {
+              insert: jest.fn().mockReturnThis(),
+              select: jest.fn().mockReturnThis(),
+              single: jest.fn().mockResolvedValue({
+                data: {
+                  id: 'diario-uuid-1',
+                  business_id: 'biz-1',
+                  obra_nombre: 'Reforma Norte',
+                  obra_direccion: null,
+                  texto: 'Instalación eléctrica',
+                  fotos: [],
+                  videos: [],
+                  fecha: '2026-03-20T14:00:00.000Z',
+                },
+                error: null,
+              }),
+            };
+          }
+          return makeThenableResult({ data: null, error: { message: 'unknown table' } });
+        }),
+      });
+
+      const req = new NextRequest('http://localhost/api/agente', {
+        method: 'POST',
+        body: JSON.stringify({
+          mensaje: 'Registra en el diario',
+          business_id: 'biz-1',
+          historial: [],
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(200);
+      const secondCall = createMock.mock.calls[1]?.[0] as {
+        messages: Array<{ role: string; content?: string }>;
+      };
+      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
+      const parsed = JSON.parse(toolMsg!.content as string) as { mensaje?: string; id?: string };
+      expect(parsed.id).toBe('diario-uuid-1');
+      expect(parsed.mensaje).toContain('Reforma Norte');
+      expect(parsed.mensaje).toMatch(/para el/);
+      expect(parsed.mensaje).toContain('¿Quieres generar el PDF del diario completo de esta obra?');
+    });
+  });
 });

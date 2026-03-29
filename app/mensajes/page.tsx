@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
-import Link from 'next/link';
+import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import LogoutButton from '../dashboard/logout-button';
 
 export default function MensajesPage() {
@@ -156,9 +156,7 @@ export default function MensajesPage() {
           <div className="flex justify-between items-center mb-4">
             <h1 className="text-2xl font-bold text-white">Bandeja de mensajes</h1>
             <div className="flex items-center gap-4">
-              <Link href="/dashboard" className="text-sm text-gray-200 hover:text-white transition-colors">
-                ← Volver al dashboard
-              </Link>
+              <VolverAlDashboard />
               <LogoutButton />
             </div>
           </div>
