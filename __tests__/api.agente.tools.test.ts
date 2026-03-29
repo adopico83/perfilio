@@ -582,4 +582,151 @@ describe('POST /api/agente — tools', () => {
       expect(parsed.error).toContain('alto');
     });
   });
+
+  describe('vincular_gasto', () => {
+    const gastoUuid = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+    const facturaUuid = 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a12';
+    const albaranUuid = 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a13';
+
+    it('llama a insert con gasto_id y documentos válidos (factura y albarán)', async () => {
+      const gastoChain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        maybeSingle: jest.fn().mockResolvedValue({ data: { id: gastoUuid }, error: null }),
+      };
+      const facturaChain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        maybeSingle: jest.fn().mockResolvedValue({ data: { id: facturaUuid }, error: null }),
+      };
+      const albaranChain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        maybeSingle: jest.fn().mockResolvedValue({ data: { id: albaranUuid }, error: null }),
+      };
+      const insertMockGd = jest.fn().mockResolvedValue({ data: null, error: null });
+
+      createMock
+        .mockResolvedValueOnce(
+          toolCallMessage(
+            'vincular_gasto',
+            JSON.stringify({
+              gasto_id: gastoUuid,
+              documentos: [
+                { tipo: 'factura', id: facturaUuid },
+                { tipo: 'albaran', id: albaranUuid },
+              ],
+            })
+          )
+        )
+        .mockResolvedValueOnce({
+          choices: [{ message: { content: 'Respuesta final del agente.' } }],
+        });
+
+      (createServiceClient as jest.Mock).mockReturnValue({
+        from: jest.fn((table: string) => {
+          if (table === 'business_profiles') return businessProfileChain;
+          if (table === 'gastos') return gastoChain;
+          if (table === 'facturas') return facturaChain;
+          if (table === 'albaranes') return albaranChain;
+          if (table === 'gastos_documentos')
+            return { insert: insertMockGd };
+          return makeThenableResult({ data: null, error: { message: 'unknown table' } });
+        }),
+      });
+
+      const req = new NextRequest('http://localhost/api/agente', {
+        method: 'POST',
+        body: JSON.stringify({
+          mensaje: 'Vincular gasto',
+          business_id: 'biz-1',
+          historial: [],
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(200);
+
+      expect(insertMockGd).toHaveBeenCalledWith([
+        {
+          business_id: 'biz-1',
+          gasto_id: gastoUuid,
+          documento_tipo: 'factura',
+          documento_id: facturaUuid,
+        },
+        {
+          business_id: 'biz-1',
+          gasto_id: gastoUuid,
+          documento_tipo: 'albaran',
+          documento_id: albaranUuid,
+        },
+      ]);
+
+      const secondCall = createMock.mock.calls[1]?.[0] as {
+        messages: Array<{ role: string; content?: string }>;
+      };
+      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
+      const parsed = JSON.parse(toolMsg!.content as string) as { mensaje?: string };
+      expect(parsed.mensaje).toBe('Gasto vinculado correctamente a 2 documento(s).');
+    });
+
+    it('devuelve mensaje de éxito cuando el INSERT no devuelve error', async () => {
+      const gastoChain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        maybeSingle: jest.fn().mockResolvedValue({ data: { id: gastoUuid }, error: null }),
+      };
+      const facturaChain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        maybeSingle: jest.fn().mockResolvedValue({ data: { id: facturaUuid }, error: null }),
+      };
+      const insertMockGd = jest.fn().mockResolvedValue({ data: null, error: null });
+
+      createMock
+        .mockResolvedValueOnce(
+          toolCallMessage(
+            'vincular_gasto',
+            JSON.stringify({
+              gasto_id: gastoUuid,
+              documentos: [{ tipo: 'factura', id: facturaUuid }],
+            })
+          )
+        )
+        .mockResolvedValueOnce({
+          choices: [{ message: { content: 'Listo.' } }],
+        });
+
+      (createServiceClient as jest.Mock).mockReturnValue({
+        from: jest.fn((table: string) => {
+          if (table === 'business_profiles') return businessProfileChain;
+          if (table === 'gastos') return gastoChain;
+          if (table === 'facturas') return facturaChain;
+          if (table === 'gastos_documentos')
+            return { insert: insertMockGd };
+          return makeThenableResult({ data: null, error: { message: 'unknown table' } });
+        }),
+      });
+
+      const req = new NextRequest('http://localhost/api/agente', {
+        method: 'POST',
+        body: JSON.stringify({
+          mensaje: 'x',
+          business_id: 'biz-1',
+          historial: [],
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(200);
+      const secondCall = createMock.mock.calls[1]?.[0] as {
+        messages: Array<{ role: string; content?: string }>;
+      };
+      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
+      const parsed = JSON.parse(toolMsg!.content as string) as { mensaje?: string };
+      expect(parsed.mensaje).toMatch(/Gasto vinculado correctamente a 1 documento/);
+    });
+  });
 });

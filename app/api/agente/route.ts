@@ -404,6 +404,8 @@ Tickets y facturas (imagen adjunta / OCR):
 - En el MISMO turno en el que recibes por primera vez esa imagen en el mensaje del usuario, NO llames a "registrar_gasto_ticket". Primero muestra claramente en texto los datos que hayas podido leer y termina preguntando si debe registrar el gasto (p. ej. "¿Registro este gasto?").
 - Llama a "registrar_gasto_ticket" solo cuando el usuario confirme de forma explícita en un mensaje posterior (sí, adelante, regístralo, confirmo, vale…). Si corrige cifras o datos, refleja los valores acordados en la tool y, si hace falta, vuelve a pedir confirmación antes de registrar.
 - Los importes deben ser números coherentes (importe sin IVA, IVA e importe total); si algo no se lee bien, dilo y pide aclaración en lugar de inventar.
+- Cuando "registrar_gasto_ticket" devuelva ok y hayas confirmado al usuario que el gasto se guardó, añade siempre en tu respuesta (en el mismo mensaje): "¿Quieres vincularlo a algún albarán o factura? Dime el número o el nombre del cliente y lo busco."
+- NO llames a "vincular_gasto" por iniciativa propia ni en ese mismo turno: espera a que el usuario indique a qué documento enlazarlo. Si menciona número de factura/albarán o nombre de cliente, primero usa "listar_facturas" o "listar_albaranes" para localizar el UUID correcto y, cuando lo tengas claro, llama a "vincular_gasto" con gasto_id (el id devuelto al registrar) y documentos: [{ tipo, id }].
 
 Fecha actual: ${fechaActual}
 Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaContextoPrimerMensaje}`;
@@ -856,6 +858,38 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
               },
             },
             required: ['proveedor', 'importe', 'iva', 'importe_total', 'fecha'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'vincular_gasto',
+          description:
+            'Vincula un gasto registrado a una o varias facturas o albaranes. Usar después del OCR si el usuario quiere asociar el ticket a un documento.',
+          parameters: {
+            type: 'object',
+            properties: {
+              gasto_id: {
+                type: 'string',
+                description: 'UUID del gasto a vincular',
+              },
+              documentos: {
+                type: 'array',
+                description: 'Lista de documentos a los que vincular el gasto',
+                items: {
+                  type: 'object',
+                  properties: {
+                    tipo: { type: 'string', enum: ['factura', 'albaran'] },
+                    id: { type: 'string', description: 'UUID del documento' },
+                  },
+                  required: ['tipo', 'id'],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ['gasto_id', 'documentos'],
             additionalProperties: false,
           },
         },
@@ -1605,6 +1639,104 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
             return { error: error?.message ?? 'No se pudo registrar el gasto' };
           }
           return { ok: true, id: row.id as string };
+        }
+        case 'vincular_gasto': {
+          const gastoId = String(toolArgs.gasto_id ?? '').trim();
+          const documentosRaw = toolArgs.documentos;
+
+          const businessIdVinc =
+            typeof business_id === 'string'
+              ? business_id
+              : String(business_id ?? '');
+          if (!businessIdVinc) {
+            return { error: 'business_id es requerido' };
+          }
+
+          const uuidRe =
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+          if (!gastoId || !uuidRe.test(gastoId)) {
+            return { error: 'gasto_id debe ser un UUID válido' };
+          }
+          if (!Array.isArray(documentosRaw) || documentosRaw.length === 0) {
+            return { error: 'documentos debe ser un array con al menos un elemento' };
+          }
+
+          const { data: gastoRow, error: gastoErr } = await supabase
+            .from('gastos')
+            .select('id')
+            .eq('id', gastoId)
+            .eq('business_id', businessIdVinc)
+            .maybeSingle();
+
+          if (gastoErr) {
+            return { error: `No se pudo comprobar el gasto: ${gastoErr.message}` };
+          }
+          if (!gastoRow?.id) {
+            return { error: 'No se encontró el gasto o no pertenece a este negocio' };
+          }
+
+          type DocItem = { tipo: 'factura' | 'albaran'; id: string };
+          const documentos: DocItem[] = [];
+          for (let i = 0; i < documentosRaw.length; i++) {
+            const item = documentosRaw[i];
+            if (!item || typeof item !== 'object') {
+              return { error: `documentos[${i}] debe ser un objeto con tipo e id` };
+            }
+            const o = item as Record<string, unknown>;
+            const tipo = String(o.tipo ?? '').toLowerCase();
+            const docId = String(o.id ?? '').trim();
+            if (tipo !== 'factura' && tipo !== 'albaran') {
+              return {
+                error: `documentos[${i}].tipo debe ser "factura" o "albaran"`,
+              };
+            }
+            if (!docId || !uuidRe.test(docId)) {
+              return { error: `documentos[${i}].id debe ser un UUID válido` };
+            }
+            documentos.push({ tipo: tipo as 'factura' | 'albaran', id: docId });
+          }
+
+          for (let i = 0; i < documentos.length; i++) {
+            const d = documentos[i];
+            const tabla = d.tipo === 'factura' ? 'facturas' : 'albaranes';
+            const { data: docRow, error: docErr } = await supabase
+              .from(tabla)
+              .select('id')
+              .eq('id', d.id)
+              .eq('business_id', businessIdVinc)
+              .maybeSingle();
+
+            if (docErr) {
+              return {
+                error: `No se pudo comprobar el documento (${d.tipo}): ${docErr.message}`,
+              };
+            }
+            if (!docRow?.id) {
+              return {
+                error: `No se encontró la ${d.tipo} indicada o no pertenece a este negocio`,
+              };
+            }
+          }
+
+          const filas = documentos.map((d) => ({
+            business_id: businessIdVinc,
+            gasto_id: gastoId,
+            documento_tipo: d.tipo,
+            documento_id: d.id,
+          }));
+
+          const { error: insErr } = await supabase.from('gastos_documentos').insert(filas);
+
+          if (insErr) {
+            return {
+              error: `No se pudo vincular el gasto: ${insErr.message}`,
+            };
+          }
+
+          const n = documentos.length;
+          return {
+            mensaje: `Gasto vinculado correctamente a ${n} documento(s).`,
+          };
         }
         default:
           return { error: `Tool no soportada: ${toolName}` };
