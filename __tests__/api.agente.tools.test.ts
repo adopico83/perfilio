@@ -795,4 +795,73 @@ describe('POST /api/agente — tools', () => {
       expect(parsed.mensaje).toContain('¿Quieres generar el PDF del diario completo de esta obra?');
     });
   });
+
+  describe('mostrar_vista_visual', () => {
+    it('devuelve accion abrir_canvas en el tool result y canvas en el JSON de respuesta', async () => {
+      const args = JSON.stringify({
+        tipo: 'presupuestos',
+        titulo: 'Últimos presupuestos',
+        datos: [
+          {
+            id: 'p1',
+            cliente: 'Cliente A',
+            importe_total: 100,
+            fecha: '2026-03-01',
+            estado: 'pendiente',
+          },
+        ],
+      });
+      createMock
+        .mockResolvedValueOnce(toolCallMessage('mostrar_vista_visual', args))
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: 'Abriendo vista visual de Últimos presupuestos...',
+              },
+            },
+          ],
+        });
+
+      (createServiceClient as jest.Mock).mockReturnValue({
+        from: mockFromFactory({
+          business_profiles: businessProfileChain,
+        }),
+      });
+
+      const req = new NextRequest('http://localhost/api/agente', {
+        method: 'POST',
+        body: JSON.stringify({
+          mensaje: 'Muéstralo en tabla',
+          business_id: 'biz-1',
+          historial: [],
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(200);
+      const secondCall = createMock.mock.calls[1]?.[0] as {
+        messages: Array<{ role: string; content?: string }>;
+      };
+      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
+      const parsed = JSON.parse(toolMsg!.content as string) as {
+        accion: string;
+        tipo: string;
+        titulo: string;
+        datos: unknown[];
+      };
+      expect(parsed.accion).toBe('abrir_canvas');
+      expect(parsed.tipo).toBe('presupuestos');
+      expect(parsed.titulo).toBe('Últimos presupuestos');
+      expect(parsed.datos).toHaveLength(1);
+
+      const body = (await res.json()) as {
+        canvas: { tipo: string; titulo: string; datos: unknown[] } | null;
+      };
+      expect(body.canvas?.tipo).toBe('presupuestos');
+      expect(body.canvas?.titulo).toBe('Últimos presupuestos');
+      expect(body.canvas?.datos).toHaveLength(1);
+    });
+  });
 });

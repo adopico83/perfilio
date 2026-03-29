@@ -13,6 +13,24 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+/** El modelo a veces envía un objeto o string JSON en lugar de un array; sin esto capturarCanvas no rellena canvas. */
+function normalizarDatosCanvasVista(datos: unknown): unknown[] {
+  if (Array.isArray(datos)) return datos;
+  if (datos && typeof datos === 'object') return [datos];
+  if (typeof datos === 'string') {
+    const s = datos.trim();
+    if (!s) return [];
+    try {
+      const p = JSON.parse(s) as unknown;
+      if (Array.isArray(p)) return p;
+      if (p && typeof p === 'object') return [p];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 /** YYYY-MM-DD del instante dado en la zona horaria indicada (p. ej. Europa/Madrid). */
 function formatYmdInTimeZone(date: Date, timeZone: string): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -400,6 +418,16 @@ Puedes ayudar al usuario a gestionar mensajes de clientes, generar presupuestos,
 Envío de emails (Gmail):
 - La herramienta "enviar_email" no envía el correo de inmediato: deja un borrador pendiente de aprobación del usuario en el chat.
 - Después de llamarla con destinatario, asunto y cuerpo, muestra en tu respuesta el borrador completo (para, asunto, texto) y advierte claramente que el usuario debe pulsar "Enviar" o "Cancelar" en el panel para confirmar o descartar el envío.
+
+Vista visual (panel modal / canvas):
+- Flujo obligatorio cuando el usuario pida ver datos "en tabla", "en vista", "en panel", "visualiza" o "canvas":
+  1) Llama primero a la tool de listado que corresponda (listar_presupuestos, listar_facturas, listar_albaranes, leer_emails_recientes para emails, etc.) y espera su resultado.
+  2) Con el array de resultados obtenido en el paso 1, llama a "mostrar_vista_visual" pasando en "datos" ese array completo (los mismos objetos que devolvió la tool, normalmente bajo la clave "items" debes expandirlos al array "datos").
+  3) NUNCA llames a "mostrar_vista_visual" con "datos" vacío ni sin haber ejecutado antes la tool de listado correspondiente en ese turno o inmediatamente antes en la misma conversación con datos frescos.
+- IMPORTANTE: Para mostrar_vista_visual, SIEMPRE debes obtener los datos primero con la tool de listado correspondiente (listar_presupuestos, listar_facturas, listar_albaranes, etc.). Nunca llames a mostrar_vista_visual con datos vacíos. El campo datos debe contener el array completo devuelto por la tool de listado.
+- Para emails usa "leer_emails_recientes" y pasa en "datos" el array "items" que devuelve. Para gastos o diario, solo usa mostrar_vista_visual si ya tienes filas concretas de una tool previa en el mismo flujo; si no existe tool de listado, obtén o confirma los datos antes de abrir el panel.
+- No uses "mostrar_vista_visual" para listados habituales en el chat sin petición explícita de vista visual.
+- Tras llamar a "mostrar_vista_visual", responde en el chat con un mensaje breve del estilo: "Abriendo vista visual de [titulo]..."
 
 Medidas y cálculos de obra:
 - Cuando el usuario mencione medidas, dimensiones, metros cuadrados/cúbicos, perímetros, metros lineales o cálculos de obra, DEBES usar la herramienta "calcular_medicion". Extrae del texto del usuario los números (largo, ancho, alto si aplica), el tipo de cálculo (superficie, volumen, lineal, perimetro), huecos a restar en superficies si los indica, y la unidad (m o cm).
@@ -963,6 +991,43 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
           },
         },
       },
+      {
+        type: 'function',
+        function: {
+          name: 'mostrar_vista_visual',
+          description:
+            'Muestra una lista de documentos, emails, gastos o entradas de diario en un panel visual modal. Usar cuando el usuario pida explícitamente ver datos en tabla, vista, panel o canvas. No usar para listados normales en el chat. IMPORTANTE: Solo llamar después de obtener datos con listar_presupuestos, listar_facturas, listar_albaranes, leer_emails_recientes u otra tool de listado aplicable. El campo datos debe ser el array completo devuelto por esa tool (p. ej. el contenido del array "items" de la respuesta).',
+          parameters: {
+            type: 'object',
+            properties: {
+              tipo: {
+                type: 'string',
+                enum: [
+                  'presupuestos',
+                  'facturas',
+                  'albaranes',
+                  'emails',
+                  'gastos',
+                  'diario',
+                ],
+                description: 'Tipo de datos a mostrar',
+              },
+              titulo: {
+                type: 'string',
+                description: "Título del panel, ej: 'Últimos presupuestos', 'Emails recientes'",
+              },
+              datos: {
+                type: 'array',
+                description:
+                  'Array completo de filas obtenido en la respuesta de la tool de listado previa (p. ej. todos los elementos de "items"); no debe estar vacío.',
+                items: { type: 'object' },
+              },
+            },
+            required: ['tipo', 'titulo', 'datos'],
+            additionalProperties: false,
+          },
+        },
+      },
     ];
 
     const textoUsuario =
@@ -1067,7 +1132,10 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
             .eq('business_id', business_id)
             .order('fecha', { ascending: false })
             .limit(10);
-          if (error) return { error: error.message };
+          if (error) {
+            console.error('[agente] listar_presupuestos Supabase:', error);
+            return { error: error.message };
+          }
           return {
             items: (data ?? []).map((r: {
               id?: string;
@@ -1087,20 +1155,25 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         case 'listar_facturas': {
           const { data, error } = await supabase
             .from('facturas')
-            .select('id, cliente_nombre, total, fecha, estado')
+            .select('id, numero_factura, cliente_nombre, total, fecha, estado')
             .eq('business_id', business_id)
             .order('fecha', { ascending: false })
             .limit(10);
-          if (error) return { error: error.message };
+          if (error) {
+            console.error('[agente] listar_facturas Supabase:', error);
+            return { error: error.message };
+          }
           return {
             items: (data ?? []).map((r: {
               id?: string;
+              numero_factura?: string | null;
               cliente_nombre?: string | null;
               total?: number | null;
               fecha?: string | null;
               estado?: string | null;
             }) => ({
               id: r.id ?? null,
+              numero_factura: r.numero_factura ?? null,
               cliente: r.cliente_nombre ?? null,
               importe_total: r.total ?? null,
               fecha: r.fecha ?? null,
@@ -1111,20 +1184,25 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         case 'listar_albaranes': {
           const { data, error } = await supabase
             .from('albaranes')
-            .select('id, cliente_nombre, total, fecha, estado')
+            .select('id, numero_albaran, cliente_nombre, total, fecha, estado')
             .eq('business_id', business_id)
             .order('fecha', { ascending: false })
             .limit(10);
-          if (error) return { error: error.message };
+          if (error) {
+            console.error('[agente] listar_albaranes Supabase:', error);
+            return { error: error.message };
+          }
           return {
             items: (data ?? []).map((r: {
               id?: string;
+              numero_albaran?: string | null;
               cliente_nombre?: string | null;
               total?: number | null;
               fecha?: string | null;
               estado?: string | null;
             }) => ({
               id: r.id ?? null,
+              numero_albaran: r.numero_albaran ?? null,
               cliente: r.cliente_nombre ?? null,
               importe_total: r.total ?? null,
               fecha: r.fecha ?? null,
@@ -1866,6 +1944,137 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
             id: entradaCreada.id,
           };
         }
+        case 'mostrar_vista_visual': {
+          const tipoRaw = String(toolArgs.tipo ?? '').trim();
+          const titulo = String(toolArgs.titulo ?? '').trim();
+          const datosRaw = toolArgs.datos;
+          const allowed = new Set([
+            'presupuestos',
+            'facturas',
+            'albaranes',
+            'emails',
+            'gastos',
+            'diario',
+          ]);
+          if (!allowed.has(tipoRaw)) {
+            return {
+              error: `tipo inválido; use uno de: ${[...allowed].join(', ')}`,
+            };
+          }
+          if (!titulo) {
+            return { error: 'titulo es obligatorio' };
+          }
+          let datosNorm = normalizarDatosCanvasVista(datosRaw);
+
+          const extraerItems = (r: unknown): unknown[] | null => {
+            if (!r || typeof r !== 'object') return null;
+            const o = r as Record<string, unknown>;
+            if (Array.isArray(o.items)) return o.items;
+            return null;
+          };
+
+          if (datosNorm.length === 0) {
+            switch (tipoRaw) {
+              case 'presupuestos': {
+                const r = await runTool('listar_presupuestos', {});
+                const items = extraerItems(r);
+                if (items) datosNorm = items;
+                else if (r && typeof r === 'object' && 'error' in r) {
+                  console.error(
+                    '[agente] mostrar_vista_visual fallback presupuestos:',
+                    (r as { error: string }).error
+                  );
+                }
+                break;
+              }
+              case 'facturas': {
+                const r = await runTool('listar_facturas', {});
+                const items = extraerItems(r);
+                if (items) datosNorm = items;
+                else if (r && typeof r === 'object' && 'error' in r) {
+                  console.error(
+                    '[agente] mostrar_vista_visual fallback facturas:',
+                    (r as { error: string }).error
+                  );
+                }
+                break;
+              }
+              case 'albaranes': {
+                const r = await runTool('listar_albaranes', {});
+                const items = extraerItems(r);
+                if (items) datosNorm = items;
+                else if (r && typeof r === 'object' && 'error' in r) {
+                  console.error(
+                    '[agente] mostrar_vista_visual fallback albaranes:',
+                    (r as { error: string }).error
+                  );
+                }
+                break;
+              }
+              case 'emails': {
+                const r = await runTool('leer_emails_recientes', {});
+                const items = extraerItems(r);
+                if (items) datosNorm = items;
+                else if (r && typeof r === 'object' && 'error' in r) {
+                  console.error(
+                    '[agente] mostrar_vista_visual fallback emails:',
+                    (r as { error: string }).error
+                  );
+                }
+                break;
+              }
+              case 'gastos': {
+                const bid =
+                  typeof business_id === 'string'
+                    ? business_id
+                    : String(business_id ?? '');
+                if (!bid) break;
+                const { data, error } = await supabase
+                  .from('gastos')
+                  .select('id, proveedor, importe, iva, importe_total, fecha, descripcion')
+                  .eq('business_id', bid)
+                  .order('fecha', { ascending: false })
+                  .limit(10);
+                if (error) {
+                  console.error('[agente] mostrar_vista_visual fallback gastos:', error);
+                } else {
+                  datosNorm = data ?? [];
+                }
+                break;
+              }
+              case 'diario': {
+                const bid =
+                  typeof business_id === 'string'
+                    ? business_id
+                    : String(business_id ?? '');
+                if (!bid) break;
+                const { data, error } = await supabase
+                  .from('diario_obra')
+                  .select(
+                    'id, obra_nombre, obra_direccion, texto, fotos, videos, fecha, created_at'
+                  )
+                  .eq('business_id', bid)
+                  .order('fecha', { ascending: false })
+                  .limit(10);
+                if (error) {
+                  console.error('[agente] mostrar_vista_visual fallback diario:', error);
+                } else {
+                  datosNorm = data ?? [];
+                }
+                break;
+              }
+              default:
+                break;
+            }
+          }
+
+          return {
+            accion: 'abrir_canvas',
+            tipo: tipoRaw,
+            titulo,
+            datos: datosNorm,
+          };
+        }
         case 'generar_pdf_diario': {
           const obraNombrePdf = String(toolArgs.obra_nombre ?? '').trim();
           if (!obraNombrePdf) {
@@ -1940,6 +2149,19 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
 
     let emailPendienteParaCliente: { para: string; asunto: string; cuerpo: string } | null = null;
 
+    let canvasParaCliente: { tipo: string; titulo: string; datos: unknown[] } | null = null;
+
+    const capturarCanvas = (toolResult: unknown) => {
+      if (!toolResult || typeof toolResult !== 'object') return;
+      const o = toolResult as Record<string, unknown>;
+      if (o.accion !== 'abrir_canvas') return;
+      const tipo = String(o.tipo ?? '').trim();
+      const titulo = String(o.titulo ?? '').trim();
+      if (!tipo || !titulo) return;
+      const datos = normalizarDatosCanvasVista(o.datos);
+      canvasParaCliente = { tipo, titulo, datos };
+    };
+
     const capturarEmailPendiente = (toolResult: unknown) => {
       if (!toolResult || typeof toolResult !== 'object') return;
       const o = toolResult as Record<string, unknown>;
@@ -1978,11 +2200,21 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
           parsedArgs = toolCall.function.arguments
             ? JSON.parse(toolCall.function.arguments)
             : {};
-        } catch {
+        } catch (e) {
+          console.error('[agente] JSON.parse tool arguments:', toolCall.function.name, e);
           parsedArgs = {};
         }
-        const toolResult = await runTool(toolCall.function.name, parsedArgs);
+        let toolResult: unknown;
+        try {
+          toolResult = await runTool(toolCall.function.name, parsedArgs);
+        } catch (e) {
+          console.error('[agente] runTool:', toolCall.function.name, e);
+          toolResult = {
+            error: e instanceof Error ? e.message : 'Error al ejecutar la herramienta',
+          };
+        }
         capturarEmailPendiente(toolResult);
+        capturarCanvas(toolResult);
         messages.push({
           role: 'tool',
           tool_call_id: toolCall.id,
@@ -2015,6 +2247,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
     return NextResponse.json({
       respuesta,
       email_pendiente: emailPendienteParaCliente,
+      canvas: canvasParaCliente,
     });
   } catch (error) {
     console.error('Error en /api/agente:', error);

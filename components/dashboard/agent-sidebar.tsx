@@ -16,6 +16,7 @@ import { createBrowserClient } from '@supabase/ssr';
 import { Loader2, Paperclip, Pause, Video, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { isDiarioPdfDownloadLink } from '@/lib/diario-pdf-link';
+import { useCanvas } from '@/contexts/canvas-context';
 
 interface BusinessProfile {
   id: string;
@@ -309,6 +310,7 @@ const generateConversationId = () => {
 };
 
 export default function AgentSidebar() {
+  const { abrirCanvas } = useCanvas();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -608,10 +610,29 @@ export default function AgentSidebar() {
           ...(imagenEnviar ? { imagen: imagenEnviar } : {}),
         }),
       });
-      const data = await res.json();
+      const data = (await res.json()) as Record<string, unknown>;
+      console.log('respuesta agente:', data);
       if (!res.ok) {
-        setError(data.error ?? 'Error al llamar al agente');
+        setError(String(data.error ?? 'Error al llamar al agente'));
         return;
+      }
+
+      const canvasRaw = data.canvas;
+      if (canvasRaw && typeof canvasRaw === 'object' && canvasRaw !== null) {
+        const c = canvasRaw as Record<string, unknown>;
+        const tipoCanvas = String(c.tipo ?? '').trim();
+        const tituloCanvas = String(c.titulo ?? '').trim();
+        let datosCanvas: unknown[] = [];
+        if (Array.isArray(c.datos)) {
+          datosCanvas = c.datos;
+        } else if (c.datos && typeof c.datos === 'object') {
+          datosCanvas = [c.datos];
+        }
+        if (tipoCanvas && tituloCanvas) {
+          queueMicrotask(() => {
+            abrirCanvas(tipoCanvas, datosCanvas, tituloCanvas);
+          });
+        }
       }
 
       const { count: agendaCountDespues } = await supabase
@@ -625,10 +646,8 @@ export default function AgentSidebar() {
         window.dispatchEvent(new Event('agenda-actualizada'));
       }
 
-      const respuestaTexto = data.respuesta ?? '';
-      const epApi = parseEmailPendienteApi(
-        (data as { email_pendiente?: unknown }).email_pendiente
-      );
+      const respuestaTexto = typeof data.respuesta === 'string' ? data.respuesta : '';
+      const epApi = parseEmailPendienteApi(data.email_pendiente);
       setHistorial((prev) => [
         ...prev,
         {

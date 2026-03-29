@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import { ThemeProvider } from '@/components/ui/theme-provider';
 import DashboardShellProvider from '@/components/dashboard/dashboard-shell-provider';
+import AppShellClient from '@/components/providers/app-shell-client';
 import './globals.css';
 
 const geistSans = Geist({
@@ -29,7 +30,9 @@ export default function RootLayout({
     <html lang="es" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          <DashboardShellProvider>{children}</DashboardShellProvider>
+          <AppShellClient>
+            <DashboardShellProvider>{children}</DashboardShellProvider>
+          </AppShellClient>
         </ThemeProvider>
       </body>
     </html>
