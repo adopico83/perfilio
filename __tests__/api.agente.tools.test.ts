@@ -583,6 +583,35 @@ describe('POST /api/agente — tools', () => {
     });
   });
 
+  describe('crear_cliente', () => {
+    it('devuelve mensaje de éxito', async () => {
+      const insertCliente = jest.fn().mockResolvedValue({ error: null });
+      const res = await postWithTool(
+        'crear_cliente',
+        {
+          clientes: {
+            insert: insertCliente,
+          },
+        },
+        JSON.stringify({ nombre: 'Cliente Test', email: 't@x.es' })
+      );
+      expect(res.status).toBe(200);
+      expect(insertCliente).toHaveBeenCalledWith(
+        expect.objectContaining({
+          business_id: 'biz-1',
+          nombre: 'Cliente Test',
+          email: 't@x.es',
+        })
+      );
+      const secondCall = createMock.mock.calls[1]?.[0] as {
+        messages: Array<{ role: string; content?: string }>;
+      };
+      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
+      const parsed = JSON.parse(toolMsg!.content as string) as { mensaje?: string };
+      expect(parsed.mensaje).toBe('Cliente Cliente Test creado correctamente.');
+    });
+  });
+
   describe('vincular_gasto', () => {
     const gastoUuid = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
     const facturaUuid = 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a12';

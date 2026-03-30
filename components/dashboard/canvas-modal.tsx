@@ -91,6 +91,9 @@ function verHref(tipo: string, row: Record<string, unknown>): string {
   if (tipo === 'albaranes') {
     return id ? `/albaranes?id=${encodeURIComponent(id)}` : '/albaranes';
   }
+  if (tipo === 'clientes' && id) {
+    return `/clientes/${encodeURIComponent(id)}`;
+  }
   return '/dashboard';
 }
 
@@ -135,6 +138,55 @@ export default function CanvasModal() {
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4">
+          {tipo === 'clientes' ? (
+            <div className="overflow-x-auto rounded-lg border border-white/10">
+              <table className="w-full text-sm text-left">
+                <thead>
+                  <tr className="border-b border-white/10 bg-[#0f2744]/90 text-white/80">
+                    <th className="px-3 py-2 font-medium">Nombre</th>
+                    <th className="px-3 py-2 font-medium">Teléfono</th>
+                    <th className="px-3 py-2 font-medium">Email</th>
+                    <th className="px-3 py-2 font-medium">Documentos</th>
+                    <th className="px-3 py-2 font-medium text-right">Ver</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {datos.map((raw, i) => {
+                    const row = raw as Record<string, unknown>;
+                    const nombre = pickFirstStr(row.nombre) ?? '—';
+                    const tel = pickFirstStr(row.telefono) ?? '—';
+                    const em = pickFirstStr(row.email) ?? '—';
+                    const nd =
+                      row.num_documentos != null && Number.isFinite(Number(row.num_documentos))
+                        ? String(row.num_documentos)
+                        : pickFirstStr(row.num_documentos) ?? '0';
+                    const rowKey = pickFirstStr(row.id) ?? `c-${i}`;
+                    return (
+                      <tr key={rowKey} className="border-b border-white/5 hover:bg-white/5">
+                        <td className="px-3 py-2 max-w-[10rem] truncate">{nombre}</td>
+                        <td className="px-3 py-2 tabular-nums text-white/90">{tel}</td>
+                        <td className="px-3 py-2 max-w-[12rem] truncate text-white/85">{em}</td>
+                        <td className="px-3 py-2 tabular-nums">{nd}</td>
+                        <td className="px-3 py-2 text-right">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              cerrarCanvas();
+                              router.push(verHref('clientes', row));
+                            }}
+                            className="text-[#ed8936] hover:text-[#f6ad55] font-medium cursor-pointer bg-transparent border-0 p-0 text-right"
+                          >
+                            Ver →
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+
           {tipo === 'presupuestos' || tipo === 'facturas' || tipo === 'albaranes' ? (
             <div className="overflow-x-auto rounded-lg border border-white/10">
               <table className="w-full text-sm text-left">

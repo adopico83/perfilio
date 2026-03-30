@@ -13,6 +13,7 @@ export type CanvasTipo =
   | 'presupuestos'
   | 'facturas'
   | 'albaranes'
+  | 'clientes'
   | 'emails'
   | 'gastos'
   | 'diario';
@@ -35,6 +36,7 @@ const ALLOWED_TIPOS = new Set<string>([
   'presupuestos',
   'facturas',
   'albaranes',
+  'clientes',
   'emails',
   'gastos',
   'diario',

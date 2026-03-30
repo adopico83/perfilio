@@ -442,7 +442,7 @@ Vista visual (panel modal / canvas):
   1) Llama primero a la tool de listado que corresponda (listar_presupuestos, listar_facturas, listar_albaranes, leer_emails_recientes para emails, etc.) y espera su resultado.
   2) Con el array de resultados obtenido en el paso 1, llama a "mostrar_vista_visual" pasando en "datos" ese array completo (los mismos objetos que devolvió la tool, normalmente bajo la clave "items" debes expandirlos al array "datos").
   3) NUNCA llames a "mostrar_vista_visual" con "datos" vacío ni sin haber ejecutado antes la tool de listado correspondiente en ese turno o inmediatamente antes en la misma conversación con datos frescos.
-- IMPORTANTE: Para mostrar_vista_visual, SIEMPRE debes obtener los datos primero con la tool de listado correspondiente (listar_presupuestos, listar_facturas, listar_albaranes, etc.). Nunca llames a mostrar_vista_visual con datos vacíos. El campo datos debe contener el array completo devuelto por la tool de listado.
+- IMPORTANTE: Para mostrar_vista_visual, SIEMPRE debes obtener los datos primero con la tool de listado correspondiente (listar_presupuestos, listar_facturas, listar_albaranes, buscar_cliente para clientes, etc.). Nunca llames a mostrar_vista_visual con datos vacíos. El campo datos debe contener el array completo devuelto por la tool de listado (p. ej. el array "items" de buscar_cliente).
 - Para emails usa "leer_emails_recientes" y pasa en "datos" el array "items" que devuelve. Para gastos o diario, solo usa mostrar_vista_visual si ya tienes filas concretas de una tool previa en el mismo flujo; si no existe tool de listado, obtén o confirma los datos antes de abrir el panel.
 - No uses "mostrar_vista_visual" para listados habituales en el chat sin petición explícita de vista visual.
 - Tras llamar a "mostrar_vista_visual", responde en el chat con un mensaje breve del estilo: "Abriendo vista visual de [titulo]..."
@@ -683,6 +683,10 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
               },
               cliente_nombre: { type: 'string', description: 'Nombre del cliente si se conoce' },
               importe_total: { type: 'number', description: 'Importe total si se conoce' },
+              cliente_id: {
+                type: 'string',
+                description: 'UUID de ficha de cliente si existe en el sistema',
+              },
             },
             required: ['texto_presupuesto'],
             additionalProperties: false,
@@ -703,6 +707,10 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
                 description: 'Descripción o conceptos de la factura',
               },
               total: { type: 'number', description: 'Total con IVA si aplica' },
+              cliente_id: {
+                type: 'string',
+                description: 'UUID de ficha de cliente si existe en el sistema',
+              },
             },
             required: ['descripcion_trabajos'],
             additionalProperties: false,
@@ -724,6 +732,10 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
               },
               total: { type: 'number', description: 'Total opcional' },
               cliente_nombre: { type: 'string', description: 'Cliente si se conoce' },
+              cliente_id: {
+                type: 'string',
+                description: 'UUID de ficha de cliente si existe en el sistema',
+              },
             },
             required: ['descripcion_trabajos'],
             additionalProperties: false,
@@ -1012,9 +1024,62 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
       {
         type: 'function',
         function: {
+          name: 'crear_cliente',
+          description:
+            'Crea una ficha de cliente con sus datos de contacto en el negocio actual.',
+          parameters: {
+            type: 'object',
+            properties: {
+              nombre: { type: 'string', description: 'Nombre o razón social' },
+              telefono: { type: 'string', description: 'Teléfono' },
+              email: { type: 'string', description: 'Email' },
+              direccion: { type: 'string', description: 'Dirección' },
+              nif: { type: 'string', description: 'NIF/CIF' },
+              notas: { type: 'string', description: 'Notas internas' },
+            },
+            required: ['nombre'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'buscar_cliente',
+          description:
+            'Busca clientes del negocio por nombre, email o teléfono (coincidencia parcial).',
+          parameters: {
+            type: 'object',
+            properties: {
+              query: { type: 'string', description: 'Texto a buscar' },
+            },
+            required: ['query'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'ver_cliente',
+          description:
+            'Muestra la ficha completa de un cliente con historial de presupuestos, facturas, albaranes y entradas de diario de obra.',
+          parameters: {
+            type: 'object',
+            properties: {
+              cliente_id: { type: 'string', description: 'UUID del cliente' },
+            },
+            required: ['cliente_id'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
           name: 'mostrar_vista_visual',
           description:
-            'Muestra una lista de documentos, emails, gastos o entradas de diario en un panel visual modal. Usar cuando el usuario pida explícitamente ver datos en tabla, vista, panel o canvas. No usar para listados normales en el chat. IMPORTANTE: Solo llamar después de obtener datos con listar_presupuestos, listar_facturas, listar_albaranes, leer_emails_recientes u otra tool de listado aplicable. El campo datos debe ser el array completo devuelto por esa tool (p. ej. el contenido del array "items" de la respuesta).',
+            'Muestra una lista de documentos, emails, gastos, entradas de diario o clientes en un panel visual modal. Usar cuando el usuario pida explícitamente ver datos en tabla, vista, panel o canvas. No usar para listados normales en el chat. IMPORTANTE: Solo llamar después de obtener datos con listar_presupuestos, listar_facturas, listar_albaranes, buscar_cliente, leer_emails_recientes u otra tool de listado aplicable. El campo datos debe ser el array completo devuelto por esa tool (p. ej. el contenido del array "items" de la respuesta).',
           parameters: {
             type: 'object',
             properties: {
@@ -1024,6 +1089,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
                   'presupuestos',
                   'facturas',
                   'albaranes',
+                  'clientes',
                   'emails',
                   'gastos',
                   'diario',
@@ -1092,6 +1158,23 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
 
     const runTool = async (toolName: string, toolArgs: Record<string, unknown>) => {
       console.log('Ejecutando tool:', toolName);
+
+      const resolveClienteIdOpcional = async (
+        raw: unknown
+      ): Promise<{ ok: true; id: string | null } | { ok: false; error: string }> => {
+        if (raw == null || !String(raw).trim()) return { ok: true, id: null };
+        const cid = String(raw).trim();
+        const { data: row, error: e0 } = await supabase
+          .from('clientes')
+          .select('id')
+          .eq('id', cid)
+          .eq('business_id', business_id)
+          .maybeSingle();
+        if (e0) return { ok: false, error: e0.message };
+        if (!row?.id) return { ok: false, error: 'cliente_id no válido para este negocio' };
+        return { ok: true, id: cid };
+      };
+
       switch (toolName) {
         case 'obtener_presupuestos_pendientes': {
           const { data, error } = await supabase
@@ -1146,7 +1229,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         case 'listar_presupuestos': {
           const { data, error } = await supabase
             .from('presupuestos')
-            .select('id, cliente_nombre, importe_total, fecha, estado')
+            .select('id, cliente_nombre, cliente_id, importe_total, fecha, estado')
             .eq('business_id', business_id)
             .order('fecha', { ascending: false })
             .limit(10);
@@ -1158,12 +1241,14 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
             items: (data ?? []).map((r: {
               id?: string;
               cliente_nombre?: string | null;
+              cliente_id?: string | null;
               importe_total?: number | null;
               fecha?: string | null;
               estado?: string | null;
             }) => ({
               id: r.id ?? null,
               cliente: r.cliente_nombre ?? null,
+              cliente_id: r.cliente_id ?? null,
               importe_total: r.importe_total ?? null,
               fecha: r.fecha ?? null,
               estado: r.estado ?? null,
@@ -1173,7 +1258,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         case 'listar_facturas': {
           const { data, error } = await supabase
             .from('facturas')
-            .select('id, numero_factura, cliente_nombre, total, fecha, estado')
+            .select('id, numero_factura, cliente_nombre, cliente_id, total, fecha, estado')
             .eq('business_id', business_id)
             .order('fecha', { ascending: false })
             .limit(10);
@@ -1186,6 +1271,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
               id?: string;
               numero_factura?: string | null;
               cliente_nombre?: string | null;
+              cliente_id?: string | null;
               total?: number | null;
               fecha?: string | null;
               estado?: string | null;
@@ -1193,6 +1279,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
               id: r.id ?? null,
               numero_factura: r.numero_factura ?? null,
               cliente: r.cliente_nombre ?? null,
+              cliente_id: r.cliente_id ?? null,
               importe_total: r.total ?? null,
               fecha: r.fecha ?? null,
               estado: r.estado ?? null,
@@ -1202,7 +1289,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         case 'listar_albaranes': {
           const { data, error } = await supabase
             .from('albaranes')
-            .select('id, numero_albaran, cliente_nombre, total, fecha, estado')
+            .select('id, numero_albaran, cliente_nombre, cliente_id, total, fecha, estado')
             .eq('business_id', business_id)
             .order('fecha', { ascending: false })
             .limit(10);
@@ -1215,6 +1302,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
               id?: string;
               numero_albaran?: string | null;
               cliente_nombre?: string | null;
+              cliente_id?: string | null;
               total?: number | null;
               fecha?: string | null;
               estado?: string | null;
@@ -1222,6 +1310,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
               id: r.id ?? null,
               numero_albaran: r.numero_albaran ?? null,
               cliente: r.cliente_nombre ?? null,
+              cliente_id: r.cliente_id ?? null,
               importe_total: r.total ?? null,
               fecha: r.fecha ?? null,
               estado: r.estado ?? null,
@@ -1434,6 +1523,9 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
               ? Number(importeRaw)
               : null;
 
+          const cr = await resolveClienteIdOpcional(toolArgs.cliente_id);
+          if (!cr.ok) return { error: cr.error };
+
           const { error } = await supabase.from('presupuestos').insert({
             business_id,
             mensaje_cliente: mensaje,
@@ -1442,6 +1534,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
             estado: 'borrador',
             ...(importe_total != null && { importe_total }),
             ...(clienteNombre.length > 0 && { cliente_nombre: clienteNombre }),
+            ...(cr.id != null && { cliente_id: cr.id }),
           });
 
           if (error) return { error: error.message };
@@ -1458,6 +1551,9 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
           const baseImponible = totalNum ? totalNum / 1.21 : 0;
           const iva = totalNum ? totalNum - baseImponible : 0;
 
+          const cr = await resolveClienteIdOpcional(toolArgs.cliente_id);
+          if (!cr.ok) return { error: cr.error };
+
           const { error } = await supabase.from('facturas').insert({
             business_id,
             cliente_nombre: null,
@@ -1467,6 +1563,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
             total: Number.isFinite(totalNum) ? totalNum : 0,
             fecha: new Date().toISOString().split('T')[0],
             estado: 'pendiente',
+            ...(cr.id != null && { cliente_id: cr.id }),
           });
 
           if (error) return { error: error.message };
@@ -1487,6 +1584,9 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
               ? String(toolArgs.cliente_nombre).trim().slice(0, 255)
               : '';
 
+          const cr = await resolveClienteIdOpcional(toolArgs.cliente_id);
+          if (!cr.ok) return { error: cr.error };
+
           const { error } = await supabase.from('albaranes').insert({
             business_id,
             cliente_nombre: clienteAlb.length > 0 ? clienteAlb : null,
@@ -1494,10 +1594,225 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
             total: totalNum,
             fecha: new Date().toISOString().split('T')[0],
             estado: 'pendiente',
+            ...(cr.id != null && { cliente_id: cr.id }),
           });
 
           if (error) return { error: error.message };
           return { ok: true };
+        }
+        case 'crear_cliente': {
+          const nombreCli = String(toolArgs.nombre ?? '').trim();
+          if (!nombreCli) {
+            return { error: 'nombre es obligatorio' };
+          }
+          const telefono =
+            toolArgs.telefono != null ? String(toolArgs.telefono).trim() || null : null;
+          const email = toolArgs.email != null ? String(toolArgs.email).trim() || null : null;
+          const direccion =
+            toolArgs.direccion != null ? String(toolArgs.direccion).trim() || null : null;
+          const nif = toolArgs.nif != null ? String(toolArgs.nif).trim() || null : null;
+          const notas = toolArgs.notas != null ? String(toolArgs.notas).trim() || null : null;
+
+          const { error } = await supabase.from('clientes').insert({
+            business_id,
+            nombre: nombreCli,
+            telefono,
+            email,
+            direccion,
+            nif,
+            notas,
+          });
+
+          if (error) return { error: error.message };
+          return { mensaje: `Cliente ${nombreCli} creado correctamente.` };
+        }
+        case 'buscar_cliente': {
+          const qBus = String(toolArgs.query ?? '').trim();
+          if (!qBus) {
+            return { error: 'query es obligatorio' };
+          }
+          const safeQ = qBus.replace(/[%_*]/g, '').slice(0, 120);
+          if (!safeQ) {
+            return { items: [] };
+          }
+          const pat = `%${safeQ}%`;
+          const { data: rowsB, error: errB } = await supabase
+            .from('clientes')
+            .select('id, nombre, email, telefono')
+            .eq('business_id', business_id)
+            .or(`nombre.ilike.${pat},email.ilike.${pat},telefono.ilike.${pat}`)
+            .order('nombre', { ascending: true })
+            .limit(50);
+          if (errB) return { error: errB.message };
+          const listB = rowsB ?? [];
+          const idsB = listB.map((r: { id: string }) => r.id);
+          if (idsB.length === 0) return { items: [] };
+
+          const [presB, facB, albB] = await Promise.all([
+            supabase
+              .from('presupuestos')
+              .select('cliente_id')
+              .eq('business_id', business_id)
+              .in('cliente_id', idsB),
+            supabase
+              .from('facturas')
+              .select('cliente_id')
+              .eq('business_id', business_id)
+              .in('cliente_id', idsB),
+            supabase
+              .from('albaranes')
+              .select('cliente_id')
+              .eq('business_id', business_id)
+              .in('cliente_id', idsB),
+          ]);
+
+          const acumDocs = (rows: { cliente_id: string | null }[] | null) => {
+            const m = new Map<string, number>();
+            for (const id0 of idsB) m.set(id0, 0);
+            for (const r of rows ?? []) {
+              const c = r.cliente_id;
+              if (!c) continue;
+              m.set(c, (m.get(c) ?? 0) + 1);
+            }
+            return m;
+          };
+          const mpB = acumDocs(presB.data as { cliente_id: string | null }[] | null);
+          const mfB = acumDocs(facB.data as { cliente_id: string | null }[] | null);
+          const maB = acumDocs(albB.data as { cliente_id: string | null }[] | null);
+
+          return {
+            items: listB.map(
+              (r: {
+                id: string;
+                nombre: string;
+                email: string | null;
+                telefono: string | null;
+              }) => ({
+                id: r.id,
+                nombre: r.nombre,
+                email: r.email,
+                telefono: r.telefono,
+                num_documentos:
+                  (mpB.get(r.id) ?? 0) + (mfB.get(r.id) ?? 0) + (maB.get(r.id) ?? 0),
+              })
+            ),
+          };
+        }
+        case 'ver_cliente': {
+          const idVer = String(toolArgs.cliente_id ?? '').trim();
+          if (!idVer) {
+            return { error: 'cliente_id es obligatorio' };
+          }
+          const { data: cliV, error: eCli } = await supabase
+            .from('clientes')
+            .select(
+              'id, business_id, nombre, telefono, email, direccion, nif, notas, created_at, updated_at'
+            )
+            .eq('id', idVer)
+            .eq('business_id', business_id)
+            .maybeSingle();
+          if (eCli) return { error: eCli.message };
+          if (!cliV) return { error: 'Cliente no encontrado' };
+
+          const [presV, facV, albV, dioV] = await Promise.all([
+            supabase
+              .from('presupuestos')
+              .select('id, estado, importe_total, fecha')
+              .eq('cliente_id', idVer)
+              .eq('business_id', business_id)
+              .order('fecha', { ascending: false }),
+            supabase
+              .from('facturas')
+              .select('id, estado, total, fecha, numero_factura')
+              .eq('cliente_id', idVer)
+              .eq('business_id', business_id)
+              .order('fecha', { ascending: false }),
+            supabase
+              .from('albaranes')
+              .select('id, estado, fecha, total, numero_albaran')
+              .eq('cliente_id', idVer)
+              .eq('business_id', business_id)
+              .order('fecha', { ascending: false }),
+            supabase
+              .from('diario_obra')
+              .select('id, obra_nombre, texto, fecha')
+              .eq('cliente_id', idVer)
+              .eq('business_id', business_id)
+              .order('fecha', { ascending: false }),
+          ]);
+
+          const c = cliV as Record<string, unknown>;
+          const lineas: string[] = [];
+          lineas.push(`**${String(c.nombre ?? '')}**`);
+          lineas.push(`Teléfono: ${c.telefono != null && String(c.telefono) ? String(c.telefono) : '—'}`);
+          lineas.push(`Email: ${c.email != null && String(c.email) ? String(c.email) : '—'}`);
+          lineas.push(`Dirección: ${c.direccion != null && String(c.direccion) ? String(c.direccion) : '—'}`);
+          lineas.push(`NIF: ${c.nif != null && String(c.nif) ? String(c.nif) : '—'}`);
+          if (c.notas != null && String(c.notas).trim()) {
+            lineas.push(`Notas: ${String(c.notas).trim()}`);
+          }
+          lineas.push('');
+          lineas.push('### Presupuestos');
+          const pv = presV.data ?? [];
+          if (pv.length === 0) lineas.push('— Ninguno');
+          else {
+            for (const p of pv as { fecha?: string; estado?: string; importe_total?: number }[]) {
+              lineas.push(
+                `- ${p.fecha ?? '—'} · ${p.estado ?? '—'} · ${p.importe_total != null ? `${p.importe_total} €` : '—'}`
+              );
+            }
+          }
+          lineas.push('');
+          lineas.push('### Facturas');
+          const fv = facV.data ?? [];
+          if (fv.length === 0) lineas.push('— Ninguna');
+          else {
+            for (const f of fv as {
+              fecha?: string;
+              estado?: string;
+              total?: number;
+              numero_factura?: string | null;
+            }[]) {
+              lineas.push(
+                `- ${f.numero_factura ?? '—'} · ${f.fecha ?? '—'} · ${f.estado ?? '—'} · ${f.total != null ? `${f.total} €` : '—'}`
+              );
+            }
+          }
+          lineas.push('');
+          lineas.push('### Albaranes');
+          const av = albV.data ?? [];
+          if (av.length === 0) lineas.push('— Ninguno');
+          else {
+            for (const a of av as {
+              fecha?: string;
+              estado?: string;
+              total?: number | null;
+              numero_albaran?: string | null;
+            }[]) {
+              lineas.push(
+                `- ${a.numero_albaran ?? '—'} · ${a.fecha ?? '—'} · ${a.estado ?? '—'} · ${a.total != null ? `${a.total} €` : '—'}`
+              );
+            }
+          }
+          lineas.push('');
+          lineas.push('### Diario de obra');
+          const dv = dioV.data ?? [];
+          if (dv.length === 0) lineas.push('— Sin entradas');
+          else {
+            for (const d of dv as { fecha?: string; obra_nombre?: string; texto?: string | null }[]) {
+              const frag = d.texto != null && String(d.texto).trim() ? String(d.texto).slice(0, 80) : '';
+              lineas.push(`- ${d.obra_nombre ?? 'Obra'} (${d.fecha ?? '—'})${frag ? `: ${frag}` : ''}`);
+            }
+          }
+
+          return {
+            ficha: lineas.join('\n'),
+            cliente: cliV,
+            presupuestos: presV.data ?? [],
+            facturas: facV.data ?? [],
+            albaranes: albV.data ?? [],
+            diario_obra: dioV.data ?? [],
+          };
         }
         case 'obtener_mensajes_pendientes': {
           const { data: convRows, error: convError } = await supabase
@@ -1970,6 +2285,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
             'presupuestos',
             'facturas',
             'albaranes',
+            'clientes',
             'emails',
             'gastos',
             'diario',
@@ -2026,6 +2342,78 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
                     '[agente] mostrar_vista_visual fallback albaranes:',
                     (r as { error: string }).error
                   );
+                }
+                break;
+              }
+              case 'clientes': {
+                const bidC =
+                  typeof business_id === 'string'
+                    ? business_id
+                    : String(business_id ?? '');
+                if (bidC) {
+                  const { data: clist, error: errCl } = await supabase
+                    .from('clientes')
+                    .select('id, nombre, telefono, email')
+                    .eq('business_id', bidC)
+                    .order('nombre', { ascending: true })
+                    .limit(50);
+                  if (errCl) {
+                    console.error('[agente] mostrar_vista_visual fallback clientes:', errCl);
+                  } else {
+                    const rowsC = clist ?? [];
+                    const idsC = rowsC.map((row: { id: string }) => row.id);
+                    if (idsC.length === 0) {
+                      datosNorm = [];
+                    } else {
+                      const [pC, fC, aC] = await Promise.all([
+                        supabase
+                          .from('presupuestos')
+                          .select('cliente_id')
+                          .eq('business_id', bidC)
+                          .in('cliente_id', idsC),
+                        supabase
+                          .from('facturas')
+                          .select('cliente_id')
+                          .eq('business_id', bidC)
+                          .in('cliente_id', idsC),
+                        supabase
+                          .from('albaranes')
+                          .select('cliente_id')
+                          .eq('business_id', bidC)
+                          .in('cliente_id', idsC),
+                      ]);
+                      const cnt = (rows: { cliente_id: string | null }[] | null) => {
+                        const m = new Map<string, number>();
+                        for (const id0 of idsC) m.set(id0, 0);
+                        for (const row of rows ?? []) {
+                          const cid = row.cliente_id;
+                          if (!cid) continue;
+                          m.set(cid, (m.get(cid) ?? 0) + 1);
+                        }
+                        return m;
+                      };
+                      const mPc = cnt(pC.data as { cliente_id: string | null }[] | null);
+                      const mFc = cnt(fC.data as { cliente_id: string | null }[] | null);
+                      const mAc = cnt(aC.data as { cliente_id: string | null }[] | null);
+                      datosNorm = rowsC.map(
+                        (row: {
+                          id: string;
+                          nombre: string;
+                          telefono: string | null;
+                          email: string | null;
+                        }) => ({
+                          id: row.id,
+                          nombre: row.nombre,
+                          telefono: row.telefono,
+                          email: row.email,
+                          num_documentos:
+                            (mPc.get(row.id) ?? 0) +
+                            (mFc.get(row.id) ?? 0) +
+                            (mAc.get(row.id) ?? 0),
+                        })
+                      );
+                    }
+                  }
                 }
                 break;
               }

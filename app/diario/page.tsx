@@ -1,12 +1,14 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { ChevronDown } from 'lucide-react';
 import LogoutButton from '@/app/dashboard/logout-button';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import ToggleAgenteNavButton from '@/components/dashboard/toggle-agente-nav-button';
+import DiarioEntradaModal from '@/components/dashboard/diario-entrada-modal';
 
 type DiarioEntrada = {
   id: string;
@@ -18,8 +20,9 @@ type DiarioEntrada = {
   fecha: string;
 };
 
-export default function DiarioPage() {
+function DiarioPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = useMemo(
     () =>
       createBrowserClient(
@@ -36,6 +39,19 @@ export default function DiarioPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [menuMovilAbierto, setMenuMovilAbierto] = useState(false);
+  const [openObras, setOpenObras] = useState<Set<string>>(new Set());
+  const [highlightObra, setHighlightObra] = useState<string | null>(null);
+  const [entradaSeleccionada, setEntradaSeleccionada] = useState<DiarioEntrada | null>(null);
+  const obraRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  const toggleObra = useCallback((nombre: string) => {
+    setOpenObras((prev) => {
+      const next = new Set(prev);
+      if (next.has(nombre)) next.delete(nombre);
+      else next.add(nombre);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     const run = async () => {
@@ -95,6 +111,39 @@ export default function DiarioPage() {
     void run();
   }, [router, supabase]);
 
+  const obrasOrdenadas = useMemo(() => {
+    return Object.keys(agrupado).sort((a, b) => {
+      const ea = agrupado[a] ?? [];
+      const eb = agrupado[b] ?? [];
+      const ta = ea.length ? new Date(ea[0].fecha).getTime() : 0;
+      const tb = eb.length ? new Date(eb[0].fecha).getTime() : 0;
+      return tb - ta;
+    });
+  }, [agrupado]);
+
+  const obraFromQuery = searchParams.get('obra');
+
+  useEffect(() => {
+    if (loading || obrasOrdenadas.length === 0 || !obraFromQuery) return;
+
+    const decoded = decodeURIComponent(obraFromQuery.trim());
+    const match = obrasOrdenadas.find((n) => n === decoded);
+    if (!match) return;
+
+    setOpenObras((prev) => new Set(prev).add(match));
+
+    const t = window.setTimeout(() => {
+      const el = obraRefs.current[match];
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        setHighlightObra(match);
+        window.setTimeout(() => setHighlightObra(null), 2000);
+      }
+    }, 200);
+
+    return () => window.clearTimeout(t);
+  }, [loading, obraFromQuery, obrasOrdenadas]);
+
   if (authChecking) {
     return (
       <div className="min-h-screen bg-[#0f172a] flex items-center justify-center text-white">
@@ -102,8 +151,6 @@ export default function DiarioPage() {
       </div>
     );
   }
-
-  const obrasOrdenadas = Object.keys(agrupado).sort((a, b) => a.localeCompare(b, 'es'));
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-white">
@@ -134,6 +181,9 @@ export default function DiarioPage() {
               Albaranes
             </Link>
             <span className="text-sm font-medium text-[#ed8936]">Diario</span>
+            <Link href="/clientes" className="text-sm text-gray-200 hover:text-white transition-colors">
+              Clientes
+            </Link>
             <Link href="/facturas" className="text-sm text-gray-200 hover:text-white transition-colors">
               Facturas
             </Link>
@@ -175,6 +225,13 @@ export default function DiarioPage() {
               </Link>
               <span className="text-sm font-medium text-[#ed8936]">Diario</span>
               <Link
+                href="/clientes"
+                className="text-sm text-gray-200 hover:text-white"
+                onClick={() => setMenuMovilAbierto(false)}
+              >
+                Clientes
+              </Link>
+              <Link
                 href="/facturas"
                 className="text-sm text-gray-200 hover:text-white"
                 onClick={() => setMenuMovilAbierto(false)}
@@ -194,13 +251,13 @@ export default function DiarioPage() {
         <VolverAlDashboard />
       </div>
 
-      <main className="max-w-7xl mx-auto px-6 py-6 space-y-8">
+      <main className="max-w-7xl mx-auto px-6 py-6 space-y-6">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-white">
             Diario de <span className="text-[#ed8936]">obra</span>
           </h1>
           <p className="text-sm text-white/70 mt-1">
-            Entradas agrupadas por obra. Desde el agente puedes registrar nuevas notas o generar el PDF.
+            Obras en carpetas desplegables. Desde el agente puedes registrar notas o generar el PDF.
           </p>
         </div>
 
@@ -215,77 +272,160 @@ export default function DiarioPage() {
             Aún no hay entradas en el diario. Usa el agente para crear la primera.
           </div>
         ) : (
-          obrasOrdenadas.map((obraNombre) => {
-            const entradas = agrupado[obraNombre] ?? [];
-            const direccion = entradas[0]?.obra_direccion;
-            return (
-              <section
-                key={obraNombre}
-                className="rounded-xl border border-[#1a365d] bg-[#1a365d]/50 overflow-hidden"
-              >
-                <div className="px-4 py-3 sm:px-5 border-b border-white/10 bg-[#0f2744] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                  <div>
-                    <h2 className="text-lg font-semibold text-[#ed8936]">{obraNombre}</h2>
-                    {direccion ? (
-                      <p className="text-sm text-white/70 mt-0.5">{direccion}</p>
-                    ) : null}
-                  </div>
-                  <Link
-                    href={`/agente?mensaje=${encodeURIComponent(
-                      `genera el PDF del diario de la obra ${obraNombre}`
-                    )}`}
-                    className="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold rounded-lg bg-[#ed8936] hover:bg-[#dd6b20] text-white transition-colors shrink-0"
-                  >
-                    Generar PDF
-                  </Link>
-                </div>
-                <ul className="divide-y divide-white/10">
-                  {entradas.map((e) => (
-                    <li key={e.id} className="p-4 sm:p-5 space-y-3">
-                      <p className="text-xs font-medium text-[#ed8936] tabular-nums">
-                        {new Date(e.fecha).toLocaleString('es-ES', {
-                          dateStyle: 'full',
-                          timeStyle: 'short',
-                        })}
-                      </p>
-                      {e.texto ? (
-                        <p className="text-sm text-white/90 whitespace-pre-wrap">{e.texto}</p>
-                      ) : (
-                        <p className="text-sm text-white/50 italic">Sin texto</p>
-                      )}
-                      {e.fotos && e.fotos.length > 0 ? (
-                        <div className="grid grid-cols-2 gap-2">
-                          {e.fotos.map((url) => (
-                            <a
-                              key={url}
-                              href={url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="block"
-                            >
-                              <img
-                                src={url}
-                                alt=""
-                                className="w-full h-36 sm:h-44 object-cover rounded-lg border border-white/10"
-                              />
-                            </a>
-                          ))}
+          <div className="space-y-3">
+            {obrasOrdenadas.map((obraNombre) => {
+              const entradas = agrupado[obraNombre] ?? [];
+              const direccion = entradas[0]?.obra_direccion;
+              const isOpen = openObras.has(obraNombre);
+              const ultimaFecha = entradas[0]?.fecha;
+              const fechaUltimaStr = ultimaFecha
+                ? new Date(ultimaFecha).toLocaleString('es-ES', {
+                    dateStyle: 'medium',
+                    timeStyle: 'short',
+                  })
+                : '—';
+
+              return (
+                <div
+                  key={obraNombre}
+                  ref={(el) => {
+                    obraRefs.current[obraNombre] = el;
+                  }}
+                  className={`rounded-xl border bg-[#1e3a5f]/90 border-white/10 overflow-hidden transition-[box-shadow,border-color] duration-300 ${
+                    highlightObra === obraNombre
+                      ? 'ring-2 ring-[#ed8936] ring-offset-2 ring-offset-[#0f172a] border-[#ed8936]/60'
+                      : ''
+                  }`}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-stretch gap-0 sm:gap-2 border-b border-white/10 bg-[#243d5c]/95">
+                    <button
+                      type="button"
+                      onClick={() => toggleObra(obraNombre)}
+                      className="flex-1 text-left px-4 py-3 sm:py-3.5 flex items-start gap-3 min-w-0 hover:bg-white/5 transition-colors"
+                      aria-expanded={isOpen}
+                    >
+                      <span className="text-xl shrink-0 mt-0.5" aria-hidden>
+                        {isOpen ? '📂' : '📁'}
+                      </span>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-bold text-white">{obraNombre}</span>
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#ed8936]/25 text-[#f6ad55] border border-[#ed8936]/40">
+                            {entradas.length}{' '}
+                            {entradas.length === 1 ? 'entrada' : 'entradas'}
+                          </span>
                         </div>
-                      ) : null}
-                      {e.videos && e.videos.length > 0 ? (
-                        <p className="text-xs text-white/65">
-                          Vídeos adjuntos: {e.videos.length} — enlaces en el almacenamiento (no se
-                          reproducen aquí)
+                        {direccion ? (
+                          <p className="text-xs sm:text-sm text-white/55 truncate">{direccion}</p>
+                        ) : null}
+                        <p className="text-[11px] sm:text-xs text-white/50 tabular-nums">
+                          Última entrada: {fechaUltimaStr}
                         </p>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            );
-          })
+                      </div>
+                      <ChevronDown
+                        className={`shrink-0 w-5 h-5 text-[#ed8936] mt-1 transition-transform duration-300 ${
+                          isOpen ? 'rotate-180' : ''
+                        }`}
+                        aria-hidden
+                      />
+                    </button>
+                    <div className="px-4 pb-3 sm:pb-0 sm:pr-4 sm:flex sm:items-center shrink-0 border-t border-white/5 sm:border-t-0 sm:border-l sm:pl-0 sm:ml-0">
+                      <Link
+                        href={`/agente?mensaje=${encodeURIComponent(
+                          `genera el PDF del diario de la obra ${obraNombre}`
+                        )}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex w-full sm:w-auto justify-center items-center px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg bg-[#ed8936] hover:bg-[#dd6b20] text-white transition-colors"
+                      >
+                        Generar PDF
+                      </Link>
+                    </div>
+                  </div>
+
+                  <div
+                    className="grid transition-[grid-template-rows] duration-300 ease-out"
+                    style={{ gridTemplateRows: isOpen ? '1fr' : '0fr' }}
+                  >
+                    <div className="overflow-hidden min-h-0">
+                      <div className="px-4 py-3 sm:px-5 bg-[#1a365d]/40 border-t border-white/5">
+                        <ul className="space-y-0">
+                          {entradas.map((e, idx) => (
+                            <li key={e.id}>
+                              {idx > 0 ? (
+                                <div className="border-t border-white/10 my-4" aria-hidden />
+                              ) : null}
+                              <button
+                                type="button"
+                                onClick={() => setEntradaSeleccionada(e)}
+                                className="w-full text-left rounded-lg px-2 py-2 -mx-2 space-y-2 pb-3 transition-colors cursor-pointer hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#ed8936]/60"
+                              >
+                                <p className="text-xs font-medium text-[#ed8936] tabular-nums">
+                                  {new Date(e.fecha).toLocaleString('es-ES', {
+                                    dateStyle: 'full',
+                                    timeStyle: 'short',
+                                  })}
+                                </p>
+                                {e.texto ? (
+                                  <p className="text-sm text-white/90 line-clamp-4 leading-relaxed">
+                                    {e.texto}
+                                  </p>
+                                ) : (
+                                  <p className="text-sm text-white/50 italic">Sin texto</p>
+                                )}
+                                {e.fotos && e.fotos.length > 0 ? (
+                                  <div className="grid grid-cols-2 gap-2 pointer-events-none">
+                                    {e.fotos.slice(0, 4).map((url) => (
+                                      <div key={url} className="overflow-hidden rounded-lg border border-white/10">
+                                        <img
+                                          src={url}
+                                          alt=""
+                                          className="w-full h-24 object-cover"
+                                        />
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : null}
+                                {e.videos && e.videos.length > 0 ? (
+                                  <p className="text-xs text-[#f6ad55]/90 flex items-center gap-1.5 pointer-events-none">
+                                    <span aria-hidden>🎬</span>
+                                    {e.videos.length}{' '}
+                                    {e.videos.length === 1 ? 'vídeo' : 'vídeos'} en esta entrada
+                                  </p>
+                                ) : null}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
       </main>
+
+      {entradaSeleccionada ? (
+        <DiarioEntradaModal
+          entrada={entradaSeleccionada}
+          onClose={() => setEntradaSeleccionada(null)}
+        />
+      ) : null}
     </div>
+  );
+}
+
+export default function DiarioPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#0f172a] flex items-center justify-center text-white">
+          Cargando…
+        </div>
+      }
+    >
+      <DiarioPageInner />
+    </Suspense>
   );
 }

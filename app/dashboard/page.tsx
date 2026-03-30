@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import LogoutButton from './logout-button';
 import {
   AlertTriangle,
@@ -67,6 +68,12 @@ interface DiarioEntradaWidget {
   texto: string | null;
 }
 
+interface UltimoClienteWidget {
+  id: string;
+  nombre: string;
+  num_documentos: number;
+}
+
 const DIAS_SEMANA_CORTO = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
 function formatEmailFecha(iso: string | null) {
@@ -109,6 +116,7 @@ function construirCeldasMes(year: number, month: number) {
 
 export default function DashboardPage() {
   const { abrirEmail, abrirUrgentes } = useEmailModal();
+  const router = useRouter();
   const supabase = useMemo(
     () =>
       createBrowserClient(
@@ -144,6 +152,7 @@ export default function DashboardPage() {
   const [emailsError, setEmailsError] = useState<string | null>(null);
   const [menuMovilAbierto, setMenuMovilAbierto] = useState(false);
   const [ultimasEntradasDiario, setUltimasEntradasDiario] = useState<DiarioEntradaWidget[]>([]);
+  const [ultimosClientes, setUltimosClientes] = useState<UltimoClienteWidget[]>([]);
 
   const [modalAgendaAbierto, setModalAgendaAbierto] = useState(false);
   const [mesCalendario, setMesCalendario] = useState(() => new Date());
@@ -388,6 +397,7 @@ export default function DashboardPage() {
           setImporteTotalPresupuestado(0);
           setTotalMateriales(0);
           setUltimasEntradasDiario([]);
+          setUltimosClientes([]);
           setEmailsUrgentes([]);
 
           const { data: gmailToken } = await supabase
@@ -493,6 +503,61 @@ export default function DashboardPage() {
           }
         } catch {
           setUltimasEntradasDiario([]);
+        }
+
+        try {
+          const { data: ucRows } = await supabase
+            .from('clientes')
+            .select('id, nombre, created_at')
+            .eq('business_id', businessId)
+            .order('created_at', { ascending: false })
+            .limit(3);
+          const uc = (ucRows ?? []) as { id: string; nombre: string }[];
+          const uids = uc.map((c) => c.id);
+          if (uids.length === 0) {
+            setUltimosClientes([]);
+          } else {
+            const [pR, fR, aR] = await Promise.all([
+              supabase
+                .from('presupuestos')
+                .select('cliente_id')
+                .eq('business_id', businessId)
+                .in('cliente_id', uids),
+              supabase
+                .from('facturas')
+                .select('cliente_id')
+                .eq('business_id', businessId)
+                .in('cliente_id', uids),
+              supabase
+                .from('albaranes')
+                .select('cliente_id')
+                .eq('business_id', businessId)
+                .in('cliente_id', uids),
+            ]);
+            const bump = (rows: { cliente_id: string | null }[] | null) => {
+              const m = new Map<string, number>();
+              for (const id of uids) m.set(id, 0);
+              for (const r of rows ?? []) {
+                const cid = r.cliente_id;
+                if (!cid) continue;
+                m.set(cid, (m.get(cid) ?? 0) + 1);
+              }
+              return m;
+            };
+            const mp = bump(pR.data as { cliente_id: string | null }[] | null);
+            const mf = bump(fR.data as { cliente_id: string | null }[] | null);
+            const ma = bump(aR.data as { cliente_id: string | null }[] | null);
+            setUltimosClientes(
+              uc.map((c) => ({
+                id: c.id,
+                nombre: c.nombre,
+                num_documentos:
+                  (mp.get(c.id) ?? 0) + (mf.get(c.id) ?? 0) + (ma.get(c.id) ?? 0),
+              }))
+            );
+          }
+        } catch {
+          setUltimosClientes([]);
         }
 
         const { data: gmailToken } = await supabase
@@ -668,6 +733,9 @@ export default function DashboardPage() {
             <Link href="/diario" className="text-sm text-gray-200 hover:text-white transition-colors">
               Diario
             </Link>
+            <Link href="/clientes" className="text-sm text-gray-200 hover:text-white transition-colors">
+              Clientes
+            </Link>
             <Link href="/facturas" className="text-sm text-gray-200 hover:text-white transition-colors">
               Facturas
             </Link>
@@ -736,6 +804,13 @@ export default function DashboardPage() {
                 onClick={() => setMenuMovilAbierto(false)}
               >
                 Diario
+              </Link>
+              <Link
+                href="/clientes"
+                className="text-sm text-gray-200 hover:text-white transition-colors"
+                onClick={() => setMenuMovilAbierto(false)}
+              >
+                Clientes
               </Link>
               <Link
                 href="/facturas"
@@ -1098,11 +1173,11 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        <section aria-label="Diario de obra" className="w-full">
+        <section aria-label="Diario de obra y clientes" className="w-full">
           <h2 className="text-sm font-semibold text-white/60 mb-1.5 uppercase tracking-wide">
             Diario de obra
           </h2>
-          <div className="w-full lg:max-w-[50%]">
+          <div className="w-full grid grid-cols-1 lg:grid-cols-2 gap-3 lg:gap-4 lg:max-w-full">
             <div className="bg-[#111827] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0">
               <div className="flex items-center justify-between shrink-0 mb-1.5">
                 <h3 className="text-sm font-semibold text-white/80 uppercase tracking-wide">
@@ -1117,20 +1192,27 @@ export default function DashboardPage() {
                 ) : (
                   <ul className="space-y-1.5 text-xs sm:text-sm">
                     {ultimasEntradasDiario.map((e) => (
-                      <li
-                        key={e.id}
-                        className="border-b border-white/10 pb-1.5 last:border-b-0 last:pb-0"
-                      >
-                        <p className="font-bold text-white truncate">{e.obra_nombre}</p>
-                        <p className="text-[11px] sm:text-xs text-white/60 tabular-nums mt-0.5">
-                          {new Date(e.fecha).toLocaleString('es-ES', {
-                            dateStyle: 'short',
-                            timeStyle: 'short',
-                          })}
-                        </p>
-                        <p className="text-white/80 text-[11px] sm:text-xs mt-0.5 line-clamp-2">
-                          {extractoDiario(e.texto)}
-                        </p>
+                      <li key={e.id}>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            router.push(
+                              `/diario?obra=${encodeURIComponent(e.obra_nombre)}`
+                            )
+                          }
+                          className="w-full text-left rounded-md px-1.5 py-1.5 -mx-1.5 -my-0.5 border-b border-white/10 last:border-b-0 cursor-pointer hover:bg-white/5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#ed8936]/70"
+                        >
+                          <p className="font-bold text-white truncate">{e.obra_nombre}</p>
+                          <p className="text-[11px] sm:text-xs text-white/60 tabular-nums mt-0.5">
+                            {new Date(e.fecha).toLocaleString('es-ES', {
+                              dateStyle: 'short',
+                              timeStyle: 'short',
+                            })}
+                          </p>
+                          <p className="text-white/80 text-[11px] sm:text-xs mt-0.5 line-clamp-2">
+                            {extractoDiario(e.texto)}
+                          </p>
+                        </button>
                       </li>
                     ))}
                   </ul>
@@ -1142,6 +1224,44 @@ export default function DashboardPage() {
                   className="inline-flex items-center text-xs sm:text-sm font-medium text-[#ed8936] hover:text-[#f6ad55] transition-colors"
                 >
                   Ver diario completo →
+                </Link>
+              </div>
+            </div>
+
+            <div className="bg-[#111827] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0">
+              <div className="flex items-center justify-between shrink-0 mb-1.5">
+                <h3 className="text-sm font-semibold text-white/80 uppercase tracking-wide">
+                  ÚLTIMOS CLIENTES
+                </h3>
+              </div>
+              <div className="min-h-0 max-h-40 overflow-y-auto overscroll-contain">
+                {loading ? (
+                  <p className="text-white/60 text-xs">Cargando...</p>
+                ) : ultimosClientes.length === 0 ? (
+                  <p className="text-white/60 text-xs">Aún no hay clientes registrados</p>
+                ) : (
+                  <ul className="space-y-1.5 text-xs sm:text-sm">
+                    {ultimosClientes.map((c) => (
+                      <li
+                        key={c.id}
+                        className="border-b border-white/10 pb-1.5 last:border-b-0 last:pb-0"
+                      >
+                        <p className="font-bold text-white truncate">{c.nombre}</p>
+                        <p className="text-[11px] sm:text-xs text-white/70 mt-0.5">
+                          {c.num_documentos}{' '}
+                          {c.num_documentos === 1 ? 'documento asociado' : 'documentos asociados'}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="shrink-0 mt-2 pt-2 border-t border-white/10">
+                <Link
+                  href="/clientes"
+                  className="inline-flex items-center text-xs sm:text-sm font-medium text-[#ed8936] hover:text-[#f6ad55] transition-colors"
+                >
+                  Ver todos →
                 </Link>
               </div>
             </div>
