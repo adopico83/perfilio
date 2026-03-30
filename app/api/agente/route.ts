@@ -464,6 +464,12 @@ Diario de obra:
 - Tras crear la entrada, si la tool devuelve el mensaje con la pregunta del PDF, puedes repetir o reforzar la pregunta al usuario.
 - Usa "generar_pdf_diario" cuando pida exportar o descargar el diario completo de una obra; necesitas el nombre exacto de la obra. La tool devuelve una URL firmada para descarga.
 
+Puedes convertir documentos entre sí:
+- Presupuesto → Albarán: usa convertir_presupuesto_a_albaran
+- Albarán → Factura: usa convertir_albaran_a_factura
+Cuando el usuario confirme que un presupuesto ha sido aceptado o
+quiera facturar un albarán, ofrece hacer la conversión automáticamente.
+
 Fecha actual: ${fechaActual}
 Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaContextoPrimerMensaje}`;
 
@@ -1070,6 +1076,56 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
               cliente_id: { type: 'string', description: 'UUID del cliente' },
             },
             required: ['cliente_id'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'convertir_presupuesto_a_albaran',
+          description:
+            'Convierte un presupuesto en un albarán de trabajo. Copia los datos del presupuesto al nuevo albarán y marca el presupuesto como aceptado.',
+          parameters: {
+            type: 'object',
+            properties: {
+              presupuesto_id: {
+                type: 'string',
+                description: 'UUID del presupuesto a convertir',
+              },
+              observaciones: {
+                type: 'string',
+                description: 'Notas adicionales para el albarán',
+              },
+            },
+            required: ['presupuesto_id'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'convertir_albaran_a_factura',
+          description:
+            'Convierte un albarán en una factura. Copia los datos del albarán a la nueva factura y marca el albarán como facturado.',
+          parameters: {
+            type: 'object',
+            properties: {
+              albaran_id: {
+                type: 'string',
+                description: 'UUID del albarán a convertir',
+              },
+              iva: {
+                type: 'number',
+                description: 'Porcentaje de IVA (por defecto 21)',
+              },
+              observaciones: {
+                type: 'string',
+                description: 'Observaciones para la factura',
+              },
+            },
+            required: ['albaran_id'],
             additionalProperties: false,
           },
         },
@@ -1812,6 +1868,126 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
             facturas: facV.data ?? [],
             albaranes: albV.data ?? [],
             diario_obra: dioV.data ?? [],
+          };
+        }
+        case 'convertir_presupuesto_a_albaran': {
+          const presupuestoId = String(toolArgs.presupuesto_id ?? '').trim();
+          const observaciones =
+            toolArgs.observaciones != null
+              ? String(toolArgs.observaciones).trim()
+              : '';
+          if (!presupuestoId) return { error: 'presupuesto_id es obligatorio' };
+
+          const { data: pRow, error: pErr } = await supabase
+            .from('presupuestos')
+            .select('id, estado, cliente_nombre, cliente_id, presupuesto_generado, importe_total')
+            .eq('id', presupuestoId)
+            .eq('business_id', business_id)
+            .maybeSingle();
+          if (pErr) return { error: pErr.message };
+          if (!pRow) return { error: 'Presupuesto no encontrado' };
+
+          const clienteNombre = (pRow.cliente_nombre ?? '') as string;
+          const totalNum =
+            pRow.importe_total != null && Number.isFinite(Number(pRow.importe_total))
+              ? Number(pRow.importe_total)
+              : 0;
+          const texto = (pRow.presupuesto_generado ?? '') as string;
+
+          const { error: insertErr } = await supabase.from('albaranes').insert({
+            business_id,
+            cliente_nombre: clienteNombre || null,
+            cliente_id: pRow.cliente_id ?? null,
+            descripcion_trabajos: texto || null,
+            total: totalNum,
+            fecha: new Date().toISOString().split('T')[0],
+            estado: 'pendiente',
+            observaciones:
+              observaciones.length > 0 ? observaciones : 'Generado desde presupuesto',
+          });
+
+          if (insertErr) return { error: insertErr.message };
+
+          if ((pRow.estado ?? '').toLowerCase() !== 'aceptado') {
+            const { error: updErr } = await supabase
+              .from('presupuestos')
+              .update({ estado: 'aceptado' })
+              .eq('id', presupuestoId)
+              .eq('business_id', business_id)
+              .select('id')
+              .maybeSingle();
+            if (updErr) return { error: updErr.message };
+          }
+
+          return {
+            mensaje:
+              `Albarán creado correctamente a partir del presupuesto de ${clienteNombre}.\n` +
+              'El presupuesto ha sido marcado como aceptado.',
+          };
+        }
+        case 'convertir_albaran_a_factura': {
+          const albaranId = String(toolArgs.albaran_id ?? '').trim();
+          const ivaPctRaw = toolArgs.iva ?? 21;
+          const observaciones =
+            toolArgs.observaciones != null ? String(toolArgs.observaciones).trim() : '';
+
+          if (!albaranId) return { error: 'albaran_id es obligatorio' };
+          const iva_porcentaje = Number(ivaPctRaw);
+          if (!Number.isFinite(iva_porcentaje)) return { error: 'iva debe ser un número' };
+
+          const { data: aRow, error: aErr } = await supabase
+            .from('albaranes')
+            .select(
+              'id, estado, cliente_nombre, cliente_id, cliente_direccion, descripcion_trabajos, lineas, total'
+            )
+            .eq('id', albaranId)
+            .eq('business_id', business_id)
+            .maybeSingle();
+          if (aErr) return { error: aErr.message };
+          if (!aRow) return { error: 'Albarán no encontrado' };
+
+          const clienteNombre = (aRow.cliente_nombre ?? '') as string;
+          const totalNum =
+            aRow.total != null && Number.isFinite(Number(aRow.total))
+              ? Number(aRow.total)
+              : 0;
+
+          const round2 = (n: number) => Math.round(n * 100) / 100;
+          const base_imponible = round2(totalNum / (1 + iva_porcentaje / 100));
+          const iva_importe = round2(totalNum - base_imponible);
+
+          const { error: insertErr } = await supabase.from('facturas').insert({
+            business_id,
+            cliente_nombre: clienteNombre || null,
+            cliente_id: aRow.cliente_id ?? null,
+            cliente_direccion: aRow.cliente_direccion ?? null,
+            descripcion_trabajos: aRow.descripcion_trabajos ?? null,
+            lineas: aRow.lineas ?? null,
+            base_imponible,
+            iva: iva_importe,
+            total: totalNum,
+            fecha: new Date().toISOString().split('T')[0],
+            estado: 'pendiente',
+            observaciones:
+              observaciones.length > 0 ? observaciones : 'Generada desde albarán',
+          });
+
+          if (insertErr) return { error: insertErr.message };
+
+          const { error: updErr } = await supabase
+            .from('albaranes')
+            .update({ estado: 'facturado' })
+            .eq('id', albaranId)
+            .eq('business_id', business_id)
+            .select('id')
+            .maybeSingle();
+
+          if (updErr) return { error: updErr.message };
+
+          return {
+            mensaje:
+              `Factura creada correctamente a partir del albarán de ${clienteNombre}.\n` +
+              `Total: ${round2(totalNum).toFixed(2)}€. El albarán ha sido marcado como facturado.`,
           };
         }
         case 'obtener_mensajes_pendientes': {

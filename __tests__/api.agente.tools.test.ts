@@ -612,6 +612,114 @@ describe('POST /api/agente — tools', () => {
     });
   });
 
+  describe('convertir_presupuesto_a_albaran', () => {
+    it('devuelve mensaje de éxito con cliente_nombre', async () => {
+      const presupuestoId = 'pres-uuid-1';
+
+      const presupuestoChain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        update: jest.fn().mockReturnThis(),
+        maybeSingle: jest.fn()
+          .mockResolvedValueOnce({
+            data: {
+              id: presupuestoId,
+              estado: 'enviado',
+              cliente_nombre: 'Juan Pérez',
+              cliente_id: 'cli-1',
+              presupuesto_generado: 'Texto del presupuesto',
+              importe_total: 123.45,
+            },
+            error: null,
+          })
+          .mockResolvedValueOnce({
+            data: { id: presupuestoId },
+            error: null,
+          }),
+      };
+
+      const insertMockAlb = jest.fn().mockResolvedValue({ data: null, error: null });
+
+      const res = await postWithTool(
+        'convertir_presupuesto_a_albaran',
+        {
+          presupuestos: presupuestoChain as any,
+          albaranes: {
+            insert: insertMockAlb,
+          } as any,
+        },
+        JSON.stringify({ presupuesto_id: presupuestoId })
+      );
+
+      expect(res.status).toBe(200);
+
+      const secondCall = createMock.mock.calls[1]?.[0] as {
+        messages: Array<{ role: string; content?: string }>;
+      };
+      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
+      const parsed = JSON.parse(toolMsg!.content as string) as { mensaje?: string };
+      expect(parsed.mensaje).toContain('Albarán creado correctamente a partir del presupuesto de Juan Pérez');
+      expect(parsed.mensaje).toContain('marcado como aceptado');
+      expect(insertMockAlb).toHaveBeenCalled();
+    });
+  });
+
+  describe('convertir_albaran_a_factura', () => {
+    it('devuelve mensaje de éxito con total', async () => {
+      const albaranId = 'alb-uuid-1';
+      const total = 200;
+
+      const albaranesChain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        update: jest.fn().mockReturnThis(),
+        maybeSingle: jest.fn()
+          .mockResolvedValueOnce({
+            data: {
+              id: albaranId,
+              estado: 'entregado',
+              cliente_nombre: 'Cliente X',
+              cliente_id: 'cli-2',
+              cliente_direccion: 'Calle 123',
+              descripcion_trabajos: 'Trabajos',
+              lineas: [{ concepto: 'A' }],
+              total,
+            },
+            error: null,
+          })
+          .mockResolvedValueOnce({
+            data: { id: albaranId },
+            error: null,
+          }),
+      };
+
+      const insertMockFactura = jest.fn().mockResolvedValue({ data: null, error: null });
+
+      const res = await postWithTool(
+        'convertir_albaran_a_factura',
+        {
+          albaranes: albaranesChain as any,
+          facturas: {
+            insert: insertMockFactura,
+          } as any,
+        },
+        JSON.stringify({ albaran_id: albaranId, iva: 21 })
+      );
+
+      expect(res.status).toBe(200);
+
+      const secondCall = createMock.mock.calls[1]?.[0] as {
+        messages: Array<{ role: string; content?: string }>;
+      };
+      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
+      const parsed = JSON.parse(toolMsg!.content as string) as { mensaje?: string };
+      expect(parsed.mensaje).toContain('Factura creada correctamente a partir del albarán de Cliente X');
+      expect(parsed.mensaje).toContain(`Total: ${Number(total).toFixed(2)}€`);
+      expect(parsed.mensaje).toContain('marcado como facturado');
+      expect(insertMockFactura).toHaveBeenCalled();
+    });
+  });
+
   describe('vincular_gasto', () => {
     const gastoUuid = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
     const facturaUuid = 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a12';
