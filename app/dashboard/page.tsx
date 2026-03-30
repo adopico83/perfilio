@@ -14,6 +14,7 @@ import {
   Pencil,
   Trash2,
 } from 'lucide-react';
+import { useEmailModal } from '@/contexts/email-modal-context';
 
 interface ResumenCounts {
   urgentes: number;
@@ -27,6 +28,8 @@ interface EmailReciente {
   asunto: string | null;
   fechaIso: string | null;
   noLeido: boolean;
+  cuerpo?: string | null;
+  motivoUrgencia?: string[];
 }
 
 interface PresupuestoResumen {
@@ -97,6 +100,7 @@ function construirCeldasMes(year: number, month: number) {
 }
 
 export default function DashboardPage() {
+  const { abrirEmail, abrirUrgentes } = useEmailModal();
   const supabase = useMemo(
     () =>
       createBrowserClient(
@@ -127,6 +131,7 @@ export default function DashboardPage() {
   const [gmailConectado, setGmailConectado] = useState(false);
   const [gmailAccionLoading, setGmailAccionLoading] = useState(false);
   const [emailsRecientes, setEmailsRecientes] = useState<EmailReciente[]>([]);
+  const [emailsUrgentes, setEmailsUrgentes] = useState<EmailReciente[]>([]);
   const [emailsLoading, setEmailsLoading] = useState(false);
   const [emailsError, setEmailsError] = useState<string | null>(null);
   const [menuMovilAbierto, setMenuMovilAbierto] = useState(false);
@@ -375,6 +380,7 @@ export default function DashboardPage() {
           setImporteTotalPresupuestado(0);
           setTotalMateriales(0);
           setUltimasEntradasDiario([]);
+          setEmailsUrgentes([]);
 
           const { data: gmailToken } = await supabase
             .from('gmail_tokens')
@@ -386,7 +392,6 @@ export default function DashboardPage() {
         }
 
         const [
-          urgentesRes,
           presupuestosRes,
           albaranesRes,
           facturasRes,
@@ -396,12 +401,6 @@ export default function DashboardPage() {
           presupuestosMetricasRes,
           presupuestosMaterialesRes,
         ] = await Promise.all([
-          supabase
-            .from('conversations')
-            .select('id', { count: 'exact', head: true })
-            .eq('business_id', businessId)
-            .eq('status', 'pending')
-            .eq('priority', 'urgent'),
           supabase
             .from('presupuestos')
             .select('id', { count: 'exact', head: true })
@@ -440,7 +439,7 @@ export default function DashboardPage() {
         ]);
 
         setCounts({
-          urgentes: urgentesRes.count ?? 0,
+          urgentes: 0,
           presupuestos: presupuestosRes.count ?? 0,
           albaranesPendientes: albaranesRes.count ?? 0,
           facturasPendientes: facturasRes.count ?? 0,
@@ -506,6 +505,8 @@ export default function DashboardPage() {
     if (loading) return;
     if (!gmailConectado) {
       setEmailsRecientes([]);
+      setEmailsUrgentes([]);
+      setCounts((prev) => ({ ...prev, urgentes: 0 }));
       setEmailsError(null);
       setEmailsLoading(false);
       return;
@@ -517,9 +518,11 @@ export default function DashboardPage() {
 
     void (async () => {
       try {
-        const res = await fetch('/api/gmail/recent');
+        const res = await fetch('/api/gmail/urgentes');
         const data = (await res.json()) as {
-          items?: EmailReciente[];
+          urgentes?: EmailReciente[];
+          normales?: EmailReciente[];
+          total_urgentes?: number;
           error?: string | null;
         };
         if (cancelled) return;
@@ -541,13 +544,28 @@ export default function DashboardPage() {
         if (data.error) {
           setEmailsError('No se pudieron cargar los emails.');
           setEmailsRecientes([]);
+          setEmailsUrgentes([]);
+          setCounts((prev) => ({ ...prev, urgentes: 0 }));
           return;
         }
-        setEmailsRecientes(Array.isArray(data.items) ? data.items : []);
+        const urgentes = Array.isArray(data.urgentes) ? data.urgentes : [];
+        const normales = Array.isArray(data.normales) ? data.normales : [];
+        setEmailsUrgentes(urgentes);
+        setCounts((prev) => ({
+          ...prev,
+          urgentes:
+            typeof data.total_urgentes === 'number'
+              ? data.total_urgentes
+              : urgentes.length,
+        }));
+        const merged = [...urgentes, ...normales];
+        setEmailsRecientes(merged.slice(0, 4));
       } catch {
         if (!cancelled) {
           setEmailsError('Error de conexión al cargar emails.');
           setEmailsRecientes([]);
+          setEmailsUrgentes([]);
+          setCounts((prev) => ({ ...prev, urgentes: 0 }));
         }
       } finally {
         if (!cancelled) setEmailsLoading(false);
@@ -789,13 +807,14 @@ export default function DashboardPage() {
                 <AlertTriangle className="w-5 h-5 text-red-400" />
               </div>
               <div className="text-2xl sm:text-3xl font-bold">{counts.urgentes}</div>
-              <Link
-                href="/mensajes"
-                className="inline-flex items-center text-xs text-red-300 hover:text-red-100 mt-1"
+              <button
+                type="button"
+                onClick={() => abrirUrgentes(emailsUrgentes)}
+                className="inline-flex items-center text-xs text-red-300 hover:text-red-100 mt-1 text-left"
               >
                 Ver urgentes
                 <ArrowRight className="w-3 h-3 ml-1" />
-              </Link>
+              </button>
             </div>
 
             <div className="bg-[#111827] border border-[#ed8936]/50 rounded-xl py-2 px-3 flex flex-col gap-1">
@@ -1028,7 +1047,12 @@ export default function DashboardPage() {
                         key={`${email.fechaIso ?? ''}-${idx}`}
                         className="border-b border-white/10 pb-1.5 last:border-b-0 last:pb-0"
                       >
-                        <div className="flex items-start gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => abrirEmail(email)}
+                          className="w-full text-left rounded-md p-1 -m-1 hover:bg-white/5 cursor-pointer transition-colors"
+                        >
+                          <div className="flex items-start gap-1.5">
                           {email.noLeido ? (
                             <span
                               className="mt-1 size-1.5 shrink-0 rounded-full bg-[#ed8936]"
@@ -1038,7 +1062,7 @@ export default function DashboardPage() {
                           ) : (
                             <span className="mt-1 size-1.5 shrink-0" aria-hidden />
                           )}
-                          <div className="min-w-0 flex-1">
+                            <div className="min-w-0 flex-1">
                             <p
                               className={`text-[11px] sm:text-xs leading-tight truncate ${
                                 email.noLeido ? 'font-semibold text-white' : 'font-medium text-white/90'
@@ -1057,19 +1081,20 @@ export default function DashboardPage() {
                               {formatEmailFecha(email.fechaIso)}
                             </p>
                           </div>
-                        </div>
+                          </div>
+                        </button>
                       </li>
                     ))}
                   </ul>
                 )}
               </div>
               <div className="shrink-0 mt-2 pt-2 border-t border-white/10">
-                <Link
-                  href="#"
+                <button
+                  type="button"
                   className="text-xs sm:text-sm font-medium text-[#ed8936] hover:text-[#f6ad55] transition-colors"
                 >
                   Ver todos
-                </Link>
+                </button>
               </div>
             </div>
           </div>
