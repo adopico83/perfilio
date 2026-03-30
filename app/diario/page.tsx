@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import LogoutButton from '@/app/dashboard/logout-button';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
+import ToggleAgenteNavButton from '@/components/dashboard/toggle-agente-nav-button';
 
 type DiarioEntrada = {
   id: string;
@@ -136,12 +137,7 @@ export default function DiarioPage() {
             <Link href="/facturas" className="text-sm text-gray-200 hover:text-white transition-colors">
               Facturas
             </Link>
-            <Link
-              href="/agente"
-              className="inline-flex items-center px-4 py-2 text-sm font-medium text-[#ed8936] bg-transparent border border-[#ed8936] rounded-lg hover:bg-[#ed8936] hover:text-white transition-colors"
-            >
-              ✨ Agente IA
-            </Link>
+            <ToggleAgenteNavButton className="inline-flex items-center px-4 py-2 text-sm font-medium text-[#ed8936] bg-transparent border border-[#ed8936] rounded-lg hover:bg-[#ed8936] hover:text-white transition-colors" />
             <LogoutButton />
           </div>
         </div>
@@ -185,13 +181,9 @@ export default function DiarioPage() {
               >
                 Facturas
               </Link>
-              <Link
-                href="/agente"
-                className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-[#ed8936] border border-[#ed8936] rounded-lg"
-                onClick={() => setMenuMovilAbierto(false)}
-              >
-                ✨ Agente IA
-              </Link>
+              <div onClick={() => setMenuMovilAbierto(false)}>
+                <ToggleAgenteNavButton className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-[#ed8936] border border-[#ed8936] rounded-lg" />
+              </div>
               <LogoutButton />
             </div>
           </div>

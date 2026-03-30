@@ -15,6 +15,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useEmailModal } from '@/contexts/email-modal-context';
+import ToggleAgenteNavButton from '@/components/dashboard/toggle-agente-nav-button';
 
 interface ResumenCounts {
   urgentes: number;
@@ -80,6 +81,13 @@ function extractoDiario(texto: string | null, max = 80) {
   const t = texto.trim();
   if (t.length <= max) return t;
   return `${t.slice(0, max)}…`;
+}
+
+function getSaludo() {
+  const hora = new Date().getHours();
+  if (hora >= 6 && hora < 12) return 'Buenos días';
+  if (hora >= 12 && hora < 20) return 'Buenas tardes';
+  return 'Buenas noches';
 }
 
 function construirCeldasMes(year: number, month: number) {
@@ -577,8 +585,7 @@ export default function DashboardPage() {
     };
   }, [loading, gmailConectado]);
 
-  const hora = new Date().getHours();
-  const saludo = hora < 14 ? 'Buenos días' : 'Buenas tardes';
+  const saludo = getSaludo();
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-white">
@@ -664,12 +671,7 @@ export default function DashboardPage() {
             <Link href="/facturas" className="text-sm text-gray-200 hover:text-white transition-colors">
               Facturas
             </Link>
-            <Link
-              href="/agente"
-              className="inline-flex items-center px-4 py-2 text-sm font-medium text-[#ed8936] bg-transparent border border-[#ed8936] rounded-lg hover:bg-[#ed8936] hover:text-white transition-colors"
-            >
-              ✨ Agente IA
-            </Link>
+            <ToggleAgenteNavButton className="inline-flex items-center px-4 py-2 text-sm font-medium text-[#ed8936] bg-transparent border border-[#ed8936] rounded-lg hover:bg-[#ed8936] hover:text-white transition-colors" />
             {gmailConectado ? (
               <button
                 type="button"
@@ -742,13 +744,9 @@ export default function DashboardPage() {
               >
                 Facturas
               </Link>
-              <Link
-                href="/agente"
-                className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-[#ed8936] bg-transparent border border-[#ed8936] rounded-lg hover:bg-[#ed8936] hover:text-white transition-colors"
-                onClick={() => setMenuMovilAbierto(false)}
-              >
-                ✨ Agente IA
-              </Link>
+              <div onClick={() => setMenuMovilAbierto(false)}>
+                <ToggleAgenteNavButton className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-[#ed8936] bg-transparent border border-[#ed8936] rounded-lg hover:bg-[#ed8936] hover:text-white transition-colors" />
+              </div>
               {gmailConectado ? (
                 <button
                   type="button"

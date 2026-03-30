@@ -13,7 +13,7 @@ import {
   type TouchEvent,
 } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
-import { Loader2, Paperclip, Pause, Video, X } from 'lucide-react';
+import { History, Loader2, Paperclip, Pause, Video, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { isDiarioPdfDownloadLink } from '@/lib/diario-pdf-link';
 import { useCanvas } from '@/contexts/canvas-context';
@@ -42,6 +42,26 @@ interface ChatMessage {
   /** Data URL solo para mostrar mensajes de usuario con imagen adjunta */
   imagenPreview?: string;
   emailPendiente?: EmailPendienteEnMensaje;
+}
+
+interface ConversationSummaryItem {
+  conversation_id: string;
+  titulo: string;
+  created_at: string;
+  total_mensajes: number;
+}
+
+function formatFechaRelativa(input: string) {
+  const d = new Date(input);
+  if (Number.isNaN(d.getTime())) return 'Fecha desconocida';
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diff = Math.round((today.getTime() - target.getTime()) / (1000 * 60 * 60 * 24));
+  if (diff <= 0) return 'Hoy';
+  if (diff === 1) return 'Ayer';
+  if (diff < 7) return `Hace ${diff} días`;
+  return d.toLocaleDateString('es-ES', { dateStyle: 'short' });
 }
 
 /** Reduce tamaño para el body JSON (JPEG) antes de enviar al agente. */
@@ -327,9 +347,14 @@ export default function AgentSidebar() {
   const [mensaje, setMensaje] = useState('');
   const [historial, setHistorial] = useState<ChatMessage[]>([]);
   const [conversationId, setConversationId] = useState('');
+  const [conversaciones, setConversaciones] = useState<ConversationSummaryItem[]>([]);
+  const [panelConversacionesAbierto, setPanelConversacionesAbierto] = useState(false);
+  const [conversacionesLoading, setConversacionesLoading] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [saludoAutomaticoCargando, setSaludoAutomaticoCargando] = useState(false);
+  const [historialInicialListo, setHistorialInicialListo] = useState(false);
   const [grabando, setGrabando] = useState(false);
   const [error, setError] = useState('');
   const [emailSendLoadingId, setEmailSendLoadingId] = useState<string | null>(null);
@@ -343,7 +368,7 @@ export default function AgentSidebar() {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<BlobPart[]>([]);
   const mediaRecorderMimeTypeRef = useRef<string>('audio/webm');
-  const historialInicialCargadoRef = useRef(false);
+  const saludoAutomaticoProcesadoRef = useRef(false);
   /** Evita doble ejecución pointerdown + click; getUserMedia debe ir en el gesto directo (Safari iOS). */
   const micGestureHandledRef = useRef(false);
 
@@ -511,36 +536,17 @@ export default function AgentSidebar() {
     void loadInitialData();
   }, [supabase]);
 
-  useEffect(() => {
-    const loadHistorialInicial = async () => {
-      if (!selectedId || !currentUserId || historialInicialCargadoRef.current) return;
-      historialInicialCargadoRef.current = true;
-
-      const latestRowRes = await supabase
-        .from('conversation_history')
-        .select('conversation_id, business_id, user_id, created_at')
-        .eq('business_id', selectedId)
-        .eq('user_id', currentUserId)
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-      if (latestRowRes.error) {
-        console.log('Error cargando última conversación (conversation_history):', latestRowRes.error);
-      }
-
-      const latestConversationId =
-        (latestRowRes.data?.[0] as { conversation_id?: string } | undefined)?.conversation_id ??
-        null;
-      const activeConversationId = latestConversationId ?? generateConversationId();
-      setConversationId(activeConversationId);
-
+  const cargarMensajesDeConversacion = useCallback(
+    async (targetConversationId: string) => {
+      if (!selectedId || !currentUserId || !targetConversationId) return;
       const { data: rows, error: rowsError } = await supabase
         .from('conversation_history')
         .select('role, content, business_id, user_id, conversation_id, created_at')
         .eq('business_id', selectedId)
         .eq('user_id', currentUserId)
+        .eq('conversation_id', targetConversationId)
         .order('created_at', { ascending: false })
-        .limit(20);
+        .limit(200);
 
       if (rowsError) {
         console.log('Error cargando mensajes de conversation_history:', rowsError);
@@ -557,12 +563,140 @@ export default function AgentSidebar() {
           role: r.role as MessageRole,
           content: r.content,
         }));
-
       setHistorial(mapped);
+    },
+    [currentUserId, selectedId, supabase]
+  );
+
+  const cargarConversaciones = useCallback(async () => {
+    if (!selectedId || !currentUserId) return;
+    setConversacionesLoading(true);
+    try {
+      const res = await fetch(
+        `/api/agente/conversaciones?business_id=${encodeURIComponent(selectedId)}&user_id=${encodeURIComponent(currentUserId)}`
+      );
+      const data = (await res.json()) as { conversaciones?: ConversationSummaryItem[]; error?: string };
+      if (!res.ok) {
+        console.log('Error cargando conversaciones:', data.error ?? 'desconocido');
+        setConversaciones([]);
+        return;
+      }
+      const list = Array.isArray(data.conversaciones) ? data.conversaciones : [];
+      setConversaciones(list);
+
+      const latestConversationId = list[0]?.conversation_id ?? '';
+      const activeConversationId = latestConversationId || generateConversationId();
+      setConversationId(activeConversationId);
+      await cargarMensajesDeConversacion(activeConversationId);
+      setHistorialInicialListo(true);
+    } catch (e) {
+      console.log('Error cargando conversaciones:', e);
+      setConversaciones([]);
+      const fallbackConversationId = generateConversationId();
+      setConversationId(fallbackConversationId);
+      setHistorial([]);
+      setHistorialInicialListo(true);
+    } finally {
+      setConversacionesLoading(false);
+    }
+  }, [cargarMensajesDeConversacion, currentUserId, selectedId]);
+
+  useEffect(() => {
+    void cargarConversaciones();
+  }, [cargarConversaciones]);
+
+  useEffect(() => {
+    const maybeEnviarSaludoAutomatico = async () => {
+      if (!selectedId || !currentUserId || !historialInicialListo) return;
+      if (saludoAutomaticoProcesadoRef.current) return;
+
+      const hoy = new Date().toISOString().slice(0, 10);
+      const storageKey = 'perfilio_saludo_fecha';
+      const ultimaFecha = window.localStorage.getItem(storageKey);
+      if (ultimaFecha === hoy) {
+        saludoAutomaticoProcesadoRef.current = true;
+        return;
+      }
+
+      saludoAutomaticoProcesadoRef.current = true;
+      setSaludoAutomaticoCargando(true);
+      setError('');
+
+      const promptInterno =
+        "Genera un saludo automático para el usuario.\n" +
+        "Usa 'Buenos días' si son antes de las 12h,\n" +
+        "'Buenas tardes' si son entre 12h y 20h,\n" +
+        "'Buenas noches' si son después de las 20h.\n" +
+        'Luego incluye un resumen breve del día:\n' +
+        '- Eventos de agenda de hoy y mañana (usa la tool recordatorio_agenda)\n' +
+        "- Presupuestos pendientes de respuesta (usa listar_presupuestos filtrando estado 'pendiente')\n" +
+        '- Emails urgentes si los hay (usa leer_emails_recientes)\n' +
+        'Sé breve y directo, estilo asistente profesional.';
+
+      try {
+        const res = await fetch('/api/agente', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mensaje: promptInterno,
+            business_id: selectedId,
+            historial,
+          }),
+        });
+
+        const data = (await res.json()) as Record<string, unknown>;
+        if (!res.ok) {
+          setError(String(data.error ?? 'Error al generar saludo automático'));
+          return;
+        }
+
+        const respuestaTexto =
+          typeof data.respuesta === 'string' ? data.respuesta.trim() : '';
+        if (!respuestaTexto) return;
+
+        setHistorial((prev) => [
+          ...prev,
+          {
+            id:
+              typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `sa_${Date.now()}`,
+            role: 'assistant',
+            content: respuestaTexto,
+          },
+        ]);
+
+        const activeConversationId = conversationId || generateConversationId();
+        if (!conversationId) setConversationId(activeConversationId);
+        await supabase.from('conversation_history').insert([
+          {
+            conversation_id: activeConversationId,
+            business_id: selectedId,
+            user_id: currentUserId,
+            sender_email: currentUserEmail,
+            role: 'assistant',
+            content: respuestaTexto,
+          },
+        ]);
+
+        window.localStorage.setItem(storageKey, hoy);
+      } catch {
+        setError('Error de conexión al generar saludo automático');
+      } finally {
+        setSaludoAutomaticoCargando(false);
+      }
     };
 
-    void loadHistorialInicial();
-  }, [selectedId, currentUserId, supabase]);
+    void maybeEnviarSaludoAutomatico();
+  }, [
+    conversationId,
+    currentUserEmail,
+    currentUserId,
+    historial,
+    historialInicialListo,
+    selectedId,
+    supabase,
+  ]);
 
   useEffect(() => {
     if (!listRef.current) return;
@@ -579,6 +713,7 @@ export default function AgentSidebar() {
     setError('');
     setMensaje('');
     setImagenPendiente(null);
+    const esPrimerMensajeUsuarioDeConversacion = !historial.some((m) => m.role === 'user');
     const contenidoUsuario =
       textoTrim || '📎 Imagen adjunta (ticket / factura)';
     setHistorial((prev) => [
@@ -593,6 +728,24 @@ export default function AgentSidebar() {
         imagenPreview: imagenEnviar ?? undefined,
       },
     ]);
+    if (esPrimerMensajeUsuarioDeConversacion) {
+      const titulo = (contenidoUsuario || 'Nueva conversación').slice(0, 60);
+      const createdAt = new Date().toISOString();
+      const activeConversationId = conversationId || generateConversationId();
+      if (!conversationId) setConversationId(activeConversationId);
+      setConversaciones((prev) => {
+        const sinDuplicado = prev.filter((c) => c.conversation_id !== activeConversationId);
+        return [
+          {
+            conversation_id: activeConversationId,
+            titulo: titulo.length < contenidoUsuario.length ? `${titulo}…` : titulo,
+            created_at: createdAt,
+            total_mensajes: 0,
+          },
+          ...sinDuplicado,
+        ].slice(0, 20);
+      });
+    }
     setLoading(true);
     try {
       const { count: agendaCountAntes } = await supabase
@@ -903,7 +1056,9 @@ export default function AgentSidebar() {
     setError('');
     setImagenPendiente(null);
     setSubiendoVideo(false);
-    setConversationId(generateConversationId());
+    setPanelConversacionesAbierto(false);
+    const nextConversationId = generateConversationId();
+    setConversationId(nextConversationId);
   };
 
   const handleSeleccionarImagen = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -995,10 +1150,21 @@ export default function AgentSidebar() {
     },
   });
 
+  const seleccionarConversacion = (cid: string) => {
+    if (!cid || cid === conversationId) {
+      setPanelConversacionesAbierto(false);
+      return;
+    }
+    setConversationId(cid);
+    setPanelConversacionesAbierto(false);
+    void cargarMensajesDeConversacion(cid);
+  };
+
   const mostrarIndicadorEscribiendo =
-    loading &&
-    historial.length > 0 &&
-    historial[historial.length - 1]?.role === 'user';
+    saludoAutomaticoCargando ||
+    (loading &&
+      historial.length > 0 &&
+      historial[historial.length - 1]?.role === 'user');
 
   const puedeEnviarMensaje =
     Boolean(selectedId) && (mensaje.trim().length > 0 || Boolean(imagenPendiente));
@@ -1024,6 +1190,16 @@ export default function AgentSidebar() {
             >
               Nuevo
             </button>
+            <button
+              type="button"
+              onClick={() => setPanelConversacionesAbierto((v) => !v)}
+              className="px-2 py-1 text-xs font-medium rounded-md bg-white/10 hover:bg-white/15 border border-white/10 touch-manipulation inline-flex items-center gap-1"
+              aria-label="Mostrar conversaciones anteriores"
+              title="Conversaciones"
+            >
+              <History className="size-3.5" aria-hidden />
+              Historial
+            </button>
           </div>
         ) : (
           <span className="font-semibold text-[#ed8936]">✨</span>
@@ -1043,7 +1219,47 @@ export default function AgentSidebar() {
       {!collapsed && (
         <>
           <div ref={listRef} className="flex-1 overflow-y-auto p-3 space-y-3">
-            {historial.length === 0 ? (
+            {panelConversacionesAbierto ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs uppercase tracking-wide text-white/60">Conversaciones</p>
+                  <button
+                    type="button"
+                    onClick={() => setPanelConversacionesAbierto(false)}
+                    className="px-2 py-1 text-xs rounded-md bg-white/10 border border-white/10 hover:bg-white/15"
+                  >
+                    Cerrar
+                  </button>
+                </div>
+                {conversacionesLoading ? (
+                  <p className="text-xs text-white/60">Cargando conversaciones...</p>
+                ) : conversaciones.length === 0 ? (
+                  <p className="text-xs text-white/60">No hay conversaciones anteriores.</p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {conversaciones.map((conv) => (
+                      <li key={conv.conversation_id}>
+                        <button
+                          type="button"
+                          onClick={() => seleccionarConversacion(conv.conversation_id)}
+                          className={[
+                            'w-full text-left rounded-lg border px-2.5 py-2 transition-colors',
+                            conv.conversation_id === conversationId
+                              ? 'border-[#ed8936]/70 bg-[#ed8936]/15'
+                              : 'border-white/10 bg-white/5 hover:bg-white/10',
+                          ].join(' ')}
+                        >
+                          <p className="text-sm text-white truncate">{conv.titulo}</p>
+                          <p className="mt-1 text-[11px] text-white/60">
+                            {formatFechaRelativa(conv.created_at)} · {conv.total_mensajes} mensajes
+                          </p>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ) : historial.length === 0 ? (
               <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/70">
                 Escribe un mensaje para empezar.
               </div>
@@ -1258,19 +1474,69 @@ export default function AgentSidebar() {
               >
                 <div className="h-14 px-3 flex items-center justify-between border-b border-white/10">
                   <span className="font-semibold">Agente IA ✨</span>
-                  <button
-                    type="button"
-                    onClick={() => setMobileOpen(false)}
-                    {...touchActivate(() => setMobileOpen(false))}
-                    className="px-2 py-1 text-xs font-semibold rounded-md bg-white/5 hover:bg-white/10 border border-white/10 touch-manipulation"
-                    aria-label="Cerrar panel"
-                  >
-                    ✕
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPanelConversacionesAbierto((v) => !v)}
+                      className="px-2 py-1 text-xs rounded-md bg-white/10 border border-white/10 hover:bg-white/15 inline-flex items-center gap-1"
+                      aria-label="Mostrar conversaciones"
+                    >
+                      <History className="size-3.5" aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMobileOpen(false)}
+                      {...touchActivate(() => setMobileOpen(false))}
+                      className="px-2 py-1 text-xs font-semibold rounded-md bg-white/5 hover:bg-white/10 border border-white/10 touch-manipulation"
+                      aria-label="Cerrar panel"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </div>
 
                 <div ref={listRef} className="flex-1 overflow-y-auto p-3 space-y-3">
-                  {historial.length === 0 ? (
+                  {panelConversacionesAbierto ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs uppercase tracking-wide text-white/60">Conversaciones</p>
+                        <button
+                          type="button"
+                          onClick={() => setPanelConversacionesAbierto(false)}
+                          className="px-2 py-1 text-xs rounded-md bg-white/10 border border-white/10 hover:bg-white/15"
+                        >
+                          Cerrar
+                        </button>
+                      </div>
+                      {conversacionesLoading ? (
+                        <p className="text-xs text-white/60">Cargando conversaciones...</p>
+                      ) : conversaciones.length === 0 ? (
+                        <p className="text-xs text-white/60">No hay conversaciones anteriores.</p>
+                      ) : (
+                        <ul className="space-y-1.5">
+                          {conversaciones.map((conv) => (
+                            <li key={conv.conversation_id}>
+                              <button
+                                type="button"
+                                onClick={() => seleccionarConversacion(conv.conversation_id)}
+                                className={[
+                                  'w-full text-left rounded-lg border px-2.5 py-2 transition-colors',
+                                  conv.conversation_id === conversationId
+                                    ? 'border-[#ed8936]/70 bg-[#ed8936]/15'
+                                    : 'border-white/10 bg-white/5 hover:bg-white/10',
+                                ].join(' ')}
+                              >
+                                <p className="text-sm text-white truncate">{conv.titulo}</p>
+                                <p className="mt-1 text-[11px] text-white/60">
+                                  {formatFechaRelativa(conv.created_at)} · {conv.total_mensajes} mensajes
+                                </p>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ) : historial.length === 0 ? (
                     <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/70">
                       Escribe un mensaje para empezar.
                     </div>

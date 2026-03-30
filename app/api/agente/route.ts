@@ -338,6 +338,15 @@ export async function POST(request: NextRequest) {
       month: 'long',
       day: 'numeric',
     });
+    const ahora = new Date().toLocaleString('es-ES', {
+      timeZone: 'Europe/Madrid',
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
 
     let agendaContextoPrimerMensaje = '';
     const esPrimerMensajeConversacion =
@@ -377,7 +386,8 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, menciona de 
       }
     }
 
-    const systemPrompt = `Eres el asistente IA de ${nombre}, un negocio de ${sector}.
+    const systemPrompt = `Fecha y hora actual: ${ahora}. Usa esta información para saludos, recordatorios y cualquier referencia temporal.
+Eres el asistente IA de ${nombre}, un negocio de ${sector}.
 ${descripcion}
 Servicios que ofrece: ${servicios}
 Tarifas aproximadas: ${tarifas}
