@@ -747,7 +747,11 @@ describe('POST /api/agente — tools', () => {
       expect(parsed.mensaje).toContain('Factura creada correctamente a partir del albarán de Cliente X');
       expect(parsed.mensaje).toContain(`Total: ${Number(total).toFixed(2)}€`);
       expect(parsed.mensaje).toContain('marcado como facturado');
-      expect(insertMockFactura).toHaveBeenCalled();
+      expect(insertMockFactura).toHaveBeenCalledWith(
+        expect.objectContaining({
+          albaran_id: albaranId,
+        })
+      );
     });
   });
 

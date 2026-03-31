@@ -8,6 +8,11 @@ import {
   sanitizeDiarioFilePart,
 } from '@/lib/diario-obra';
 import { getGmailAccessTokenForUser } from '@/lib/gmail/get-access-token';
+import {
+  diasDesdeFechaHasta,
+  hoyYmdEnZona,
+  listarAlbaranesSinFacturar,
+} from '@/lib/albaranes-sin-facturar';
 import { enriquecerTextoConMaps, generarLinkMaps } from '@/lib/maps';
 
 const openai = new OpenAI({
@@ -313,6 +318,7 @@ const INTENT_TOOL_NAMES_DOCUMENTOS = new Set([
   'ver_cliente',
   'mostrar_vista_visual',
   'get_directions',
+  'albaranes_sin_facturar',
 ]);
 
 const INTENT_TOOL_NAMES_EMAILS = new Set([
@@ -606,6 +612,19 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
         function: {
           name: 'listar_albaranes',
           description: 'Últimos 10 albaranes. Consultar o listar sin crear.',
+          parameters: {
+            type: 'object',
+            properties: {},
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'albaranes_sin_facturar',
+          description:
+            'Albaranes sin factura vinculada (facturas.albaran_id) con más de 7 días desde la fecha del albarán. Saludo matinal o facturación pendiente.',
           parameters: {
             type: 'object',
             properties: {},
@@ -1471,6 +1490,47 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
             })),
           };
         }
+        case 'albaranes_sin_facturar': {
+          try {
+            const { albaranes, total } = await listarAlbaranesSinFacturar(
+              supabase,
+              business_id
+            );
+            if (total === 0) {
+              return { mensaje: 'No hay albaranes pendientes de facturar.' };
+            }
+            const hoyYmd = hoyYmdEnZona();
+            const items = albaranes.map((a) => {
+              const dias = diasDesdeFechaHasta(a.fecha, hoyYmd);
+              return {
+                id: a.id,
+                numero_albaran: a.numero_albaran,
+                cliente: a.cliente_nombre,
+                importe: a.total,
+                fecha: a.fecha,
+                estado: a.estado,
+                dias_transcurridos: dias,
+              };
+            });
+            const lineas = items.map((i) => {
+              const imp =
+                i.importe != null && Number.isFinite(Number(i.importe))
+                  ? `${Number(i.importe).toFixed(2)}€`
+                  : '—';
+              const ref = i.numero_albaran ?? String(i.id).slice(0, 8);
+              return `- ${i.cliente ?? 'Cliente'} (albarán ${ref}): ${imp} (hace ${i.dias_transcurridos} días)`;
+            });
+            return {
+              total,
+              items,
+              mensaje: `${total} albarán(es) sin factura vinculada (más de 7 días):\n${lineas.join('\n')}`,
+            };
+          } catch (e) {
+            return {
+              error: e instanceof Error ? e.message : 'Error al listar albaranes sin facturar',
+            };
+          }
+        }
         case 'cambiar_estado_presupuesto': {
           const id = String(toolArgs.id ?? '').trim();
           const estado = parseEstadoDoc(toolArgs.estado);
@@ -2056,6 +2116,7 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
 
           const { error: insertErr } = await supabase.from('facturas').insert({
             business_id,
+            albaran_id: albaranId,
             cliente_nombre: clienteNombre || null,
             cliente_id: aRow.cliente_id ?? null,
             cliente_direccion: aRow.cliente_direccion ?? null,
