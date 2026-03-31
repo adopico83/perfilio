@@ -21,6 +21,12 @@ import {
   getPrediccionPorCiudad,
   getPrediccionPorCoordenadas,
 } from '@/lib/weather';
+import { TARIFAS_BASE_ALBANILERIA } from '@/lib/tarifas-base';
+import {
+  estructurarDictadoEnPartidas,
+  formatearBorradorPresupuestoDictado,
+  type TarifaReferencia,
+} from '@/lib/dictado-presupuesto';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -294,14 +300,14 @@ type AgentIntentCategory =
 const ROUTER_SYSTEM_PROMPT = `Eres un clasificador. Responde SOLO con una palabra en minúsculas, sin comillas ni puntuación:
 documentos | emails | agenda | gastos | diario | clientes | calculo | general
 
-documentos: presupuestos, facturas, albaranes, extras/modificados/imprevistos en obra, estados, edición, crear documentos, conversiones presupuesto↔albarán↔factura, tiempo en obra.
+documentos: presupuestos, facturas, albaranes, extras/modificados/imprevistos en obra, dictado de visita y presupuesto estructurado (generar_presupuesto_por_dictado, gestionar_tarifas), estados, edición, crear documentos, conversiones presupuesto↔albarán↔factura, tiempo en obra.
 emails: Gmail, leer bandeja, enviar correo.
 agenda: recordatorios, citas, eventos en calendario, tiempo meteorológico para obras o citas.
 gastos: ticket, OCR, foto de compra, registrar gasto, vincular gasto.
 diario: diario de obra, fotos de obra, PDF del diario.
 clientes: ficha de cliente, buscar cliente, historial de cliente.
 calculo: metros cuadrados, m³, perímetro, dimensiones de obra.
-general: saludos, varias áreas a la vez, mensajes pendientes del negocio, meteorología o tiempo, extras o imprevistos en obra (registrar_extra), o petición ambigua.`;
+general: saludos, varias áreas a la vez, mensajes pendientes del negocio, meteorología o tiempo, extras o imprevistos en obra (registrar_extra), dictado de visita o presupuesto por voz, o petición ambigua.`;
 
 const INTENT_TOOL_NAMES_DOCUMENTOS = new Set([
   'obtener_presupuestos_pendientes',
@@ -329,6 +335,8 @@ const INTENT_TOOL_NAMES_DOCUMENTOS = new Set([
   'consultar_tiempo',
   'registrar_extra',
   'listar_extras',
+  'generar_presupuesto_por_dictado',
+  'gestionar_tarifas',
 ]);
 
 const INTENT_TOOL_NAMES_EMAILS = new Set([
@@ -543,6 +551,8 @@ Documentos: crear_presupuesto / crear_factura / crear_albaran solo si pide crear
 Conversiones entre documentos: si confirma presupuesto aceptado o facturar albarán, ofrece convertir_presupuesto_a_albaran o convertir_albaran_a_factura.
 
 Extras y modificados: cuando el usuario mencione "extra", "modificado", "imprevisto" o "añadido" en el contexto de una obra, usa registrar_extra. Siempre pregunta confirmación antes de enviar la notificación al cliente (el borrador lo aprueba en el panel).
+
+Dictado de visita: cuando el usuario describa una visita de obra o pida generar un presupuesto desde un dictado, usa generar_presupuesto_por_dictado. Puedes usar gestionar_tarifas para ver o actualizar las tarifas del negocio.
 
 Emails: urgente si palabras como urgente, pago, presupuesto, factura, reclamación, avería, etc.; >48 h sin leer; cliente conocido; respuesta a presupuesto. enviar_email deja borrador; el usuario aprueba en el panel.
 
@@ -1095,6 +1105,53 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
                 description: 'Filtrar por UUID del presupuesto original',
               },
             },
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'generar_presupuesto_por_dictado',
+          description:
+            "Genera un borrador de presupuesto a partir de un dictado de visita de obra. Usar cuando el usuario diga 'genera un presupuesto', 'haz un presupuesto de lo que he visto', 'acabo de visitar una obra' o similar.",
+          parameters: {
+            type: 'object',
+            properties: {
+              dictado: {
+                type: 'string',
+                description: 'Descripción libre de los trabajos a realizar (dictado)',
+              },
+              cliente_nombre: { type: 'string', description: 'Nombre del cliente' },
+              cliente_id: { type: 'string', description: 'UUID del cliente si se conoce' },
+              direccion_obra: { type: 'string', description: 'Dirección de la obra' },
+            },
+            required: ['dictado'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'gestionar_tarifas',
+          description:
+            'Añade, edita o lista las tarifas del negocio para generar presupuestos automáticos.',
+          parameters: {
+            type: 'object',
+            properties: {
+              accion: {
+                type: 'string',
+                enum: ['listar', 'añadir', 'editar'],
+                description: 'Operación a realizar',
+              },
+              nombre: { type: 'string' },
+              unidad: { type: 'string' },
+              precio: { type: 'number' },
+              categoria: { type: 'string' },
+              tarifa_id: { type: 'string', description: 'UUID de la tarifa (editar)' },
+            },
+            required: ['accion'],
             additionalProperties: false,
           },
         },
@@ -2777,6 +2834,194 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
               })
             ),
           };
+        }
+        case 'generar_presupuesto_por_dictado': {
+          const dictado = String(toolArgs.dictado ?? '').trim();
+          const clienteNombre =
+            toolArgs.cliente_nombre != null
+              ? String(toolArgs.cliente_nombre).trim().slice(0, 255)
+              : '';
+          const direccionObra =
+            toolArgs.direccion_obra != null
+              ? String(toolArgs.direccion_obra).trim().slice(0, 500)
+              : '';
+
+          if (!dictado) return { error: 'dictado es obligatorio' };
+
+          const cr = await resolveClienteIdOpcional(toolArgs.cliente_id);
+          if (!cr.ok) return { error: cr.error };
+
+          const { data: tarifasRows, error: tErr } = await supabase
+            .from('tarifas')
+            .select('nombre, unidad, precio, categoria')
+            .eq('business_id', business_id)
+            .order('nombre', { ascending: true });
+
+          if (tErr) return { error: tErr.message };
+
+          const tarifasPropias = (tarifasRows ?? []) as Array<{
+            nombre: string;
+            unidad: string;
+            precio: number | string;
+            categoria: string | null;
+          }>;
+
+          const tarifasForApi: TarifaReferencia[] =
+            tarifasPropias.length > 0
+              ? tarifasPropias.map((r) => ({
+                  nombre: r.nombre,
+                  unidad: r.unidad,
+                  precio: Number(r.precio),
+                  categoria: (r.categoria ?? '').trim() || 'varios',
+                }))
+              : TARIFAS_BASE_ALBANILERIA.map((r) => ({
+                  nombre: r.nombre,
+                  unidad: r.unidad,
+                  precio: r.precio,
+                  categoria: r.categoria,
+                }));
+
+          let partidas;
+          try {
+            partidas = await estructurarDictadoEnPartidas(dictado, tarifasForApi);
+          } catch (e) {
+            return { error: e instanceof Error ? e.message : 'Error al estructurar el dictado' };
+          }
+
+          const { texto, totalConIva } = formatearBorradorPresupuestoDictado(
+            partidas,
+            clienteNombre,
+            direccionObra
+          );
+
+          const mensajeClienteDictado =
+            typeof mensaje === 'string' && mensaje.trim().length > 0
+              ? mensaje.trim().slice(0, 2000)
+              : 'Presupuesto generado por dictado de visita';
+
+          const { error: insErr } = await supabase.from('presupuestos').insert({
+            business_id,
+            presupuesto_generado: texto,
+            importe_total: totalConIva,
+            fecha: new Date().toISOString().split('T')[0],
+            estado: 'borrador',
+            mensaje_cliente: mensajeClienteDictado,
+            ...(clienteNombre.length > 0 && { cliente_nombre: clienteNombre }),
+            ...(cr.id != null && { cliente_id: cr.id }),
+          });
+
+          if (insErr) return { error: insErr.message };
+
+          return {
+            mensaje:
+              `Borrador generado y guardado (revisa importes y textos).\n\n${texto}`,
+            partidas,
+            importe_total: totalConIva,
+          };
+        }
+        case 'gestionar_tarifas': {
+          const accion = String(toolArgs.accion ?? '').trim().toLowerCase();
+          if (!['listar', 'añadir', 'editar'].includes(accion)) {
+            return { error: 'accion debe ser listar, añadir o editar' };
+          }
+
+          if (accion === 'listar') {
+            const { data, error } = await supabase
+              .from('tarifas')
+              .select('id, nombre, unidad, precio, categoria, created_at')
+              .eq('business_id', business_id)
+              .order('nombre', { ascending: true });
+            if (error) return { error: error.message };
+            return {
+              items: (data ?? []).map(
+                (r: {
+                  id: string;
+                  nombre: string;
+                  unidad: string;
+                  precio: number | string;
+                  categoria: string | null;
+                  created_at?: string;
+                }) => ({
+                  id: r.id,
+                  nombre: r.nombre,
+                  unidad: r.unidad,
+                  precio: r.precio != null ? Number(r.precio) : null,
+                  categoria: r.categoria,
+                  created_at: r.created_at ?? null,
+                })
+              ),
+            };
+          }
+
+          if (accion === 'añadir') {
+            const nombre = String(toolArgs.nombre ?? '').trim();
+            const unidad = String(toolArgs.unidad ?? '').trim();
+            const precio = Number(toolArgs.precio);
+            const categoria =
+              toolArgs.categoria != null ? String(toolArgs.categoria).trim().slice(0, 120) : '';
+            if (!nombre) return { error: 'nombre es obligatorio para añadir' };
+            if (!unidad) return { error: 'unidad es obligatoria para añadir' };
+            if (!Number.isFinite(precio) || precio < 0) {
+              return { error: 'precio debe ser un número válido' };
+            }
+
+            const { data: row, error } = await supabase
+              .from('tarifas')
+              .insert({
+                business_id,
+                nombre,
+                unidad,
+                precio,
+                ...(categoria ? { categoria } : { categoria: null }),
+              })
+              .select('id')
+              .single();
+            if (error) return { error: error.message };
+            return { ok: true, id: row?.id as string, mensaje: `Tarifa "${nombre}" añadida.` };
+          }
+
+          if (accion === 'editar') {
+            const tarifaId = String(toolArgs.tarifa_id ?? '').trim();
+            if (!tarifaId) return { error: 'tarifa_id es obligatorio para editar' };
+            const updates: Record<string, unknown> = {};
+            if (toolArgs.nombre !== undefined) {
+              const n = String(toolArgs.nombre).trim();
+              if (!n) return { error: 'nombre no puede estar vacío' };
+              updates.nombre = n;
+            }
+            if (toolArgs.unidad !== undefined) {
+              const u = String(toolArgs.unidad).trim();
+              if (!u) return { error: 'unidad no puede estar vacía' };
+              updates.unidad = u;
+            }
+            if (toolArgs.precio !== undefined) {
+              const pr = Number(toolArgs.precio);
+              if (!Number.isFinite(pr) || pr < 0) return { error: 'precio inválido' };
+              updates.precio = pr;
+            }
+            if (toolArgs.categoria !== undefined) {
+              updates.categoria = String(toolArgs.categoria).trim() || null;
+            }
+            if (Object.keys(updates).length === 0) {
+              return {
+                error:
+                  'Indica al menos un campo a editar (nombre, unidad, precio, categoria)',
+              };
+            }
+            updates.updated_at = new Date().toISOString();
+            const { data: row, error } = await supabase
+              .from('tarifas')
+              .update(updates)
+              .eq('id', tarifaId)
+              .eq('business_id', business_id)
+              .select('id')
+              .maybeSingle();
+            if (error) return { error: error.message };
+            if (!row?.id) return { error: 'Tarifa no encontrada' };
+            return { ok: true, id: row.id as string, mensaje: 'Tarifa actualizada.' };
+          }
+
+          return { error: 'accion no reconocida' };
         }
         case 'registrar_gasto_ticket': {
           const proveedor = String(toolArgs.proveedor ?? '').trim();
