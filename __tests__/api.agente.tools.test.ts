@@ -591,6 +591,29 @@ describe('POST /api/agente — tools', () => {
     });
   });
 
+  describe('get_directions', () => {
+    it('devuelve mensaje con enlace de Maps y la dirección', async () => {
+      const res = await postWithTool(
+        'get_directions',
+        {},
+        JSON.stringify({
+          direccion: 'Gran Vía 1, Madrid',
+          nombre_lugar: 'Obra centro',
+        })
+      );
+      expect(res.status).toBe(200);
+      const secondCall = createMock.mock.calls[2]?.[0] as {
+        messages: Array<{ role: string; content?: string }>;
+      };
+      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
+      const parsed = JSON.parse(toolMsg!.content as string) as { mensaje?: string };
+      expect(parsed.mensaje).toMatch(/^📍 \[/);
+      expect(parsed.mensaje).toContain('Obra centro');
+      expect(parsed.mensaje).toContain('https://maps.google.com/?q=');
+      expect(parsed.mensaje).toContain(encodeURIComponent('Gran Vía 1, Madrid'));
+    });
+  });
+
   describe('crear_cliente', () => {
     it('devuelve mensaje de éxito', async () => {
       const insertCliente = jest.fn().mockResolvedValue({ error: null });

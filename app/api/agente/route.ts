@@ -8,6 +8,7 @@ import {
   sanitizeDiarioFilePart,
 } from '@/lib/diario-obra';
 import { getGmailAccessTokenForUser } from '@/lib/gmail/get-access-token';
+import { enriquecerTextoConMaps, generarLinkMaps } from '@/lib/maps';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -311,18 +312,21 @@ const INTENT_TOOL_NAMES_DOCUMENTOS = new Set([
   'buscar_cliente',
   'ver_cliente',
   'mostrar_vista_visual',
+  'get_directions',
 ]);
 
 const INTENT_TOOL_NAMES_EMAILS = new Set([
   'leer_emails_recientes',
   'enviar_email',
   'mostrar_vista_visual',
+  'get_directions',
 ]);
 
 const INTENT_TOOL_NAMES_AGENDA = new Set([
   'crear_recordatorio',
   'editar_recordatorio',
   'eliminar_recordatorio',
+  'get_directions',
 ]);
 
 const INTENT_TOOL_NAMES_GASTOS = new Set([
@@ -331,12 +335,14 @@ const INTENT_TOOL_NAMES_GASTOS = new Set([
   'listar_facturas',
   'listar_albaranes',
   'mostrar_vista_visual',
+  'get_directions',
 ]);
 
 const INTENT_TOOL_NAMES_DIARIO = new Set([
   'crear_entrada_diario',
   'generar_pdf_diario',
   'mostrar_vista_visual',
+  'get_directions',
 ]);
 
 const INTENT_TOOL_NAMES_CLIENTES = new Set([
@@ -344,9 +350,10 @@ const INTENT_TOOL_NAMES_CLIENTES = new Set([
   'buscar_cliente',
   'ver_cliente',
   'mostrar_vista_visual',
+  'get_directions',
 ]);
 
-const INTENT_TOOL_NAMES_CALCULO = new Set(['calcular_medicion']);
+const INTENT_TOOL_NAMES_CALCULO = new Set(['calcular_medicion', 'get_directions']);
 
 const INTENT_TOOL_NAMES: Record<AgentIntentCategory, Set<string> | null> = {
   documentos: INTENT_TOOL_NAMES_DOCUMENTOS,
@@ -955,6 +962,29 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
               },
             },
             required: ['tipo', 'dimensiones'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'get_directions',
+          description:
+            'Genera un enlace de Google Maps para una dirección. Usar cuando pregunten cómo llegar, indicaciones o ubicación de obra/cliente.',
+          parameters: {
+            type: 'object',
+            properties: {
+              direccion: {
+                type: 'string',
+                description: 'Dirección o ubicación a buscar en Maps',
+              },
+              nombre_lugar: {
+                type: 'string',
+                description: 'Etiqueta opcional (ej. Casa García, Cliente Martínez)',
+              },
+            },
+            required: ['direccion'],
             additionalProperties: false,
           },
         },
@@ -2315,6 +2345,17 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
         case 'calcular_medicion': {
           return calcularMedicionObra(toolArgs);
         }
+        case 'get_directions': {
+          const direccion = String(toolArgs.direccion ?? '').trim();
+          const nombreLugar =
+            toolArgs.nombre_lugar != null ? String(toolArgs.nombre_lugar).trim() : '';
+          if (!direccion) {
+            return { error: 'direccion es obligatoria' };
+          }
+          const url = generarLinkMaps(direccion);
+          const label = nombreLugar || direccion;
+          return { mensaje: `📍 [${label}](${url})` };
+        }
         case 'registrar_gasto_ticket': {
           const proveedor = String(toolArgs.proveedor ?? '').trim();
           const importe = Number(toolArgs.importe);
@@ -2893,6 +2934,8 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
       respuesta =
         'No he podido generar una respuesta en texto. Prueba a reformular la pregunta o inténtalo de nuevo.';
     }
+
+    respuesta = enriquecerTextoConMaps(String(respuesta ?? ''));
 
     return NextResponse.json({
       respuesta,
