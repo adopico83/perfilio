@@ -268,6 +268,128 @@ function calcularMedicionObra(toolArgs: Record<string, unknown>):
   return out;
 }
 
+type AgentIntentCategory =
+  | 'documentos'
+  | 'emails'
+  | 'agenda'
+  | 'gastos'
+  | 'diario'
+  | 'clientes'
+  | 'calculo'
+  | 'general';
+
+const ROUTER_SYSTEM_PROMPT = `Eres un clasificador. Responde SOLO con una palabra en minúsculas, sin comillas ni puntuación:
+documentos | emails | agenda | gastos | diario | clientes | calculo | general
+
+documentos: presupuestos, facturas, albaranes, estados, edición, crear documentos, conversiones presupuesto↔albarán↔factura.
+emails: Gmail, leer bandeja, enviar correo.
+agenda: recordatorios, citas, eventos en calendario.
+gastos: ticket, OCR, foto de compra, registrar gasto, vincular gasto.
+diario: diario de obra, fotos de obra, PDF del diario.
+clientes: ficha de cliente, buscar cliente, historial de cliente.
+calculo: metros cuadrados, m³, perímetro, dimensiones de obra.
+general: saludos, varias áreas a la vez, mensajes pendientes del negocio, o petición ambigua.`;
+
+const INTENT_TOOL_NAMES_DOCUMENTOS = new Set([
+  'obtener_presupuestos_pendientes',
+  'obtener_facturas_pendientes',
+  'obtener_albaranes_pendientes',
+  'listar_presupuestos',
+  'listar_facturas',
+  'listar_albaranes',
+  'cambiar_estado_presupuesto',
+  'cambiar_estado_factura',
+  'cambiar_estado_albaran',
+  'editar_presupuesto',
+  'editar_factura',
+  'editar_albaran',
+  'crear_presupuesto',
+  'crear_factura',
+  'crear_albaran',
+  'convertir_presupuesto_a_albaran',
+  'convertir_albaran_a_factura',
+  'buscar_cliente',
+  'ver_cliente',
+  'mostrar_vista_visual',
+]);
+
+const INTENT_TOOL_NAMES_EMAILS = new Set([
+  'leer_emails_recientes',
+  'enviar_email',
+  'mostrar_vista_visual',
+]);
+
+const INTENT_TOOL_NAMES_AGENDA = new Set([
+  'crear_recordatorio',
+  'editar_recordatorio',
+  'eliminar_recordatorio',
+]);
+
+const INTENT_TOOL_NAMES_GASTOS = new Set([
+  'registrar_gasto_ticket',
+  'vincular_gasto',
+  'listar_facturas',
+  'listar_albaranes',
+  'mostrar_vista_visual',
+]);
+
+const INTENT_TOOL_NAMES_DIARIO = new Set([
+  'crear_entrada_diario',
+  'generar_pdf_diario',
+  'mostrar_vista_visual',
+]);
+
+const INTENT_TOOL_NAMES_CLIENTES = new Set([
+  'crear_cliente',
+  'buscar_cliente',
+  'ver_cliente',
+  'mostrar_vista_visual',
+]);
+
+const INTENT_TOOL_NAMES_CALCULO = new Set(['calcular_medicion']);
+
+const INTENT_TOOL_NAMES: Record<AgentIntentCategory, Set<string> | null> = {
+  documentos: INTENT_TOOL_NAMES_DOCUMENTOS,
+  emails: INTENT_TOOL_NAMES_EMAILS,
+  agenda: INTENT_TOOL_NAMES_AGENDA,
+  gastos: INTENT_TOOL_NAMES_GASTOS,
+  diario: INTENT_TOOL_NAMES_DIARIO,
+  clientes: INTENT_TOOL_NAMES_CLIENTES,
+  calculo: INTENT_TOOL_NAMES_CALCULO,
+  general: null,
+};
+
+function parseAgentIntentCategory(raw: string): AgentIntentCategory {
+  const allowed: AgentIntentCategory[] = [
+    'documentos',
+    'emails',
+    'agenda',
+    'gastos',
+    'diario',
+    'clientes',
+    'calculo',
+    'general',
+  ];
+  const trimmed = raw.trim().toLowerCase();
+  const first = trimmed.split(/[\s,.;]+/)[0] ?? '';
+  if (allowed.includes(first as AgentIntentCategory)) {
+    return first as AgentIntentCategory;
+  }
+  for (const c of allowed) {
+    if (trimmed.includes(c)) return c;
+  }
+  return 'general';
+}
+
+function toolsForAgentIntent(
+  cat: AgentIntentCategory,
+  all: OpenAI.Chat.Completions.ChatCompletionTool[]
+): OpenAI.Chat.Completions.ChatCompletionTool[] {
+  const names = INTENT_TOOL_NAMES[cat];
+  if (!names) return all;
+  return all.filter((t) => t.type === 'function' && names.has(t.function.name));
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -386,100 +508,36 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, menciona de 
       }
     }
 
-    const systemPrompt = `Fecha y hora actual: ${ahora}. Usa esta información para saludos, recordatorios y cualquier referencia temporal.
-Eres el asistente IA de ${nombre}, un negocio de ${sector}.
+    const systemPrompt = `Fecha y hora: ${ahora}. Asistente de ${nombre} (${sector}).
 ${descripcion}
-Servicios que ofrece: ${servicios}
-Tarifas aproximadas: ${tarifas}
-Información adicional: ${contexto_adicional}
-Responde siempre de forma profesional, concisa y en español.
+Servicios: ${servicios}
+Tarifas: ${tarifas}
+Contexto extra: ${contexto_adicional}
+Responde en español, profesional y conciso.
 
-IMPORTANTE — herramientas de creación en base de datos:
-- La herramienta "crear_presupuesto" SOLO debe llamarse cuando el usuario pide EXPLÍCITAMENTE crear, generar o hacer un presupuesto NUEVO (p. ej. "crea un presupuesto", "genera un presupuesto para...", "hazme un presupuesto"). NO la uses si solo pregunta por presupuestos existentes, menciona la palabra "presupuesto" en contexto informativo, o quiere ver/listar/consultar presupuestos (usa entonces "listar_presupuestos" u "obtener_presupuestos_pendientes").
-- La herramienta "crear_factura" SOLO cuando pida EXPLÍCITAMENTE crear/generar/registrar una factura nueva. Para ver o listar facturas usa "listar_facturas" u "obtener_facturas_pendientes", sin crear.
-- La herramienta "crear_albaran" SOLO cuando pida EXPLÍCITAMENTE crear/generar un albarán nuevo. Para consultar o listar albaranes usa "listar_albaranes" u "obtener_albaranes_pendientes", sin crear.
+Documentos: crear_presupuesto / crear_factura / crear_albaran solo si pide crear o generar algo nuevo; si solo consulta, usa listar_* u obtener_*_pendientes. Estados: pendiente, aceptado, rechazado, facturado, pagado. Sin UUID: listar_* antes de cambiar_estado_* o editar_*. Factura nueva: si faltan datos, preguntar (cliente, NIF, mano de obra, materiales, otros); luego líneas, base, IVA 21 %, total. Albarán nuevo: cliente, trabajos, fecha, total si aplica. Confirma al guardar.
+Conversiones entre documentos: si confirma presupuesto aceptado o facturar albarán, ofrece convertir_presupuesto_a_albaran o convertir_albaran_a_factura.
 
-Si el usuario solo quiere información o listados, responde con texto y/o las herramientas de listado o pendientes; nunca invoques crear_* en esos casos.
+Emails: urgente si palabras como urgente, pago, presupuesto, factura, reclamación, avería, etc.; >48 h sin leer; cliente conocido; respuesta a presupuesto. enviar_email deja borrador; el usuario aprueba en el panel.
 
-Estado y edición de presupuestos, facturas y albaranes:
-- Estados válidos al cambiar estado: pendiente, aceptado, rechazado, facturado, pagado.
-- "cambiar_estado_presupuesto", "cambiar_estado_factura" y "cambiar_estado_albaran" requieren el id (UUID) del documento y el estado deseado.
-- Si el usuario identifica un documento por cliente o contexto (p. ej. "acepta el presupuesto de Juan Mari", "marca como pagada la factura de…"), primero usa "listar_presupuestos", "listar_facturas" o "listar_albaranes" para obtener el id correcto (y desambiguar si hay varios), y después llama a la herramienta cambiar_estado_* correspondiente.
-- Para modificar datos sin cambiar solo el estado, usa "editar_presupuesto", "editar_factura" o "editar_albaran" con el id y solo los campos que deban actualizarse (cliente_nombre, importe_total, descripcion). En presupuestos, "descripcion" actualiza el texto del presupuesto guardado (presupuesto_generado).
+Canvas (mostrar_vista_visual): primero la tool de listado que toque; luego mostrar_vista_visual con el array completo en datos (p. ej. items). No abras canvas sin datos ni petición explícita de vista/tabla/panel. Tras abrir, mensaje breve.
 
-Si te piden explícitamente un presupuesto nuevo, usa las tarifas como referencia y genera uno estructurado en la respuesta y, si procede, llama a "crear_presupuesto" con el texto generado.
-Cuando el usuario pida generar una factura, sigue este flujo:
-- Si el usuario no ha dado el desglose completo, primero pregunta:
-  - Nombre del cliente y NIF/CIF si lo tiene
-  - Conceptos de mano de obra: horas trabajadas y tarifa por hora
-  - Materiales utilizados: nombre, cantidad y precio unitario de cada uno
-  - Desplazamiento u otros conceptos adicionales si los hay
-- Una vez tengas todos los datos, genera la factura estructurada con:
-  - Líneas detalladas: concepto, cantidad, precio unitario, importe
-  - Subtotal (base imponible)
-  - IVA 21 %
-  - Total
-Cuando el usuario pida generar una factura, estructura la respuesta con: número de factura, cliente, NIF/CIF si lo tienes, descripción de trabajos, base imponible, IVA (21%) y total.
-Cuando el usuario pida generar un albarán, estructura la respuesta con: cliente, descripción de trabajos realizados, fecha y total si aplica.
-Siempre confirma al usuario que has guardado el documento en el sistema.
-Al inicio de cada conversación, si hay mensajes pendientes de clientes, menciónalos proactivamente.
-Puedes ayudar al usuario a gestionar mensajes de clientes, generar presupuestos, facturas y albaranes.
+Medidas de obra: siempre calcular_medicion; no calcules totales a mano.
 
-Envío de emails (Gmail):
-- La herramienta "enviar_email" no envía el correo de inmediato: deja un borrador pendiente de aprobación del usuario en el chat.
-- Después de llamarla con destinatario, asunto y cuerpo, muestra en tu respuesta el borrador completo (para, asunto, texto) y advierte claramente que el usuario debe pulsar "Enviar" o "Cancelar" en el panel para confirmar o descartar el envío.
+Imagen ticket/factura: resume OCR y pregunta; registrar_gasto_ticket solo tras confirmación explícita en un mensaje siguiente. Tras registrar bien, ofrece vincular. vincular_gasto solo si el usuario indica documento (antes listar_facturas/listar_albaranes si hace falta el id).
 
-Clasificación de emails urgentes:
-- Un email es URGENTE si cumple alguno de estos criterios:
-  - Contiene palabras clave en asunto o cuerpo: "urgente", "importante", "presupuesto", "factura pendiente", "pago", "vencimiento", "plazo", "impago", "reclamación", "queja", "problema", "avería", "emergencia".
-  - Es de un cliente conocido (remitente presente en historial de presupuestos/facturas).
-  - Lleva más de 48h sin leer.
-  - Es respuesta a un presupuesto enviado.
-- Un email es NORMAL si no cumple ninguno de los criterios anteriores.
+Diario: crear_entrada_diario (obra_nombre obligatorio); generar_pdf_diario para exportar con el nombre exacto de obra.
 
-Vista visual (panel modal / canvas):
-- Flujo obligatorio cuando el usuario pida ver datos "en tabla", "en vista", "en panel", "visualiza" o "canvas":
-  1) Llama primero a la tool de listado que corresponda (listar_presupuestos, listar_facturas, listar_albaranes, leer_emails_recientes para emails, etc.) y espera su resultado.
-  2) Con el array de resultados obtenido en el paso 1, llama a "mostrar_vista_visual" pasando en "datos" ese array completo (los mismos objetos que devolvió la tool, normalmente bajo la clave "items" debes expandirlos al array "datos").
-  3) NUNCA llames a "mostrar_vista_visual" con "datos" vacío ni sin haber ejecutado antes la tool de listado correspondiente en ese turno o inmediatamente antes en la misma conversación con datos frescos.
-- IMPORTANTE: Para mostrar_vista_visual, SIEMPRE debes obtener los datos primero con la tool de listado correspondiente (listar_presupuestos, listar_facturas, listar_albaranes, buscar_cliente para clientes, etc.). Nunca llames a mostrar_vista_visual con datos vacíos. El campo datos debe contener el array completo devuelto por la tool de listado (p. ej. el array "items" de buscar_cliente).
-- Para emails usa "leer_emails_recientes" y pasa en "datos" el array "items" que devuelve. Para gastos o diario, solo usa mostrar_vista_visual si ya tienes filas concretas de una tool previa en el mismo flujo; si no existe tool de listado, obtén o confirma los datos antes de abrir el panel.
-- No uses "mostrar_vista_visual" para listados habituales en el chat sin petición explícita de vista visual.
-- Tras llamar a "mostrar_vista_visual", responde en el chat con un mensaje breve del estilo: "Abriendo vista visual de [titulo]..."
+Si hay mensajes de clientes pendientes de aprobar, menciónalos al inicio cuando aplique.
 
-Medidas y cálculos de obra:
-- Cuando el usuario mencione medidas, dimensiones, metros cuadrados/cúbicos, perímetros, metros lineales o cálculos de obra, DEBES usar la herramienta "calcular_medicion". Extrae del texto del usuario los números (largo, ancho, alto si aplica), el tipo de cálculo (superficie, volumen, lineal, perimetro), huecos a restar en superficies si los indica, y la unidad (m o cm).
-- NUNCA calcules tú en texto los totales de obra: siempre llama primero a "calcular_medicion" y basa la respuesta en el resultado que devuelve la herramienta (total, unidad, desglose).
+Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
 
-Tickets y facturas (imagen adjunta / OCR):
-- Si el mensaje incluye una imagen de ticket o factura, analízala con visión y extrae: proveedor o comercio, importe sin IVA (base imponible), cuantía de IVA, importe total, fecha del documento (YYYY-MM-DD si es posible) y una breve descripción del gasto.
-- En el MISMO turno en el que recibes por primera vez esa imagen en el mensaje del usuario, NO llames a "registrar_gasto_ticket". Primero muestra claramente en texto los datos que hayas podido leer y termina preguntando si debe registrar el gasto (p. ej. "¿Registro este gasto?").
-- Llama a "registrar_gasto_ticket" solo cuando el usuario confirme de forma explícita en un mensaje posterior (sí, adelante, regístralo, confirmo, vale…). Si corrige cifras o datos, refleja los valores acordados en la tool y, si hace falta, vuelve a pedir confirmación antes de registrar.
-- Los importes deben ser números coherentes (importe sin IVA, IVA e importe total); si algo no se lee bien, dilo y pide aclaración en lugar de inventar.
-- Cuando "registrar_gasto_ticket" devuelva ok y hayas confirmado al usuario que el gasto se guardó, añade siempre en tu respuesta (en el mismo mensaje): "¿Quieres vincularlo a algún albarán o factura? Dime el número o el nombre del cliente y lo busco."
-- NO llames a "vincular_gasto" por iniciativa propia ni en ese mismo turno: espera a que el usuario indique a qué documento enlazarlo. Si menciona número de factura/albarán o nombre de cliente, primero usa "listar_facturas" o "listar_albaranes" para localizar el UUID correcto y, cuando lo tengas claro, llama a "vincular_gasto" con gasto_id (el id devuelto al registrar) y documentos: [{ tipo, id }].
-
-Diario de obra:
-- Usa "crear_entrada_diario" cuando el usuario quiera registrar el avance de una obra (texto dictado o escrito): obligatorio obra_nombre; opcional dirección, texto, fotos y videos como URLs (tras subir archivos al almacenamiento del diario si el flujo lo permite).
-- Tras crear la entrada, si la tool devuelve el mensaje con la pregunta del PDF, puedes repetir o reforzar la pregunta al usuario.
-- Usa "generar_pdf_diario" cuando pida exportar o descargar el diario completo de una obra; necesitas el nombre exacto de la obra. La tool devuelve una URL firmada para descarga.
-
-Puedes convertir documentos entre sí:
-- Presupuesto → Albarán: usa convertir_presupuesto_a_albaran
-- Albarán → Factura: usa convertir_albaran_a_factura
-Cuando el usuario confirme que un presupuesto ha sido aceptado o
-quiera facturar un albarán, ofrece hacer la conversión automáticamente.
-
-Fecha actual: ${fechaActual}
-Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaContextoPrimerMensaje}`;
-
-    const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+    const ALL_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       {
         type: 'function',
         function: {
           name: 'obtener_presupuestos_pendientes',
-          description:
-            'Obtiene presupuestos pendientes del negocio actual con cliente, importe y fecha',
+          description: 'Presupuestos en estado pendiente: cliente, importe, fecha.',
           parameters: {
             type: 'object',
             properties: {},
@@ -491,8 +549,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         type: 'function',
         function: {
           name: 'obtener_facturas_pendientes',
-          description:
-            'Obtiene facturas pendientes del negocio actual con cliente, importe y fecha',
+          description: 'Facturas en estado pendiente: cliente, importe, fecha.',
           parameters: {
             type: 'object',
             properties: {},
@@ -504,7 +561,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         type: 'function',
         function: {
           name: 'obtener_albaranes_pendientes',
-          description: 'Obtiene albaranes pendientes del negocio actual con cliente y fecha',
+          description: 'Albaranes pendientes: cliente y fecha.',
           parameters: {
             type: 'object',
             properties: {},
@@ -517,7 +574,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         function: {
           name: 'listar_presupuestos',
           description:
-            'Lista los últimos 10 presupuestos del negocio (todos los estados). Úsala cuando el usuario pida ver, consultar o listar sus presupuestos sin crear uno nuevo.',
+            'Últimos 10 presupuestos (todos los estados). Listar o consultar sin crear uno nuevo.',
           parameters: {
             type: 'object',
             properties: {},
@@ -529,8 +586,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         type: 'function',
         function: {
           name: 'listar_facturas',
-          description:
-            'Lista las últimas 10 facturas del negocio. Úsala cuando el usuario pida ver, consultar o listar facturas sin crear una nueva.',
+          description: 'Últimas 10 facturas. Consultar o listar sin crear.',
           parameters: {
             type: 'object',
             properties: {},
@@ -542,8 +598,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         type: 'function',
         function: {
           name: 'listar_albaranes',
-          description:
-            'Lista los últimos 10 albaranes del negocio. Úsala cuando el usuario pida ver, consultar o listar albaranes sin crear uno nuevo.',
+          description: 'Últimos 10 albaranes. Consultar o listar sin crear.',
           parameters: {
             type: 'object',
             properties: {},
@@ -556,7 +611,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         function: {
           name: 'cambiar_estado_presupuesto',
           description:
-            'Actualiza el estado de un presupuesto por id. Estados: pendiente, aceptado, rechazado, facturado, pagado. Si no tienes el id, usa listar_presupuestos antes.',
+            'Cambia estado del presupuesto por UUID. Estados: pendiente, aceptado, rechazado, facturado, pagado. Sin id: listar_presupuestos antes.',
           parameters: {
             type: 'object',
             properties: {
@@ -577,7 +632,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         function: {
           name: 'cambiar_estado_factura',
           description:
-            'Actualiza el estado de una factura por id. Estados: pendiente, aceptado, rechazado, facturado, pagado. Si no tienes el id, usa listar_facturas antes.',
+            'Cambia estado de la factura por UUID. Mismos estados que presupuestos. Sin id: listar_facturas antes.',
           parameters: {
             type: 'object',
             properties: {
@@ -598,7 +653,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         function: {
           name: 'cambiar_estado_albaran',
           description:
-            'Actualiza el estado de un albarán por id. Estados: pendiente, aceptado, rechazado, facturado, pagado. Si no tienes el id, usa listar_albaranes antes.',
+            'Cambia estado del albarán por UUID. Mismos estados. Sin id: listar_albaranes antes.',
           parameters: {
             type: 'object',
             properties: {
@@ -619,7 +674,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         function: {
           name: 'editar_presupuesto',
           description:
-            'Actualiza un presupuesto existente (cliente_nombre, importe_total y/o descripcion del texto del presupuesto). Requiere id; indica solo los campos que cambien.',
+            'Actualiza presupuesto por id: cliente_nombre, importe_total y/o texto (presupuesto_generado). Solo campos que cambien.',
           parameters: {
             type: 'object',
             properties: {
@@ -641,7 +696,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         function: {
           name: 'editar_factura',
           description:
-            'Actualiza una factura existente (cliente_nombre, importe_total como total con IVA, y/o descripcion de trabajos). Requiere id; indica solo los campos que cambien.',
+            'Actualiza factura por id: cliente_nombre, total con IVA, descripcion_trabajos. Solo campos que cambien.',
           parameters: {
             type: 'object',
             properties: {
@@ -660,7 +715,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         function: {
           name: 'editar_albaran',
           description:
-            'Actualiza un albarán existente (cliente_nombre, importe_total, y/o descripcion). Requiere id; indica solo los campos que cambien.',
+            'Actualiza albarán por id: cliente_nombre, importe_total, descripcion_trabajos. Solo campos que cambien.',
           parameters: {
             type: 'object',
             properties: {
@@ -679,7 +734,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         function: {
           name: 'crear_presupuesto',
           description:
-            'Guarda en el sistema un presupuesto NUEVO ya redactado. Solo llamar si el usuario pidió explícitamente crear/generar un presupuesto nuevo. Requiere el texto completo del presupuesto.',
+            'Guarda un presupuesto nuevo (texto completo). Solo si pidió crear/generar presupuesto.',
           parameters: {
             type: 'object',
             properties: {
@@ -703,8 +758,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         type: 'function',
         function: {
           name: 'crear_factura',
-          description:
-            'Registra en el sistema una factura NUEVA. Solo si el usuario pidió explícitamente crear/generar una factura.',
+          description: 'Registra factura nueva. Solo si pidió crear/generar factura.',
           parameters: {
             type: 'object',
             properties: {
@@ -727,8 +781,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         type: 'function',
         function: {
           name: 'crear_albaran',
-          description:
-            'Registra en el sistema un albarán NUEVO. Solo si el usuario pidió explícitamente crear/generar un albarán.',
+          description: 'Registra albarán nuevo. Solo si pidió crear/generar albarán.',
           parameters: {
             type: 'object',
             properties: {
@@ -753,7 +806,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         function: {
           name: 'obtener_mensajes_pendientes',
           description:
-            'Obtiene respuestas IA del negocio pendientes de aprobación (sin aprobar ni rechazar): texto generado, borrador editado y conversación asociada',
+            'Respuestas IA del negocio pendientes de aprobación (texto, borrador, conversación).',
           parameters: {
             type: 'object',
             properties: {},
@@ -765,8 +818,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         type: 'function',
         function: {
           name: 'leer_emails_recientes',
-          description:
-            'Lee los últimos 5 emails recientes del inbox del usuario conectado y devuelve remitente, asunto y resumen del cuerpo',
+          description: 'Últimos 5 emails del inbox: remitente, asunto, resumen del cuerpo.',
           parameters: {
             type: 'object',
             properties: {},
@@ -779,7 +831,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         function: {
           name: 'enviar_email',
           description:
-            'Prepara un borrador de email para Gmail: NO lo envía hasta que el usuario lo apruebe en el chat. Usa cuando quieran enviar un correo; requiere destinatario, asunto y cuerpo. Tras llamarla, explica el borrador y que debe aprobar el envío.',
+            'Borrador Gmail (para, asunto, cuerpo); el envío requiere aprobación en el chat.',
           parameters: {
             type: 'object',
             properties: {
@@ -797,7 +849,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         function: {
           name: 'crear_recordatorio',
           description:
-            'Crea un recordatorio o evento en la agenda del negocio con título, fecha (YYYY-MM-DD) y opcionalmente hora',
+            'Nuevo evento en agenda: título, fecha YYYY-MM-DD, hora opcional.',
           parameters: {
             type: 'object',
             properties: {
@@ -815,7 +867,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         function: {
           name: 'editar_recordatorio',
           description:
-            'Actualiza un recordatorio existente en la agenda del negocio. Indica el id del evento y al menos uno de: título, fecha (YYYY-MM-DD) u hora',
+            'Actualiza recordatorio por id: título, fecha YYYY-MM-DD y/o hora (al menos un campo).',
           parameters: {
             type: 'object',
             properties: {
@@ -833,7 +885,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         type: 'function',
         function: {
           name: 'eliminar_recordatorio',
-          description: 'Elimina un recordatorio de la agenda del negocio por su id',
+          description: 'Elimina un recordatorio de la agenda por id.',
           parameters: {
             type: 'object',
             properties: {
@@ -849,7 +901,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         function: {
           name: 'calcular_medicion',
           description:
-            'Calcula medidas de obra en JavaScript (superficie m², volumen m³, metros lineales ml, perímetro). Úsala siempre que el usuario pida cálculos con dimensiones; extrae largo, ancho y alto del mensaje. No calcules totales mentalmente: pasa los datos aquí.',
+            'Cálculo de obra (m², m³, ml, perímetro). Pasa dimensiones y tipo; no inventes totales en texto.',
           parameters: {
             type: 'object',
             properties: {
@@ -912,7 +964,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         function: {
           name: 'registrar_gasto_ticket',
           description:
-            'Registra en la base de datos un gasto extraído de un ticket o factura. Solo después de que el usuario haya confirmado explícitamente tras tu resumen y la pregunta "¿Registro este gasto?".',
+            'Guarda gasto desde ticket/OCR solo tras confirmación explícita del usuario.',
           parameters: {
             type: 'object',
             properties: {
@@ -942,7 +994,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         function: {
           name: 'vincular_gasto',
           description:
-            'Vincula un gasto registrado a una o varias facturas o albaranes. Usar después del OCR si el usuario quiere asociar el ticket a un documento.',
+            'Enlaza un gasto ya registrado a factura(s) o albarán(es) por UUID.',
           parameters: {
             type: 'object',
             properties: {
@@ -974,7 +1026,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         function: {
           name: 'crear_entrada_diario',
           description:
-            'Crea una entrada en el diario de obra con texto, fotos y/o vídeos. El texto puede venir de lo que ha dictado el usuario por voz o escrito. Usar cuando el usuario quiera registrar el avance de una obra.',
+            'Entrada en diario de obra: texto, fotos y/o vídeos (URLs). Obligatorio obra_nombre.',
           parameters: {
             type: 'object',
             properties: {
@@ -1012,8 +1064,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         type: 'function',
         function: {
           name: 'generar_pdf_diario',
-          description:
-            'Genera un PDF con todas las entradas del diario de una obra ordenadas por fecha.',
+          description: 'PDF con todas las entradas de una obra (por nombre de obra).',
           parameters: {
             type: 'object',
             properties: {
@@ -1031,8 +1082,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         type: 'function',
         function: {
           name: 'crear_cliente',
-          description:
-            'Crea una ficha de cliente con sus datos de contacto en el negocio actual.',
+          description: 'Nueva ficha de cliente (nombre obligatorio; contacto y notas opcionales).',
           parameters: {
             type: 'object',
             properties: {
@@ -1052,8 +1102,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         type: 'function',
         function: {
           name: 'buscar_cliente',
-          description:
-            'Busca clientes del negocio por nombre, email o teléfono (coincidencia parcial).',
+          description: 'Búsqueda parcial por nombre, email o teléfono.',
           parameters: {
             type: 'object',
             properties: {
@@ -1069,7 +1118,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         function: {
           name: 'ver_cliente',
           description:
-            'Muestra la ficha completa de un cliente con historial de presupuestos, facturas, albaranes y entradas de diario de obra.',
+            'Ficha completa e historial: presupuestos, facturas, albaranes, diario.',
           parameters: {
             type: 'object',
             properties: {
@@ -1085,7 +1134,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         function: {
           name: 'convertir_presupuesto_a_albaran',
           description:
-            'Convierte un presupuesto en un albarán de trabajo. Copia los datos del presupuesto al nuevo albarán y marca el presupuesto como aceptado.',
+            'Presupuesto aceptado → albarán (copia datos; actualiza estado del presupuesto).',
           parameters: {
             type: 'object',
             properties: {
@@ -1108,7 +1157,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         function: {
           name: 'convertir_albaran_a_factura',
           description:
-            'Convierte un albarán en una factura. Copia los datos del albarán a la nueva factura y marca el albarán como facturado.',
+            'Albarán → factura (copia datos; IVA opcional; marca albarán facturado).',
           parameters: {
             type: 'object',
             properties: {
@@ -1135,7 +1184,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
         function: {
           name: 'mostrar_vista_visual',
           description:
-            'Muestra una lista de documentos, emails, gastos, entradas de diario o clientes en un panel visual modal. Usar cuando el usuario pida explícitamente ver datos en tabla, vista, panel o canvas. No usar para listados normales en el chat. IMPORTANTE: Solo llamar después de obtener datos con listar_presupuestos, listar_facturas, listar_albaranes, buscar_cliente, leer_emails_recientes u otra tool de listado aplicable. El campo datos debe ser el array completo devuelto por esa tool (p. ej. el contenido del array "items" de la respuesta).',
+            'Panel modal (tabla/canvas). Tras listar_* o leer_emails: pasa items en datos. No para listados de chat sin pedir vista.',
           parameters: {
             type: 'object',
             properties: {
@@ -1184,9 +1233,28 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
       });
     }
 
+    const routerCompletion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: ROUTER_SYSTEM_PROMPT },
+        { role: 'user', content: userContent },
+      ],
+      max_tokens: 30,
+      temperature: 0,
+    });
+
+    const intentRaw = routerCompletion.choices[0]?.message?.content ?? '';
+    const intentCategory = parseAgentIntentCategory(intentRaw);
+    let tools = toolsForAgentIntent(intentCategory, ALL_AGENT_TOOLS);
+    if (tools.length === 0) {
+      tools = ALL_AGENT_TOOLS;
+    }
+
+    const historialLimitado = historialValido.slice(-10);
+
     let messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
-      ...historialValido.map((m) => ({ role: m.role, content: m.content })),
+      ...historialLimitado.map((m) => ({ role: m.role, content: m.content })),
       { role: 'user', content: userContent },
     ];
 
@@ -2727,7 +2795,7 @@ Cuando generes presupuestos, usa esta fecha como fecha del presupuesto.${agendaC
     };
 
     /** Máximo de rondas tool → API; la última usa tool_choice "none" para obligar respuesta en texto. */
-    const MAX_TOOL_ROUNDS = 12;
+    const MAX_TOOL_ROUNDS = 5;
 
     let emailPendienteParaCliente: { para: string; asunto: string; cuerpo: string } | null = null;
 

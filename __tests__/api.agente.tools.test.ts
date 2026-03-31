@@ -107,12 +107,20 @@ describe('POST /api/agente — tools', () => {
     };
   }
 
+  /** Primera llamada OpenAI en /api/agente: clasificador de intención (todas las tools). */
+  function mockRouterGeneral() {
+    return {
+      choices: [{ message: { content: 'general' } }],
+    };
+  }
+
   async function postWithTool(
     toolName: string,
     handlers: Record<string, ReturnType<typeof makeThenableResult> | typeof businessProfileChain>,
     toolArgs = '{}'
   ) {
     createMock
+      .mockResolvedValueOnce(mockRouterGeneral())
       .mockResolvedValueOnce(toolCallMessage(toolName, toolArgs))
       .mockResolvedValueOnce({
         choices: [{ message: { content: 'Respuesta final del agente.' } }],
@@ -147,7 +155,7 @@ describe('POST /api/agente — tools', () => {
       });
       expect(res.status).toBe(200);
 
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -181,7 +189,7 @@ describe('POST /api/agente — tools', () => {
       });
       expect(res.status).toBe(200);
 
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -203,7 +211,7 @@ describe('POST /api/agente — tools', () => {
       });
       expect(res.status).toBe(200);
 
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -216,7 +224,7 @@ describe('POST /api/agente — tools', () => {
       const pres = makeThenableResult({ data: [], error: null });
       const res = await postWithTool('obtener_presupuestos_pendientes', { presupuestos: pres });
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -236,7 +244,7 @@ describe('POST /api/agente — tools', () => {
       });
       const res = await postWithTool('obtener_presupuestos_pendientes', { presupuestos: pres });
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -253,7 +261,7 @@ describe('POST /api/agente — tools', () => {
       });
       const res = await postWithTool('obtener_presupuestos_pendientes', { presupuestos: pres });
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -266,7 +274,7 @@ describe('POST /api/agente — tools', () => {
       const fac = makeThenableResult({ data: [], error: null });
       const res = await postWithTool('obtener_facturas_pendientes', { facturas: fac });
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -280,7 +288,7 @@ describe('POST /api/agente — tools', () => {
       });
       const res = await postWithTool('obtener_facturas_pendientes', { facturas: fac });
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -295,7 +303,7 @@ describe('POST /api/agente — tools', () => {
       });
       const res = await postWithTool('obtener_facturas_pendientes', { facturas: fac });
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -308,7 +316,7 @@ describe('POST /api/agente — tools', () => {
       const alb = makeThenableResult({ data: [], error: null });
       const res = await postWithTool('obtener_albaranes_pendientes', { albaranes: alb });
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -322,7 +330,7 @@ describe('POST /api/agente — tools', () => {
       });
       const res = await postWithTool('obtener_albaranes_pendientes', { albaranes: alb });
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -337,7 +345,7 @@ describe('POST /api/agente — tools', () => {
       });
       const res = await postWithTool('obtener_albaranes_pendientes', { albaranes: alb });
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -360,7 +368,7 @@ describe('POST /api/agente — tools', () => {
         gmail_tokens: gmailTokens as unknown as ReturnType<typeof makeThenableResult>,
       });
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -405,7 +413,7 @@ describe('POST /api/agente — tools', () => {
         gmail_tokens: gmailTokens as unknown as ReturnType<typeof makeThenableResult>,
       });
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -428,7 +436,7 @@ describe('POST /api/agente — tools', () => {
     it('devuelve borrador pendiente de aprobación (sin Gmail)', async () => {
       const res = await postWithTool('enviar_email', {}, args);
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -447,7 +455,7 @@ describe('POST /api/agente — tools', () => {
         JSON.stringify({ destinatario: '', asunto: 'x', cuerpo: 'y' })
       );
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -467,7 +475,7 @@ describe('POST /api/agente — tools', () => {
       });
       const res = await postWithTool('calcular_medicion', {}, args);
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -491,7 +499,7 @@ describe('POST /api/agente — tools', () => {
       });
       const res = await postWithTool('calcular_medicion', {}, args);
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -511,7 +519,7 @@ describe('POST /api/agente — tools', () => {
         })
       );
       expect(resVol.status).toBe(200);
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -531,7 +539,7 @@ describe('POST /api/agente — tools', () => {
         })
       );
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -554,7 +562,7 @@ describe('POST /api/agente — tools', () => {
         })
       );
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -574,7 +582,7 @@ describe('POST /api/agente — tools', () => {
         })
       );
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -603,7 +611,7 @@ describe('POST /api/agente — tools', () => {
           email: 't@x.es',
         })
       );
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -653,7 +661,7 @@ describe('POST /api/agente — tools', () => {
 
       expect(res.status).toBe(200);
 
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -708,7 +716,7 @@ describe('POST /api/agente — tools', () => {
 
       expect(res.status).toBe(200);
 
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -744,6 +752,7 @@ describe('POST /api/agente — tools', () => {
       const insertMockGd = jest.fn().mockResolvedValue({ data: null, error: null });
 
       createMock
+        .mockResolvedValueOnce(mockRouterGeneral())
         .mockResolvedValueOnce(
           toolCallMessage(
             'vincular_gasto',
@@ -800,7 +809,7 @@ describe('POST /api/agente — tools', () => {
         },
       ]);
 
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -822,6 +831,7 @@ describe('POST /api/agente — tools', () => {
       const insertMockGd = jest.fn().mockResolvedValue({ data: null, error: null });
 
       createMock
+        .mockResolvedValueOnce(mockRouterGeneral())
         .mockResolvedValueOnce(
           toolCallMessage(
             'vincular_gasto',
@@ -858,7 +868,7 @@ describe('POST /api/agente — tools', () => {
 
       const res = await POST(req);
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -870,6 +880,7 @@ describe('POST /api/agente — tools', () => {
   describe('crear_entrada_diario', () => {
     it('devuelve mensaje de éxito con nombre de obra y fecha', async () => {
       createMock
+        .mockResolvedValueOnce(mockRouterGeneral())
         .mockResolvedValueOnce(
           toolCallMessage(
             'crear_entrada_diario',
@@ -921,7 +932,7 @@ describe('POST /api/agente — tools', () => {
 
       const res = await POST(req);
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
@@ -949,6 +960,7 @@ describe('POST /api/agente — tools', () => {
         ],
       });
       createMock
+        .mockResolvedValueOnce(mockRouterGeneral())
         .mockResolvedValueOnce(toolCallMessage('mostrar_vista_visual', args))
         .mockResolvedValueOnce({
           choices: [
@@ -978,7 +990,7 @@ describe('POST /api/agente — tools', () => {
 
       const res = await POST(req);
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[1]?.[0] as {
+      const secondCall = createMock.mock.calls[2]?.[0] as {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');

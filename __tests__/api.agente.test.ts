@@ -200,6 +200,9 @@ describe('POST /api/agente', () => {
   it('responde con datos válidos y guarda un presupuesto con importe_total y cliente_nombre', async () => {
     createMock
       .mockResolvedValueOnce({
+        choices: [{ message: { content: 'documentos' } }],
+      })
+      .mockResolvedValueOnce({
         choices: [
           {
             message: {
