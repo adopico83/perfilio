@@ -733,6 +733,7 @@ describe('POST /api/agente — tools', () => {
           facturas: {
             insert: insertMockFactura,
           } as any,
+          presupuestos: makeThenableResult({ data: [], error: null }),
         },
         JSON.stringify({ albaran_id: albaranId, iva: 21 })
       );

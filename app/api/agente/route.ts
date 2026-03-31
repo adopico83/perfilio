@@ -294,14 +294,14 @@ type AgentIntentCategory =
 const ROUTER_SYSTEM_PROMPT = `Eres un clasificador. Responde SOLO con una palabra en minúsculas, sin comillas ni puntuación:
 documentos | emails | agenda | gastos | diario | clientes | calculo | general
 
-documentos: presupuestos, facturas, albaranes, estados, edición, crear documentos, conversiones presupuesto↔albarán↔factura, tiempo en obra.
+documentos: presupuestos, facturas, albaranes, extras/modificados/imprevistos en obra, estados, edición, crear documentos, conversiones presupuesto↔albarán↔factura, tiempo en obra.
 emails: Gmail, leer bandeja, enviar correo.
 agenda: recordatorios, citas, eventos en calendario, tiempo meteorológico para obras o citas.
 gastos: ticket, OCR, foto de compra, registrar gasto, vincular gasto.
 diario: diario de obra, fotos de obra, PDF del diario.
 clientes: ficha de cliente, buscar cliente, historial de cliente.
 calculo: metros cuadrados, m³, perímetro, dimensiones de obra.
-general: saludos, varias áreas a la vez, mensajes pendientes del negocio, meteorología o tiempo, o petición ambigua.`;
+general: saludos, varias áreas a la vez, mensajes pendientes del negocio, meteorología o tiempo, extras o imprevistos en obra (registrar_extra), o petición ambigua.`;
 
 const INTENT_TOOL_NAMES_DOCUMENTOS = new Set([
   'obtener_presupuestos_pendientes',
@@ -327,6 +327,8 @@ const INTENT_TOOL_NAMES_DOCUMENTOS = new Set([
   'get_directions',
   'albaranes_sin_facturar',
   'consultar_tiempo',
+  'registrar_extra',
+  'listar_extras',
 ]);
 
 const INTENT_TOOL_NAMES_EMAILS = new Set([
@@ -539,6 +541,8 @@ Responde en español, profesional y conciso.
 
 Documentos: crear_presupuesto / crear_factura / crear_albaran solo si pide crear o generar algo nuevo; si solo consulta, usa listar_* u obtener_*_pendientes. Estados: pendiente, aceptado, rechazado, facturado, pagado. Sin UUID: listar_* antes de cambiar_estado_* o editar_*. Factura nueva: si faltan datos, preguntar (cliente, NIF, mano de obra, materiales, otros); luego líneas, base, IVA 21 %, total. Albarán nuevo: cliente, trabajos, fecha, total si aplica. Confirma al guardar.
 Conversiones entre documentos: si confirma presupuesto aceptado o facturar albarán, ofrece convertir_presupuesto_a_albaran o convertir_albaran_a_factura.
+
+Extras y modificados: cuando el usuario mencione "extra", "modificado", "imprevisto" o "añadido" en el contexto de una obra, usa registrar_extra. Siempre pregunta confirmación antes de enviar la notificación al cliente (el borrador lo aprueba en el panel).
 
 Emails: urgente si palabras como urgente, pago, presupuesto, factura, reclamación, avería, etc.; >48 h sin leer; cliente conocido; respuesta a presupuesto. enviar_email deja borrador; el usuario aprueba en el panel.
 
@@ -1037,6 +1041,60 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
               },
             },
             required: ['ubicacion'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'registrar_extra',
+          description:
+            "Registra un trabajo extra o modificado sobre un presupuesto existente. Usar cuando el usuario diga 'registra un extra', 'ha surgido un imprevisto', 'añade un modificado' o similar. Crea un presupuesto hijo vinculado al presupuesto original.",
+          parameters: {
+            type: 'object',
+            properties: {
+              descripcion: {
+                type: 'string',
+                description: 'Descripción del trabajo extra o imprevisto',
+              },
+              importe: {
+                type: 'number',
+                description: 'Coste adicional (IVA no incluido)',
+              },
+              presupuesto_parent_id: {
+                type: 'string',
+                description: 'UUID del presupuesto original, si se conoce',
+              },
+              cliente_nombre: {
+                type: 'string',
+                description: 'Nombre del cliente para localizar el presupuesto si no hay id',
+              },
+              notificar_cliente: {
+                type: 'boolean',
+                description: 'Si preparar borrador de email al cliente (por defecto true)',
+              },
+            },
+            required: ['descripcion', 'importe'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'listar_extras',
+          description:
+            'Lista extras y modificados registrados, opcionalmente por cliente o presupuesto padre.',
+          parameters: {
+            type: 'object',
+            properties: {
+              cliente_nombre: { type: 'string', description: 'Filtrar por nombre de cliente' },
+              presupuesto_parent_id: {
+                type: 'string',
+                description: 'Filtrar por UUID del presupuesto original',
+              },
+            },
             additionalProperties: false,
           },
         },
@@ -2144,8 +2202,59 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
               : 0;
 
           const round2 = (n: number) => Math.round(n * 100) / 100;
-          const base_imponible = round2(totalNum / (1 + iva_porcentaje / 100));
-          const iva_importe = round2(totalNum - base_imponible);
+
+          let extrasRows: Array<{
+            importe_total?: number | null;
+            presupuesto_generado?: string | null;
+            mensaje_cliente?: string | null;
+          }> = [];
+
+          const cidAlb = aRow.cliente_id ?? null;
+          const cnTrim = clienteNombre.trim();
+          if (cidAlb || cnTrim) {
+            let extrasQuery = supabase
+              .from('presupuestos')
+              .select('importe_total, presupuesto_generado, mensaje_cliente')
+              .eq('business_id', business_id)
+              .eq('es_extra', true)
+              .eq('estado', 'aceptado');
+            if (cidAlb) {
+              extrasQuery = extrasQuery.eq('cliente_id', cidAlb);
+            } else {
+              extrasQuery = extrasQuery.ilike('cliente_nombre', cnTrim);
+            }
+            const { data: extraData, error: exErr } = await extrasQuery;
+            if (exErr) return { error: exErr.message };
+            extrasRows = (extraData ?? []) as typeof extrasRows;
+          }
+
+          let extrasSum = 0;
+          const extraLines: string[] = [];
+          for (const ex of extrasRows) {
+            const imp =
+              ex.importe_total != null && Number.isFinite(Number(ex.importe_total))
+                ? Number(ex.importe_total)
+                : 0;
+            extrasSum += imp;
+            const texto =
+              (ex.presupuesto_generado ?? '').trim() ||
+              (ex.mensaje_cliente ?? '').trim() ||
+              'Extra';
+            extraLines.push(`- ${texto} (${round2(imp).toFixed(2)} €)`);
+          }
+
+          const totalConExtras = totalNum + extrasSum;
+
+          let descripcionTrabajos = (aRow.descripcion_trabajos ?? '') || '';
+          if (extraLines.length > 0) {
+            const bloque = `Extras aceptados (IVA no incluido en importes de extra):\n${extraLines.join('\n')}`;
+            descripcionTrabajos = descripcionTrabajos.trim()
+              ? `${descripcionTrabajos.trim()}\n\n${bloque}`
+              : bloque;
+          }
+
+          const base_imponible = round2(totalConExtras / (1 + iva_porcentaje / 100));
+          const iva_importe = round2(totalConExtras - base_imponible);
 
           const { error: insertErr } = await supabase.from('facturas').insert({
             business_id,
@@ -2153,11 +2262,11 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
             cliente_nombre: clienteNombre || null,
             cliente_id: aRow.cliente_id ?? null,
             cliente_direccion: aRow.cliente_direccion ?? null,
-            descripcion_trabajos: aRow.descripcion_trabajos ?? null,
+            descripcion_trabajos: descripcionTrabajos || null,
             lineas: aRow.lineas ?? null,
             base_imponible,
             iva: iva_importe,
-            total: totalNum,
+            total: totalConExtras,
             fecha: new Date().toISOString().split('T')[0],
             estado: 'pendiente',
             observaciones:
@@ -2176,10 +2285,15 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
 
           if (updErr) return { error: updErr.message };
 
+          const extraNote =
+            extrasSum > 0
+              ? ` (incluye extras aceptados: ${round2(extrasSum).toFixed(2)}€)`
+              : '';
+
           return {
             mensaje:
               `Factura creada correctamente a partir del albarán de ${clienteNombre}.\n` +
-              `Total: ${round2(totalNum).toFixed(2)}€. El albarán ha sido marcado como facturado.`,
+              `Total: ${round2(totalConExtras).toFixed(2)}€${extraNote}. El albarán ha sido marcado como facturado.`,
           };
         }
         case 'obtener_mensajes_pendientes': {
@@ -2485,6 +2599,184 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
               error: e instanceof Error ? e.message : 'Error al consultar el tiempo',
             };
           }
+        }
+        case 'registrar_extra': {
+          const descripcion = String(toolArgs.descripcion ?? '').trim();
+          const importeNum = Number(toolArgs.importe);
+          const parentIdRaw = String(toolArgs.presupuesto_parent_id ?? '').trim();
+          const clienteNombreParam =
+            toolArgs.cliente_nombre != null
+              ? String(toolArgs.cliente_nombre).trim().slice(0, 255)
+              : '';
+          const notificar = toolArgs.notificar_cliente !== false;
+
+          if (!descripcion) return { error: 'descripcion es obligatoria' };
+          if (!Number.isFinite(importeNum) || importeNum < 0) {
+            return { error: 'importe debe ser un número válido' };
+          }
+
+          const r2 = (n: number) => Math.round(n * 100) / 100;
+          const impFmt = r2(importeNum).toFixed(2);
+
+          type ParentRow = {
+            id: string;
+            cliente_nombre: string | null;
+            cliente_id: string | null;
+          };
+
+          let parent: ParentRow | null = null;
+
+          if (parentIdRaw) {
+            const { data: p, error: pe } = await supabase
+              .from('presupuestos')
+              .select('id, cliente_nombre, cliente_id')
+              .eq('id', parentIdRaw)
+              .eq('business_id', business_id)
+              .maybeSingle();
+            if (pe) return { error: pe.message };
+            if (!p) return { error: 'No se encontró el presupuesto padre' };
+            parent = p as ParentRow;
+          } else if (clienteNombreParam) {
+            const safe = clienteNombreParam.replace(/[%_]/g, '').slice(0, 120);
+            if (!safe) return { error: 'cliente_nombre no válido' };
+            const pat = `%${safe}%`;
+            const { data: p, error: pe } = await supabase
+              .from('presupuestos')
+              .select('id, cliente_nombre, cliente_id')
+              .eq('business_id', business_id)
+              .eq('es_extra', false)
+              .neq('estado', 'rechazado')
+              .ilike('cliente_nombre', pat)
+              .order('fecha', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            if (pe) return { error: pe.message };
+            if (!p) {
+              return {
+                error:
+                  'No se encontró un presupuesto activo reciente para ese cliente. Indica presupuesto_parent_id o crea el presupuesto antes.',
+              };
+            }
+            parent = p as ParentRow;
+          } else {
+            return {
+              error:
+                'Indica presupuesto_parent_id o cliente_nombre para vincular el extra al presupuesto original.',
+            };
+          }
+
+          const clienteNombreFinal =
+            (parent.cliente_nombre && String(parent.cliente_nombre).trim()) ||
+            clienteNombreParam ||
+            'Cliente';
+
+          const { error: insErr } = await supabase.from('presupuestos').insert({
+            business_id,
+            parent_id: parent.id,
+            es_extra: true,
+            presupuesto_generado: descripcion,
+            importe_total: importeNum,
+            cliente_nombre: clienteNombreFinal,
+            cliente_id: parent.cliente_id ?? null,
+            fecha: new Date().toISOString().split('T')[0],
+            estado: 'pendiente',
+            mensaje_cliente: `EXTRA/MODIFICADO: ${descripcion}`,
+          });
+
+          if (insErr) return { error: insErr.message };
+
+          let baseMsg =
+            `Extra registrado correctamente: '${descripcion}' por ${impFmt}€, vinculado al presupuesto de ${clienteNombreFinal}.`;
+
+          if (!notificar) {
+            return { mensaje: baseMsg };
+          }
+
+          let emailCliente: string | null = null;
+          if (parent.cliente_id) {
+            const { data: cli, error: cErr } = await supabase
+              .from('clientes')
+              .select('email')
+              .eq('id', parent.cliente_id)
+              .eq('business_id', business_id)
+              .maybeSingle();
+            if (!cErr && cli?.email != null) {
+              const em = String(cli.email).trim();
+              if (em) emailCliente = em;
+            }
+          }
+
+          if (!emailCliente) {
+            return {
+              mensaje:
+                baseMsg +
+                ' No hay email del cliente en ficha: no se preparó borrador de notificación.',
+            };
+          }
+
+          const cuerpo =
+            `Hola ${clienteNombreFinal}, según lo hablado en obra, se ha detectado el siguiente imprevisto: ${descripcion}. El coste adicional será de ${impFmt}€ (IVA no incluido). Por favor, confírmenos su aprobación para proceder. Quedamos a su disposición.`;
+
+          return {
+            mensaje:
+              baseMsg +
+              ' He preparado un borrador de notificación al cliente. ¿Lo enviamos?',
+            tipo: 'email_pendiente_aprobacion',
+            para: emailCliente,
+            asunto: `Imprevisto / extra en obra — ${clienteNombreFinal}`,
+            cuerpo,
+          };
+        }
+        case 'listar_extras': {
+          const cn =
+            toolArgs.cliente_nombre != null
+              ? String(toolArgs.cliente_nombre).trim().slice(0, 255)
+              : '';
+          const pid =
+            toolArgs.presupuesto_parent_id != null
+              ? String(toolArgs.presupuesto_parent_id).trim()
+              : '';
+
+          let q = supabase
+            .from('presupuestos')
+            .select('id, presupuesto_generado, importe_total, cliente_nombre, fecha, estado, parent_id')
+            .eq('business_id', business_id)
+            .eq('es_extra', true)
+            .order('fecha', { ascending: false })
+            .limit(50);
+
+          if (pid) {
+            q = q.eq('parent_id', pid);
+          }
+          if (cn) {
+            const safe = cn.replace(/[%_]/g, '').slice(0, 120);
+            if (safe) {
+              const pat = `%${safe}%`;
+              q = q.ilike('cliente_nombre', pat);
+            }
+          }
+
+          const { data, error } = await q;
+          if (error) return { error: error.message };
+          return {
+            items: (data ?? []).map(
+              (r: {
+                id?: string;
+                presupuesto_generado?: string | null;
+                importe_total?: number | null;
+                cliente_nombre?: string | null;
+                fecha?: string | null;
+                estado?: string | null;
+              }) => ({
+                id: r.id ?? null,
+                descripcion: r.presupuesto_generado ?? null,
+                importe: r.importe_total ?? null,
+                cliente: r.cliente_nombre ?? null,
+                fecha: r.fecha ?? null,
+                estado: r.estado ?? null,
+              })
+            ),
+          };
         }
         case 'registrar_gasto_ticket': {
           const proveedor = String(toolArgs.proveedor ?? '').trim();
