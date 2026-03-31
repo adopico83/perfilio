@@ -14,6 +14,13 @@ import {
   listarAlbaranesSinFacturar,
 } from '@/lib/albaranes-sin-facturar';
 import { enriquecerTextoConMaps, generarLinkMaps } from '@/lib/maps';
+import {
+  type PrediccionMeteo,
+  formatearMensajeConsultaTiempo,
+  geocodeDireccion,
+  getPrediccionPorCiudad,
+  getPrediccionPorCoordenadas,
+} from '@/lib/weather';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -287,14 +294,14 @@ type AgentIntentCategory =
 const ROUTER_SYSTEM_PROMPT = `Eres un clasificador. Responde SOLO con una palabra en minúsculas, sin comillas ni puntuación:
 documentos | emails | agenda | gastos | diario | clientes | calculo | general
 
-documentos: presupuestos, facturas, albaranes, estados, edición, crear documentos, conversiones presupuesto↔albarán↔factura.
+documentos: presupuestos, facturas, albaranes, estados, edición, crear documentos, conversiones presupuesto↔albarán↔factura, tiempo en obra.
 emails: Gmail, leer bandeja, enviar correo.
-agenda: recordatorios, citas, eventos en calendario.
+agenda: recordatorios, citas, eventos en calendario, tiempo meteorológico para obras o citas.
 gastos: ticket, OCR, foto de compra, registrar gasto, vincular gasto.
 diario: diario de obra, fotos de obra, PDF del diario.
 clientes: ficha de cliente, buscar cliente, historial de cliente.
 calculo: metros cuadrados, m³, perímetro, dimensiones de obra.
-general: saludos, varias áreas a la vez, mensajes pendientes del negocio, o petición ambigua.`;
+general: saludos, varias áreas a la vez, mensajes pendientes del negocio, meteorología o tiempo, o petición ambigua.`;
 
 const INTENT_TOOL_NAMES_DOCUMENTOS = new Set([
   'obtener_presupuestos_pendientes',
@@ -319,6 +326,7 @@ const INTENT_TOOL_NAMES_DOCUMENTOS = new Set([
   'mostrar_vista_visual',
   'get_directions',
   'albaranes_sin_facturar',
+  'consultar_tiempo',
 ]);
 
 const INTENT_TOOL_NAMES_EMAILS = new Set([
@@ -333,6 +341,7 @@ const INTENT_TOOL_NAMES_AGENDA = new Set([
   'editar_recordatorio',
   'eliminar_recordatorio',
   'get_directions',
+  'consultar_tiempo',
 ]);
 
 const INTENT_TOOL_NAMES_GASTOS = new Set([
@@ -1004,6 +1013,30 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
               },
             },
             required: ['direccion'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'consultar_tiempo',
+          description:
+            'Previsión meteorológica para ciudad o dirección de obra. Tiempo, lluvia, obras en agenda.',
+          parameters: {
+            type: 'object',
+            properties: {
+              ubicacion: {
+                type: 'string',
+                description: 'Ciudad o dirección (ej. Madrid, Zarautz, Calle Mayor 1 Bilbao)',
+              },
+              dias: {
+                type: 'number',
+                description: '1 o 2 días de previsión (hoy y/o mañana)',
+                enum: [1, 2],
+              },
+            },
+            required: ['ubicacion'],
             additionalProperties: false,
           },
         },
@@ -2416,6 +2449,42 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
           const url = generarLinkMaps(direccion);
           const label = nombreLugar || direccion;
           return { mensaje: `📍 [${label}](${url})` };
+        }
+        case 'consultar_tiempo': {
+          const ubicacion = String(toolArgs.ubicacion ?? '').trim();
+          const diasRaw = toolArgs.dias;
+          const dias = diasRaw === 2 ? 2 : 1;
+          if (!ubicacion) {
+            return { error: 'ubicacion es obligatoria' };
+          }
+          if (!process.env.OPENWEATHER_API_KEY?.trim()) {
+            return {
+              error: 'Servicio meteorológico no configurado (OPENWEATHER_API_KEY).',
+            };
+          }
+          try {
+            const geo = await geocodeDireccion(ubicacion);
+            let preds: PrediccionMeteo[];
+            let etiqueta = ubicacion;
+            if (geo) {
+              preds = await getPrediccionPorCoordenadas(geo.lat, geo.lon);
+              etiqueta = geo.name;
+            } else {
+              preds = await getPrediccionPorCiudad(ubicacion);
+            }
+            const slice = preds.slice(0, dias);
+            if (slice.length === 0) {
+              return {
+                mensaje: 'No se pudo obtener la previsión para esa ubicación.',
+              };
+            }
+            const mensaje = formatearMensajeConsultaTiempo(slice, etiqueta);
+            return { mensaje, items: slice };
+          } catch (e) {
+            return {
+              error: e instanceof Error ? e.message : 'Error al consultar el tiempo',
+            };
+          }
         }
         case 'registrar_gasto_ticket': {
           const proveedor = String(toolArgs.proveedor ?? '').trim();
