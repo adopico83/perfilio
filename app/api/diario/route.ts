@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
     const b = body as Record<string, unknown>;
     const business_id = typeof b.business_id === 'string' ? b.business_id.trim() : '';
     const obra_nombre = typeof b.obra_nombre === 'string' ? b.obra_nombre.trim() : '';
+    const obra_id = typeof b.obra_id === 'string' ? b.obra_id.trim() : '';
     const obra_direccion =
       typeof b.obra_direccion === 'string' ? b.obra_direccion.trim() : undefined;
     const texto = typeof b.texto === 'string' ? b.texto.trim() : undefined;
@@ -65,6 +66,7 @@ export async function POST(request: NextRequest) {
     const supabase = createServiceClient();
     const { data, error } = await insertDiarioObraEntry(supabase, {
       business_id,
+      obra_id: obra_id || null,
       obra_nombre,
       obra_direccion: obra_direccion || null,
       texto: texto || null,

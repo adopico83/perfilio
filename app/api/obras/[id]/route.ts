@@ -1,0 +1,182 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient, createServiceClient } from '@/lib/supabase/server';
+
+async function assertUserOwnsBusiness(
+  supabaseAuth: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  businessId: string
+): Promise<boolean> {
+  const { data } = await supabaseAuth
+    .from('business_profiles')
+    .select('id')
+    .eq('id', businessId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  return Boolean(data?.id);
+}
+
+export async function GET(
+  _request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  try {
+    const supabaseAuth = await createClient();
+    const {
+      data: { user },
+    } = await supabaseAuth.auth.getUser();
+    if (!user?.id) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
+
+    const { id: rawId } = await context.params;
+    const id = rawId?.trim() ?? '';
+    if (!id) {
+      return NextResponse.json({ error: 'id inválido' }, { status: 400 });
+    }
+
+    const supabase = createServiceClient();
+
+    const { data: obra, error: obraErr } = await supabase
+      .from('obras')
+      .select(
+        'id, business_id, cliente_id, nombre, direccion, estado, fecha_inicio, descripcion, created_at, updated_at'
+      )
+      .eq('id', id)
+      .maybeSingle();
+
+    if (obraErr || !obra) {
+      return NextResponse.json({ error: 'Obra no encontrada' }, { status: 404 });
+    }
+
+    const businessId = obra.business_id as string;
+    const ok = await assertUserOwnsBusiness(supabaseAuth, user.id, businessId);
+    if (!ok) {
+      return NextResponse.json({ error: 'No tienes acceso a esta obra' }, { status: 403 });
+    }
+
+    const clienteId = (obra.cliente_id as string | null) ?? null;
+    const { data: cliente } = clienteId
+      ? await supabase
+          .from('clientes')
+          .select('id, business_id, nombre, telefono, email, direccion, nif, notas, created_at, updated_at')
+          .eq('id', clienteId)
+          .maybeSingle()
+      : { data: null };
+
+    const [presRes, facRes, albRes, dioRes, gastRes] = await Promise.all([
+      supabase
+        .from('presupuestos')
+        .select('*')
+        .eq('obra_id', id)
+        .order('fecha', { ascending: false }),
+      supabase
+        .from('facturas')
+        .select('*')
+        .eq('obra_id', id)
+        .order('fecha', { ascending: false }),
+      supabase
+        .from('albaranes')
+        .select('*')
+        .eq('obra_id', id)
+        .order('fecha', { ascending: false }),
+      supabase
+        .from('diario_obra')
+        .select('*')
+        .eq('obra_id', id)
+        .order('fecha', { ascending: false }),
+      supabase
+        .from('gastos')
+        .select('*')
+        .eq('obra_id', id)
+        .order('fecha', { ascending: false }),
+    ]);
+
+    return NextResponse.json({
+      obra,
+      cliente: cliente ?? null,
+      presupuestos: presRes.data ?? [],
+      facturas: facRes.data ?? [],
+      albaranes: albRes.data ?? [],
+      entradas_diario_obra: dioRes.data ?? [],
+      gastos: gastRes.data ?? [],
+    });
+  } catch (e) {
+    console.error('[api/obras/[id] GET]', e);
+    return NextResponse.json({ error: 'Error interno' }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  _request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  try {
+    const supabaseAuth = await createClient();
+    const {
+      data: { user },
+    } = await supabaseAuth.auth.getUser();
+    if (!user?.id) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
+
+    const { id: rawId } = await context.params;
+    const id = rawId?.trim() ?? '';
+    if (!id) {
+      return NextResponse.json({ error: 'id inválido' }, { status: 400 });
+    }
+
+    const supabase = createServiceClient();
+
+    const { data: obra, error: obraErr } = await supabase
+      .from('obras')
+      .select('id, business_id')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (obraErr || !obra) {
+      return NextResponse.json({ error: 'Obra no encontrada' }, { status: 404 });
+    }
+
+    const businessId = obra.business_id as string;
+    const ok = await assertUserOwnsBusiness(supabaseAuth, user.id, businessId);
+    if (!ok) {
+      return NextResponse.json({ error: 'No tienes acceso a esta obra' }, { status: 403 });
+    }
+
+    const hasLinkedDocs = async (table: string) => {
+      const { data, error } = await supabase
+        .from(table)
+        .select('id')
+        .eq('obra_id', id)
+        .limit(1);
+      if (error) throw error;
+      return (data ?? []).length > 0;
+    };
+
+    const [hasPres, hasFac, hasAlb, hasDio, hasGast] = await Promise.all([
+      hasLinkedDocs('presupuestos'),
+      hasLinkedDocs('facturas'),
+      hasLinkedDocs('albaranes'),
+      hasLinkedDocs('diario_obra'),
+      hasLinkedDocs('gastos'),
+    ]);
+
+    if (hasPres || hasFac || hasAlb || hasDio || hasGast) {
+      return NextResponse.json(
+        { error: 'No se puede eliminar una obra con documentos. Ciérrala en su lugar.' },
+        { status: 400 }
+      );
+    }
+
+    const { error: delErr } = await supabase.from('obras').delete().eq('id', id);
+    if (delErr) {
+      return NextResponse.json({ error: delErr.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    console.error('[api/obras/[id] DELETE]', e);
+    return NextResponse.json({ error: 'Error interno' }, { status: 500 });
+  }
+}
+

@@ -17,6 +17,7 @@ import { History, Loader2, Paperclip, Pause, Video, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { isDiarioPdfDownloadLink } from '@/lib/diario-pdf-link';
 import { useCanvas } from '@/contexts/canvas-context';
+import { useObraModal } from '@/contexts/obra-modal-context';
 
 interface BusinessProfile {
   id: string;
@@ -361,6 +362,40 @@ export default function AgentSidebar() {
   const [imagenPendiente, setImagenPendiente] = useState<string | null>(null);
   const [subiendoVideo, setSubiendoVideo] = useState(false);
 
+  const OBRA_ACTIVA_KEY = 'perfilio_obra_activa';
+  const [obraActiva, setObraActiva] = useState<{ id: string; nombre: string } | null>(null);
+  const { abrirObra } = useObraModal();
+
+  const actualizarObraActiva = useCallback(
+    (next: { id: string; nombre: string } | null) => {
+      setObraActiva(next);
+      try {
+        if (!next) window.localStorage.removeItem(OBRA_ACTIVA_KEY);
+        else window.localStorage.setItem(OBRA_ACTIVA_KEY, JSON.stringify(next));
+      } catch {
+        // Ignoramos fallos de localStorage.
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(OBRA_ACTIVA_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as unknown;
+      if (!parsed || typeof parsed !== 'object') return;
+      const o = parsed as { id?: unknown; nombre?: unknown };
+      if (typeof o.id !== 'string' || typeof o.nombre !== 'string') return;
+      const id = o.id.trim();
+      const nombre = o.nombre.trim();
+      if (!id || !nombre) return;
+      setObraActiva({ id, nombre });
+    } catch {
+      // Ignoramos errores.
+    }
+  }, [OBRA_ACTIVA_KEY]);
+
   const listRef = useRef<HTMLDivElement | null>(null);
   const fileInputImagenRef = useRef<HTMLInputElement | null>(null);
   const fileInputVideoRef = useRef<HTMLInputElement | null>(null);
@@ -643,6 +678,8 @@ export default function AgentSidebar() {
             mensaje: promptInterno,
             business_id: selectedId,
             historial,
+            obra_activa_id: obraActiva?.id ?? '',
+            obra_activa_nombre: obraActiva?.nombre ?? '',
           }),
         });
 
@@ -650,6 +687,28 @@ export default function AgentSidebar() {
         if (!res.ok) {
           setError(String(data.error ?? 'Error al generar saludo automático'));
           return;
+        }
+
+        const obraModalRaw = (data as any).obra_modal;
+        if (
+          obraModalRaw &&
+          typeof obraModalRaw === 'object' &&
+          typeof (obraModalRaw as any).obra_id === 'string'
+        ) {
+          const oid = String((obraModalRaw as any).obra_id).trim();
+          if (oid) queueMicrotask(() => abrirObra(oid));
+        }
+
+        const obraActivaRaw = (data as any).obra_activa;
+        if (
+          obraActivaRaw &&
+          typeof obraActivaRaw === 'object' &&
+          typeof (obraActivaRaw as any).obra_id === 'string' &&
+          typeof (obraActivaRaw as any).obra_nombre === 'string'
+        ) {
+          const oid = String((obraActivaRaw as any).obra_id).trim();
+          const oname = String((obraActivaRaw as any).obra_nombre).trim();
+          if (oid && oname) actualizarObraActiva({ id: oid, nombre: oname });
         }
 
         const respuestaTexto =
@@ -762,6 +821,8 @@ export default function AgentSidebar() {
           mensaje: textoTrim,
           business_id: selectedId,
           historial,
+          obra_activa_id: obraActiva?.id ?? '',
+          obra_activa_nombre: obraActiva?.nombre ?? '',
           ...(imagenEnviar ? { imagen: imagenEnviar } : {}),
         }),
       });
@@ -788,6 +849,28 @@ export default function AgentSidebar() {
             abrirCanvas(tipoCanvas, datosCanvas, tituloCanvas);
           });
         }
+      }
+
+      const obraModalRaw = (data as any).obra_modal;
+      if (
+        obraModalRaw &&
+        typeof obraModalRaw === 'object' &&
+        typeof (obraModalRaw as any).obra_id === 'string'
+      ) {
+        const oid = String((obraModalRaw as any).obra_id).trim();
+        if (oid) queueMicrotask(() => abrirObra(oid));
+      }
+
+      const obraActivaRaw = (data as any).obra_activa;
+      if (
+        obraActivaRaw &&
+        typeof obraActivaRaw === 'object' &&
+        typeof (obraActivaRaw as any).obra_id === 'string' &&
+        typeof (obraActivaRaw as any).obra_nombre === 'string'
+      ) {
+        const oid = String((obraActivaRaw as any).obra_id).trim();
+        const oname = String((obraActivaRaw as any).obra_nombre).trim();
+        if (oid && oname) actualizarObraActiva({ id: oid, nombre: oname });
       }
 
       const { count: agendaCountDespues } = await supabase
@@ -1183,7 +1266,14 @@ export default function AgentSidebar() {
       <div className="h-14 px-3 flex items-center justify-between border-b border-white/10">
         {!collapsed ? (
           <div className="flex items-center gap-2">
-            <span className="font-semibold">Agente IA ✨</span>
+            <div className="flex flex-col leading-tight">
+              <span className="font-semibold">Agente IA ✨</span>
+              {obraActiva ? (
+                <span className="mt-1 inline-flex max-w-[10rem] truncate items-center px-2 py-0.5 rounded-full bg-[#ed8936]/15 border border-[#ed8936]/45 text-xs font-semibold text-[#f6ad55]">
+                  {obraActiva.nombre}
+                </span>
+              ) : null}
+            </div>
             <button
               type="button"
               onClick={nuevaConversacion}
@@ -1475,7 +1565,14 @@ export default function AgentSidebar() {
                 onTouchEnd={(e) => e.stopPropagation()}
               >
                 <div className="h-14 px-3 flex items-center justify-between border-b border-white/10">
-                  <span className="font-semibold">Agente IA ✨</span>
+                  <div className="flex flex-col leading-tight">
+                    <span className="font-semibold">Agente IA ✨</span>
+                    {obraActiva ? (
+                      <span className="mt-1 inline-flex max-w-[10rem] truncate items-center px-2 py-0.5 rounded-full bg-[#ed8936]/15 border border-[#ed8936]/45 text-xs font-semibold text-[#f6ad55]">
+                        {obraActiva.nombre}
+                      </span>
+                    ) : null}
+                  </div>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"

@@ -16,6 +16,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useEmailModal } from '@/contexts/email-modal-context';
+import { useObraModal } from '@/contexts/obra-modal-context';
 import ToggleAgenteNavButton from '@/components/dashboard/toggle-agente-nav-button';
 
 interface ResumenCounts {
@@ -68,6 +69,14 @@ interface DiarioEntradaWidget {
   texto: string | null;
 }
 
+interface ObraActivaWidget {
+  id: string;
+  nombre: string;
+  cliente_nombre: string | null;
+  fecha_inicio: string | null;
+  num_documentos: number;
+}
+
 interface UltimoClienteWidget {
   id: string;
   nombre: string;
@@ -116,6 +125,7 @@ function construirCeldasMes(year: number, month: number) {
 
 export default function DashboardPage() {
   const { abrirEmail, abrirUrgentes } = useEmailModal();
+  const { abrirObra } = useObraModal();
   const router = useRouter();
   const supabase = useMemo(
     () =>
@@ -153,6 +163,7 @@ export default function DashboardPage() {
   const [menuMovilAbierto, setMenuMovilAbierto] = useState(false);
   const [ultimasEntradasDiario, setUltimasEntradasDiario] = useState<DiarioEntradaWidget[]>([]);
   const [ultimosClientes, setUltimosClientes] = useState<UltimoClienteWidget[]>([]);
+  const [obrasActivas, setObrasActivas] = useState<ObraActivaWidget[]>([]);
 
   const [modalAgendaAbierto, setModalAgendaAbierto] = useState(false);
   const [mesCalendario, setMesCalendario] = useState(() => new Date());
@@ -398,6 +409,7 @@ export default function DashboardPage() {
           setTotalMateriales(0);
           setUltimasEntradasDiario([]);
           setUltimosClientes([]);
+          setObrasActivas([]);
           setEmailsUrgentes([]);
 
           const { data: gmailToken } = await supabase
@@ -503,6 +515,90 @@ export default function DashboardPage() {
           }
         } catch {
           setUltimasEntradasDiario([]);
+        }
+
+        try {
+          const obrasRes = await supabase
+            .from('obras')
+            .select('id, nombre, cliente_id, estado, fecha_inicio, created_at')
+            .eq('business_id', businessId)
+            .in('estado', ['abierta', 'en_curso'])
+            .order('created_at', { ascending: false })
+            .limit(3);
+
+          const obras = (obrasRes.data ?? []) as Array<{
+            id: string;
+            nombre: string;
+            cliente_id: string | null;
+            fecha_inicio: string | null;
+          }>;
+
+          if (obras.length === 0) {
+            setObrasActivas([]);
+          } else {
+            const obraIds = obras.map((o) => o.id);
+            const clienteIds = obras.map((o) => o.cliente_id).filter((id0): id0 is string => Boolean(id0));
+
+            const { data: cliRows } = clienteIds.length
+              ? await supabase
+                  .from('clientes')
+                  .select('id, nombre')
+                  .eq('business_id', businessId)
+                  .in('id', clienteIds)
+              : { data: [] as Array<{ id: string; nombre: string }> };
+
+            const clienteMap = new Map<string, string>();
+            for (const c of (cliRows ?? []) as Array<{ id: string; nombre: string }>) {
+              clienteMap.set(c.id, c.nombre);
+            }
+
+            const [pC, fC, aC, dC] = await Promise.all([
+              supabase
+                .from('presupuestos')
+                .select('obra_id')
+                .in('obra_id', obraIds),
+              supabase
+                .from('facturas')
+                .select('obra_id')
+                .in('obra_id', obraIds),
+              supabase
+                .from('albaranes')
+                .select('obra_id')
+                .in('obra_id', obraIds),
+              supabase
+                .from('diario_obra')
+                .select('obra_id')
+                .in('obra_id', obraIds),
+            ]);
+
+            const countMap = (rows: Array<{ obra_id: string | null }> | null) => {
+              const m = new Map<string, number>();
+              for (const id of obraIds) m.set(id, 0);
+              for (const r of rows ?? []) {
+                const oid = r.obra_id;
+                if (!oid) continue;
+                m.set(oid, (m.get(oid) ?? 0) + 1);
+              }
+              return m;
+            };
+
+            const mp = countMap(pC.data as Array<{ obra_id: string | null }> | null);
+            const mf = countMap(fC.data as Array<{ obra_id: string | null }> | null);
+            const ma = countMap(aC.data as Array<{ obra_id: string | null }> | null);
+            const md = countMap(dC.data as Array<{ obra_id: string | null }> | null);
+
+            setObrasActivas(
+              obras.map((o) => ({
+                id: o.id,
+                nombre: o.nombre,
+                cliente_nombre: o.cliente_id ? clienteMap.get(o.cliente_id) ?? null : null,
+                fecha_inicio: o.fecha_inicio ?? null,
+                num_documentos: (mp.get(o.id) ?? 0) + (mf.get(o.id) ?? 0) + (ma.get(o.id) ?? 0) + (md.get(o.id) ?? 0),
+              }))
+            );
+          }
+        } catch {
+          setObrasActivas([]);
         }
 
         try {
@@ -733,6 +829,9 @@ export default function DashboardPage() {
             <Link href="/diario" className="text-sm text-gray-200 hover:text-white transition-colors">
               Diario
             </Link>
+            <Link href="/obras" className="text-sm text-gray-200 hover:text-white transition-colors">
+              Obras
+            </Link>
             <Link href="/clientes" className="text-sm text-gray-200 hover:text-white transition-colors">
               Clientes
             </Link>
@@ -804,6 +903,13 @@ export default function DashboardPage() {
                 onClick={() => setMenuMovilAbierto(false)}
               >
                 Diario
+              </Link>
+              <Link
+                href="/obras"
+                className="text-sm text-gray-200 hover:text-white transition-colors"
+                onClick={() => setMenuMovilAbierto(false)}
+              >
+                Obras
               </Link>
               <Link
                 href="/clientes"
@@ -1177,7 +1283,7 @@ export default function DashboardPage() {
           <h2 className="text-sm font-semibold text-white/60 mb-1.5 uppercase tracking-wide">
             Diario de obra
           </h2>
-          <div className="w-full grid grid-cols-1 lg:grid-cols-2 gap-3 lg:gap-4 lg:max-w-full">
+          <div className="w-full grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-4 lg:max-w-full">
             <div className="bg-[#111827] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0">
               <div className="flex items-center justify-between shrink-0 mb-1.5">
                 <h3 className="text-sm font-semibold text-white/80 uppercase tracking-wide">
@@ -1224,6 +1330,57 @@ export default function DashboardPage() {
                   className="inline-flex items-center text-xs sm:text-sm font-medium text-[#ed8936] hover:text-[#f6ad55] transition-colors"
                 >
                   Ver diario completo →
+                </Link>
+              </div>
+            </div>
+
+            <div className="bg-[#111827] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0">
+              <div className="flex items-center justify-between shrink-0 mb-1.5">
+                <h3 className="text-sm font-semibold text-white/80 uppercase tracking-wide">
+                  Obras activas
+                </h3>
+              </div>
+              <div className="min-h-0 max-h-40 overflow-y-auto overscroll-contain">
+                {loading ? (
+                  <p className="text-white/60 text-xs">Cargando...</p>
+                ) : obrasActivas.length === 0 ? (
+                  <p className="text-white/60 text-xs">Sin obras activas</p>
+                ) : (
+                  <ul className="space-y-1.5 text-xs sm:text-sm">
+                    {obrasActivas.map((o) => (
+                      <li
+                        key={o.id}
+                        className="border-b border-white/10 pb-1.5 last:border-b-0 last:pb-0"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => abrirObra(o.id)}
+                          className="w-full text-left rounded-md px-1.5 py-1.5 -m-1 hover:bg-white/5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#ed8936]/70"
+                        >
+                          <p className="font-bold text-white truncate">{o.nombre}</p>
+                          <p className="text-[11px] sm:text-xs text-white/70 mt-0.5 truncate">
+                            {o.cliente_nombre ?? 'Sin cliente'}
+                          </p>
+                          <p className="text-[11px] sm:text-xs text-[#ed8936]/90 mt-0.5 tabular-nums">
+                            {o.num_documentos} documentos
+                          </p>
+                          {o.fecha_inicio ? (
+                            <p className="text-[10px] sm:text-[11px] text-white/55 mt-0.5 tabular-nums">
+                              Inicio: {o.fecha_inicio}
+                            </p>
+                          ) : null}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="shrink-0 mt-2 pt-2 border-t border-white/10">
+                <Link
+                  href="/obras"
+                  className="inline-flex items-center text-xs sm:text-sm font-medium text-[#ed8936] hover:text-[#f6ad55] transition-colors"
+                >
+                  Ver todas →
                 </Link>
               </div>
             </div>

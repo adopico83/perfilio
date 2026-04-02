@@ -222,6 +222,9 @@ export default function ClienteFichaPage() {
             <Link href="/diario" className="text-sm text-gray-200 hover:text-white transition-colors">
               Diario
             </Link>
+            <Link href="/obras" className="text-sm text-gray-200 hover:text-white transition-colors">
+              Obras
+            </Link>
             <Link href="/clientes" className="text-sm font-medium text-[#ed8936]">
               Clientes
             </Link>
@@ -250,6 +253,9 @@ export default function ClienteFichaPage() {
               </Link>
               <Link href="/diario" className="text-sm text-gray-200 hover:text-white" onClick={() => setMenuMovilAbierto(false)}>
                 Diario
+              </Link>
+              <Link href="/obras" className="text-sm text-gray-200 hover:text-white" onClick={() => setMenuMovilAbierto(false)}>
+                Obras
               </Link>
               <Link href="/clientes" className="text-sm font-medium text-[#ed8936]" onClick={() => setMenuMovilAbierto(false)}>
                 Clientes

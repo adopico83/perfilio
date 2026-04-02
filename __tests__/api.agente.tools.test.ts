@@ -26,9 +26,11 @@ function makeThenableResult<T>(result: { data: T; error: { message: string } | n
   const self = () => chain;
   chain.select = jest.fn(self);
   chain.eq = jest.fn(self);
+  chain.update = jest.fn(self);
   chain.order = jest.fn(self);
   chain.limit = jest.fn(self);
   chain.is = jest.fn(self);
+  chain.ilike = jest.fn(self);
   chain.in = jest.fn(self);
   chain.single = jest.fn().mockResolvedValue(result);
   (chain as unknown as PromiseLike<typeof result>).then = (onFulfilled, onRejected) =>
@@ -640,6 +642,77 @@ describe('POST /api/agente — tools', () => {
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
       const parsed = JSON.parse(toolMsg!.content as string) as { mensaje?: string };
       expect(parsed.mensaje).toBe('Cliente Cliente Test creado correctamente.');
+    });
+  });
+
+  describe('crear_obra', () => {
+    it('devuelve mensaje de éxito con nombre', async () => {
+      const nombreObra = 'Reforma Baño García';
+      const insertObra = jest.fn().mockResolvedValue({ data: null, error: null });
+
+      const res = await postWithTool(
+        'crear_obra',
+        {
+          obras: {
+            insert: insertObra,
+          },
+        },
+        JSON.stringify({ nombre: nombreObra })
+      );
+
+      expect(res.status).toBe(200);
+      expect(insertObra).toHaveBeenCalled();
+
+      const secondCall = createMock.mock.calls[2]?.[0] as {
+        messages: Array<{ role: string; content?: string }>;
+      };
+      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
+      const parsed = JSON.parse(toolMsg!.content as string) as { mensaje?: string };
+      expect(parsed.mensaje).toBe(`Obra '${nombreObra}' creada correctamente.`);
+    });
+  });
+
+  describe('asociar_documentos_a_obra', () => {
+    it('devuelve resumen con conteos', async () => {
+      const nPres = 2;
+      const nFac = 1;
+      const nAlb = 3;
+
+      const pres = makeThenableResult({ data: Array.from({ length: nPres }, (_, i) => ({ id: `p${i}` })), error: null });
+      const fac = makeThenableResult({ data: Array.from({ length: nFac }, (_, i) => ({ id: `f${i}` })), error: null });
+      const alb = makeThenableResult({ data: Array.from({ length: nAlb }, (_, i) => ({ id: `a${i}` })), error: null });
+      const gast = makeThenableResult({ data: [{ id: 'g1' }], error: null });
+      const dio = makeThenableResult({ data: [{ id: 'd1' }], error: null });
+
+      const obraNombre = 'Reforma Baño García';
+
+      const res = await postWithTool(
+        'asociar_documentos_a_obra',
+        {
+          presupuestos: pres,
+          facturas: fac,
+          albaranes: alb,
+          gastos: gast,
+          diario_obra: dio,
+        },
+        JSON.stringify({
+          obra_id: 'obra-1',
+          obra_nombre: obraNombre,
+          cliente_id: 'cli-1',
+        })
+      );
+
+      expect(res.status).toBe(200);
+
+      const secondCall = createMock.mock.calls[2]?.[0] as {
+        messages: Array<{ role: string; content?: string }>;
+      };
+      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
+      const parsed = JSON.parse(toolMsg!.content as string) as { mensaje?: string };
+
+      expect(parsed.mensaje).toBe(
+        `Asociados ${nPres} presupuestos, ${nFac} facturas, ${nAlb} albaranes a la obra '${obraNombre}'.`
+      );
     });
   });
 

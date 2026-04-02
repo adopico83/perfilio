@@ -6,6 +6,7 @@ type JsPdfInstance = InstanceType<typeof jsPDF>;
 export type DiarioObraRow = {
   id: string;
   business_id: string;
+  obra_id?: string | null;
   obra_nombre: string;
   obra_direccion: string | null;
   texto: string | null;
@@ -19,6 +20,7 @@ export async function insertDiarioObraEntry(
   supabase: SupabaseClient,
   params: {
     business_id: string;
+    obra_id?: string | null;
     obra_nombre: string;
     obra_direccion?: string | null;
     texto?: string | null;
@@ -35,6 +37,7 @@ export async function insertDiarioObraEntry(
     .from('diario_obra')
     .insert({
       business_id: params.business_id,
+      obra_id: params.obra_id ?? null,
       obra_nombre: params.obra_nombre.trim(),
       obra_direccion: params.obra_direccion?.trim() || null,
       texto: params.texto?.trim() || null,
@@ -51,7 +54,8 @@ export async function insertDiarioObraEntry(
 export async function fetchDiarioObraEntries(
   supabase: SupabaseClient,
   businessId: string,
-  obraNombre?: string | null
+  obraNombre?: string | null,
+  obraId?: string | null
 ): Promise<{ data: DiarioObraRow[] | null; error: { message: string } | null }> {
   let q = supabase
     .from('diario_obra')
@@ -61,6 +65,10 @@ export async function fetchDiarioObraEntries(
 
   if (obraNombre?.trim()) {
     q = q.eq('obra_nombre', obraNombre.trim());
+  }
+
+  if (obraId?.trim()) {
+    q = q.eq('obra_id', obraId.trim());
   }
 
   const { data, error } = await q;

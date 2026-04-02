@@ -181,6 +181,9 @@ function DiarioPageInner() {
               Albaranes
             </Link>
             <span className="text-sm font-medium text-[#ed8936]">Diario</span>
+            <Link href="/obras" className="text-sm text-gray-200 hover:text-white transition-colors">
+              Obras
+            </Link>
             <Link href="/clientes" className="text-sm text-gray-200 hover:text-white transition-colors">
               Clientes
             </Link>
@@ -224,6 +227,13 @@ function DiarioPageInner() {
                 Albaranes
               </Link>
               <span className="text-sm font-medium text-[#ed8936]">Diario</span>
+              <Link
+                href="/obras"
+                className="text-sm text-gray-200 hover:text-white"
+                onClick={() => setMenuMovilAbierto(false)}
+              >
+                Obras
+              </Link>
               <Link
                 href="/clientes"
                 className="text-sm text-gray-200 hover:text-white"

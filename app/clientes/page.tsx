@@ -185,6 +185,9 @@ export default function ClientesPage() {
             <Link href="/diario" className="text-sm text-gray-200 hover:text-white transition-colors">
               Diario
             </Link>
+            <Link href="/obras" className="text-sm text-gray-200 hover:text-white transition-colors">
+              Obras
+            </Link>
             <span className="text-sm font-medium text-[#ed8936]">Clientes</span>
             <Link href="/facturas" className="text-sm text-gray-200 hover:text-white transition-colors">
               Facturas
@@ -231,6 +234,13 @@ export default function ClientesPage() {
                 onClick={() => setMenuMovilAbierto(false)}
               >
                 Diario
+              </Link>
+              <Link
+                href="/obras"
+                className="text-sm text-gray-200 hover:text-white"
+                onClick={() => setMenuMovilAbierto(false)}
+              >
+                Obras
               </Link>
               <span className="text-sm font-medium text-[#ed8936]">Clientes</span>
               <Link
