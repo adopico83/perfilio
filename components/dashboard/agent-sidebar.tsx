@@ -635,7 +635,7 @@ export default function AgentSidebar() {
         "- Presupuestos pendientes de respuesta (usa listar_presupuestos filtrando estado 'pendiente')\n" +
         '- Emails urgentes si los hay (usa leer_emails_recientes)\n' +
         '- Albaranes pendientes de facturar más de 7 días (usa albaranes_sin_facturar)\n' +
-        '- Consulta el tiempo para hoy y mañana en la ubicación del negocio o de los eventos de agenda (usa consultar_tiempo con la ciudad del negocio). Si hay lluvia o mal tiempo que afecte a obras, avísalo claramente.\n' +
+        '- Consulta el tiempo para hoy y mañana en la ubicación del negocio (usa consultar_tiempo, el agente conoce la ciudad). Si hay lluvia o mal tiempo que afecte a obras, avísalo claramente.\n' +
         'Sé breve y directo, estilo asistente profesional.';
 
       try {

@@ -93,6 +93,60 @@ interface UltimoClienteWidget {
   num_documentos: number;
 }
 
+const URGENTES_CACHE_KEY = 'perfilio_urgentes_cache';
+const URGENTES_CACHE_MS = 15 * 60 * 1000;
+
+type UrgentesCacheStored = {
+  t: number;
+  total: number;
+  urgentes: EmailReciente[];
+  normales: EmailReciente[];
+};
+
+function readUrgentesCache(): UrgentesCacheStored | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(URGENTES_CACHE_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as Partial<UrgentesCacheStored>;
+    if (
+      typeof p.t !== 'number' ||
+      typeof p.total !== 'number' ||
+      !Array.isArray(p.urgentes) ||
+      !Array.isArray(p.normales)
+    ) {
+      return null;
+    }
+    return {
+      t: p.t,
+      total: p.total,
+      urgentes: p.urgentes as EmailReciente[],
+      normales: p.normales as EmailReciente[],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeUrgentesCache(
+  total: number,
+  urgentes: EmailReciente[],
+  normales: EmailReciente[]
+) {
+  if (typeof window === 'undefined') return;
+  try {
+    const payload: UrgentesCacheStored = {
+      t: Date.now(),
+      total,
+      urgentes,
+      normales,
+    };
+    window.localStorage.setItem(URGENTES_CACHE_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore
+  }
+}
+
 const DIAS_SEMANA_CORTO = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
 function formatEmailFecha(iso: string | null) {
@@ -676,56 +730,95 @@ export default function DashboardPage() {
     setEmailsLoading(true);
     setEmailsError(null);
 
+    const applyCache = (c: UrgentesCacheStored) => {
+      setCounts((prev) => ({ ...prev, urgentes: c.total }));
+      setEmailsUrgentes(c.urgentes);
+      setEmailsRecientes([...c.urgentes, ...c.normales].slice(0, 4));
+    };
+
+    const cached = readUrgentesCache();
+    if (cached && Date.now() - cached.t < URGENTES_CACHE_MS) {
+      applyCache(cached);
+    }
+
+    const restoreFromCacheIfAny = (): boolean => {
+      const c = readUrgentesCache();
+      if (!c) return false;
+      applyCache(c);
+      return true;
+    };
+
     void (async () => {
       try {
         const res = await fetch('/api/gmail/urgentes');
-        const data = (await res.json()) as {
+        let data: {
           urgentes?: EmailReciente[];
           normales?: EmailReciente[];
           total_urgentes?: number;
           error?: string | null;
         };
+        try {
+          data = (await res.json()) as typeof data;
+        } catch {
+          if (cancelled) return;
+          setEmailsError('No se pudieron cargar los emails.');
+          if (!restoreFromCacheIfAny()) {
+            setEmailsRecientes([]);
+            setEmailsUrgentes([]);
+            setCounts((prev) => ({ ...prev, urgentes: 0 }));
+          }
+          return;
+        }
         if (cancelled) return;
         if (!res.ok) {
           setEmailsError('No se pudieron cargar los emails.');
-          setEmailsRecientes([]);
+          if (!restoreFromCacheIfAny()) {
+            setEmailsRecientes([]);
+            setEmailsUrgentes([]);
+            setCounts((prev) => ({ ...prev, urgentes: 0 }));
+          }
           return;
         }
         if (data.error === 'gmail_not_connected') {
           setEmailsError('Gmail no está disponible. Conecta de nuevo desde el menú superior.');
-          setEmailsRecientes([]);
+          if (!restoreFromCacheIfAny()) {
+            setEmailsRecientes([]);
+          }
           return;
         }
         if (data.error === 'gmail_fetch_failed') {
           setEmailsError('No se pudo acceder a Gmail. Inténtalo de nuevo más tarde.');
-          setEmailsRecientes([]);
+          if (!restoreFromCacheIfAny()) {
+            setEmailsRecientes([]);
+          }
           return;
         }
         if (data.error) {
           setEmailsError('No se pudieron cargar los emails.');
-          setEmailsRecientes([]);
-          setEmailsUrgentes([]);
-          setCounts((prev) => ({ ...prev, urgentes: 0 }));
+          if (!restoreFromCacheIfAny()) {
+            setEmailsRecientes([]);
+            setEmailsUrgentes([]);
+            setCounts((prev) => ({ ...prev, urgentes: 0 }));
+          }
           return;
         }
         const urgentes = Array.isArray(data.urgentes) ? data.urgentes : [];
         const normales = Array.isArray(data.normales) ? data.normales : [];
+        const totalUrg =
+          typeof data.total_urgentes === 'number' ? data.total_urgentes : urgentes.length;
         setEmailsUrgentes(urgentes);
-        setCounts((prev) => ({
-          ...prev,
-          urgentes:
-            typeof data.total_urgentes === 'number'
-              ? data.total_urgentes
-              : urgentes.length,
-        }));
+        setCounts((prev) => ({ ...prev, urgentes: totalUrg }));
         const merged = [...urgentes, ...normales];
         setEmailsRecientes(merged.slice(0, 4));
+        writeUrgentesCache(totalUrg, urgentes, normales);
       } catch {
         if (!cancelled) {
           setEmailsError('Error de conexión al cargar emails.');
-          setEmailsRecientes([]);
-          setEmailsUrgentes([]);
-          setCounts((prev) => ({ ...prev, urgentes: 0 }));
+          if (!restoreFromCacheIfAny()) {
+            setEmailsRecientes([]);
+            setEmailsUrgentes([]);
+            setCounts((prev) => ({ ...prev, urgentes: 0 }));
+          }
         }
       } finally {
         if (!cancelled) setEmailsLoading(false);

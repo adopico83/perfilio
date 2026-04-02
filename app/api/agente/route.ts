@@ -501,7 +501,9 @@ export async function POST(request: NextRequest) {
     } = await supabaseAuth.auth.getUser();
     const { data: profile, error: profileError } = await supabase
       .from('business_profiles')
-      .select('nombre, sector, descripcion, servicios, tarifas, contexto_adicional')
+      .select(
+        'nombre, sector, descripcion, servicios, tarifas, contexto_adicional, ciudad, direccion'
+      )
       .eq('id', business_id)
       .single();
 
@@ -518,6 +520,12 @@ export async function POST(request: NextRequest) {
     const servicios = profile.servicios ?? '';
     const tarifas = profile.tarifas ?? '';
     const contexto_adicional = profile.contexto_adicional ?? '';
+    const ciudadNegocio = String(
+      (profile as { ciudad?: string | null }).ciudad ?? ''
+    ).trim();
+    const ubicacionMeteoPrompt = ciudadNegocio
+      ? `\n\nUbicación del negocio: ${ciudadNegocio}. Usa esta ciudad por defecto para consultas meteorológicas cuando el usuario no especifique otra ubicación.`
+      : '';
 
     const fechaActual = new Date().toLocaleDateString('es-ES', {
       weekday: 'long',
@@ -577,7 +585,7 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, menciona de 
 ${descripcion}
 Servicios: ${servicios}
 Tarifas: ${tarifas}
-Contexto extra: ${contexto_adicional}
+Contexto extra: ${contexto_adicional}${ubicacionMeteoPrompt}
 
 GESTIÓN DE OBRAS MÚLTIPLES:
 Pino puede tener varias obras abiertas simultáneamente. Cuando el usuario mencione un nombre, cliente o dirección:
