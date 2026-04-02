@@ -8,6 +8,7 @@ import ReactMarkdown from 'react-markdown';
 import { X } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { useObraModal } from '@/contexts/obra-modal-context';
+import { type ObrasNombreJoin, nombreObraDesdeJoin } from '@/lib/obras-nombre-join';
 
 interface Presupuesto {
   id: string;
@@ -18,7 +19,7 @@ interface Presupuesto {
   estado: string | null;
   created_at: string;
   obra_id: string | null;
-  obras: { nombre: string } | null;
+  obras?: ObrasNombreJoin;
 }
 
 function PresupuestosPageContent() {
@@ -56,7 +57,7 @@ function PresupuestosPageContent() {
       .from('presupuestos')
       .select('id, business_id, mensaje_cliente, presupuesto_generado, fecha, estado, created_at, obra_id, obras(nombre)')
       .order('created_at', { ascending: false });
-    setPresupuestos((data ?? []) as Presupuesto[]);
+    setPresupuestos((data ?? []) as unknown as Presupuesto[]);
     setLoading(false);
   };
 
@@ -191,6 +192,7 @@ function PresupuestosPageContent() {
   }
 
   const modalItem = modalId ? presupuestos.find((p) => p.id === modalId) : null;
+  const modalObraNombre = modalItem ? nombreObraDesdeJoin(modalItem.obras) : undefined;
 
   return (
     <div className="min-h-screen bg-[#1a365d] text-white p-8">
@@ -204,20 +206,22 @@ function PresupuestosPageContent() {
           <p className="text-white/70">Cargando...</p>
         ) : (
           <ul className="space-y-4">
-            {presupuestos.map((p) => (
+            {presupuestos.map((p) => {
+              const obraNombre = nombreObraDesdeJoin(p.obras);
+              return (
               <li key={p.id} className="bg-white/5 border border-white/10 rounded-lg p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                   <span className="text-white/70 text-sm">{p.fecha ?? new Date(p.created_at).toLocaleDateString('es-ES')}</span>
                   <div className="flex flex-wrap items-center gap-2">
-                    {p.obra_id && p.obras?.nombre ? (
+                    {p.obra_id && obraNombre ? (
                       <button
                         type="button"
                         onClick={() => abrirObra(p.obra_id!)}
                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-[#ed8936]/20 text-[#f6ad55] border border-[#ed8936]/45 hover:bg-[#ed8936]/30 transition-colors max-w-[14rem] truncate"
-                        title={p.obras.nombre}
+                        title={obraNombre}
                       >
                         <span aria-hidden>📁</span>
-                        {p.obras.nombre}
+                        {obraNombre}
                       </button>
                     ) : null}
                     {badgeEstado(p.estado)}
@@ -247,7 +251,8 @@ function PresupuestosPageContent() {
                   )}
                 </div>
               </li>
-            ))}
+            );
+            })}
           </ul>
         )}
 
@@ -263,14 +268,14 @@ function PresupuestosPageContent() {
             <div className="flex justify-between items-start gap-3 p-4 border-b border-white/10">
               <div className="min-w-0">
                 <h2 className="text-lg font-bold text-white">Presupuesto completo</h2>
-                {modalItem.obra_id && modalItem.obras?.nombre ? (
+                {modalItem.obra_id && modalObraNombre ? (
                   <button
                     type="button"
                     onClick={() => abrirObra(modalItem.obra_id!)}
                     className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-[#f6ad55] hover:text-[#ed8936] transition-colors text-left"
                   >
                     <span aria-hidden>📁</span>
-                    <span className="truncate">{modalItem.obras.nombre}</span>
+                    <span className="truncate">{modalObraNombre}</span>
                   </button>
                 ) : null}
               </div>

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import { X } from 'lucide-react';
 import { useObraModal } from '@/contexts/obra-modal-context';
+import { type ObrasNombreJoin, nombreObraDesdeJoin } from '@/lib/obras-nombre-join';
 
 interface Albaran {
   id: string;
@@ -21,7 +22,7 @@ interface Albaran {
   observaciones: string | null;
   created_at: string;
   obra_id: string | null;
-  obras: { nombre: string } | null;
+  obras?: ObrasNombreJoin;
 }
 
 export default function AlbaranesPage() {
@@ -58,7 +59,7 @@ export default function AlbaranesPage() {
       .from('albaranes')
       .select('id, business_id, numero_albaran, cliente_nombre, cliente_direccion, descripcion_trabajos, lineas, total, fecha, estado, observaciones, created_at, obra_id, obras(nombre)')
       .order('created_at', { ascending: false });
-    setAlbaranes((data ?? []) as Albaran[]);
+    setAlbaranes((data ?? []) as unknown as Albaran[]);
     setLoading(false);
   };
 
@@ -88,6 +89,7 @@ export default function AlbaranesPage() {
   }
 
   const detalleItem = detalleId ? albaranes.find((a) => a.id === detalleId) : null;
+  const detalleObraNombre = detalleItem ? nombreObraDesdeJoin(detalleItem.obras) : undefined;
 
   return (
     <div className="min-h-screen bg-[#1a365d] text-white p-8">
@@ -101,20 +103,22 @@ export default function AlbaranesPage() {
           <p className="text-white/70">Cargando...</p>
         ) : (
           <ul className="space-y-4">
-            {albaranes.map((a) => (
+            {albaranes.map((a) => {
+              const obraNombre = nombreObraDesdeJoin(a.obras);
+              return (
               <li key={a.id} className="bg-white/5 border border-white/10 rounded-lg p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                   <div className="flex flex-wrap items-center gap-2 min-w-0">
                     <span className="font-semibold text-white">{a.numero_albaran ?? '—'}</span>
-                    {a.obra_id && a.obras?.nombre ? (
+                    {a.obra_id && obraNombre ? (
                       <button
                         type="button"
                         onClick={() => abrirObra(a.obra_id!)}
                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-[#ed8936]/20 text-[#f6ad55] border border-[#ed8936]/45 hover:bg-[#ed8936]/30 transition-colors max-w-[14rem] truncate"
-                        title={a.obras.nombre}
+                        title={obraNombre}
                       >
                         <span aria-hidden>📁</span>
-                        {a.obras.nombre}
+                        {obraNombre}
                       </button>
                     ) : null}
                   </div>
@@ -141,7 +145,8 @@ export default function AlbaranesPage() {
                   )}
                 </div>
               </li>
-            ))}
+            );
+            })}
           </ul>
         )}
 
@@ -157,14 +162,14 @@ export default function AlbaranesPage() {
             <div className="flex justify-between items-start gap-3 p-4 border-b border-white/10">
               <div className="min-w-0">
                 <h2 className="text-lg font-bold text-white">Albarán {detalleItem.numero_albaran ?? ''}</h2>
-                {detalleItem.obra_id && detalleItem.obras?.nombre ? (
+                {detalleItem.obra_id && detalleObraNombre ? (
                   <button
                     type="button"
                     onClick={() => abrirObra(detalleItem.obra_id!)}
                     className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-[#f6ad55] hover:text-[#ed8936] transition-colors text-left"
                   >
                     <span aria-hidden>📁</span>
-                    <span className="truncate">{detalleItem.obras.nombre}</span>
+                    <span className="truncate">{detalleObraNombre}</span>
                   </button>
                 ) : null}
               </div>
