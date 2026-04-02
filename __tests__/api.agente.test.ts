@@ -23,6 +23,7 @@ function createSupabaseQueryChain(options?: {
     'delete',
     'eq',
     'in',
+    'ilike',
     'order',
     'limit',
     'is',

@@ -27,6 +27,7 @@ import {
   formatearBorradorPresupuestoDictado,
   type TarifaReferencia,
 } from '@/lib/dictado-presupuesto';
+import { resolverObraDocumentoAgente } from '@/lib/obras-context';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -328,7 +329,6 @@ const INTENT_TOOL_NAMES_DOCUMENTOS = new Set([
   'crear_obra',
   'buscar_obra',
   'ver_ficha_obra',
-  'establecer_obra_activa',
   'asociar_documentos_a_obra',
   'convertir_presupuesto_a_albaran',
   'convertir_albaran_a_factura',
@@ -430,7 +430,7 @@ function toolsForAgentIntent(
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { mensaje, business_id, historial, imagen, imagen_mime, obra_activa_id, obra_activa_nombre } = body;
+    const { mensaje, business_id, historial, imagen, imagen_mime } = body;
 
     const mensajeTrim = typeof mensaje === 'string' ? mensaje.trim() : '';
     const imagenDataUrl = normalizarImagenVision(imagen, imagen_mime);
@@ -491,13 +491,6 @@ export async function POST(request: NextRequest) {
     const tarifas = profile.tarifas ?? '';
     const contexto_adicional = profile.contexto_adicional ?? '';
 
-    const obraActivaId = typeof obra_activa_id === 'string' ? obra_activa_id.trim() : '';
-    const obraActivaNombre = typeof obra_activa_nombre === 'string' ? obra_activa_nombre.trim() : '';
-    const obraActivaPrompt =
-      obraActivaId && obraActivaNombre
-        ? `Obra activa: ${obraActivaNombre}. Asocia automáticamente todos los documentos nuevos a esta obra (obra_id: ${obraActivaId}).`
-        : 'Obra activa: (ninguna). Asocia automáticamente cuando exista una obra activa.';
-
     const fechaActual = new Date().toLocaleDateString('es-ES', {
       weekday: 'long',
       year: 'numeric',
@@ -557,7 +550,15 @@ ${descripcion}
 Servicios: ${servicios}
 Tarifas: ${tarifas}
 Contexto extra: ${contexto_adicional}
-${obraActivaPrompt}
+
+GESTIÓN DE OBRAS MÚLTIPLES:
+Pino puede tener varias obras abiertas simultáneamente. Cuando el usuario mencione un nombre, cliente o dirección:
+1. Identifica automáticamente la obra correspondiente (las tools resuelven obra_id desde el contexto).
+2. Si hay ambigüedad entre varias obras, pregunta al usuario.
+3. Nunca asumas una obra sin confirmación si hay ambigüedad.
+4. Siempre asocia los documentos a la obra correcta usando obra_id cuando esté claro.
+5. Si el usuario no menciona ninguna obra, crea el documento sin obra_id y pregunta si quiere asociarlo a alguna obra.
+
 Responde en español, profesional y conciso.
 
 Documentos: crear_presupuesto / crear_factura / crear_albaran solo si pide crear o generar algo nuevo; si solo consulta, usa listar_* u obtener_*_pendientes. Estados: pendiente, aceptado, rechazado, facturado, pagado. Sin UUID: listar_* antes de cambiar_estado_* o editar_*. Factura nueva: si faltan datos, preguntar (cliente, NIF, mano de obra, materiales, otros); luego líneas, base, IVA 21 %, total. Albarán nuevo: cliente, trabajos, fecha, total si aplica. Confirma al guardar.
@@ -575,7 +576,7 @@ Medidas de obra: siempre calcular_medicion; no calcules totales a mano.
 
 Imagen ticket/factura: resume OCR y pregunta; registrar_gasto_ticket solo tras confirmación explícita en un mensaje siguiente. Tras registrar bien, ofrece vincular. vincular_gasto solo si el usuario indica documento (antes listar_facturas/listar_albaranes si hace falta el id).
 
-Diario: crear_entrada_diario (obra_nombre obligatorio); generar_pdf_diario para exportar con el nombre exacto de obra.
+Diario: crear_entrada_diario (obra_nombre para identificar la obra; detección automática desde nombre/cliente/dirección); generar_pdf_diario para exportar con el nombre exacto de obra.
 
 Si hay mensajes de clientes pendientes de aprobar, menciónalos al inicio cuando aplique.
 
@@ -945,22 +946,6 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
       {
         type: 'function',
         function: {
-          name: 'establecer_obra_activa',
-          description:
-            "Establece la obra activa para la sesión. Todos los documentos que crees después se asociarán automáticamente a esta obra.",
-          parameters: {
-            type: 'object',
-            properties: {
-              obra_id: { type: 'string', description: 'UUID de la obra' },
-              obra_nombre: { type: 'string', description: 'Nombre de la obra (buscar si no hay id)' },
-            },
-            additionalProperties: false,
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
           name: 'asociar_documentos_a_obra',
           description:
             'Asocia documentos existentes (presupuestos, facturas, albaranes, gastos, entradas de diario) a una obra. Usar cuando el usuario pida vincular documentos de un cliente a una obra específica.',
@@ -1218,6 +1203,10 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
                 type: 'boolean',
                 description: 'Si preparar borrador de email al cliente (por defecto true)',
               },
+              obra_id: {
+                type: 'string',
+                description: 'UUID de la obra (opcional; si no, se detecta por contexto o mensaje)',
+              },
             },
             required: ['descripcion', 'importe'],
             additionalProperties: false,
@@ -1361,7 +1350,7 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
         function: {
           name: 'crear_entrada_diario',
           description:
-            'Entrada en diario de obra: texto, fotos y/o vídeos (URLs). Obligatorio obra_nombre.',
+            'Entrada en diario de obra: texto, fotos y/o vídeos (URLs). Obligatorio obra_nombre para identificar la obra; el servidor resuelve obra_id por nombre, cliente o dirección.',
           parameters: {
             type: 'object',
             properties: {
@@ -1372,7 +1361,8 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
               },
               obra_id: {
                 type: 'string',
-                description: 'UUID de la obra (opcional). Si hay obra activa se rellena automáticamente.',
+                description:
+                  'UUID de la obra (opcional). Si no se indica, se detecta por obra_nombre y el mensaje del usuario.',
               },
               obra_direccion: {
                 type: 'string',
@@ -2030,10 +2020,20 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
           const cr = await resolveClienteIdOpcional(toolArgs.cliente_id);
           if (!cr.ok) return { error: cr.error };
 
-          const obraIdFinal =
+          const explicitObra =
             typeof toolArgs.obra_id === 'string' && toolArgs.obra_id.trim()
               ? String(toolArgs.obra_id).trim()
-              : obraActivaId || '';
+              : undefined;
+          const textoObra = [texto, clienteNombre, mensajeTrim].filter(Boolean).join(' ').trim();
+          const obraRes = await resolverObraDocumentoAgente(
+            supabase,
+            business_id,
+            explicitObra,
+            textoObra,
+            'documento'
+          );
+          if (!obraRes.ok) return { mensaje: obraRes.mensaje };
+          const obraIdFinal = obraRes.obra_id ?? '';
 
           const { error } = await supabase.from('presupuestos').insert({
             business_id,
@@ -2064,10 +2064,20 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
           const cr = await resolveClienteIdOpcional(toolArgs.cliente_id);
           if (!cr.ok) return { error: cr.error };
 
-          const obraIdFinal =
+          const explicitObra =
             typeof toolArgs.obra_id === 'string' && toolArgs.obra_id.trim()
               ? String(toolArgs.obra_id).trim()
-              : obraActivaId || '';
+              : undefined;
+          const textoObra = [desc, mensajeTrim].filter(Boolean).join(' ').trim();
+          const obraRes = await resolverObraDocumentoAgente(
+            supabase,
+            business_id,
+            explicitObra,
+            textoObra,
+            'documento'
+          );
+          if (!obraRes.ok) return { mensaje: obraRes.mensaje };
+          const obraIdFinal = obraRes.obra_id ?? '';
 
           const { error } = await supabase.from('facturas').insert({
             business_id,
@@ -2103,10 +2113,20 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
           const cr = await resolveClienteIdOpcional(toolArgs.cliente_id);
           if (!cr.ok) return { error: cr.error };
 
-          const obraIdFinal =
+          const explicitObra =
             typeof toolArgs.obra_id === 'string' && toolArgs.obra_id.trim()
               ? String(toolArgs.obra_id).trim()
-              : obraActivaId || '';
+              : undefined;
+          const textoObra = [desc, clienteAlb, mensajeTrim].filter(Boolean).join(' ').trim();
+          const obraRes = await resolverObraDocumentoAgente(
+            supabase,
+            business_id,
+            explicitObra,
+            textoObra,
+            'documento'
+          );
+          if (!obraRes.ok) return { mensaje: obraRes.mensaje };
+          const obraIdFinal = obraRes.obra_id ?? '';
 
           const { error } = await supabase.from('albaranes').insert({
             business_id,
@@ -2318,41 +2338,6 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
             accion: 'abrir_ficha_obra',
             obra_id: obraId,
             obra_nombre: obraNombre,
-          };
-        }
-        case 'establecer_obra_activa': {
-          const obraIdRaw = String(toolArgs.obra_id ?? '').trim();
-          const obraNombreRaw = String(toolArgs.obra_nombre ?? '').trim();
-
-          if (!obraIdRaw && !obraNombreRaw) {
-            return { error: 'obra_id u obra_nombre es obligatorio' };
-          }
-
-          let obraId = obraIdRaw;
-          let obraNombre = obraNombreRaw;
-
-          if (!obraId) {
-            const safeQ = obraNombre.replace(/[%_*]/g, '').slice(0, 120);
-            const pat = `%${safeQ}%`;
-            const { data: row, error: err } = await supabase
-              .from('obras')
-              .select('id, nombre')
-              .eq('business_id', business_id)
-              .ilike('nombre', pat)
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-            if (err) return { error: err.message };
-            if (!row?.id) return { error: 'No se encontró la obra' };
-            obraId = row.id;
-            obraNombre = row.nombre ?? obraNombre;
-          }
-
-          return {
-            accion: 'establecer_obra_activa',
-            obra_id: obraId,
-            obra_nombre: obraNombre,
-            mensaje: `Obra activa: '${obraNombre}'. Los documentos que crees se asociarán a esta obra automáticamente.`,
           };
         }
         case 'asociar_documentos_a_obra': {
@@ -3183,6 +3168,10 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
               ? String(toolArgs.cliente_nombre).trim().slice(0, 255)
               : '';
           const notificar = toolArgs.notificar_cliente !== false;
+          const explicitObraExtra =
+            typeof toolArgs.obra_id === 'string' && toolArgs.obra_id.trim()
+              ? String(toolArgs.obra_id).trim()
+              : undefined;
 
           if (!descripcion) return { error: 'descripcion es obligatoria' };
           if (!Number.isFinite(importeNum) || importeNum < 0) {
@@ -3244,6 +3233,20 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
             clienteNombreParam ||
             'Cliente';
 
+          const textoObraExtra = [descripcion, clienteNombreParam, mensajeTrim]
+            .filter(Boolean)
+            .join(' ')
+            .trim();
+          const obraExtraRes = await resolverObraDocumentoAgente(
+            supabase,
+            business_id,
+            explicitObraExtra,
+            textoObraExtra,
+            'extra'
+          );
+          if (!obraExtraRes.ok) return { mensaje: obraExtraRes.mensaje };
+          const obraIdExtra = obraExtraRes.obra_id ?? '';
+
           const { error: insErr } = await supabase.from('presupuestos').insert({
             business_id,
             parent_id: parent.id,
@@ -3255,6 +3258,7 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
             fecha: new Date().toISOString().split('T')[0],
             estado: 'pendiente',
             mensaje_cliente: `EXTRA/MODIFICADO: ${descripcion}`,
+            ...(obraIdExtra ? { obra_id: obraIdExtra } : {}),
           });
 
           if (insErr) return { error: insErr.message };
@@ -3547,10 +3551,27 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
           const importeTotal = Number(toolArgs.importe_total);
           const fecha = String(toolArgs.fecha ?? '').trim();
           const descripcion = String(toolArgs.descripcion ?? '').trim();
-          const obraIdFinal =
+          const businessIdGasto =
+            typeof business_id === 'string'
+              ? business_id
+              : String(business_id ?? '');
+          if (!businessIdGasto) {
+            return { error: 'business_id es requerido' };
+          }
+          const explicitObraGasto =
             typeof toolArgs.obra_id === 'string' && toolArgs.obra_id.trim()
               ? String(toolArgs.obra_id).trim()
-              : obraActivaId || '';
+              : undefined;
+          const textoObraGasto = [descripcion, proveedor, mensajeTrim].filter(Boolean).join(' ').trim();
+          const obraGastoRes = await resolverObraDocumentoAgente(
+            supabase,
+            businessIdGasto,
+            explicitObraGasto,
+            textoObraGasto,
+            'gasto'
+          );
+          if (!obraGastoRes.ok) return { mensaje: obraGastoRes.mensaje };
+          const obraIdFinal = obraGastoRes.obra_id ?? '';
 
           if (!proveedor) {
             return { error: 'El proveedor es obligatorio' };
@@ -3564,14 +3585,6 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
           }
           if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
             return { error: 'La fecha debe tener formato YYYY-MM-DD' };
-          }
-
-          const businessIdGasto =
-            typeof business_id === 'string'
-              ? business_id
-              : String(business_id ?? '');
-          if (!businessIdGasto) {
-            return { error: 'business_id es requerido' };
           }
 
           const { data: row, error } = await supabase
@@ -3721,16 +3734,32 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
               )
             : undefined;
 
-          const obraIdFinal =
+          const explicitObraDiario =
             typeof toolArgs.obra_id === 'string' && toolArgs.obra_id.trim()
               ? String(toolArgs.obra_id).trim()
-              : obraActivaId || '';
+              : undefined;
+          const textoDetDiario = [obraNombreDiario, textoDiario, mensajeTrim]
+            .filter(Boolean)
+            .join(' ')
+            .trim();
+          const obraDiarioRes = await resolverObraDocumentoAgente(
+            supabase,
+            businessIdDiario,
+            explicitObraDiario,
+            textoDetDiario,
+            'entrada_diario'
+          );
+          if (!obraDiarioRes.ok) return { mensaje: obraDiarioRes.mensaje };
+
+          const obraIdFinal = obraDiarioRes.obra_id ?? '';
+          const nombreObraDiario =
+            obraDiarioRes.obra_nombre ?? obraNombreDiario;
 
           const { data: entradaCreada, error: errDiario } = await insertDiarioObraEntry(
             supabase,
             {
               business_id: businessIdDiario,
-              obra_nombre: obraNombreDiario,
+              obra_nombre: nombreObraDiario,
               obra_id: obraIdFinal || null,
               obra_direccion: obraDireccionDiario || null,
               texto: textoDiario || null,
@@ -4041,10 +4070,6 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
       | { obra_id: string; obra_nombre: string }
       | null = null;
 
-    let obraActivaParaCliente:
-      | { obra_id: string; obra_nombre: string; mensaje: string }
-      | null = null;
-
     const capturarCanvas = (toolResult: unknown) => {
       if (!toolResult || typeof toolResult !== 'object') return;
       const o = toolResult as Record<string, unknown>;
@@ -4084,17 +4109,6 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
       obraFichaParaCliente = { obra_id, obra_nombre };
     };
 
-    const capturarObraActiva = (toolResult: unknown) => {
-      if (!toolResult || typeof toolResult !== 'object') return;
-      const o = toolResult as Record<string, unknown>;
-      if (o.accion !== 'establecer_obra_activa') return;
-      const obra_id = String(o.obra_id ?? '').trim();
-      const obra_nombre = String(o.obra_nombre ?? '').trim();
-      const mensaje = String(o.mensaje ?? '').trim();
-      if (!obra_id || !obra_nombre) return;
-      obraActivaParaCliente = { obra_id, obra_nombre, mensaje };
-    };
-
     let assistantMessage = firstMessage;
     let respuesta = assistantMessage?.content ?? '';
 
@@ -4131,7 +4145,6 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
         capturarEmailPendiente(toolResult);
         capturarCanvas(toolResult);
         capturarObraFicha(toolResult);
-        capturarObraActiva(toolResult);
         messages.push({
           role: 'tool',
           tool_call_id: toolCall.id,
@@ -4168,7 +4181,6 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
       email_pendiente: emailPendienteParaCliente,
       canvas: canvasParaCliente,
       obra_modal: obraFichaParaCliente,
-      obra_activa: obraActivaParaCliente,
     });
   } catch (error) {
     console.error('Error en /api/agente:', error);
