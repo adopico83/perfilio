@@ -1399,7 +1399,7 @@ export default function DashboardPage() {
             <div className="bg-[#111827] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0">
               <div className="flex items-center justify-between shrink-0 mb-1.5">
                 <h3 className="text-sm font-semibold text-white/80 uppercase tracking-wide">
-                  ÚLTIMOS CLIENTES
+                  CLIENTES
                 </h3>
               </div>
               <div className="min-h-0 max-h-40 overflow-y-auto overscroll-contain">

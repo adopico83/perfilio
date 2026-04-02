@@ -28,6 +28,33 @@ import {
   type TarifaReferencia,
 } from '@/lib/dictado-presupuesto';
 import { resolverObraDocumentoAgente } from '@/lib/obras-context';
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+/** Cliente de la obra (JOIN clientes) para heredar en documentos cuando no hay cliente_id explícito. */
+async function clienteDesdeObraSiAplica(
+  supabase: SupabaseClient,
+  businessId: string,
+  obraId: string
+): Promise<{ cliente_id: string | null; cliente_nombre: string | null }> {
+  const { data, error } = await supabase
+    .from('obras')
+    .select('cliente_id, clientes ( nombre )')
+    .eq('id', obraId)
+    .eq('business_id', businessId)
+    .maybeSingle();
+  if (error || !data) return { cliente_id: null, cliente_nombre: null };
+  const row = data as {
+    cliente_id: string | null;
+    clientes?: { nombre?: string | null } | null;
+  };
+  const cid = row.cliente_id ?? null;
+  if (!cid) return { cliente_id: null, cliente_nombre: null };
+  const cn =
+    row.clientes && typeof row.clientes === 'object'
+      ? String((row.clientes as { nombre?: string | null }).nombre ?? '').trim() || null
+      : null;
+  return { cliente_id: cid, cliente_nombre: cn };
+}
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -1348,6 +1375,11 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
                 type: 'string',
                 description: 'UUID de la obra (opcional). Si hay obra activa se rellena automáticamente.',
               },
+              cliente_id: {
+                type: 'string',
+                description:
+                  'UUID del cliente si se conoce. Si no se envía y hay obra, se puede heredar de la obra.',
+              },
               fecha: {
                 type: 'string',
                 description: 'Fecha del documento en formato YYYY-MM-DD',
@@ -2100,6 +2132,20 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
             obraIdFinal = obraRes.obra_id ?? '';
           }
 
+          let clienteIdFinal = cr.id;
+          let clienteNombreFinal = clienteNombre;
+          if (obraIdFinal && cr.id == null) {
+            const { cliente_id: cidO, cliente_nombre: cnO } = await clienteDesdeObraSiAplica(
+              supabase,
+              business_id,
+              obraIdFinal
+            );
+            if (cidO) {
+              clienteIdFinal = cidO;
+              if (cnO) clienteNombreFinal = cnO;
+            }
+          }
+
           const { error } = await supabase.from('presupuestos').insert({
             business_id,
             mensaje_cliente: mensaje,
@@ -2107,9 +2153,9 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
             fecha: new Date().toISOString().split('T')[0],
             estado: 'borrador',
             ...(importe_total != null && { importe_total }),
-            ...(clienteNombre.length > 0 && { cliente_nombre: clienteNombre }),
+            ...(clienteNombreFinal.length > 0 && { cliente_nombre: clienteNombreFinal }),
             ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
-            ...(cr.id != null && { cliente_id: cr.id }),
+            ...(clienteIdFinal != null && { cliente_id: clienteIdFinal }),
           });
 
           if (error) return { error: error.message };
@@ -2144,16 +2190,30 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
           if (!obraRes.ok) return { mensaje: obraRes.mensaje };
           const obraIdFinal = obraRes.obra_id ?? '';
 
+          let clienteIdFinal = cr.id;
+          let clienteNombreFinal: string | null = null;
+          if (obraIdFinal && cr.id == null) {
+            const { cliente_id: cidO, cliente_nombre: cnO } = await clienteDesdeObraSiAplica(
+              supabase,
+              business_id,
+              obraIdFinal
+            );
+            if (cidO) {
+              clienteIdFinal = cidO;
+              clienteNombreFinal = cnO;
+            }
+          }
+
           const { error } = await supabase.from('facturas').insert({
             business_id,
-            cliente_nombre: null,
+            cliente_nombre: clienteNombreFinal,
             descripcion_trabajos: desc,
             base_imponible: Number.isFinite(baseImponible) ? baseImponible : 0,
             iva: Number.isFinite(iva) ? iva : 0,
             total: Number.isFinite(totalNum) ? totalNum : 0,
             fecha: new Date().toISOString().split('T')[0],
             estado: 'pendiente',
-            ...(cr.id != null && { cliente_id: cr.id }),
+            ...(clienteIdFinal != null && { cliente_id: clienteIdFinal }),
             ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
           });
 
@@ -2193,14 +2253,28 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
           if (!obraRes.ok) return { mensaje: obraRes.mensaje };
           const obraIdFinal = obraRes.obra_id ?? '';
 
+          let clienteIdFinal = cr.id;
+          let clienteNombreFinal = clienteAlb.length > 0 ? clienteAlb : null;
+          if (obraIdFinal && cr.id == null) {
+            const { cliente_id: cidO, cliente_nombre: cnO } = await clienteDesdeObraSiAplica(
+              supabase,
+              business_id,
+              obraIdFinal
+            );
+            if (cidO) {
+              clienteIdFinal = cidO;
+              if (cnO) clienteNombreFinal = cnO;
+            }
+          }
+
           const { error } = await supabase.from('albaranes').insert({
             business_id,
-            cliente_nombre: clienteAlb.length > 0 ? clienteAlb : null,
+            cliente_nombre: clienteNombreFinal,
             descripcion_trabajos: desc,
             total: totalNum,
             fecha: new Date().toISOString().split('T')[0],
             estado: 'pendiente',
-            ...(cr.id != null && { cliente_id: cr.id }),
+            ...(clienteIdFinal != null && { cliente_id: clienteIdFinal }),
             ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
           });
 
@@ -3618,6 +3692,20 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
             obraIdFinal = obraRes.obra_id ?? '';
           }
 
+          let clienteIdFinal = cr.id;
+          let clienteNombreParaDoc = clienteNombre;
+          if (obraIdFinal && cr.id == null) {
+            const { cliente_id: cidO, cliente_nombre: cnO } = await clienteDesdeObraSiAplica(
+              supabase,
+              business_id,
+              obraIdFinal
+            );
+            if (cidO) {
+              clienteIdFinal = cidO;
+              if (cnO) clienteNombreParaDoc = cnO;
+            }
+          }
+
           const { data: tarifasRows, error: tErr } = await supabase
             .from('tarifas')
             .select('nombre, unidad, precio, categoria')
@@ -3657,7 +3745,7 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
 
           const { texto, totalConIva } = formatearBorradorPresupuestoDictado(
             partidas,
-            clienteNombre,
+            clienteNombreParaDoc,
             direccionObra
           );
 
@@ -3673,8 +3761,8 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
             fecha: new Date().toISOString().split('T')[0],
             estado: 'borrador',
             mensaje_cliente: mensajeClienteDictado,
-            ...(clienteNombre.length > 0 && { cliente_nombre: clienteNombre }),
-            ...(cr.id != null && { cliente_id: cr.id }),
+            ...(clienteNombreParaDoc.length > 0 && { cliente_nombre: clienteNombreParaDoc }),
+            ...(clienteIdFinal != null && { cliente_id: clienteIdFinal }),
             ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
           });
 
@@ -3805,6 +3893,10 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
           if (!businessIdGasto) {
             return { error: 'business_id es requerido' };
           }
+
+          const crGasto = await resolveClienteIdOpcional(toolArgs.cliente_id);
+          if (!crGasto.ok) return { error: crGasto.error };
+
           const explicitObraGasto =
             typeof toolArgs.obra_id === 'string' && toolArgs.obra_id.trim()
               ? String(toolArgs.obra_id).trim()
@@ -3819,6 +3911,16 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
           );
           if (!obraGastoRes.ok) return { mensaje: obraGastoRes.mensaje };
           const obraIdFinal = obraGastoRes.obra_id ?? '';
+
+          let clienteIdGasto: string | null = crGasto.id;
+          if (obraIdFinal && crGasto.id == null) {
+            const { cliente_id: cidO } = await clienteDesdeObraSiAplica(
+              supabase,
+              businessIdGasto,
+              obraIdFinal
+            );
+            if (cidO) clienteIdGasto = cidO;
+          }
 
           if (!proveedor) {
             return { error: 'El proveedor es obligatorio' };
@@ -3845,6 +3947,7 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
               fecha,
               descripcion: descripcion.length > 0 ? descripcion : null,
               ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
+              ...(clienteIdGasto ? { cliente_id: clienteIdGasto } : {}),
             })
             .select('id')
             .single();
