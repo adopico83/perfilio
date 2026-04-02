@@ -28,6 +28,13 @@ import {
   type TarifaReferencia,
 } from '@/lib/dictado-presupuesto';
 import { resolverObraDocumentoAgente } from '@/lib/obras-context';
+import {
+  buildMemoriaNegocioPromptBlock,
+  deleteMemoriaNegocioByClave,
+  esCategoriaMemoriaValida,
+  MEMORIA_CATEGORIAS,
+  upsertMemoriaNegocio,
+} from '@/lib/memoria-negocio';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 /** Cliente de la obra (JOIN clientes) para heredar en documentos cuando no hay cliente_id explícito. */
@@ -335,7 +342,7 @@ gastos: ticket, OCR, foto de compra, registrar gasto, vincular gasto.
 diario: diario de obra, fotos de obra, PDF del diario.
 clientes: ficha de cliente, buscar cliente, historial de cliente.
 calculo: metros cuadrados, m³, perímetro, dimensiones de obra.
-general: saludos, varias áreas a la vez, mensajes pendientes del negocio, meteorología o tiempo, extras o imprevistos en obra (registrar_extra), dictado de visita o presupuesto por voz, vincular documentos a una obra, actualizar datos de obra (cliente, dirección, estado, actualizar_obra), o petición ambigua.`;
+general: saludos, varias áreas a la vez, mensajes pendientes del negocio, meteorología o tiempo, extras o imprevistos en obra (registrar_extra), dictado de visita o presupuesto por voz, vincular documentos a una obra, actualizar datos de obra (cliente, dirección, estado, actualizar_obra), memoria del negocio (guardar_memoria, eliminar_memoria), o petición ambigua.`;
 
 const INTENT_TOOL_NAMES_DOCUMENTOS = new Set([
   'obtener_presupuestos_pendientes',
@@ -370,6 +377,8 @@ const INTENT_TOOL_NAMES_DOCUMENTOS = new Set([
   'consultar_tiempo',
   'registrar_extra',
   'listar_extras',
+  'guardar_memoria',
+  'eliminar_memoria',
 ]);
 
 const INTENT_TOOL_NAMES_EMAILS = new Set([
@@ -377,6 +386,8 @@ const INTENT_TOOL_NAMES_EMAILS = new Set([
   'enviar_email',
   'mostrar_vista_visual',
   'get_directions',
+  'guardar_memoria',
+  'eliminar_memoria',
 ]);
 
 const INTENT_TOOL_NAMES_AGENDA = new Set([
@@ -385,6 +396,8 @@ const INTENT_TOOL_NAMES_AGENDA = new Set([
   'eliminar_recordatorio',
   'get_directions',
   'consultar_tiempo',
+  'guardar_memoria',
+  'eliminar_memoria',
 ]);
 
 const INTENT_TOOL_NAMES_GASTOS = new Set([
@@ -394,6 +407,8 @@ const INTENT_TOOL_NAMES_GASTOS = new Set([
   'listar_albaranes',
   'mostrar_vista_visual',
   'get_directions',
+  'guardar_memoria',
+  'eliminar_memoria',
 ]);
 
 const INTENT_TOOL_NAMES_DIARIO = new Set([
@@ -401,6 +416,8 @@ const INTENT_TOOL_NAMES_DIARIO = new Set([
   'generar_pdf_diario',
   'mostrar_vista_visual',
   'get_directions',
+  'guardar_memoria',
+  'eliminar_memoria',
 ]);
 
 const INTENT_TOOL_NAMES_CLIENTES = new Set([
@@ -409,9 +426,16 @@ const INTENT_TOOL_NAMES_CLIENTES = new Set([
   'ver_cliente',
   'mostrar_vista_visual',
   'get_directions',
+  'guardar_memoria',
+  'eliminar_memoria',
 ]);
 
-const INTENT_TOOL_NAMES_CALCULO = new Set(['calcular_medicion', 'get_directions']);
+const INTENT_TOOL_NAMES_CALCULO = new Set([
+  'calcular_medicion',
+  'get_directions',
+  'guardar_memoria',
+  'eliminar_memoria',
+]);
 
 const INTENT_TOOL_NAMES: Record<AgentIntentCategory, Set<string> | null> = {
   documentos: INTENT_TOOL_NAMES_DOCUMENTOS,
@@ -581,6 +605,18 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, menciona de 
       }
     }
 
+    let memoriaRows: Array<{ categoria: string; clave: string; valor_texto: string }> = [];
+    const { data: memoriaData, error: memoriaErr } = await supabase
+      .from('memoria_negocio')
+      .select('categoria, clave, valor_texto')
+      .eq('business_id', business_id)
+      .order('categoria', { ascending: true })
+      .order('clave', { ascending: true });
+    if (!memoriaErr && memoriaData) {
+      memoriaRows = memoriaData as typeof memoriaRows;
+    }
+    const memoriaNegocioBlock = buildMemoriaNegocioPromptBlock(memoriaRows);
+
     const systemPrompt = `Fecha y hora: ${ahora}. Asistente de ${nombre} (${sector}).
 ${descripcion}
 Servicios: ${servicios}
@@ -622,7 +658,9 @@ Diario: crear_entrada_diario (obra_nombre para identificar la obra; detección a
 
 Si hay mensajes de clientes pendientes de aprobar, menciónalos al inicio cuando aplique.
 
-Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
+Memoria del negocio (tools guardar_memoria / eliminar_memoria): Si el usuario corrige de forma explícita ("no uses…", "preferimos…"), declara preferencias duraderas o menciona datos recurrentes (proveedor habitual, formato de presupuestos, precios típicos), llama a guardar_memoria sin pedir confirmación. Categorías válidas: ${MEMORIA_CATEGORIAS.join(', ')}. Usa clave en snake_case corta (ej. cemento_exterior). Responde con una frase muy breve como "Anotado, lo tendré en cuenta." Usa eliminar_memoria si pide olvidar o quitar una clave concreta. El bloque "## Lo que sé de este negocio" al final resume lo guardado: aplícalo en cada respuesta sin pedir que el usuario repita esa información.
+
+Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
 
     const ALL_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       {
@@ -1593,6 +1631,52 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
               },
             },
             required: ['albaran_id'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'guardar_memoria',
+          description:
+            'Guarda o actualiza un dato persistente del negocio (preferencia, corrección, proveedor habitual, formato, precio, etc.). Upsert por clave única por negocio. Sin confirmación al usuario.',
+          parameters: {
+            type: 'object',
+            properties: {
+              categoria: {
+                type: 'string',
+                enum: [...MEMORIA_CATEGORIAS],
+                description: 'Tipo de memoria',
+              },
+              clave: {
+                type: 'string',
+                description: 'Identificador único en snake_case por negocio (ej. cemento_exterior)',
+              },
+              valor_texto: {
+                type: 'string',
+                description: 'Texto completo del dato o preferencia a recordar',
+              },
+            },
+            required: ['categoria', 'clave', 'valor_texto'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'eliminar_memoria',
+          description: 'Elimina una entrada de memoria del negocio por su clave.',
+          parameters: {
+            type: 'object',
+            properties: {
+              clave: {
+                type: 'string',
+                description: 'Clave de la entrada a eliminar',
+              },
+            },
+            required: ['clave'],
             additionalProperties: false,
           },
         },
@@ -3886,6 +3970,37 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
           }
 
           return { error: 'accion no reconocida' };
+        }
+        case 'guardar_memoria': {
+          const categoria = String(toolArgs.categoria ?? '').trim();
+          const clave = String(toolArgs.clave ?? '').trim();
+          const valor_texto = String(toolArgs.valor_texto ?? '').trim();
+          if (!clave) return { error: 'clave es obligatoria' };
+          if (!valor_texto) return { error: 'valor_texto es obligatorio' };
+          if (!esCategoriaMemoriaValida(categoria)) {
+            return {
+              error: `categoria inválida. Usa: ${MEMORIA_CATEGORIAS.join(', ')}`,
+            };
+          }
+          const r = await upsertMemoriaNegocio(
+            supabase,
+            business_id,
+            categoria,
+            clave,
+            valor_texto
+          );
+          if (!r.ok) return { error: r.error };
+          return { ok: true, mensaje: 'Memoria guardada.' };
+        }
+        case 'eliminar_memoria': {
+          const claveDel = String(toolArgs.clave ?? '').trim();
+          if (!claveDel) return { error: 'clave es obligatoria' };
+          const r = await deleteMemoriaNegocioByClave(supabase, business_id, claveDel);
+          if (!r.ok) return { error: r.error };
+          return {
+            ok: true,
+            mensaje: r.deleted ? 'Entrada eliminada.' : 'No había entrada con esa clave.',
+          };
         }
         case 'registrar_gasto_ticket': {
           const proveedor = String(toolArgs.proveedor ?? '').trim();
