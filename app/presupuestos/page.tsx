@@ -7,6 +7,7 @@ import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import ReactMarkdown from 'react-markdown';
 import { X } from 'lucide-react';
 import { jsPDF } from 'jspdf';
+import { useObraModal } from '@/contexts/obra-modal-context';
 
 interface Presupuesto {
   id: string;
@@ -16,9 +17,12 @@ interface Presupuesto {
   fecha: string | null;
   estado: string | null;
   created_at: string;
+  obra_id: string | null;
+  obras: { nombre: string } | null;
 }
 
 function PresupuestosPageContent() {
+  const { abrirObra } = useObraModal();
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = useMemo(
@@ -50,7 +54,7 @@ function PresupuestosPageContent() {
   const loadPresupuestos = async () => {
     const { data } = await supabase
       .from('presupuestos')
-      .select('id, business_id, mensaje_cliente, presupuesto_generado, fecha, estado, created_at')
+      .select('id, business_id, mensaje_cliente, presupuesto_generado, fecha, estado, created_at, obra_id, obras(nombre)')
       .order('created_at', { ascending: false });
     setPresupuestos((data ?? []) as Presupuesto[]);
     setLoading(false);
@@ -204,7 +208,20 @@ function PresupuestosPageContent() {
               <li key={p.id} className="bg-white/5 border border-white/10 rounded-lg p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                   <span className="text-white/70 text-sm">{p.fecha ?? new Date(p.created_at).toLocaleDateString('es-ES')}</span>
-                  {badgeEstado(p.estado)}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {p.obra_id && p.obras?.nombre ? (
+                      <button
+                        type="button"
+                        onClick={() => abrirObra(p.obra_id!)}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-[#ed8936]/20 text-[#f6ad55] border border-[#ed8936]/45 hover:bg-[#ed8936]/30 transition-colors max-w-[14rem] truncate"
+                        title={p.obras.nombre}
+                      >
+                        <span aria-hidden>📁</span>
+                        {p.obras.nombre}
+                      </button>
+                    ) : null}
+                    {badgeEstado(p.estado)}
+                  </div>
                 </div>
                 <p className="text-white/90 text-sm mb-3">{resumen(p.mensaje_cliente)}</p>
                 <div className="flex flex-wrap gap-2">
@@ -243,9 +260,21 @@ function PresupuestosPageContent() {
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60" onClick={cerrarModal} aria-hidden />
           <div className="relative w-full max-w-2xl max-h-[90vh] overflow-hidden bg-[#1a365d] rounded-xl border border-white/10 shadow-2xl flex flex-col">
-            <div className="flex justify-between items-center p-4 border-b border-white/10">
-              <h2 className="text-lg font-bold text-white">Presupuesto completo</h2>
-              <button type="button" onClick={cerrarModal} className="p-2 text-white/80 hover:text-white rounded-lg" aria-label="Cerrar">
+            <div className="flex justify-between items-start gap-3 p-4 border-b border-white/10">
+              <div className="min-w-0">
+                <h2 className="text-lg font-bold text-white">Presupuesto completo</h2>
+                {modalItem.obra_id && modalItem.obras?.nombre ? (
+                  <button
+                    type="button"
+                    onClick={() => abrirObra(modalItem.obra_id!)}
+                    className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-[#f6ad55] hover:text-[#ed8936] transition-colors text-left"
+                  >
+                    <span aria-hidden>📁</span>
+                    <span className="truncate">{modalItem.obras.nombre}</span>
+                  </button>
+                ) : null}
+              </div>
+              <button type="button" onClick={cerrarModal} className="p-2 text-white/80 hover:text-white rounded-lg shrink-0" aria-label="Cerrar">
                 <X className="w-5 h-5" />
               </button>
             </div>

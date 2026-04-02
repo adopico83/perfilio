@@ -23,6 +23,7 @@ type ObraRow = {
   direccion: string | null;
   estado: string;
   fecha_inicio: string | null;
+  fecha_fin: string | null;
   descripcion: string | null;
   created_at: string;
   updated_at: string;
@@ -56,7 +57,7 @@ export async function GET(request: NextRequest) {
     let q = supabase
       .from('obras')
       .select(
-        'id, business_id, cliente_id, nombre, direccion, estado, fecha_inicio, descripcion, created_at, updated_at'
+        'id, business_id, cliente_id, nombre, direccion, estado, fecha_inicio, fecha_fin, descripcion, created_at, updated_at'
       )
       .eq('business_id', business_id)
       .order('created_at', { ascending: false });
@@ -123,14 +124,21 @@ export async function GET(request: NextRequest) {
     const ma = countMap((albRes.data ?? []) as Array<{ obra_id: string | null }>);
     const md = countMap((dioRes.data ?? []) as Array<{ obra_id: string | null }>);
 
-    const obrasConConteo = obras.map((o) => ({
-      ...o,
-      cliente_nombre: o.cliente_id ? clienteMap.get(o.cliente_id) ?? null : null,
-      num_presupuestos: mp.get(o.id) ?? 0,
-      num_facturas: mf.get(o.id) ?? 0,
-      num_albaranes: ma.get(o.id) ?? 0,
-      num_entradas_diario: md.get(o.id) ?? 0,
-    }));
+    const obrasConConteo = obras.map((o) => {
+      const np = mp.get(o.id) ?? 0;
+      const nf = mf.get(o.id) ?? 0;
+      const na = ma.get(o.id) ?? 0;
+      const nd = md.get(o.id) ?? 0;
+      return {
+        ...o,
+        cliente_nombre: o.cliente_id ? clienteMap.get(o.cliente_id) ?? null : null,
+        num_presupuestos: np,
+        num_facturas: nf,
+        num_albaranes: na,
+        num_entradas_diario: nd,
+        total_documentos: np + nf + na + nd,
+      };
+    });
 
     return NextResponse.json({ obras: obrasConConteo });
   } catch (e) {
@@ -226,18 +234,11 @@ export async function PATCH(request: NextRequest) {
 
     const b = body as Record<string, unknown>;
     const id = typeof b.id === 'string' ? b.id.trim() : '';
-    const estadoRaw = typeof b.estado === 'string' ? b.estado.trim() : '';
-    const estado = estadoRaw.toLowerCase();
 
     const ESTADOS_PERMITIDOS = new Set(['abierta', 'en_curso', 'pausada', 'cerrada']);
-    if (!id || !estado) {
-      return NextResponse.json({ error: 'id y estado son obligatorios' }, { status: 400 });
-    }
-    if (!ESTADOS_PERMITIDOS.has(estado)) {
-      return NextResponse.json(
-        { error: `estado inválido. Usa: ${Array.from(ESTADOS_PERMITIDOS).join(', ')}` },
-        { status: 400 }
-      );
+
+    if (!id) {
+      return NextResponse.json({ error: 'id es obligatorio' }, { status: 400 });
     }
 
     const supabase = createServiceClient();
@@ -257,12 +258,84 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'No tienes acceso a esta obra' }, { status: 403 });
     }
 
+    const updates: Record<string, unknown> = {};
+
+    if (typeof b.estado === 'string' && b.estado.trim()) {
+      const estado = b.estado.trim().toLowerCase();
+      if (!ESTADOS_PERMITIDOS.has(estado)) {
+        return NextResponse.json(
+          { error: `estado inválido. Usa: ${Array.from(ESTADOS_PERMITIDOS).join(', ')}` },
+          { status: 400 }
+        );
+      }
+      updates.estado = estado;
+    }
+
+    if (typeof b.nombre === 'string') {
+      const nombre = b.nombre.trim();
+      if (!nombre) {
+        return NextResponse.json({ error: 'nombre no puede estar vacío' }, { status: 400 });
+      }
+      updates.nombre = nombre;
+    }
+
+    if (b.direccion !== undefined) {
+      updates.direccion =
+        typeof b.direccion === 'string' && b.direccion.trim()
+          ? b.direccion.trim()
+          : null;
+    }
+
+    if (b.descripcion !== undefined) {
+      updates.descripcion =
+        typeof b.descripcion === 'string' && b.descripcion.trim()
+          ? b.descripcion.trim()
+          : null;
+    }
+
+    if (b.fecha_inicio !== undefined) {
+      const fi = typeof b.fecha_inicio === 'string' ? b.fecha_inicio.trim() : '';
+      updates.fecha_inicio = fi ? fi : null;
+    }
+
+    if (b.fecha_fin !== undefined) {
+      const ff = typeof b.fecha_fin === 'string' ? b.fecha_fin.trim() : '';
+      updates.fecha_fin = ff ? ff : null;
+    }
+
+    if (b.cliente_id !== undefined) {
+      if (b.cliente_id === null || b.cliente_id === '') {
+        updates.cliente_id = null;
+      } else if (typeof b.cliente_id === 'string' && b.cliente_id.trim()) {
+        const cid = b.cliente_id.trim();
+        const { data: cli } = await supabase
+          .from('clientes')
+          .select('id')
+          .eq('id', cid)
+          .eq('business_id', obraRow.business_id)
+          .maybeSingle();
+        if (!cli?.id) {
+          return NextResponse.json({ error: 'cliente_id no válido para este negocio' }, { status: 400 });
+        }
+        updates.cliente_id = cid;
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json(
+        { error: 'Indica al menos un campo a actualizar' },
+        { status: 400 }
+      );
+    }
+
+    updates.updated_at = new Date().toISOString();
+
     const { data: updated, error: updErr } = await supabase
       .from('obras')
-      .update({ estado })
+      .update(updates)
       .eq('id', id)
       .select(
-        'id, business_id, cliente_id, nombre, direccion, estado, fecha_inicio, descripcion, created_at, updated_at'
+        'id, business_id, cliente_id, nombre, direccion, estado, fecha_inicio, fecha_fin, descripcion, created_at, updated_at'
       )
       .maybeSingle();
 

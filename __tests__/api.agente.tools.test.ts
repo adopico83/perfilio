@@ -668,7 +668,9 @@ describe('POST /api/agente — tools', () => {
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
       const parsed = JSON.parse(toolMsg!.content as string) as { mensaje?: string };
-      expect(parsed.mensaje).toBe(`Obra '${nombreObra}' creada correctamente.`);
+      expect(parsed.mensaje).toBe(
+        `Obra '${nombreObra}' creada para sin cliente en sin dirección. Estado: Abierta.`
+      );
     });
   });
 

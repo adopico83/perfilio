@@ -13,6 +13,7 @@ type FichaObraResponse = {
     direccion: string | null;
     estado: string | null;
     fecha_inicio: string | null;
+    fecha_fin?: string | null;
     descripcion: string | null;
   };
   cliente: {
@@ -103,9 +104,14 @@ export default function ObraModal() {
     const fact = ficha?.facturas ?? [];
     const gas = ficha?.gastos ?? [];
 
-    const totalPresupuestado = presup.reduce((s, p) => s + parseNumber((p as any).importe_total), 0);
-    const totalFacturado = fact.reduce((s, f) => s + parseNumber((f as any).total), 0);
-    const totalGastos = gas.reduce((s, g) => s + parseNumber((g as any).importe_total), 0);
+    const totalPresupuestado = presup.reduce((s, p) => {
+      const row = p as { importe_total?: unknown; estado?: unknown };
+      const est = String(row.estado ?? '').toLowerCase();
+      if (est === 'rechazado') return s;
+      return s + parseNumber(row.importe_total);
+    }, 0);
+    const totalFacturado = fact.reduce((s, f) => s + parseNumber((f as { total?: unknown }).total), 0);
+    const totalGastos = gas.reduce((s, g) => s + parseNumber((g as { importe_total?: unknown }).importe_total), 0);
     const margenEstimado = totalFacturado - totalGastos;
 
     return { totalPresupuestado, totalFacturado, totalGastos, margenEstimado };

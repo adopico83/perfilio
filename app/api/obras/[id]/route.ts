@@ -39,7 +39,7 @@ export async function GET(
     const { data: obra, error: obraErr } = await supabase
       .from('obras')
       .select(
-        'id, business_id, cliente_id, nombre, direccion, estado, fecha_inicio, descripcion, created_at, updated_at'
+        'id, business_id, cliente_id, nombre, direccion, estado, fecha_inicio, fecha_fin, descripcion, created_at, updated_at'
       )
       .eq('id', id)
       .maybeSingle();

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import { jsPDF } from 'jspdf';
 import { X } from 'lucide-react';
+import { useObraModal } from '@/contexts/obra-modal-context';
 
 interface Factura {
   id: string;
@@ -24,9 +25,12 @@ interface Factura {
   estado: string | null;
   observaciones: string | null;
   created_at: string;
+  obra_id: string | null;
+  obras: { nombre: string } | null;
 }
 
 export default function FacturasPage() {
+  const { abrirObra } = useObraModal();
   const router = useRouter();
   const supabase = useMemo(
     () =>
@@ -58,7 +62,7 @@ export default function FacturasPage() {
     const { data } = await supabase
       .from('facturas')
       .select(
-        'id, business_id, numero_factura, cliente_nombre, cliente_direccion, cliente_nif, descripcion_trabajos, lineas, base_imponible, iva, total, fecha, fecha_vencimiento, estado, observaciones, created_at'
+        'id, business_id, numero_factura, cliente_nombre, cliente_direccion, cliente_nif, descripcion_trabajos, lineas, base_imponible, iva, total, fecha, fecha_vencimiento, estado, observaciones, created_at, obra_id, obras(nombre)'
       )
       .order('created_at', { ascending: false });
     setFacturas((data ?? []) as Factura[]);
@@ -211,10 +215,21 @@ export default function FacturasPage() {
             {facturas.map((f) => (
               <li key={f.id} className="bg-[#1a365d] border border-white/10 rounded-lg p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                  <div className="space-y-1 text-sm">
+                  <div className="space-y-1 text-sm min-w-0">
                     <p className="font-semibold text-white">
                       {f.numero_factura ?? '—'} — {f.cliente_nombre ?? '—'}
                     </p>
+                    {f.obra_id && f.obras?.nombre ? (
+                      <button
+                        type="button"
+                        onClick={() => abrirObra(f.obra_id!)}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-[#ed8936]/20 text-[#f6ad55] border border-[#ed8936]/45 hover:bg-[#ed8936]/30 transition-colors max-w-full truncate"
+                        title={f.obras.nombre}
+                      >
+                        <span aria-hidden>📁</span>
+                        {f.obras.nombre}
+                      </button>
+                    ) : null}
                     <p className="text-white/70">
                       Fecha: {f.fecha ?? new Date(f.created_at).toLocaleDateString('es-ES')}
                     </p>
@@ -283,14 +298,26 @@ export default function FacturasPage() {
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60" onClick={() => setDetalleId(null)} aria-hidden />
           <div className="relative w-full max-w-2xl max-h-[90vh] overflow-hidden bg-[#1a365d] rounded-xl border border-white/10 shadow-2xl flex flex-col">
-            <div className="flex justify-between items-center p-4 border-b border-white/10">
-              <h2 className="text-lg font-bold text-white">
-                Factura {detalleItem.numero_factura ?? ''}
-              </h2>
+            <div className="flex justify-between items-start gap-3 p-4 border-b border-white/10">
+              <div className="min-w-0">
+                <h2 className="text-lg font-bold text-white">
+                  Factura {detalleItem.numero_factura ?? ''}
+                </h2>
+                {detalleItem.obra_id && detalleItem.obras?.nombre ? (
+                  <button
+                    type="button"
+                    onClick={() => abrirObra(detalleItem.obra_id!)}
+                    className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-[#f6ad55] hover:text-[#ed8936] transition-colors text-left"
+                  >
+                    <span aria-hidden>📁</span>
+                    <span className="truncate">{detalleItem.obras.nombre}</span>
+                  </button>
+                ) : null}
+              </div>
               <button
                 type="button"
                 onClick={() => setDetalleId(null)}
-                className="p-2 text-white/80 hover:text-white rounded-lg"
+                className="p-2 text-white/80 hover:text-white rounded-lg shrink-0"
                 aria-label="Cerrar"
               >
                 <X className="w-5 h-5" />

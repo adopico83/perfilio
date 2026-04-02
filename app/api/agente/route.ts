@@ -301,14 +301,14 @@ type AgentIntentCategory =
 const ROUTER_SYSTEM_PROMPT = `Eres un clasificador. Responde SOLO con una palabra en minúsculas, sin comillas ni puntuación:
 documentos | emails | agenda | gastos | diario | clientes | calculo | general
 
-documentos: presupuestos, facturas, albaranes, vincular documentos a una obra (asociar_documentos_a_obra), extras/modificados/imprevistos en obra, dictado de visita y presupuesto estructurado (generar_presupuesto_por_dictado, gestionar_tarifas), estados, edición, crear documentos, conversiones presupuesto↔albarán↔factura, tiempo en obra.
+documentos: presupuestos, facturas, albaranes, vincular documentos a una obra (asociar_documentos_a_obra), crear o actualizar obra (crear_obra, actualizar_obra), extras/modificados/imprevistos en obra, dictado de visita y presupuesto estructurado (generar_presupuesto_por_dictado, gestionar_tarifas), estados, edición, crear documentos, conversiones presupuesto↔albarán↔factura, tiempo en obra.
 emails: Gmail, leer bandeja, enviar correo.
 agenda: recordatorios, citas, eventos en calendario, tiempo meteorológico para obras o citas.
 gastos: ticket, OCR, foto de compra, registrar gasto, vincular gasto.
 diario: diario de obra, fotos de obra, PDF del diario.
 clientes: ficha de cliente, buscar cliente, historial de cliente.
 calculo: metros cuadrados, m³, perímetro, dimensiones de obra.
-general: saludos, varias áreas a la vez, mensajes pendientes del negocio, meteorología o tiempo, extras o imprevistos en obra (registrar_extra), dictado de visita o presupuesto por voz, vincular documentos a una obra, o petición ambigua.`;
+general: saludos, varias áreas a la vez, mensajes pendientes del negocio, meteorología o tiempo, extras o imprevistos en obra (registrar_extra), dictado de visita o presupuesto por voz, vincular documentos a una obra, actualizar datos de obra (cliente, dirección, estado, actualizar_obra), o petición ambigua.`;
 
 const INTENT_TOOL_NAMES_DOCUMENTOS = new Set([
   'obtener_presupuestos_pendientes',
@@ -327,6 +327,7 @@ const INTENT_TOOL_NAMES_DOCUMENTOS = new Set([
   'crear_factura',
   'crear_albaran',
   'crear_obra',
+  'actualizar_obra',
   'buscar_obra',
   'ver_ficha_obra',
   'asociar_documentos_a_obra',
@@ -898,6 +899,10 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
                 description: 'Nombre del cliente si no se tiene cliente_id',
               },
               direccion: { type: 'string', description: 'Dirección de la obra' },
+              direccion_obra: {
+                type: 'string',
+                description: 'Dirección física de la obra (si no se indica y el cliente tiene dirección, se usa la del cliente)',
+              },
               fecha_inicio: {
                 type: 'string',
                 description: 'Fecha inicio (YYYY-MM-DD) opcional',
@@ -905,6 +910,39 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
               descripcion: { type: 'string', description: 'Descripción opcional' },
             },
             required: ['nombre'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'actualizar_obra',
+          description:
+            'Actualiza los datos de una obra existente: cliente, dirección, estado, nombre.',
+          parameters: {
+            type: 'object',
+            properties: {
+              obra_id: { type: 'string', description: 'UUID de la obra' },
+              obra_nombre: {
+                type: 'string',
+                description: 'Nombre de la obra (si no se conoce el id)',
+              },
+              nombre: { type: 'string', description: 'Nuevo nombre de la obra' },
+              cliente_nombre: {
+                type: 'string',
+                description: 'Nombre del cliente a vincular si no se tiene cliente_id',
+              },
+              cliente_id: {
+                type: 'string',
+                description: 'UUID de ficha de cliente',
+              },
+              direccion: { type: 'string', description: 'Dirección de la obra' },
+              estado: {
+                type: 'string',
+                description: 'abierta | en_curso | pausada | cerrada',
+              },
+            },
             additionalProperties: false,
           },
         },
@@ -2146,18 +2184,40 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
           const nombre = String(toolArgs.nombre ?? '').trim();
           if (!nombre) return { error: 'nombre es obligatorio' };
 
-          const direccion =
-            typeof toolArgs.direccion === 'string' ? toolArgs.direccion.trim() : '';
+          const direccionTool =
+            typeof toolArgs.direccion_obra === 'string'
+              ? toolArgs.direccion_obra.trim()
+              : typeof toolArgs.direccion === 'string'
+                ? toolArgs.direccion.trim()
+                : '';
           const fechaInicio =
             typeof toolArgs.fecha_inicio === 'string' ? toolArgs.fecha_inicio.trim() : '';
           const descripcion =
             typeof toolArgs.descripcion === 'string' ? toolArgs.descripcion.trim() : '';
 
           let clienteId: string | null = null;
+          let clienteNombreResuelto: string | null = null;
+          let clienteDireccion: string | null = null;
+
           const cr = await resolveClienteIdOpcional(toolArgs.cliente_id);
           if (!cr.ok) return { error: cr.error };
           clienteId = cr.id;
 
+          if (clienteId) {
+            const { data: cliRow } = await supabase
+              .from('clientes')
+              .select('nombre, direccion')
+              .eq('id', clienteId)
+              .eq('business_id', business_id)
+              .maybeSingle();
+            if (cliRow) {
+              clienteNombreResuelto = String((cliRow as { nombre?: string }).nombre ?? '').trim() || null;
+              const d = (cliRow as { direccion?: string | null }).direccion;
+              clienteDireccion = d != null && String(d).trim() ? String(d).trim() : null;
+            }
+          }
+
+          let avisoSinCliente = false;
           if (!clienteId) {
             const clienteNombre = String(toolArgs.cliente_nombre ?? '').trim();
             if (clienteNombre) {
@@ -2165,29 +2225,154 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
               const pat = `%${safeQ}%`;
               const { data: row } = await supabase
                 .from('clientes')
-                .select('id')
+                .select('id, nombre, email, direccion')
                 .eq('business_id', business_id)
                 .ilike('nombre', pat)
                 .order('nombre', { ascending: true })
                 .limit(1)
                 .maybeSingle();
-              clienteId = row?.id ?? null;
+              if (row?.id) {
+                clienteId = String((row as { id: string }).id);
+                clienteNombreResuelto = String((row as { nombre?: string }).nombre ?? '').trim() || clienteNombre;
+                const d = (row as { direccion?: string | null }).direccion;
+                clienteDireccion = d != null && String(d).trim() ? String(d).trim() : null;
+              } else {
+                avisoSinCliente = true;
+              }
             }
           }
 
-          const { data, error } = await supabase.from('obras').insert({
+          const direccionObraFinal =
+            direccionTool ||
+            (!direccionTool && clienteDireccion ? clienteDireccion : '') ||
+            '';
+
+          const { error } = await supabase.from('obras').insert({
             business_id,
             nombre,
             ...(clienteId ? { cliente_id: clienteId } : { cliente_id: null }),
-            ...(direccion ? { direccion } : { direccion: null }),
+            ...(direccionObraFinal ? { direccion: direccionObraFinal } : { direccion: null }),
             ...(fechaInicio ? { fecha_inicio: fechaInicio } : { fecha_inicio: null }),
             ...(descripcion ? { descripcion } : { descripcion: null }),
             estado: 'abierta',
           });
 
           if (error) return { error: error.message };
-          // No necesitamos el id en el tool result (se usa en ficha/modal).
-          return { mensaje: `Obra '${nombre}' creada correctamente.` };
+
+          const dirMsg = direccionObraFinal || 'sin dirección';
+          if (avisoSinCliente) {
+            const buscado = String(toolArgs.cliente_nombre ?? '').trim();
+            return {
+              mensaje: `Obra '${nombre}' creada sin cliente asociado (no se encontró '${buscado}' en clientes). Dirección: ${dirMsg}. Estado: Abierta.`,
+            };
+          }
+          const cliMsg = clienteNombreResuelto ?? 'sin cliente';
+          return {
+            mensaje: `Obra '${nombre}' creada para ${cliMsg} en ${dirMsg}. Estado: Abierta.`,
+          };
+        }
+        case 'actualizar_obra': {
+          const ESTADOS_OBRA = new Set(['abierta', 'en_curso', 'pausada', 'cerrada']);
+          let obraId = String(toolArgs.obra_id ?? '').trim();
+          const obraNombreBuscar = String(toolArgs.obra_nombre ?? '').trim();
+
+          if (!obraId) {
+            if (!obraNombreBuscar) {
+              return { error: 'obra_id u obra_nombre es obligatorio' };
+            }
+            const safeQ = obraNombreBuscar.replace(/[%_*]/g, '').slice(0, 120);
+            const pat = `%${safeQ}%`;
+            const { data: rowObra, error: errObra } = await supabase
+              .from('obras')
+              .select('id')
+              .eq('business_id', business_id)
+              .ilike('nombre', pat)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            if (errObra) return { error: errObra.message };
+            if (!rowObra?.id) return { error: 'No se encontró la obra' };
+            obraId = rowObra.id;
+          } else {
+            const { data: ex } = await supabase
+              .from('obras')
+              .select('id')
+              .eq('id', obraId)
+              .eq('business_id', business_id)
+              .maybeSingle();
+            if (!ex?.id) return { error: 'Obra no encontrada' };
+          }
+
+          let clienteIdUpdate: string | undefined;
+          const cidRaw = String(toolArgs.cliente_id ?? '').trim();
+          const cnameRaw = String(toolArgs.cliente_nombre ?? '').trim();
+          if (cidRaw) {
+            const cr = await resolveClienteIdOpcional(cidRaw);
+            if (!cr.ok) return { error: cr.error };
+            if (!cr.id) return { error: 'cliente_id no válido' };
+            clienteIdUpdate = cr.id;
+          } else if (cnameRaw) {
+            const safe = cnameRaw.replace(/[%_*]/g, '').slice(0, 120);
+            const pat = `%${safe}%`;
+            const { data: rowC, error: errC } = await supabase
+              .from('clientes')
+              .select('id')
+              .eq('business_id', business_id)
+              .ilike('nombre', pat)
+              .order('nombre', { ascending: true })
+              .limit(1)
+              .maybeSingle();
+            if (errC) return { error: errC.message };
+            if (!rowC?.id) {
+              return { error: `No se encontró el cliente "${cnameRaw}"` };
+            }
+            clienteIdUpdate = String((rowC as { id: string }).id);
+          }
+
+          const updates: Record<string, unknown> = {};
+          const nombreNuevo = typeof toolArgs.nombre === 'string' ? toolArgs.nombre.trim() : '';
+          if (nombreNuevo) updates.nombre = nombreNuevo;
+          if (toolArgs.direccion !== undefined) {
+            updates.direccion =
+              typeof toolArgs.direccion === 'string' && toolArgs.direccion.trim()
+                ? toolArgs.direccion.trim()
+                : null;
+          }
+          if (typeof toolArgs.estado === 'string' && toolArgs.estado.trim()) {
+            const est = toolArgs.estado.trim().toLowerCase();
+            if (!ESTADOS_OBRA.has(est)) {
+              return {
+                error: `estado inválido. Usa: ${Array.from(ESTADOS_OBRA).join(', ')}`,
+              };
+            }
+            updates.estado = est;
+          }
+          if (clienteIdUpdate !== undefined) {
+            updates.cliente_id = clienteIdUpdate;
+          }
+
+          if (Object.keys(updates).length === 0) {
+            return {
+              error:
+                'Indica al menos un campo a actualizar (nombre, direccion, estado, cliente_nombre o cliente_id)',
+            };
+          }
+
+          updates.updated_at = new Date().toISOString();
+
+          const { data: updated, error: updErr } = await supabase
+            .from('obras')
+            .update(updates)
+            .eq('id', obraId)
+            .eq('business_id', business_id)
+            .select('nombre')
+            .maybeSingle();
+
+          if (updErr || !updated) {
+            return { error: updErr?.message ?? 'No se pudo actualizar la obra' };
+          }
+          const nombreFinal = String((updated as { nombre?: string }).nombre ?? '');
+          return { mensaje: `Obra '${nombreFinal}' actualizada correctamente.` };
         }
         case 'buscar_obra': {
           const qBus = String(toolArgs.query ?? '').trim();

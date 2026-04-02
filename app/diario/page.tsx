@@ -9,10 +9,12 @@ import LogoutButton from '@/app/dashboard/logout-button';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import ToggleAgenteNavButton from '@/components/dashboard/toggle-agente-nav-button';
 import DiarioEntradaModal from '@/components/dashboard/diario-entrada-modal';
+import { useObraModal } from '@/contexts/obra-modal-context';
 
 type DiarioEntrada = {
   id: string;
   obra_nombre: string;
+  obra_id?: string | null;
   obra_direccion: string | null;
   texto: string | null;
   fotos: string[] | null;
@@ -21,6 +23,7 @@ type DiarioEntrada = {
 };
 
 function DiarioPageInner() {
+  const { abrirObra } = useObraModal();
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = useMemo(
@@ -294,6 +297,9 @@ function DiarioPageInner() {
                     timeStyle: 'short',
                   })
                 : '—';
+              const oidFirst = entradas[0]?.obra_id ?? null;
+              const todasMismoObraId =
+                Boolean(oidFirst) && entradas.every((e) => (e.obra_id ?? null) === oidFirst);
 
               return (
                 <div
@@ -308,37 +314,61 @@ function DiarioPageInner() {
                   }`}
                 >
                   <div className="flex flex-col sm:flex-row sm:items-stretch gap-0 sm:gap-2 border-b border-white/10 bg-[#243d5c]/95">
-                    <button
-                      type="button"
-                      onClick={() => toggleObra(obraNombre)}
-                      className="flex-1 text-left px-4 py-3 sm:py-3.5 flex items-start gap-3 min-w-0 hover:bg-white/5 transition-colors"
-                      aria-expanded={isOpen}
-                    >
-                      <span className="text-xl shrink-0 mt-0.5" aria-hidden>
-                        {isOpen ? '📂' : '📁'}
-                      </span>
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-bold text-white">{obraNombre}</span>
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#ed8936]/25 text-[#f6ad55] border border-[#ed8936]/40">
-                            {entradas.length}{' '}
-                            {entradas.length === 1 ? 'entrada' : 'entradas'}
+                    <div className="flex flex-1 min-w-0 flex-col sm:flex-row sm:items-stretch">
+                      <button
+                        type="button"
+                        onClick={() => toggleObra(obraNombre)}
+                        className="flex-1 text-left px-4 py-3 sm:py-3.5 flex items-start gap-3 min-w-0 hover:bg-white/5 transition-colors"
+                        aria-expanded={isOpen}
+                      >
+                        <span className="text-xl shrink-0 mt-0.5" aria-hidden>
+                          {isOpen ? '📂' : '📁'}
+                        </span>
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-bold text-white">{obraNombre}</span>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#ed8936]/25 text-[#f6ad55] border border-[#ed8936]/40">
+                              {entradas.length}{' '}
+                              {entradas.length === 1 ? 'entrada' : 'entradas'}
+                            </span>
+                          </div>
+                          {direccion ? (
+                            <p className="text-xs sm:text-sm text-white/55 truncate">{direccion}</p>
+                          ) : null}
+                          <p className="text-[11px] sm:text-xs text-white/50 tabular-nums">
+                            Última entrada: {fechaUltimaStr}
+                          </p>
+                        </div>
+                        <ChevronDown
+                          className={`shrink-0 w-5 h-5 text-[#ed8936] mt-1 transition-transform duration-300 ${
+                            isOpen ? 'rotate-180' : ''
+                          }`}
+                          aria-hidden
+                        />
+                      </button>
+                      {todasMismoObraId && oidFirst ? (
+                        <div className="flex items-center justify-center sm:justify-start px-4 pb-3 sm:pb-0 sm:px-3 sm:border-l border-white/5 sm:min-w-[9rem]">
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              abrirObra(oidFirst);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                abrirObra(oidFirst);
+                              }
+                            }}
+                            className="text-[11px] font-semibold text-[#ed8936] hover:text-[#f6ad55] underline underline-offset-2 cursor-pointer"
+                          >
+                            Ver ficha de obra →
                           </span>
                         </div>
-                        {direccion ? (
-                          <p className="text-xs sm:text-sm text-white/55 truncate">{direccion}</p>
-                        ) : null}
-                        <p className="text-[11px] sm:text-xs text-white/50 tabular-nums">
-                          Última entrada: {fechaUltimaStr}
-                        </p>
-                      </div>
-                      <ChevronDown
-                        className={`shrink-0 w-5 h-5 text-[#ed8936] mt-1 transition-transform duration-300 ${
-                          isOpen ? 'rotate-180' : ''
-                        }`}
-                        aria-hidden
-                      />
-                    </button>
+                      ) : null}
+                    </div>
                     <div className="px-4 pb-3 sm:pb-0 sm:pr-4 sm:flex sm:items-center shrink-0 border-t border-white/5 sm:border-t-0 sm:border-l sm:pl-0 sm:ml-0">
                       <Link
                         href={`/agente?mensaje=${encodeURIComponent(
@@ -364,17 +394,46 @@ function DiarioPageInner() {
                               {idx > 0 ? (
                                 <div className="border-t border-white/10 my-4" aria-hidden />
                               ) : null}
-                              <button
-                                type="button"
+                              <div
+                                role="button"
+                                tabIndex={0}
                                 onClick={() => setEntradaSeleccionada(e)}
+                                onKeyDown={(ke) => {
+                                  if (ke.key === 'Enter' || ke.key === ' ') {
+                                    ke.preventDefault();
+                                    setEntradaSeleccionada(e);
+                                  }
+                                }}
                                 className="w-full text-left rounded-lg px-2 py-2 -mx-2 space-y-2 pb-3 transition-colors cursor-pointer hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#ed8936]/60"
                               >
-                                <p className="text-xs font-medium text-[#ed8936] tabular-nums">
-                                  {new Date(e.fecha).toLocaleString('es-ES', {
-                                    dateStyle: 'full',
-                                    timeStyle: 'short',
-                                  })}
-                                </p>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="text-xs font-medium text-[#ed8936] tabular-nums">
+                                    {new Date(e.fecha).toLocaleString('es-ES', {
+                                      dateStyle: 'full',
+                                      timeStyle: 'short',
+                                    })}
+                                  </p>
+                                  {e.obra_id ? (
+                                    <span
+                                      role="button"
+                                      tabIndex={0}
+                                      onClick={(ev) => {
+                                        ev.stopPropagation();
+                                        abrirObra(e.obra_id!);
+                                      }}
+                                      onKeyDown={(ev) => {
+                                        if (ev.key === 'Enter' || ev.key === ' ') {
+                                          ev.stopPropagation();
+                                          abrirObra(e.obra_id!);
+                                        }
+                                      }}
+                                      className="inline-flex items-center max-w-[min(100%,12rem)] px-2 py-0.5 rounded-md text-[10px] font-semibold bg-[#ed8936]/25 text-[#f6ad55] border border-[#ed8936]/45 hover:bg-[#ed8936]/35 transition-colors truncate cursor-pointer"
+                                      title={obraNombre}
+                                    >
+                                      {obraNombre}
+                                    </span>
+                                  ) : null}
+                                </div>
                                 {e.texto ? (
                                   <p className="text-sm text-white/90 line-clamp-4 leading-relaxed">
                                     {e.texto}
@@ -402,7 +461,7 @@ function DiarioPageInner() {
                                     {e.videos.length === 1 ? 'vídeo' : 'vídeos'} en esta entrada
                                   </p>
                                 ) : null}
-                              </button>
+                              </div>
                             </li>
                           ))}
                         </ul>

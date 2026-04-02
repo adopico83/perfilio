@@ -73,8 +73,18 @@ interface ObraActivaWidget {
   id: string;
   nombre: string;
   cliente_nombre: string | null;
+  direccion: string | null;
+  estado: string | null;
   fecha_inicio: string | null;
   num_documentos: number;
+}
+
+function estadoObraBadgeClass(estado: string | null | undefined): { label: string; className: string } {
+  const s = (estado ?? 'abierta').toLowerCase();
+  if (s === 'en_curso') return { label: 'En curso', className: 'bg-blue-500/20 text-blue-200 border border-blue-500/35' };
+  if (s === 'cerrada') return { label: 'Cerrada', className: 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30' };
+  if (s === 'pausada') return { label: 'Pausada', className: 'bg-amber-500/15 text-amber-200 border border-amber-500/30' };
+  return { label: 'Abierta', className: 'bg-[#ed8936]/20 text-[#f6ad55] border border-[#ed8936]/40' };
 }
 
 interface UltimoClienteWidget {
@@ -520,16 +530,18 @@ export default function DashboardPage() {
         try {
           const obrasRes = await supabase
             .from('obras')
-            .select('id, nombre, cliente_id, estado, fecha_inicio, created_at')
+            .select('id, nombre, cliente_id, estado, direccion, fecha_inicio, created_at')
             .eq('business_id', businessId)
             .in('estado', ['abierta', 'en_curso'])
             .order('created_at', { ascending: false })
-            .limit(3);
+            .limit(5);
 
           const obras = (obrasRes.data ?? []) as Array<{
             id: string;
             nombre: string;
             cliente_id: string | null;
+            estado: string | null;
+            direccion: string | null;
             fecha_inicio: string | null;
           }>;
 
@@ -552,7 +564,7 @@ export default function DashboardPage() {
               clienteMap.set(c.id, c.nombre);
             }
 
-            const [pC, fC, aC, dC] = await Promise.all([
+            const [pC, fC, aC] = await Promise.all([
               supabase
                 .from('presupuestos')
                 .select('obra_id')
@@ -563,10 +575,6 @@ export default function DashboardPage() {
                 .in('obra_id', obraIds),
               supabase
                 .from('albaranes')
-                .select('obra_id')
-                .in('obra_id', obraIds),
-              supabase
-                .from('diario_obra')
                 .select('obra_id')
                 .in('obra_id', obraIds),
             ]);
@@ -585,15 +593,16 @@ export default function DashboardPage() {
             const mp = countMap(pC.data as Array<{ obra_id: string | null }> | null);
             const mf = countMap(fC.data as Array<{ obra_id: string | null }> | null);
             const ma = countMap(aC.data as Array<{ obra_id: string | null }> | null);
-            const md = countMap(dC.data as Array<{ obra_id: string | null }> | null);
 
             setObrasActivas(
               obras.map((o) => ({
                 id: o.id,
                 nombre: o.nombre,
                 cliente_nombre: o.cliente_id ? clienteMap.get(o.cliente_id) ?? null : null,
+                direccion: o.direccion ?? null,
+                estado: o.estado ?? null,
                 fecha_inicio: o.fecha_inicio ?? null,
-                num_documentos: (mp.get(o.id) ?? 0) + (mf.get(o.id) ?? 0) + (ma.get(o.id) ?? 0) + (md.get(o.id) ?? 0),
+                num_documentos: (mp.get(o.id) ?? 0) + (mf.get(o.id) ?? 0) + (ma.get(o.id) ?? 0),
               }))
             );
           }
@@ -1344,10 +1353,18 @@ export default function DashboardPage() {
                 {loading ? (
                   <p className="text-white/60 text-xs">Cargando...</p>
                 ) : obrasActivas.length === 0 ? (
-                  <p className="text-white/60 text-xs">Sin obras activas</p>
+                  <p className="text-white/60 text-xs leading-snug">
+                    No hay obras activas. Crea una nueva desde el agente o desde /obras
+                  </p>
                 ) : (
                   <ul className="space-y-1.5 text-xs sm:text-sm">
-                    {obrasActivas.map((o) => (
+                    {obrasActivas.map((o) => {
+                      const eb = estadoObraBadgeClass(o.estado);
+                      const dirTrunc =
+                        o.direccion && o.direccion.length > 42
+                          ? `${o.direccion.slice(0, 40)}…`
+                          : o.direccion;
+                      return (
                       <li
                         key={o.id}
                         className="border-b border-white/10 pb-1.5 last:border-b-0 last:pb-0"
@@ -1357,12 +1374,22 @@ export default function DashboardPage() {
                           onClick={() => abrirObra(o.id)}
                           className="w-full text-left rounded-md px-1.5 py-1.5 -m-1 hover:bg-white/5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#ed8936]/70"
                         >
-                          <p className="font-bold text-white truncate">{o.nombre}</p>
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="font-bold text-white truncate min-w-0">{o.nombre}</p>
+                            <span className={`shrink-0 inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold ${eb.className}`}>
+                              {eb.label}
+                            </span>
+                          </div>
                           <p className="text-[11px] sm:text-xs text-white/70 mt-0.5 truncate">
                             {o.cliente_nombre ?? 'Sin cliente'}
                           </p>
+                          {dirTrunc ? (
+                            <p className="text-[10px] sm:text-[11px] text-white/55 mt-0.5 truncate" title={o.direccion ?? undefined}>
+                              {dirTrunc}
+                            </p>
+                          ) : null}
                           <p className="text-[11px] sm:text-xs text-[#ed8936]/90 mt-0.5 tabular-nums">
-                            {o.num_documentos} documentos
+                            {o.num_documentos} documento{o.num_documentos === 1 ? '' : 's'}
                           </p>
                           {o.fecha_inicio ? (
                             <p className="text-[10px] sm:text-[11px] text-white/55 mt-0.5 tabular-nums">
@@ -1371,7 +1398,8 @@ export default function DashboardPage() {
                           ) : null}
                         </button>
                       </li>
-                    ))}
+                    );
+                    })}
                   </ul>
                 )}
               </div>
