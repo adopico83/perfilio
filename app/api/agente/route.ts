@@ -323,6 +323,8 @@ const INTENT_TOOL_NAMES_DOCUMENTOS = new Set([
   'editar_presupuesto',
   'editar_factura',
   'editar_albaran',
+  'generar_presupuesto_por_dictado',
+  'gestionar_tarifas',
   'crear_presupuesto',
   'crear_factura',
   'crear_albaran',
@@ -341,8 +343,6 @@ const INTENT_TOOL_NAMES_DOCUMENTOS = new Set([
   'consultar_tiempo',
   'registrar_extra',
   'listar_extras',
-  'generar_presupuesto_por_dictado',
-  'gestionar_tarifas',
 ]);
 
 const INTENT_TOOL_NAMES_EMAILS = new Set([
@@ -562,12 +562,18 @@ Pino puede tener varias obras abiertas simultáneamente. Cuando el usuario menci
 
 Responde en español, profesional y conciso.
 
-Documentos: crear_presupuesto / crear_factura / crear_albaran solo si pide crear o generar algo nuevo; si solo consulta, usa listar_* u obtener_*_pendientes. Estados: pendiente, aceptado, rechazado, facturado, pagado. Sin UUID: listar_* antes de cambiar_estado_* o editar_*. Factura nueva: si faltan datos, preguntar (cliente, NIF, mano de obra, materiales, otros); luego líneas, base, IVA 21 %, total. Albarán nuevo: cliente, trabajos, fecha, total si aplica. Confirma al guardar.
+Documentos: crear_factura / crear_albaran solo si pide crear o generar algo nuevo; si solo consulta, usa listar_* u obtener_*_pendientes. Estados: pendiente, aceptado, rechazado, facturado, pagado. Sin UUID: listar_* antes de cambiar_estado_* o editar_*. Factura nueva: si faltan datos, preguntar (cliente, NIF, mano de obra, materiales, otros); luego líneas, base, IVA 21 %, total. Albarán nuevo: cliente, trabajos, fecha, total si aplica. Confirma al guardar.
+
+Para crear presupuestos:
+- Si el usuario describe trabajos, medidas o materiales → usar SIEMPRE generar_presupuesto_por_dictado
+- Solo usar crear_presupuesto si el usuario proporciona un presupuesto ya estructurado con partidas y totales definidos
+- Nunca crear presupuestos con texto libre sin estructurar
+
 Conversiones entre documentos: si confirma presupuesto aceptado o facturar albarán, ofrece convertir_presupuesto_a_albaran o convertir_albaran_a_factura.
 
 Extras y modificados: cuando el usuario mencione "extra", "modificado", "imprevisto" o "añadido" en el contexto de una obra, usa registrar_extra. Siempre pregunta confirmación antes de enviar la notificación al cliente (el borrador lo aprueba en el panel).
 
-Dictado de visita: cuando el usuario describa una visita de obra o pida generar un presupuesto desde un dictado, usa generar_presupuesto_por_dictado. Puedes usar gestionar_tarifas para ver o actualizar las tarifas del negocio.
+gestionar_tarifas: ver o actualizar las tarifas del negocio para presupuestos estructurados (opcional junto con generar_presupuesto_por_dictado).
 
 Emails: urgente si palabras como urgente, pago, presupuesto, factura, reclamación, avería, etc.; >48 h sin leer; cliente conocido; respuesta a presupuesto. enviar_email deja borrador; el usuario aprueba en el panel.
 
@@ -796,9 +802,61 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
       {
         type: 'function',
         function: {
+          name: 'generar_presupuesto_por_dictado',
+          description:
+            "Usar SIEMPRE que el usuario pida crear un presupuesto describiendo trabajos, aunque la descripción sea breve. Ejemplos: 'presupuesto para enfoscado exterior 2500€', 'presupuesto para reforma de baño', 'presupuesto para pintar el salón de García'. También para dictado de visita: 'genera un presupuesto', 'haz un presupuesto de lo que he visto', 'acabo de visitar una obra'. Estructura el presupuesto en partidas automáticamente.",
+          parameters: {
+            type: 'object',
+            properties: {
+              dictado: {
+                type: 'string',
+                description: 'Descripción libre de los trabajos a realizar (dictado)',
+              },
+              cliente_nombre: { type: 'string', description: 'Nombre del cliente' },
+              cliente_id: { type: 'string', description: 'UUID del cliente si se conoce' },
+              direccion_obra: { type: 'string', description: 'Dirección de la obra' },
+              obra_id: {
+                type: 'string',
+                description:
+                  'UUID de la obra (opcional). Si no se envía, se detecta desde el dictado y el cliente.',
+              },
+            },
+            required: ['dictado'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'gestionar_tarifas',
+          description:
+            'Añade, edita o lista las tarifas del negocio para generar presupuestos automáticos.',
+          parameters: {
+            type: 'object',
+            properties: {
+              accion: {
+                type: 'string',
+                enum: ['listar', 'añadir', 'editar'],
+                description: 'Operación a realizar',
+              },
+              nombre: { type: 'string' },
+              unidad: { type: 'string' },
+              precio: { type: 'number' },
+              categoria: { type: 'string' },
+              tarifa_id: { type: 'string', description: 'UUID de la tarifa (editar)' },
+            },
+            required: ['accion'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
           name: 'crear_presupuesto',
           description:
-            'Guarda un presupuesto nuevo (texto completo). Solo si pidió crear/generar presupuesto.',
+            'IMPORTANTE: Solo usar cuando el presupuesto ya viene completamente estructurado con partidas y totales definidos. Si el usuario describe trabajos en lenguaje natural, usar generar_presupuesto_por_dictado en su lugar. Guarda un presupuesto nuevo (texto completo ya estructurado).',
           parameters: {
             type: 'object',
             properties: {
@@ -1266,53 +1324,6 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
                 description: 'Filtrar por UUID del presupuesto original',
               },
             },
-            additionalProperties: false,
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'generar_presupuesto_por_dictado',
-          description:
-            "Genera un borrador de presupuesto a partir de un dictado de visita de obra. Usar cuando el usuario diga 'genera un presupuesto', 'haz un presupuesto de lo que he visto', 'acabo de visitar una obra' o similar.",
-          parameters: {
-            type: 'object',
-            properties: {
-              dictado: {
-                type: 'string',
-                description: 'Descripción libre de los trabajos a realizar (dictado)',
-              },
-              cliente_nombre: { type: 'string', description: 'Nombre del cliente' },
-              cliente_id: { type: 'string', description: 'UUID del cliente si se conoce' },
-              direccion_obra: { type: 'string', description: 'Dirección de la obra' },
-            },
-            required: ['dictado'],
-            additionalProperties: false,
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'gestionar_tarifas',
-          description:
-            'Añade, edita o lista las tarifas del negocio para generar presupuestos automáticos.',
-          parameters: {
-            type: 'object',
-            properties: {
-              accion: {
-                type: 'string',
-                enum: ['listar', 'añadir', 'editar'],
-                description: 'Operación a realizar',
-              },
-              nombre: { type: 'string' },
-              unidad: { type: 'string' },
-              precio: { type: 'number' },
-              categoria: { type: 'string' },
-              tarifa_id: { type: 'string', description: 'UUID de la tarifa (editar)' },
-            },
-            required: ['accion'],
             additionalProperties: false,
           },
         },
@@ -2062,16 +2073,32 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
             typeof toolArgs.obra_id === 'string' && toolArgs.obra_id.trim()
               ? String(toolArgs.obra_id).trim()
               : undefined;
-          const textoObra = [texto, clienteNombre, mensajeTrim].filter(Boolean).join(' ').trim();
-          const obraRes = await resolverObraDocumentoAgente(
-            supabase,
-            business_id,
-            explicitObra,
-            textoObra,
-            'documento'
-          );
-          if (!obraRes.ok) return { mensaje: obraRes.mensaje };
-          const obraIdFinal = obraRes.obra_id ?? '';
+
+          let obraIdFinal = '';
+          if (explicitObra) {
+            const { data: obraRow, error: obraErr } = await supabase
+              .from('obras')
+              .select('id')
+              .eq('business_id', business_id)
+              .eq('id', explicitObra)
+              .in('estado', ['abierta', 'en_curso'])
+              .maybeSingle();
+            if (obraErr || !obraRow?.id) {
+              return { error: 'La obra indicada no existe o no está abierta.' };
+            }
+            obraIdFinal = obraRow.id;
+          } else {
+            const textoObra = [texto, clienteNombre, mensajeTrim].filter(Boolean).join(' ').trim();
+            const obraRes = await resolverObraDocumentoAgente(
+              supabase,
+              business_id,
+              undefined,
+              textoObra,
+              'documento'
+            );
+            if (!obraRes.ok) return { mensaje: obraRes.mensaje };
+            obraIdFinal = obraRes.obra_id ?? '';
+          }
 
           const { error } = await supabase.from('presupuestos').insert({
             business_id,
@@ -3557,6 +3584,40 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
           const cr = await resolveClienteIdOpcional(toolArgs.cliente_id);
           if (!cr.ok) return { error: cr.error };
 
+          const explicitObra =
+            typeof toolArgs.obra_id === 'string' && toolArgs.obra_id.trim()
+              ? String(toolArgs.obra_id).trim()
+              : undefined;
+
+          let obraIdFinal = '';
+          if (explicitObra) {
+            const { data: obraRow, error: obraErr } = await supabase
+              .from('obras')
+              .select('id')
+              .eq('business_id', business_id)
+              .eq('id', explicitObra)
+              .in('estado', ['abierta', 'en_curso'])
+              .maybeSingle();
+            if (obraErr || !obraRow?.id) {
+              return { error: 'La obra indicada no existe o no está abierta.' };
+            }
+            obraIdFinal = obraRow.id;
+          } else {
+            const textoObra = [dictado, clienteNombre, direccionObra, mensajeTrim]
+              .filter(Boolean)
+              .join(' ')
+              .trim();
+            const obraRes = await resolverObraDocumentoAgente(
+              supabase,
+              business_id,
+              undefined,
+              textoObra,
+              'documento'
+            );
+            if (!obraRes.ok) return { mensaje: obraRes.mensaje };
+            obraIdFinal = obraRes.obra_id ?? '';
+          }
+
           const { data: tarifasRows, error: tErr } = await supabase
             .from('tarifas')
             .select('nombre, unidad, precio, categoria')
@@ -3614,6 +3675,7 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}`;
             mensaje_cliente: mensajeClienteDictado,
             ...(clienteNombre.length > 0 && { cliente_nombre: clienteNombre }),
             ...(cr.id != null && { cliente_id: cr.id }),
+            ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
           });
 
           if (insErr) return { error: insErr.message };

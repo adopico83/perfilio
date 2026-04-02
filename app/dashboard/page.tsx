@@ -109,6 +109,23 @@ function extractoDiario(texto: string | null, max = 80) {
   return `${t.slice(0, max)}…`;
 }
 
+/** Conteo de documentos desde GET /api/obras: prioriza total_documentos; si no viene, suma por tipo. */
+function documentosDesdeObraApi(o: {
+  total_documentos?: number;
+  num_presupuestos?: number;
+  num_facturas?: number;
+  num_albaranes?: number;
+  num_entradas_diario?: number;
+}): number {
+  if (typeof o.total_documentos === 'number') return o.total_documentos;
+  return (
+    (o.num_presupuestos ?? 0) +
+    (o.num_facturas ?? 0) +
+    (o.num_albaranes ?? 0) +
+    (o.num_entradas_diario ?? 0)
+  );
+}
+
 function getSaludo() {
   const hora = new Date().getHours();
   if (hora >= 6 && hora < 12) return 'Buenos días';
@@ -528,81 +545,46 @@ export default function DashboardPage() {
         }
 
         try {
-          const obrasRes = await supabase
-            .from('obras')
-            .select('id, nombre, cliente_id, estado, direccion, fecha_inicio, created_at')
-            .eq('business_id', businessId)
-            .in('estado', ['abierta', 'en_curso'])
-            .order('created_at', { ascending: false })
-            .limit(5);
-
-          const obras = (obrasRes.data ?? []) as Array<{
-            id: string;
-            nombre: string;
-            cliente_id: string | null;
-            estado: string | null;
-            direccion: string | null;
-            fecha_inicio: string | null;
-          }>;
-
-          if (obras.length === 0) {
+          const obrasRes = await fetch(
+            `/api/obras?business_id=${encodeURIComponent(businessId)}`,
+            { credentials: 'include' }
+          );
+          if (!obrasRes.ok) {
             setObrasActivas([]);
           } else {
-            const obraIds = obras.map((o) => o.id);
-            const clienteIds = obras.map((o) => o.cliente_id).filter((id0): id0 is string => Boolean(id0));
-
-            const { data: cliRows } = clienteIds.length
-              ? await supabase
-                  .from('clientes')
-                  .select('id, nombre')
-                  .eq('business_id', businessId)
-                  .in('id', clienteIds)
-              : { data: [] as Array<{ id: string; nombre: string }> };
-
-            const clienteMap = new Map<string, string>();
-            for (const c of (cliRows ?? []) as Array<{ id: string; nombre: string }>) {
-              clienteMap.set(c.id, c.nombre);
-            }
-
-            const [pC, fC, aC] = await Promise.all([
-              supabase
-                .from('presupuestos')
-                .select('obra_id')
-                .in('obra_id', obraIds),
-              supabase
-                .from('facturas')
-                .select('obra_id')
-                .in('obra_id', obraIds),
-              supabase
-                .from('albaranes')
-                .select('obra_id')
-                .in('obra_id', obraIds),
-            ]);
-
-            const countMap = (rows: Array<{ obra_id: string | null }> | null) => {
-              const m = new Map<string, number>();
-              for (const id of obraIds) m.set(id, 0);
-              for (const r of rows ?? []) {
-                const oid = r.obra_id;
-                if (!oid) continue;
-                m.set(oid, (m.get(oid) ?? 0) + 1);
-              }
-              return m;
+            const json = (await obrasRes.json()) as {
+              obras?: Array<{
+                id: string;
+                nombre: string;
+                cliente_nombre: string | null;
+                direccion: string | null;
+                estado: string | null;
+                fecha_inicio: string | null;
+                created_at: string;
+                total_documentos?: number;
+                num_presupuestos?: number;
+                num_facturas?: number;
+                num_albaranes?: number;
+                num_entradas_diario?: number;
+              }>;
             };
-
-            const mp = countMap(pC.data as Array<{ obra_id: string | null }> | null);
-            const mf = countMap(fC.data as Array<{ obra_id: string | null }> | null);
-            const ma = countMap(aC.data as Array<{ obra_id: string | null }> | null);
-
+            const activas = (json.obras ?? []).filter((o) =>
+              ['abierta', 'en_curso'].includes((o.estado ?? '').toLowerCase())
+            );
+            activas.sort(
+              (a, b) =>
+                new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+            );
+            const top = activas.slice(0, 5);
             setObrasActivas(
-              obras.map((o) => ({
+              top.map((o) => ({
                 id: o.id,
                 nombre: o.nombre,
-                cliente_nombre: o.cliente_id ? clienteMap.get(o.cliente_id) ?? null : null,
+                cliente_nombre: o.cliente_nombre ?? null,
                 direccion: o.direccion ?? null,
                 estado: o.estado ?? null,
                 fecha_inicio: o.fecha_inicio ?? null,
-                num_documentos: (mp.get(o.id) ?? 0) + (mf.get(o.id) ?? 0) + (ma.get(o.id) ?? 0),
+                num_documentos: documentosDesdeObraApi(o),
               }))
             );
           }
@@ -1389,7 +1371,8 @@ export default function DashboardPage() {
                             </p>
                           ) : null}
                           <p className="text-[11px] sm:text-xs text-[#ed8936]/90 mt-0.5 tabular-nums">
-                            {o.num_documentos} documento{o.num_documentos === 1 ? '' : 's'}
+                            {o.num_documentos}{' '}
+                            {o.num_documentos === 1 ? 'documento' : 'documentos'}
                           </p>
                           {o.fecha_inicio ? (
                             <p className="text-[10px] sm:text-[11px] text-white/55 mt-0.5 tabular-nums">

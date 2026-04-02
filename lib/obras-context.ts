@@ -114,9 +114,35 @@ export async function detectarObraDesdeTexto(
     Obra & { clientes?: { nombre?: string | null } | null }
   >;
 
-  const candidatas: Obra[] = [];
   const textoNorm = normalizeForMatch(raw);
 
+  const rowToObra = (row: (typeof lista)[number]): Obra => ({
+    id: row.id,
+    business_id: row.business_id,
+    cliente_id: row.cliente_id,
+    nombre: row.nombre,
+    direccion: row.direccion,
+    estado: row.estado,
+  });
+
+  // FASE 1 — Nombre de obra completo en el texto (sin ambigüedad con coincidencias parciales)
+  const exactMatches: Obra[] = [];
+  for (const row of lista) {
+    if (!ESTADOS_ABIERTAS.has(String(row.estado ?? '').toLowerCase())) continue;
+    const on = normalizeForMatch(row.nombre);
+    if (on.length >= 2 && textoNorm.includes(on)) {
+      exactMatches.push(rowToObra(row));
+    }
+  }
+  if (exactMatches.length > 0) {
+    exactMatches.sort(
+      (a, b) => normalizeForMatch(b.nombre).length - normalizeForMatch(a.nombre).length
+    );
+    return { obra: exactMatches[0]!, multiples: [] };
+  }
+
+  // FASE 2 — Coincidencia parcial en memoria (palabras clave, cliente, dirección)
+  const candidatas: Obra[] = [];
   for (const row of lista) {
     if (!ESTADOS_ABIERTAS.has(String(row.estado ?? '').toLowerCase())) continue;
     const cliNom =
@@ -131,18 +157,11 @@ export async function detectarObraDesdeTexto(
       palabrasUsuarioCoincidenConObra(textoNorm, row.nombre, cliStr, dirStr);
 
     if (match) {
-      candidatas.push({
-        id: row.id,
-        business_id: row.business_id,
-        cliente_id: row.cliente_id,
-        nombre: row.nombre,
-        direccion: row.direccion,
-        estado: row.estado,
-      });
+      candidatas.push(rowToObra(row));
     }
   }
 
-  // Segunda pasada por ilike en BD si no hubo coincidencias en memoria (p. ej. tipos distintos de espacio)
+  // FASE 3 — ilike en BD si fases 1 y 2 no encontraron nada
   if (candidatas.length === 0) {
     const safeFragment = escapeIlikePattern(raw).slice(0, 120);
     if (safeFragment.length >= 2) {
