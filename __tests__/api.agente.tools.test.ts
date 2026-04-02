@@ -617,12 +617,21 @@ describe('POST /api/agente — tools', () => {
   });
 
   describe('crear_cliente', () => {
-    it('devuelve mensaje de éxito', async () => {
-      const insertCliente = jest.fn().mockResolvedValue({ error: null });
+    it('devuelve mensaje de éxito e id del cliente creado', async () => {
+      const nuevoId = 'cli-nuevo-1';
+      const insertCliente = jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          maybeSingle: jest.fn().mockResolvedValue({
+            data: { id: nuevoId },
+            error: null,
+          }),
+        }),
+      });
       const res = await postWithTool(
         'crear_cliente',
         {
           clientes: {
+            select: jest.fn(() => makeThenableResult({ data: [], error: null })),
             insert: insertCliente,
           },
         },
@@ -640,8 +649,45 @@ describe('POST /api/agente — tools', () => {
         messages: Array<{ role: string; content?: string }>;
       };
       const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as { mensaje?: string };
+      const parsed = JSON.parse(toolMsg!.content as string) as {
+        mensaje?: string;
+        id?: string;
+      };
+      expect(parsed.id).toBe(nuevoId);
       expect(parsed.mensaje).toBe('Cliente Cliente Test creado correctamente.');
+    });
+
+    it('no inserta si ya existe nombre similar y devuelve id existente', async () => {
+      const insertCliente = jest.fn();
+      const res = await postWithTool(
+        'crear_cliente',
+        {
+          clientes: {
+            select: jest.fn(() =>
+              makeThenableResult({
+                data: [{ id: 'c-dup', nombre: 'Cliente Test' }],
+                error: null,
+              })
+            ),
+            insert: insertCliente,
+          },
+        },
+        JSON.stringify({ nombre: 'cliente test', email: 'otro@x.es' })
+      );
+      expect(res.status).toBe(200);
+      expect(insertCliente).not.toHaveBeenCalled();
+      const secondCall = createMock.mock.calls[2]?.[0] as {
+        messages: Array<{ role: string; content?: string }>;
+      };
+      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
+      const parsed = JSON.parse(toolMsg!.content as string) as {
+        mensaje?: string;
+        id?: string;
+        existente?: boolean;
+      };
+      expect(parsed.id).toBe('c-dup');
+      expect(parsed.existente).toBe(true);
+      expect(parsed.mensaje).toBe('El cliente Cliente Test ya existe, usando el existente.');
     });
   });
 
@@ -654,6 +700,7 @@ describe('POST /api/agente — tools', () => {
         'crear_obra',
         {
           obras: {
+            select: jest.fn(() => makeThenableResult({ data: [], error: null })),
             insert: insertObra,
           },
         },
@@ -670,6 +717,42 @@ describe('POST /api/agente — tools', () => {
       const parsed = JSON.parse(toolMsg!.content as string) as { mensaje?: string };
       expect(parsed.mensaje).toBe(
         `Obra '${nombreObra}' creada para sin cliente en sin dirección. Estado: Abierta.`
+      );
+    });
+
+    it('no inserta si ya existe obra con el mismo nombre (sin distinguir mayúsculas)', async () => {
+      const nombreObra = 'Reforma Baño García';
+      const insertObra = jest.fn();
+      const res = await postWithTool(
+        'crear_obra',
+        {
+          obras: {
+            select: jest.fn(() =>
+              makeThenableResult({
+                data: [{ id: 'o-dup', nombre: nombreObra }],
+                error: null,
+              })
+            ),
+            insert: insertObra,
+          },
+        },
+        JSON.stringify({ nombre: 'reforma baño garcía' })
+      );
+      expect(res.status).toBe(200);
+      expect(insertObra).not.toHaveBeenCalled();
+      const secondCall = createMock.mock.calls[2]?.[0] as {
+        messages: Array<{ role: string; content?: string }>;
+      };
+      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
+      const parsed = JSON.parse(toolMsg!.content as string) as {
+        mensaje?: string;
+        id?: string;
+        existente?: boolean;
+      };
+      expect(parsed.id).toBe('o-dup');
+      expect(parsed.existente).toBe(true);
+      expect(parsed.mensaje).toBe(
+        `La obra '${nombreObra}' ya existe, usando la existente.`
       );
     });
   });
