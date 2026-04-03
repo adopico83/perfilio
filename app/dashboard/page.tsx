@@ -183,14 +183,16 @@ function documentosDesdeObraApi(o: {
   num_presupuestos?: number;
   num_facturas?: number;
   num_albaranes?: number;
-  num_entradas_diario?: number;
+  num_gastos?: number;
+  tiene_diario?: number;
 }): number {
   if (typeof o.total_documentos === 'number') return o.total_documentos;
   return (
     (o.num_presupuestos ?? 0) +
     (o.num_facturas ?? 0) +
     (o.num_albaranes ?? 0) +
-    (o.num_entradas_diario ?? 0)
+    (o.num_gastos ?? 0) +
+    (o.tiene_diario ?? 0)
   );
 }
 
@@ -660,7 +662,8 @@ export default function DashboardPage() {
                 num_presupuestos?: number;
                 num_facturas?: number;
                 num_albaranes?: number;
-                num_entradas_diario?: number;
+                num_gastos?: number;
+                tiene_diario?: number;
               }>;
             };
             const activas = (json.obras ?? []).filter((o) =>

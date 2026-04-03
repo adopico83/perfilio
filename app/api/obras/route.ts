@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
         ? supabase.from('clientes').select('id, nombre').in('id', clienteIds)
         : Promise.resolve({ data: [] as Array<{ id: string; nombre: string }>, error: null });
 
-    const [cliRes, presRes, facRes, albRes, dioRes] = await Promise.all([
+    const [cliRes, presRes, facRes, albRes, dioRes, gasRes] = await Promise.all([
       cliPromise,
       supabase
         .from('presupuestos')
@@ -98,6 +98,10 @@ export async function GET(request: NextRequest) {
         .in('obra_id', obraIds),
       supabase
         .from('diario_obra')
+        .select('obra_id')
+        .in('obra_id', obraIds),
+      supabase
+        .from('gastos')
         .select('obra_id')
         .in('obra_id', obraIds),
     ]);
@@ -123,20 +127,24 @@ export async function GET(request: NextRequest) {
     const mf = countMap((facRes.data ?? []) as Array<{ obra_id: string | null }>);
     const ma = countMap((albRes.data ?? []) as Array<{ obra_id: string | null }>);
     const md = countMap((dioRes.data ?? []) as Array<{ obra_id: string | null }>);
+    const mg = countMap((gasRes.data ?? []) as Array<{ obra_id: string | null }>);
 
     const obrasConConteo = obras.map((o) => {
       const np = mp.get(o.id) ?? 0;
       const nf = mf.get(o.id) ?? 0;
       const na = ma.get(o.id) ?? 0;
       const nd = md.get(o.id) ?? 0;
+      const ng = mg.get(o.id) ?? 0;
+      const tiene_diario = nd > 0 ? 1 : 0;
       return {
         ...o,
         cliente_nombre: o.cliente_id ? clienteMap.get(o.cliente_id) ?? null : null,
         num_presupuestos: np,
         num_facturas: nf,
         num_albaranes: na,
-        num_entradas_diario: nd,
-        total_documentos: np + nf + na + nd,
+        num_gastos: ng,
+        tiene_diario,
+        total_documentos: np + nf + na + ng + tiene_diario,
       };
     });
 

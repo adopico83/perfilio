@@ -27,7 +27,11 @@ import {
   formatearBorradorPresupuestoDictado,
   type TarifaReferencia,
 } from '@/lib/dictado-presupuesto';
-import { resolverObraDocumentoAgente } from '@/lib/obras-context';
+import {
+  mensajeObrasAmbiguas,
+  resolverObraDocumentoAgente,
+  type Obra,
+} from '@/lib/obras-context';
 import {
   buildMemoriaNegocioPromptBlock,
   deleteMemoriaNegocioByClave,
@@ -729,9 +733,11 @@ Canvas (mostrar_vista_visual): primero la tool de listado que toque; luego mostr
 
 Medidas de obra: siempre calcular_medicion; no calcules totales a mano.
 
-Imagen ticket/factura: resume OCR y pregunta; registrar_gasto_ticket solo tras confirmación explícita en un mensaje siguiente. Tras registrar bien, ofrece vincular. vincular_gasto solo si el usuario indica documento (antes listar_facturas/listar_albaranes si hace falta el id).
+Gastos / tickets: Imagen ticket/factura: resume OCR y pregunta; registrar_gasto_ticket solo tras confirmación explícita en un mensaje siguiente. Tras registrar bien, ofrece vincular. vincular_gasto solo si el usuario indica documento (antes listar_facturas/listar_albaranes si hace falta el id).
+Cuando el usuario mencione una obra o cliente al registrar un gasto con registrar_gasto_ticket, siempre incluye el parámetro obra_nombre o obra_id en la llamada a la tool para que el gasto quede vinculado a la obra correcta. Nunca registres un gasto sin intentar resolver la obra si el usuario la ha mencionado.
 
 Diario: crear_entrada_diario (obra_nombre para identificar la obra; detección automática desde nombre/cliente/dirección); generar_pdf_diario para exportar con el nombre exacto de obra.
+Cuando el usuario pida añadir una entrada al diario mencionando un cliente o nombre parcial de obra, SIEMPRE ejecuta crear_entrada_diario directamente con el obra_nombre que el usuario proporcionó. No preguntes por ambigüedad antes de ejecutar la tool — la tool tiene su propio sistema de resolución de obras. Solo pregunta si la tool devuelve un mensaje de ambigüedad.
 
 Si hay mensajes de clientes pendientes de aprobar, menciónalos al inicio cuando aplique.
 
@@ -1497,6 +1503,10 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
               obra_id: {
                 type: 'string',
                 description: 'UUID de la obra (opcional). Si hay obra activa se rellena automáticamente.',
+              },
+              obra_nombre: {
+                type: 'string',
+                description: 'Nombre de la obra a la que vincular el gasto',
               },
               cliente_id: {
                 type: 'string',
@@ -4190,10 +4200,109 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
           const crGasto = await resolveClienteIdOpcional(toolArgs.cliente_id);
           if (!crGasto.ok) return { error: crGasto.error };
 
-          const explicitObraGasto =
+          let explicitObraGasto =
             typeof toolArgs.obra_id === 'string' && toolArgs.obra_id.trim()
               ? String(toolArgs.obra_id).trim()
               : undefined;
+          const obraNombreTool = String(toolArgs.obra_nombre ?? '').trim();
+          if (!explicitObraGasto && obraNombreTool) {
+            const ilikePat = (raw: string) => {
+              const safe = raw.replace(/[%_*]/g, '').slice(0, 120);
+              return safe ? `%${safe}%` : '';
+            };
+            const patObra = ilikePat(obraNombreTool);
+            const { data: obrasPorNombre, error: errNomObra } = patObra
+              ? await supabase
+                  .from('obras')
+                  .select('id, nombre')
+                  .eq('business_id', businessIdGasto)
+                  .in('estado', ['abierta', 'en_curso'])
+                  .ilike('nombre', patObra)
+                  .order('nombre', { ascending: true })
+                  .limit(15)
+              : { data: [] as { id: string; nombre?: string | null }[], error: null };
+            if (errNomObra) return { error: errNomObra.message };
+            let lista: { id: string; nombre?: string | null }[] = obrasPorNombre ?? [];
+
+            if (lista.length === 0) {
+              const buscarClientesPorPat = async (label: string) => {
+                const p = ilikePat(label);
+                if (!p) return { data: [] as { id: string; nombre?: string | null }[], error: null as string | null };
+                const { data, error } = await supabase
+                  .from('clientes')
+                  .select('id, nombre')
+                  .eq('business_id', businessIdGasto)
+                  .ilike('nombre', p)
+                  .order('nombre', { ascending: true })
+                  .limit(15);
+                return { data: data ?? [], error: error?.message ?? null };
+              };
+
+              let clist: { id: string; nombre?: string | null }[] = [];
+              const rCli1 = await buscarClientesPorPat(obraNombreTool);
+              if (rCli1.error) return { error: rCli1.error };
+              clist = rCli1.data;
+
+              if (clist.length === 0) {
+                const clienteHint = obraNombreTool
+                  .replace(/^(obra\s+de\s+|la\s+obra\s+de\s+|obra\s+)/i, '')
+                  .trim();
+                if (clienteHint && clienteHint !== obraNombreTool) {
+                  const rCli2 = await buscarClientesPorPat(clienteHint);
+                  if (rCli2.error) return { error: rCli2.error };
+                  clist = rCli2.data;
+                }
+              }
+
+              if (clist.length === 0) {
+                return {
+                  error: `No se encontró ninguna obra que coincida con «${obraNombreTool}» ni cliente asociado. Indica otro nombre u obra_id.`,
+                };
+              }
+              if (clist.length > 1) {
+                const lines = clist
+                  .map((c, i) => `${i + 1}. ${String((c as { nombre?: string | null }).nombre ?? '—')}`)
+                  .join('\n');
+                return {
+                  mensaje:
+                    `He encontrado varios clientes que encajan con «${obraNombreTool}»:\n${lines}\n` +
+                    '¿Cuál es el correcto? Indica el nombre completo del cliente u obra_id.',
+                };
+              }
+
+              const clienteIdRes = String((clist[0] as { id: string }).id);
+              const nombreCli = String((clist[0] as { nombre?: string | null }).nombre ?? '').trim();
+              const { data: obrasCliente, error: errOC } = await supabase
+                .from('obras')
+                .select('id, nombre')
+                .eq('business_id', businessIdGasto)
+                .eq('cliente_id', clienteIdRes)
+                .in('estado', ['abierta', 'en_curso'])
+                .order('nombre', { ascending: true })
+                .limit(15);
+              if (errOC) return { error: errOC.message };
+              lista = obrasCliente ?? [];
+              if (lista.length === 0) {
+                return {
+                  error: `No hay obras abiertas vinculadas al cliente «${nombreCli || clienteIdRes}». Indica obra_id u otro criterio.`,
+                };
+              }
+            }
+
+            if (lista.length > 1) {
+              const obrasAmb: Obra[] = lista.map((r) => ({
+                id: String((r as { id: string }).id),
+                business_id: businessIdGasto,
+                cliente_id: null,
+                nombre: String((r as { nombre?: string | null }).nombre ?? ''),
+                direccion: null,
+                estado: 'abierta',
+              }));
+              return { mensaje: mensajeObrasAmbiguas(obrasAmb, 'gasto') };
+            }
+            explicitObraGasto = String((lista[0] as { id: string }).id);
+          }
+
           const textoObraGasto = [descripcion, proveedor, mensajeTrim].filter(Boolean).join(' ').trim();
           const obraGastoRes = await resolverObraDocumentoAgente(
             supabase,
@@ -4349,6 +4458,22 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
           };
         }
         case 'crear_entrada_diario': {
+          console.log(
+            '[agente] crear_entrada_diario — argumentos del modelo:',
+            JSON.stringify(
+              {
+                obra_id: toolArgs.obra_id,
+                obra_nombre: toolArgs.obra_nombre,
+                obra_direccion: toolArgs.obra_direccion,
+                texto: toolArgs.texto,
+                fotos: toolArgs.fotos,
+                videos: toolArgs.videos,
+              },
+              null,
+              2
+            )
+          );
+
           const obraNombreDiario = String(toolArgs.obra_nombre ?? '').trim();
           if (!obraNombreDiario) {
             return { error: 'obra_nombre es obligatorio' };

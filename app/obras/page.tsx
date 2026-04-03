@@ -23,7 +23,8 @@ type ObraRow = {
   num_presupuestos: number;
   num_facturas: number;
   num_albaranes: number;
-  num_entradas_diario: number;
+  num_gastos: number;
+  tiene_diario: number;
   total_documentos?: number;
 };
 
@@ -265,7 +266,8 @@ export default function ObrasPage() {
             (o.num_presupuestos ?? 0) +
               (o.num_facturas ?? 0) +
               (o.num_albaranes ?? 0) +
-              (o.num_entradas_diario ?? 0);
+              (o.num_gastos ?? 0) +
+              (o.tiene_diario ?? 0);
           const badge = estadoBadgeClass(o.estado);
           const dirTrunc =
             o.direccion && o.direccion.length > 48 ? `${o.direccion.slice(0, 46)}…` : o.direccion;

@@ -155,6 +155,11 @@ describe('POST /api/agente — extras', () => {
                     error: null,
                   }),
                 }),
+                ilike: jest.fn().mockReturnValue({
+                  order: jest.fn().mockReturnValue({
+                    limit: jest.fn().mockResolvedValue({ data: [], error: null }),
+                  }),
+                }),
               }),
             }),
           };
