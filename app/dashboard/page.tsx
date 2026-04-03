@@ -1543,11 +1543,19 @@ export default function DashboardPage() {
                         key={c.id}
                         className="border-b border-white/10 pb-1.5 last:border-b-0 last:pb-0"
                       >
-                        <p className="font-bold text-white truncate">{c.nombre}</p>
-                        <p className="text-[11px] sm:text-xs text-white/70 mt-0.5">
-                          {c.num_documentos}{' '}
-                          {c.num_documentos === 1 ? 'documento asociado' : 'documentos asociados'}
-                        </p>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            router.push(`/clientes/${encodeURIComponent(c.id)}`)
+                          }
+                          className="w-full text-left rounded-md px-1.5 py-1.5 -m-1 hover:bg-white/5 cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#ed8936]/70"
+                        >
+                          <p className="font-bold text-white truncate min-w-0">{c.nombre}</p>
+                          <p className="text-[11px] sm:text-xs text-white/70 mt-0.5">
+                            {c.num_documentos}{' '}
+                            {c.num_documentos === 1 ? 'documento asociado' : 'documentos asociados'}
+                          </p>
+                        </button>
                       </li>
                     ))}
                   </ul>
