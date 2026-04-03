@@ -13,7 +13,7 @@ import {
   type TouchEvent,
 } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
-import { History, Loader2, Paperclip, Pause, Video, X } from 'lucide-react';
+import { History, Loader2, Paperclip, Pause, Trash2, Video, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { isDiarioPdfDownloadLink } from '@/lib/diario-pdf-link';
 import { useCanvas } from '@/contexts/canvas-context';
@@ -330,6 +330,96 @@ const generateConversationId = () => {
   return `conv_${Date.now()}`;
 };
 
+function ConversacionListRow({
+  conv,
+  isActive,
+  isConfirming,
+  isDeleting,
+  onSelect,
+  onRequestDelete,
+  onCancelDelete,
+  onConfirmDelete,
+}: {
+  conv: ConversationSummaryItem;
+  isActive: boolean;
+  isConfirming: boolean;
+  isDeleting: boolean;
+  onSelect: () => void;
+  onRequestDelete: () => void;
+  onCancelDelete: () => void;
+  onConfirmDelete: () => void;
+}) {
+  if (isConfirming) {
+    return (
+      <li>
+        <div className="rounded-lg border border-[#ed8936]/50 bg-[#1a365d] px-2.5 py-2 space-y-2">
+          <p className="text-xs text-white/95 leading-snug">¿Eliminar esta conversación?</p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onConfirmDelete}
+              disabled={isDeleting}
+              className="flex-1 py-1.5 rounded-md text-xs font-semibold bg-[#ed8936] hover:bg-[#dd6b20] text-white disabled:opacity-60 inline-flex items-center justify-center gap-1 touch-manipulation"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin shrink-0" aria-hidden />
+                  Eliminando…
+                </>
+              ) : (
+                'Sí'
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={onCancelDelete}
+              disabled={isDeleting}
+              className="flex-1 py-1.5 rounded-md text-xs font-medium border border-white/25 text-white hover:bg-white/10 disabled:opacity-50 touch-manipulation"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      </li>
+    );
+  }
+
+  return (
+    <li className="group">
+      <div className="flex items-stretch gap-1">
+        <button
+          type="button"
+          onClick={onSelect}
+          className={[
+            'flex-1 min-w-0 text-left rounded-lg border px-2.5 py-2 transition-colors',
+            isActive
+              ? 'border-[#ed8936]/70 bg-[#ed8936]/15'
+              : 'border-white/10 bg-white/5 hover:bg-white/10',
+          ].join(' ')}
+        >
+          <p className="text-sm text-white truncate pr-1">{conv.titulo}</p>
+          <p className="mt-1 text-[11px] text-white/60">
+            {formatFechaRelativa(conv.created_at)} · {conv.total_mensajes} mensajes
+          </p>
+        </button>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onRequestDelete();
+          }}
+          className="shrink-0 self-start mt-1 p-1.5 rounded-md border border-transparent text-white/45 hover:text-red-500 hover:border-red-500/30 hover:bg-red-500/10 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-colors touch-manipulation"
+          aria-label="Eliminar conversación"
+          title="Eliminar conversación"
+        >
+          <Trash2 className="size-3.5" aria-hidden />
+        </button>
+      </div>
+    </li>
+  );
+}
+
 export default function AgentSidebar() {
   const { abrirCanvas } = useCanvas();
   const [collapsed, setCollapsed] = useState(false);
@@ -361,6 +451,10 @@ export default function AgentSidebar() {
   const [emailSendLoadingId, setEmailSendLoadingId] = useState<string | null>(null);
   const [imagenPendiente, setImagenPendiente] = useState<string | null>(null);
   const [subiendoVideo, setSubiendoVideo] = useState(false);
+  const [confirmDeleteConversationId, setConfirmDeleteConversationId] = useState<string | null>(
+    null
+  );
+  const [deletingConversationId, setDeletingConversationId] = useState<string | null>(null);
 
   const { abrirObra } = useObraModal();
 
@@ -1185,6 +1279,42 @@ export default function AgentSidebar() {
     void cargarMensajesDeConversacion(cid);
   };
 
+  const confirmarEliminarConversacion = async (cid: string) => {
+    if (!selectedId || !currentUserId || deletingConversationId) return;
+    setDeletingConversationId(cid);
+    setError('');
+    try {
+      const { error: delErr } = await supabase
+        .from('conversation_history')
+        .delete()
+        .eq('business_id', selectedId)
+        .eq('user_id', currentUserId)
+        .eq('conversation_id', cid);
+      if (delErr) {
+        setError(delErr.message);
+        setDeletingConversationId(null);
+        return;
+      }
+      const nextList = conversaciones.filter((c) => c.conversation_id !== cid);
+      setConversaciones(nextList);
+      setConfirmDeleteConversationId(null);
+      setDeletingConversationId(null);
+      if (conversationId === cid) {
+        if (nextList.length > 0) {
+          const first = nextList[0];
+          setConversationId(first.conversation_id);
+          void cargarMensajesDeConversacion(first.conversation_id);
+        } else {
+          setConversationId(generateConversationId());
+          setHistorial([]);
+        }
+      }
+    } catch {
+      setError('Error al eliminar la conversación.');
+      setDeletingConversationId(null);
+    }
+  };
+
   const mostrarIndicadorEscribiendo =
     saludoAutomaticoCargando ||
     (loading &&
@@ -1265,23 +1395,17 @@ export default function AgentSidebar() {
                 ) : (
                   <ul className="space-y-1.5">
                     {conversaciones.map((conv) => (
-                      <li key={conv.conversation_id}>
-                        <button
-                          type="button"
-                          onClick={() => seleccionarConversacion(conv.conversation_id)}
-                          className={[
-                            'w-full text-left rounded-lg border px-2.5 py-2 transition-colors',
-                            conv.conversation_id === conversationId
-                              ? 'border-[#ed8936]/70 bg-[#ed8936]/15'
-                              : 'border-white/10 bg-white/5 hover:bg-white/10',
-                          ].join(' ')}
-                        >
-                          <p className="text-sm text-white truncate">{conv.titulo}</p>
-                          <p className="mt-1 text-[11px] text-white/60">
-                            {formatFechaRelativa(conv.created_at)} · {conv.total_mensajes} mensajes
-                          </p>
-                        </button>
-                      </li>
+                      <ConversacionListRow
+                        key={conv.conversation_id}
+                        conv={conv}
+                        isActive={conv.conversation_id === conversationId}
+                        isConfirming={confirmDeleteConversationId === conv.conversation_id}
+                        isDeleting={deletingConversationId === conv.conversation_id}
+                        onSelect={() => seleccionarConversacion(conv.conversation_id)}
+                        onRequestDelete={() => setConfirmDeleteConversationId(conv.conversation_id)}
+                        onCancelDelete={() => setConfirmDeleteConversationId(null)}
+                        onConfirmDelete={() => void confirmarEliminarConversacion(conv.conversation_id)}
+                      />
                     ))}
                   </ul>
                 )}
@@ -1544,23 +1668,21 @@ export default function AgentSidebar() {
                       ) : (
                         <ul className="space-y-1.5">
                           {conversaciones.map((conv) => (
-                            <li key={conv.conversation_id}>
-                              <button
-                                type="button"
-                                onClick={() => seleccionarConversacion(conv.conversation_id)}
-                                className={[
-                                  'w-full text-left rounded-lg border px-2.5 py-2 transition-colors',
-                                  conv.conversation_id === conversationId
-                                    ? 'border-[#ed8936]/70 bg-[#ed8936]/15'
-                                    : 'border-white/10 bg-white/5 hover:bg-white/10',
-                                ].join(' ')}
-                              >
-                                <p className="text-sm text-white truncate">{conv.titulo}</p>
-                                <p className="mt-1 text-[11px] text-white/60">
-                                  {formatFechaRelativa(conv.created_at)} · {conv.total_mensajes} mensajes
-                                </p>
-                              </button>
-                            </li>
+                            <ConversacionListRow
+                              key={conv.conversation_id}
+                              conv={conv}
+                              isActive={conv.conversation_id === conversationId}
+                              isConfirming={confirmDeleteConversationId === conv.conversation_id}
+                              isDeleting={deletingConversationId === conv.conversation_id}
+                              onSelect={() => seleccionarConversacion(conv.conversation_id)}
+                              onRequestDelete={() =>
+                                setConfirmDeleteConversationId(conv.conversation_id)
+                              }
+                              onCancelDelete={() => setConfirmDeleteConversationId(null)}
+                              onConfirmDelete={() =>
+                                void confirmarEliminarConversacion(conv.conversation_id)
+                              }
+                            />
                           ))}
                         </ul>
                       )}
