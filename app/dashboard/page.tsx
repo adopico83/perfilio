@@ -40,6 +40,20 @@ interface PresupuestoResumen {
   fecha: string | null;
   estado: string | null;
   created_at: string;
+  obra_id: string | null;
+  cliente_nombre: string | null;
+  obra_nombre: string | null;
+  cliente_ficha_nombre: string | null;
+}
+
+/** Sublínea del widget: obra si hay vínculo; si no, cliente; nunca mensajes. */
+function lineaContextoPresupuestoDashboard(p: PresupuestoResumen): string | null {
+  if (p.obra_id) {
+    const on = p.obra_nombre?.trim();
+    return on && on.length > 0 ? on : null;
+  }
+  const cli = p.cliente_nombre?.trim() || p.cliente_ficha_nombre?.trim() || '';
+  return cli.length > 0 ? cli : null;
 }
 
 interface AgendaItem {
@@ -528,7 +542,9 @@ export default function DashboardPage() {
             .eq('estado', 'pendiente'),
           supabase
             .from('presupuestos')
-            .select('id, fecha, estado, created_at')
+            .select(
+              'id, fecha, estado, created_at, obra_id, cliente_nombre, obras ( nombre ), clientes ( nombre )'
+            )
             .eq('business_id', businessId)
             .order('created_at', { ascending: false })
             .limit(5),
@@ -557,7 +573,32 @@ export default function DashboardPage() {
         });
 
         if (!presListRes.error && presListRes.data) {
-          setUltimosPresupuestos(presListRes.data as PresupuestoResumen[]);
+          const raw = presListRes.data as Array<{
+            id: string;
+            fecha: string | null;
+            estado: string | null;
+            created_at: string;
+            obra_id?: string | null;
+            cliente_nombre?: string | null;
+            obras?: { nombre?: string | null } | null;
+            clientes?: { nombre?: string | null } | null;
+          }>;
+          setUltimosPresupuestos(
+            raw.map((r) => {
+              const oj = r.obras && typeof r.obras === 'object' ? r.obras : null;
+              const cj = r.clientes && typeof r.clientes === 'object' ? r.clientes : null;
+              return {
+                id: r.id,
+                fecha: r.fecha,
+                estado: r.estado,
+                created_at: r.created_at,
+                obra_id: r.obra_id ?? null,
+                cliente_nombre: r.cliente_nombre ?? null,
+                obra_nombre: oj ? String(oj.nombre ?? '').trim() || null : null,
+                cliente_ficha_nombre: cj ? String(cj.nombre ?? '').trim() || null : null,
+              };
+            })
+          );
         }
 
         if (!facturasPendientesDataRes.error && facturasPendientesDataRes.data) {
@@ -898,9 +939,6 @@ export default function DashboardPage() {
           </button>
 
           <div className="hidden md:flex items-center gap-4">
-            <Link href="/historial" className="text-sm text-gray-200 hover:text-white transition-colors">
-              Historial
-            </Link>
             <Link href="/mensajes" className="text-sm text-gray-200 hover:text-white transition-colors">
               Mensajes
             </Link>
@@ -953,13 +991,6 @@ export default function DashboardPage() {
         {menuMovilAbierto && (
           <div className="md:hidden max-w-7xl mx-auto px-6 pb-4">
             <div className="bg-[#111827] border border-white/10 rounded-xl p-4 flex flex-col gap-3">
-              <Link
-                href="/historial"
-                className="text-sm text-gray-200 hover:text-white transition-colors"
-                onClick={() => setMenuMovilAbierto(false)}
-              >
-                Historial
-              </Link>
               <Link
                 href="/mensajes"
                 className="text-sm text-gray-200 hover:text-white transition-colors"
@@ -1204,7 +1235,9 @@ export default function DashboardPage() {
                   <p className="text-white/60 text-xs">Aún no hay presupuestos generados.</p>
                 ) : (
                   <ul className="space-y-2 text-xs sm:text-sm">
-                    {ultimosPresupuestos.map((p) => (
+                    {ultimosPresupuestos.map((p) => {
+                      const sub = lineaContextoPresupuestoDashboard(p);
+                      return (
                       <li
                         key={p.id}
                         className="flex items-center justify-between gap-2 border-b border-white/10 pb-1.5 last:border-b-0 last:pb-0"
@@ -1213,9 +1246,11 @@ export default function DashboardPage() {
                           <p className="font-medium truncate">
                             {p.fecha ?? new Date(p.created_at).toLocaleDateString('es-ES')}
                           </p>
-                          <p className="text-white/60 text-[11px] sm:text-xs">
-                            Estado: {(p.estado ?? 'borrador').toString()}
-                          </p>
+                          {sub ? (
+                            <p className="text-white/60 text-[11px] sm:text-xs truncate" title={sub}>
+                              {sub}
+                            </p>
+                          ) : null}
                         </div>
                         <Link
                           href={`/presupuestos?id=${encodeURIComponent(p.id)}`}
@@ -1225,7 +1260,8 @@ export default function DashboardPage() {
                           <ArrowRight className="w-3 h-3 ml-0.5" />
                         </Link>
                       </li>
-                    ))}
+                    );
+                    })}
                   </ul>
                 )}
               </div>

@@ -13,13 +13,23 @@ import { type ObrasNombreJoin, nombreObraDesdeJoin } from '@/lib/obras-nombre-jo
 interface Presupuesto {
   id: string;
   business_id: string;
-  mensaje_cliente: string | null;
   presupuesto_generado: string | null;
   fecha: string | null;
   estado: string | null;
   created_at: string;
   obra_id: string | null;
+  cliente_nombre: string | null;
   obras?: ObrasNombreJoin;
+}
+
+/** Misma prioridad que el widget del dashboard: obra → cliente; nunca mensaje. */
+function lineaContextoPresupuestoLista(p: Presupuesto): string | null {
+  if (p.obra_id) {
+    const on = (nombreObraDesdeJoin(p.obras) ?? '').trim();
+    return on.length > 0 ? on : null;
+  }
+  const cli = (p.cliente_nombre ?? '').trim();
+  return cli.length > 0 ? cli : null;
 }
 
 function PresupuestosPageContent() {
@@ -55,7 +65,9 @@ function PresupuestosPageContent() {
   const loadPresupuestos = async () => {
     const { data } = await supabase
       .from('presupuestos')
-      .select('id, business_id, mensaje_cliente, presupuesto_generado, fecha, estado, created_at, obra_id, obras(nombre)')
+      .select(
+        'id, business_id, presupuesto_generado, fecha, estado, created_at, obra_id, cliente_nombre, obras(nombre)'
+      )
       .order('created_at', { ascending: false });
     setPresupuestos((data ?? []) as unknown as Presupuesto[]);
     setLoading(false);
@@ -83,11 +95,6 @@ function PresupuestosPageContent() {
     await supabase.from('presupuestos').update({ estado }).eq('id', id);
     loadPresupuestos();
     cerrarModal();
-  };
-
-  const resumen = (text: string | null, max = 100) => {
-    if (!text) return '—';
-    return text.length <= max ? text : text.slice(0, max) + '…';
   };
 
   const badgeEstado = (estado: string | null) => {
@@ -208,6 +215,7 @@ function PresupuestosPageContent() {
           <ul className="space-y-4">
             {presupuestos.map((p) => {
               const obraNombre = nombreObraDesdeJoin(p.obras);
+              const sub = lineaContextoPresupuestoLista(p);
               return (
               <li key={p.id} className="bg-white/5 border border-white/10 rounded-lg p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
@@ -227,7 +235,11 @@ function PresupuestosPageContent() {
                     {badgeEstado(p.estado)}
                   </div>
                 </div>
-                <p className="text-white/90 text-sm mb-3">{resumen(p.mensaje_cliente)}</p>
+                {sub && !(p.obra_id && obraNombre) ? (
+                  <p className="text-white/90 text-sm mb-3 truncate" title={sub}>
+                    {sub}
+                  </p>
+                ) : null}
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
