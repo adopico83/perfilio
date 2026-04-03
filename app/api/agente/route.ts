@@ -3233,7 +3233,9 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
 
           const { data: pRow, error: pErr } = await supabase
             .from('presupuestos')
-            .select('id, estado, cliente_nombre, cliente_id, presupuesto_generado, importe_total')
+            .select(
+              'id, estado, cliente_nombre, cliente_id, presupuesto_generado, importe_total, obra_id'
+            )
             .eq('id', presupuestoId)
             .eq('business_id', business_id)
             .maybeSingle();
@@ -3251,6 +3253,7 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
             business_id,
             cliente_nombre: clienteNombre || null,
             cliente_id: pRow.cliente_id ?? null,
+            obra_id: (pRow as { obra_id?: string | null }).obra_id ?? null,
             descripcion_trabajos: texto || null,
             total: totalNum,
             fecha: new Date().toISOString().split('T')[0],

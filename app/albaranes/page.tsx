@@ -108,8 +108,8 @@ export default function AlbaranesPage() {
               return (
               <li key={a.id} className="bg-white/5 border border-white/10 rounded-lg p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                  <div className="flex flex-wrap items-center gap-2 min-w-0">
-                    <span className="font-semibold text-white">{a.numero_albaran ?? '—'}</span>
+                  <span className="font-semibold text-white min-w-0">{a.numero_albaran ?? '—'}</span>
+                  <div className="flex flex-wrap items-center gap-2">
                     {a.obra_id && obraNombre ? (
                       <button
                         type="button"
@@ -121,8 +121,8 @@ export default function AlbaranesPage() {
                         {obraNombre}
                       </button>
                     ) : null}
+                    {badgeEstado(a.estado)}
                   </div>
-                  {badgeEstado(a.estado)}
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 text-sm text-white/80 mb-3">
                   <span>Cliente: {a.cliente_nombre ?? '—'}</span>
