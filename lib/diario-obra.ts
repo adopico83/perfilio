@@ -6,6 +6,7 @@ type JsPdfInstance = InstanceType<typeof jsPDF>;
 export type DiarioObraRow = {
   id: string;
   business_id: string;
+  cliente_id?: string | null;
   obra_id?: string | null;
   obra_nombre: string;
   obra_direccion: string | null;
@@ -20,6 +21,7 @@ export async function insertDiarioObraEntry(
   supabase: SupabaseClient,
   params: {
     business_id: string;
+    cliente_id?: string | null;
     obra_id?: string | null;
     obra_nombre: string;
     obra_direccion?: string | null;
@@ -37,6 +39,7 @@ export async function insertDiarioObraEntry(
     .from('diario_obra')
     .insert({
       business_id: params.business_id,
+      cliente_id: params.cliente_id ?? null,
       obra_id: params.obra_id ?? null,
       obra_nombre: params.obra_nombre.trim(),
       obra_direccion: params.obra_direccion?.trim() || null,

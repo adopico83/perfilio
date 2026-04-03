@@ -702,7 +702,7 @@ export default function DashboardPage() {
           if (uids.length === 0) {
             setUltimosClientes([]);
           } else {
-            const [pR, fR, aR] = await Promise.all([
+            const [pR, fR, aR, gR] = await Promise.all([
               supabase
                 .from('presupuestos')
                 .select('cliente_id')
@@ -715,6 +715,11 @@ export default function DashboardPage() {
                 .in('cliente_id', uids),
               supabase
                 .from('albaranes')
+                .select('cliente_id')
+                .eq('business_id', businessId)
+                .in('cliente_id', uids),
+              supabase
+                .from('gastos')
                 .select('cliente_id')
                 .eq('business_id', businessId)
                 .in('cliente_id', uids),
@@ -732,12 +737,16 @@ export default function DashboardPage() {
             const mp = bump(pR.data as { cliente_id: string | null }[] | null);
             const mf = bump(fR.data as { cliente_id: string | null }[] | null);
             const ma = bump(aR.data as { cliente_id: string | null }[] | null);
+            const mg = bump(gR.data as { cliente_id: string | null }[] | null);
             setUltimosClientes(
               uc.map((c) => ({
                 id: c.id,
                 nombre: c.nombre,
                 num_documentos:
-                  (mp.get(c.id) ?? 0) + (mf.get(c.id) ?? 0) + (ma.get(c.id) ?? 0),
+                  (mp.get(c.id) ?? 0) +
+                  (mf.get(c.id) ?? 0) +
+                  (ma.get(c.id) ?? 0) +
+                  (mg.get(c.id) ?? 0),
               }))
             );
           }

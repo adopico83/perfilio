@@ -51,7 +51,7 @@ export async function GET(
       return NextResponse.json({ error: 'No tienes acceso a este negocio' }, { status: 403 });
     }
 
-    const [presRes, facRes, albRes, dioRes] = await Promise.all([
+    const [presRes, facRes, albRes, gasRes, dioRes] = await Promise.all([
       supabase
         .from('presupuestos')
         .select('id, estado, importe_total, fecha, created_at')
@@ -71,6 +71,12 @@ export async function GET(
         .eq('business_id', businessId)
         .order('fecha', { ascending: false }),
       supabase
+        .from('gastos')
+        .select('id, proveedor, descripcion, importe, importe_total, fecha, created_at')
+        .eq('cliente_id', id)
+        .eq('business_id', businessId)
+        .order('fecha', { ascending: false }),
+      supabase
         .from('diario_obra')
         .select('id, obra_nombre, obra_direccion, texto, fecha, fotos, videos, created_at')
         .eq('cliente_id', id)
@@ -83,6 +89,7 @@ export async function GET(
       presupuestos: presRes.data ?? [],
       facturas: facRes.data ?? [],
       albaranes: albRes.data ?? [],
+      gastos: gasRes.data ?? [],
       diario_obra: dioRes.data ?? [],
     });
   } catch (e) {

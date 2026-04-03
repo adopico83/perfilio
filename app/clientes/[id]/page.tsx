@@ -45,6 +45,14 @@ type DioRow = {
   texto: string | null;
   fecha: string;
 };
+type GasRow = {
+  id: string;
+  proveedor: string;
+  descripcion: string | null;
+  importe: number | null;
+  importe_total: number | null;
+  fecha: string | null;
+};
 
 export default function ClienteFichaPage() {
   const router = useRouter();
@@ -66,6 +74,7 @@ export default function ClienteFichaPage() {
   const [presupuestos, setPresupuestos] = useState<PresRow[]>([]);
   const [facturas, setFacturas] = useState<FacRow[]>([]);
   const [albaranes, setAlbaranes] = useState<AlbRow[]>([]);
+  const [gastos, setGastos] = useState<GasRow[]>([]);
   const [diario, setDiario] = useState<DioRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -94,6 +103,7 @@ export default function ClienteFichaPage() {
         presupuestos?: PresRow[];
         facturas?: FacRow[];
         albaranes?: AlbRow[];
+        gastos?: GasRow[];
         diario_obra?: DioRow[];
         error?: string;
       };
@@ -117,6 +127,7 @@ export default function ClienteFichaPage() {
       setPresupuestos(json.presupuestos ?? []);
       setFacturas(json.facturas ?? []);
       setAlbaranes(json.albaranes ?? []);
+      setGastos(json.gastos ?? []);
       setDiario(json.diario_obra ?? []);
     } catch {
       setError('Error de conexión');
@@ -430,6 +441,50 @@ export default function ClienteFichaPage() {
                           </td>
                         </tr>
                       ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+
+            <section>
+              <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wide mb-2">
+                Gastos
+              </h2>
+              {gastos.length === 0 ? (
+                <p className="text-white/50 text-sm">Sin gastos asociados.</p>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border border-white/10">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-white/10 bg-[#0f2744]/90 text-white/75">
+                        <th className="px-3 py-2 text-left">Proveedor</th>
+                        <th className="px-3 py-2 text-left">Descripción</th>
+                        <th className="px-3 py-2 text-left">Importe</th>
+                        <th className="px-3 py-2 text-left">Fecha</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {gastos.map((g) => {
+                        const imp =
+                          g.importe_total != null && Number.isFinite(Number(g.importe_total))
+                            ? Number(g.importe_total)
+                            : g.importe != null && Number.isFinite(Number(g.importe))
+                              ? Number(g.importe)
+                              : null;
+                        return (
+                          <tr key={g.id} className="border-b border-white/5">
+                            <td className="px-3 py-2">{g.proveedor ?? '—'}</td>
+                            <td className="px-3 py-2 text-white/85 max-w-[14rem] truncate" title={g.descripcion ?? undefined}>
+                              {g.descripcion?.trim() ? g.descripcion : '—'}
+                            </td>
+                            <td className="px-3 py-2 tabular-nums">
+                              {imp != null ? `${imp.toFixed(2)} €` : '—'}
+                            </td>
+                            <td className="px-3 py-2 tabular-nums">{g.fecha ?? '—'}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

@@ -4523,10 +4523,24 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
           const nombreObraDiario =
             obraDiarioRes.obra_nombre ?? obraNombreDiario;
 
+          let clienteIdDiario: string | null = null;
+          if (obraIdFinal) {
+            const { data: obraRowCli } = await supabase
+              .from('obras')
+              .select('cliente_id')
+              .eq('id', obraIdFinal)
+              .eq('business_id', businessIdDiario)
+              .maybeSingle();
+            const cid = (obraRowCli as { cliente_id?: string | null } | null)?.cliente_id;
+            clienteIdDiario =
+              cid != null && String(cid).trim() ? String(cid).trim() : null;
+          }
+
           const { data: entradaCreada, error: errDiario } = await insertDiarioObraEntry(
             supabase,
             {
               business_id: businessIdDiario,
+              cliente_id: clienteIdDiario,
               obra_nombre: nombreObraDiario,
               obra_id: obraIdFinal || null,
               obra_direccion: obraDireccionDiario || null,
