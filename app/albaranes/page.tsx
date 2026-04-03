@@ -13,6 +13,7 @@ interface Albaran {
   business_id: string;
   numero_albaran: string | null;
   cliente_nombre: string | null;
+  cliente_id: string | null;
   cliente_direccion: string | null;
   descripcion_trabajos: string | null;
   lineas: unknown;
@@ -57,7 +58,7 @@ export default function AlbaranesPage() {
   const loadAlbaranes = async () => {
     const { data } = await supabase
       .from('albaranes')
-      .select('id, business_id, numero_albaran, cliente_nombre, cliente_direccion, descripcion_trabajos, lineas, total, fecha, estado, observaciones, created_at, obra_id, obras(nombre)')
+      .select('id, business_id, numero_albaran, cliente_nombre, cliente_id, cliente_direccion, descripcion_trabajos, lineas, total, fecha, estado, observaciones, created_at, obra_id, obras(nombre)')
       .order('created_at', { ascending: false });
     setAlbaranes((data ?? []) as unknown as Albaran[]);
     setLoading(false);
@@ -68,7 +69,64 @@ export default function AlbaranesPage() {
   }, [authChecking]);
 
   const setEstado = async (id: string, estado: string) => {
-    await supabase.from('albaranes').update({ estado }).eq('id', id);
+    if (estado === 'facturado') {
+      const { data: alb, error: selErr } = await supabase
+        .from('albaranes')
+        .select(
+          'id, business_id, cliente_nombre, cliente_id, obra_id, total, numero_albaran'
+        )
+        .eq('id', id)
+        .maybeSingle();
+
+      if (selErr || !alb) {
+        loadAlbaranes();
+        setDetalleId(null);
+        return;
+      }
+
+      const { error: updErr } = await supabase
+        .from('albaranes')
+        .update({ estado: 'facturado' })
+        .eq('id', id);
+
+      if (updErr) {
+        loadAlbaranes();
+        setDetalleId(null);
+        return;
+      }
+
+      const totalNum =
+        alb.total != null && Number.isFinite(Number(alb.total))
+          ? Number(alb.total)
+          : 0;
+      const round2 = (n: number) => Math.round(n * 100) / 100;
+      const ivaPct = 21;
+      const baseImponible = round2(totalNum / (1 + ivaPct / 100));
+      const ivaImporte = round2(totalNum - baseImponible);
+      const numLabel = String(alb.numero_albaran ?? '').trim() || alb.id;
+      const concepto = `Factura generada desde albarán #${numLabel}`;
+
+      const { error: insErr } = await supabase.from('facturas').insert({
+        business_id: alb.business_id,
+        cliente_nombre: alb.cliente_nombre ?? null,
+        cliente_id: alb.cliente_id ?? null,
+        obra_id: alb.obra_id ?? null,
+        descripcion_trabajos: concepto,
+        base_imponible: baseImponible,
+        iva: ivaImporte,
+        total: totalNum,
+        fecha: new Date().toISOString().split('T')[0],
+        estado: 'pendiente',
+        albaran_id: alb.id,
+      });
+
+      if (insErr) {
+        await supabase.from('albaranes').update({ estado: 'entregado' }).eq('id', id);
+      }
+    } else {
+      await supabase.from('albaranes').update({ estado }).eq('id', id);
+    }
+
     loadAlbaranes();
     setDetalleId(null);
   };
