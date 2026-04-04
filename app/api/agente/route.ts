@@ -725,6 +725,7 @@ CREACIÓN DE PRESUPUESTOS:
 - Si el usuario describe trabajos, medidas o materiales → usar generar_presupuesto_por_dictado, pero solo tras pasar por SDD
 - Solo usar crear_presupuesto si el usuario proporciona partidas ya estructuradas con totales definidos
 - Nunca crear presupuestos con partidas a 0€ ni sin precio
+- Cuando uses generar_presupuesto_por_dictado, incluye SIEMPRE obra_nombre si la obra ya es conocida en la conversación. Nunca dejes que el sistema infiera la obra desde el texto del dictado.
 
 Conversiones entre documentos: si confirma presupuesto aceptado o facturar albarán, ofrece convertir_presupuesto_a_albaran o convertir_albaran_a_factura.
 
@@ -976,6 +977,11 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
               cliente_nombre: { type: 'string', description: 'Nombre del cliente' },
               cliente_id: { type: 'string', description: 'UUID del cliente si se conoce' },
               direccion_obra: { type: 'string', description: 'Dirección de la obra' },
+              obra_nombre: {
+                type: 'string',
+                description:
+                  'Nombre exacto de la obra a la que se asocia el presupuesto. Usar siempre que la obra sea conocida.',
+              },
               obra_id: {
                 type: 'string',
                 description:
@@ -1876,8 +1882,6 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
     };
 
     const runTool = async (toolName: string, toolArgs: Record<string, unknown>) => {
-      console.log('Ejecutando tool:', toolName);
-
       const resolveClienteIdOpcional = async (
         raw: unknown
       ): Promise<{ ok: true; id: string | null } | { ok: false; error: string }> => {
@@ -3954,10 +3958,14 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
             }
             obraIdFinal = obraRow.id;
           } else {
-            const textoObra = [dictado, clienteNombre, direccionObra, mensajeTrim]
+            const obraNombreExplicito =
+              typeof toolArgs.obra_nombre === 'string' && toolArgs.obra_nombre.trim()
+                ? toolArgs.obra_nombre.trim()
+                : '';
+            const textoObra = [obraNombreExplicito, clienteNombre, direccionObra]
               .filter(Boolean)
               .join(' ')
-              .trim();
+              .trim() || mensajeTrim;
             const obraRes = await resolverObraDocumentoAgente(
               supabase,
               business_id,
@@ -4920,15 +4928,18 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
           console.error('[agente] JSON.parse tool arguments:', toolCall.function.name, e);
           parsedArgs = {};
         }
+        const toolName = toolCall.function.name;
+        console.log('[TOOL CALL]', toolName, JSON.stringify(parsedArgs));
         let toolResult: unknown;
         try {
-          toolResult = await runTool(toolCall.function.name, parsedArgs);
+          toolResult = await runTool(toolName, parsedArgs);
         } catch (e) {
-          console.error('[agente] runTool:', toolCall.function.name, e);
+          console.error('[agente] runTool:', toolName, e);
           toolResult = {
             error: e instanceof Error ? e.message : 'Error al ejecutar la herramienta',
           };
         }
+        console.log('[TOOL RESULT]', toolName, JSON.stringify(toolResult));
         capturarEmailPendiente(toolResult);
         capturarCanvas(toolResult);
         capturarObraFicha(toolResult);
