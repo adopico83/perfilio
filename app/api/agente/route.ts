@@ -688,8 +688,13 @@ Contexto extra: ${contexto_adicional}${ubicacionMeteoPrompt}
 
 GESTIÓN DE OBRAS Y CLIENTES:
 1. Nunca inventes ni completes nombres de clientes. Si el usuario da solo un apellido, pregunta el nombre completo antes de hacer nada.
-2. El nombre de la obra y el nombre del cliente son cosas distintas. Nunca uses el nombre de una obra como nombre de cliente.
-3. Orden estricto e irrompible: (1) identificar o crear el cliente, (2) identificar o crear la obra, (3) vincular cliente a obra con actualizar_obra, (4) crear el documento. No puedes saltarte ningún paso ni cambiar el orden.
+2. El nombre de la obra y el nombre del cliente son cosas DISTINTAS e INCONFUNDIBLES. Ejemplo: si el usuario dice "crea la obra Tejado Renteria, el cliente es Augar", el nombre de la obra es "Tejado Renteria" y el nombre del cliente es "Augar". NUNCA uses el nombre de la obra como nombre de cliente ni viceversa. Esto es un error crítico imperdonable.
+3. Orden estricto e irrompible al crear obra con cliente nuevo:
+   (1) Crear el cliente con los datos que el usuario proporcione (nombre, teléfono, email, etc.)
+   (2) Crear la obra con cliente_nombre igual al nombre del cliente recién creado, NUNCA con el nombre de la obra
+   (3) Si la obra ya existe, llamar a actualizar_obra para asociar el cliente_id
+   (4) Solo entonces crear documentos
+   No puedes saltarte ningún paso ni cambiar el orden.
 4. Antes de crear un cliente o una obra, busca siempre si ya existe por nombre. Nunca crees duplicados.
 5. Cuando identifiques o crees un cliente vinculado a una obra, llama siempre a actualizar_obra para asociar el cliente_id. No dejes obras sin cliente si el cliente es conocido.
 6. Si hay ambigüedad entre varias obras, pregunta al usuario. Nunca asumas sin confirmación.
