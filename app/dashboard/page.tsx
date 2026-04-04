@@ -1169,19 +1169,19 @@ export default function DashboardPage() {
             type="button"
             onClick={toggleSecResumen}
             aria-expanded={secResumenOpen}
-            className="flex w-full items-center justify-between gap-2 mb-1.5 text-left"
+            className="flex w-full items-center justify-between gap-2 mb-1.5 text-left sm:pointer-events-none sm:cursor-default"
           >
             <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wide">
               Resumen de hoy
             </h2>
             {secResumenOpen ? (
-              <ChevronUp className="size-5 shrink-0 text-white/60" aria-hidden />
+              <ChevronUp className="size-5 shrink-0 text-white/60 sm:hidden" aria-hidden />
             ) : (
-              <ChevronDown className="size-5 shrink-0 text-white/60" aria-hidden />
+              <ChevronDown className="size-5 shrink-0 text-white/60 sm:hidden" aria-hidden />
             )}
           </button>
           <div
-            className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${
+            className={`grid transition-[grid-template-rows] duration-300 ease-in-out sm:grid-rows-[1fr] ${
               secResumenOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
             }`}
           >
@@ -1264,19 +1264,19 @@ export default function DashboardPage() {
             type="button"
             onClick={toggleSecMetricas}
             aria-expanded={secMetricasOpen}
-            className="flex w-full items-center justify-between gap-2 mb-1.5 text-left"
+            className="flex w-full items-center justify-between gap-2 mb-1.5 text-left sm:pointer-events-none sm:cursor-default"
           >
             <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wide">
               Métricas económicas
             </h2>
             {secMetricasOpen ? (
-              <ChevronUp className="size-5 shrink-0 text-white/60" aria-hidden />
+              <ChevronUp className="size-5 shrink-0 text-white/60 sm:hidden" aria-hidden />
             ) : (
-              <ChevronDown className="size-5 shrink-0 text-white/60" aria-hidden />
+              <ChevronDown className="size-5 shrink-0 text-white/60 sm:hidden" aria-hidden />
             )}
           </button>
           <div
-            className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${
+            className={`grid transition-[grid-template-rows] duration-300 ease-in-out sm:grid-rows-[1fr] ${
               secMetricasOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
             }`}
           >
@@ -1337,19 +1337,19 @@ export default function DashboardPage() {
             type="button"
             onClick={toggleSecActividad}
             aria-expanded={secActividadOpen}
-            className="flex w-full items-center justify-between gap-2 mb-1.5 text-left"
+            className="flex w-full items-center justify-between gap-2 mb-1.5 text-left sm:pointer-events-none sm:cursor-default"
           >
             <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wide">
               Actividad reciente
             </h2>
             {secActividadOpen ? (
-              <ChevronUp className="size-5 shrink-0 text-white/60" aria-hidden />
+              <ChevronUp className="size-5 shrink-0 text-white/60 sm:hidden" aria-hidden />
             ) : (
-              <ChevronDown className="size-5 shrink-0 text-white/60" aria-hidden />
+              <ChevronDown className="size-5 shrink-0 text-white/60 sm:hidden" aria-hidden />
             )}
           </button>
           <div
-            className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${
+            className={`grid transition-[grid-template-rows] duration-300 ease-in-out sm:grid-rows-[1fr] ${
               secActividadOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
             }`}
           >
