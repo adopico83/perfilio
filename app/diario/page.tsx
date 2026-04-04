@@ -287,9 +287,10 @@ function DiarioPageInner() {
                     timeStyle: 'short',
                   })
                 : '—';
-              const oidFirst = entradas[0]?.obra_id ?? null;
-              const todasMismoObraId =
-                Boolean(oidFirst) && entradas.every((e) => (e.obra_id ?? null) === oidFirst);
+              const obraIdParaFicha =
+                entradas.find(
+                  (e) => typeof e.obra_id === 'string' && e.obra_id.trim().length > 0
+                )?.obra_id ?? null;
 
               return (
                 <div
@@ -336,20 +337,20 @@ function DiarioPageInner() {
                           aria-hidden
                         />
                       </button>
-                      {todasMismoObraId && oidFirst ? (
+                      {obraIdParaFicha ? (
                         <div className="flex items-center justify-center sm:justify-start px-4 pb-3 sm:pb-0 sm:px-3 sm:border-l border-white/5 sm:min-w-[9rem]">
                           <span
                             role="button"
                             tabIndex={0}
                             onClick={(e) => {
                               e.stopPropagation();
-                              abrirObra(oidFirst);
+                              abrirObra(obraIdParaFicha);
                             }}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' || e.key === ' ') {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                abrirObra(oidFirst);
+                                abrirObra(obraIdParaFicha);
                               }
                             }}
                             className="text-[11px] font-semibold text-[#ed8936] hover:text-[#f6ad55] underline underline-offset-2 cursor-pointer"
