@@ -171,9 +171,6 @@ function DiarioPageInner() {
             ☰
           </button>
           <div className="hidden md:flex items-center gap-4">
-            <Link href="/historial" className="text-sm text-gray-200 hover:text-white transition-colors">
-              Historial
-            </Link>
             <Link href="/mensajes" className="text-sm text-gray-200 hover:text-white transition-colors">
               Mensajes
             </Link>
@@ -183,15 +180,15 @@ function DiarioPageInner() {
             <Link href="/albaranes" className="text-sm text-gray-200 hover:text-white transition-colors">
               Albaranes
             </Link>
+            <Link href="/facturas" className="text-sm text-gray-200 hover:text-white transition-colors">
+              Facturas
+            </Link>
             <span className="text-sm font-medium text-[#ed8936]">Diario</span>
             <Link href="/obras" className="text-sm text-gray-200 hover:text-white transition-colors">
               Obras
             </Link>
             <Link href="/clientes" className="text-sm text-gray-200 hover:text-white transition-colors">
               Clientes
-            </Link>
-            <Link href="/facturas" className="text-sm text-gray-200 hover:text-white transition-colors">
-              Facturas
             </Link>
             <ToggleAgenteNavButton className="inline-flex items-center px-4 py-2 text-sm font-medium text-[#ed8936] bg-transparent border border-[#ed8936] rounded-lg hover:bg-[#ed8936] hover:text-white transition-colors" />
             <LogoutButton />
@@ -201,13 +198,6 @@ function DiarioPageInner() {
         {menuMovilAbierto && (
           <div className="md:hidden max-w-7xl mx-auto px-6 pb-4">
             <div className="bg-[#111827] border border-white/10 rounded-xl p-4 flex flex-col gap-3">
-              <Link
-                href="/historial"
-                className="text-sm text-gray-200 hover:text-white"
-                onClick={() => setMenuMovilAbierto(false)}
-              >
-                Historial
-              </Link>
               <Link
                 href="/mensajes"
                 className="text-sm text-gray-200 hover:text-white"
@@ -229,6 +219,13 @@ function DiarioPageInner() {
               >
                 Albaranes
               </Link>
+              <Link
+                href="/facturas"
+                className="text-sm text-gray-200 hover:text-white"
+                onClick={() => setMenuMovilAbierto(false)}
+              >
+                Facturas
+              </Link>
               <span className="text-sm font-medium text-[#ed8936]">Diario</span>
               <Link
                 href="/obras"
@@ -243,13 +240,6 @@ function DiarioPageInner() {
                 onClick={() => setMenuMovilAbierto(false)}
               >
                 Clientes
-              </Link>
-              <Link
-                href="/facturas"
-                className="text-sm text-gray-200 hover:text-white"
-                onClick={() => setMenuMovilAbierto(false)}
-              >
-                Facturas
               </Link>
               <div onClick={() => setMenuMovilAbierto(false)}>
                 <ToggleAgenteNavButton className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-[#ed8936] border border-[#ed8936] rounded-lg" />

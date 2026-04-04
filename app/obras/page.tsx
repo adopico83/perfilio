@@ -341,9 +341,6 @@ export default function ObrasPage() {
           />
 
           <div className="hidden md:flex items-center gap-4">
-            <Link href="/historial" className="text-sm text-gray-200 hover:text-white transition-colors">
-              Historial
-            </Link>
             <Link href="/mensajes" className="text-sm text-gray-200 hover:text-white transition-colors">
               Mensajes
             </Link>
@@ -353,15 +350,15 @@ export default function ObrasPage() {
             <Link href="/albaranes" className="text-sm text-gray-200 hover:text-white transition-colors">
               Albaranes
             </Link>
+            <Link href="/facturas" className="text-sm text-gray-200 hover:text-white transition-colors">
+              Facturas
+            </Link>
             <Link href="/diario" className="text-sm text-gray-200 hover:text-white transition-colors">
               Diario
             </Link>
             <span className="text-sm font-medium text-[#ed8936]">Obras</span>
             <Link href="/clientes" className="text-sm text-gray-200 hover:text-white transition-colors">
               Clientes
-            </Link>
-            <Link href="/facturas" className="text-sm text-gray-200 hover:text-white transition-colors">
-              Facturas
             </Link>
             <ToggleAgenteNavButton className="inline-flex items-center px-4 py-2 text-sm font-medium text-[#ed8936] bg-transparent border border-[#ed8936] rounded-lg hover:bg-[#ed8936] hover:text-white transition-colors" />
             <LogoutButton />

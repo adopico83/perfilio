@@ -967,6 +967,9 @@ export default function DashboardPage() {
             <Link href="/albaranes" className="text-sm text-gray-200 hover:text-white transition-colors">
               Albaranes
             </Link>
+            <Link href="/facturas" className="text-sm text-gray-200 hover:text-white transition-colors">
+              Facturas
+            </Link>
             <Link href="/diario" className="text-sm text-gray-200 hover:text-white transition-colors">
               Diario
             </Link>
@@ -975,9 +978,6 @@ export default function DashboardPage() {
             </Link>
             <Link href="/clientes" className="text-sm text-gray-200 hover:text-white transition-colors">
               Clientes
-            </Link>
-            <Link href="/facturas" className="text-sm text-gray-200 hover:text-white transition-colors">
-              Facturas
             </Link>
             <ToggleAgenteNavButton className="inline-flex items-center px-4 py-2 text-sm font-medium text-[#ed8936] bg-transparent border border-[#ed8936] rounded-lg hover:bg-[#ed8936] hover:text-white transition-colors" />
             {gmailConectado ? (
@@ -1032,6 +1032,13 @@ export default function DashboardPage() {
                 Albaranes
               </Link>
               <Link
+                href="/facturas"
+                className="text-sm text-gray-200 hover:text-white transition-colors"
+                onClick={() => setMenuMovilAbierto(false)}
+              >
+                Facturas
+              </Link>
+              <Link
                 href="/diario"
                 className="text-sm text-gray-200 hover:text-white transition-colors"
                 onClick={() => setMenuMovilAbierto(false)}
@@ -1051,13 +1058,6 @@ export default function DashboardPage() {
                 onClick={() => setMenuMovilAbierto(false)}
               >
                 Clientes
-              </Link>
-              <Link
-                href="/facturas"
-                className="text-sm text-gray-200 hover:text-white transition-colors"
-                onClick={() => setMenuMovilAbierto(false)}
-              >
-                Facturas
               </Link>
               <div onClick={() => setMenuMovilAbierto(false)}>
                 <ToggleAgenteNavButton className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-[#ed8936] bg-transparent border border-[#ed8936] rounded-lg hover:bg-[#ed8936] hover:text-white transition-colors" />
