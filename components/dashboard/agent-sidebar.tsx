@@ -1803,7 +1803,7 @@ export default function AgentSidebar() {
                     className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/40 focus:ring-2 focus:ring-[#ed8936] focus:border-[#ed8936] outline-none resize-none"
                     disabled={loading}
                   />
-                  <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
+                  <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
                     <button
                       type="button"
                       aria-label="Adjuntar imagen"
@@ -1821,14 +1821,6 @@ export default function AgentSidebar() {
                       className="py-2 rounded-lg border border-white/10 bg-white/10 hover:bg-white/15 text-white transition-colors disabled:opacity-50 touch-manipulation flex items-center justify-center"
                     >
                       <Video className="size-5" aria-hidden />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={nuevaConversacion}
-                      {...touchActivate(nuevaConversacion)}
-                      className="py-2 bg-white/10 hover:bg-white/15 text-white font-semibold rounded-lg border border-white/10 transition-colors touch-manipulation text-xs"
-                    >
-                      Nuevo
                     </button>
 
                     <button
