@@ -10,8 +10,10 @@ import {
   FileText,
   Package,
   ArrowRight,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Pencil,
   Trash2,
 } from 'lucide-react';
@@ -109,6 +111,19 @@ interface UltimoClienteWidget {
 
 const URGENTES_CACHE_KEY = 'perfilio_urgentes_cache';
 const URGENTES_CACHE_MS = 15 * 60 * 1000;
+
+const LS_DASH_SEC_RESUMEN = 'dashboard_seccion_resumen';
+const LS_DASH_SEC_METRICAS = 'dashboard_seccion_metricas';
+const LS_DASH_SEC_ACTIVIDAD = 'dashboard_seccion_actividad';
+
+function readDashboardSeccionAbierta(key: string): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    return localStorage.getItem(key) !== 'false';
+  } catch {
+    return true;
+  }
+}
 
 type UrgentesCacheStored = {
   t: number;
@@ -269,6 +284,48 @@ export default function DashboardPage() {
   const [draftTitulo, setDraftTitulo] = useState('');
   const [draftHora, setDraftHora] = useState('');
   const [agendaAccionLoading, setAgendaAccionLoading] = useState(false);
+
+  const [secResumenOpen, setSecResumenOpen] = useState(true);
+  const [secMetricasOpen, setSecMetricasOpen] = useState(true);
+  const [secActividadOpen, setSecActividadOpen] = useState(true);
+
+  useEffect(() => {
+    setSecResumenOpen(readDashboardSeccionAbierta(LS_DASH_SEC_RESUMEN));
+    setSecMetricasOpen(readDashboardSeccionAbierta(LS_DASH_SEC_METRICAS));
+    setSecActividadOpen(readDashboardSeccionAbierta(LS_DASH_SEC_ACTIVIDAD));
+  }, []);
+
+  const persistDashboardSeccion = (key: string, open: boolean) => {
+    try {
+      localStorage.setItem(key, open ? 'true' : 'false');
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const toggleSecResumen = () => {
+    setSecResumenOpen((v) => {
+      const next = !v;
+      persistDashboardSeccion(LS_DASH_SEC_RESUMEN, next);
+      return next;
+    });
+  };
+
+  const toggleSecMetricas = () => {
+    setSecMetricasOpen((v) => {
+      const next = !v;
+      persistDashboardSeccion(LS_DASH_SEC_METRICAS, next);
+      return next;
+    });
+  };
+
+  const toggleSecActividad = () => {
+    setSecActividadOpen((v) => {
+      const next = !v;
+      persistDashboardSeccion(LS_DASH_SEC_ACTIVIDAD, next);
+      return next;
+    });
+  };
 
   const eventosPorFecha = useMemo(() => {
     const map = new Map<string, AgendaItem[]>();
@@ -1108,9 +1165,27 @@ export default function DashboardPage() {
         </section>
 
         <section>
-          <h2 className="text-sm font-semibold text-white/60 mb-1.5 uppercase tracking-wide">
-            Resumen de hoy
-          </h2>
+          <button
+            type="button"
+            onClick={toggleSecResumen}
+            aria-expanded={secResumenOpen}
+            className="flex w-full items-center justify-between gap-2 mb-1.5 text-left"
+          >
+            <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wide">
+              Resumen de hoy
+            </h2>
+            {secResumenOpen ? (
+              <ChevronUp className="size-5 shrink-0 text-white/60" aria-hidden />
+            ) : (
+              <ChevronDown className="size-5 shrink-0 text-white/60" aria-hidden />
+            )}
+          </button>
+          <div
+            className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${
+              secResumenOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+            }`}
+          >
+            <div className="min-h-0 overflow-hidden">
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
             <div className="bg-[#111827] border border-red-500/40 rounded-xl py-2 px-3 flex flex-col gap-1">
               <div className="flex items-center justify-between">
@@ -1180,12 +1255,32 @@ export default function DashboardPage() {
               </Link>
             </div>
           </div>
+            </div>
+          </div>
         </section>
 
         <section>
-          <h2 className="text-sm font-semibold text-white/60 mb-1.5 uppercase tracking-wide">
-            Métricas económicas
-          </h2>
+          <button
+            type="button"
+            onClick={toggleSecMetricas}
+            aria-expanded={secMetricasOpen}
+            className="flex w-full items-center justify-between gap-2 mb-1.5 text-left"
+          >
+            <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wide">
+              Métricas económicas
+            </h2>
+            {secMetricasOpen ? (
+              <ChevronUp className="size-5 shrink-0 text-white/60" aria-hidden />
+            ) : (
+              <ChevronDown className="size-5 shrink-0 text-white/60" aria-hidden />
+            )}
+          </button>
+          <div
+            className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${
+              secMetricasOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+            }`}
+          >
+            <div className="min-h-0 overflow-hidden">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <button
               type="button"
@@ -1233,12 +1328,32 @@ export default function DashboardPage() {
               <span className="text-xs text-white/60">Clic para ver desglose</span>
             </button>
           </div>
+            </div>
+          </div>
         </section>
 
         <section aria-label="Presupuestos, agenda y correo">
-          <h2 className="text-sm font-semibold text-white/60 mb-1.5 uppercase tracking-wide lg:sr-only">
-            Actividad reciente
-          </h2>
+          <button
+            type="button"
+            onClick={toggleSecActividad}
+            aria-expanded={secActividadOpen}
+            className="flex w-full items-center justify-between gap-2 mb-1.5 text-left"
+          >
+            <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wide">
+              Actividad reciente
+            </h2>
+            {secActividadOpen ? (
+              <ChevronUp className="size-5 shrink-0 text-white/60" aria-hidden />
+            ) : (
+              <ChevronDown className="size-5 shrink-0 text-white/60" aria-hidden />
+            )}
+          </button>
+          <div
+            className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${
+              secActividadOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+            }`}
+          >
+            <div className="min-h-0 overflow-hidden">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-2 lg:items-stretch">
             {/* Columna: Últimos presupuestos */}
             <div className="bg-[#111827] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0 max-h-64">
@@ -1416,12 +1531,11 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
+            </div>
+          </div>
         </section>
 
         <section aria-label="Diario de obra y clientes" className="w-full">
-          <h2 className="text-sm font-semibold text-white/60 mb-1.5 uppercase tracking-wide">
-            Diario de obra
-          </h2>
           <div className="w-full grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-4 lg:max-w-full">
             <div className="bg-[#111827] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0">
               <div className="flex items-center justify-between shrink-0 mb-1.5">

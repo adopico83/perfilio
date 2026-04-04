@@ -13,7 +13,7 @@ import {
   type TouchEvent,
 } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
-import { History, Loader2, Paperclip, Pause, Trash2, Video, X } from 'lucide-react';
+import { History, Loader2, Paperclip, Pause, Pencil, Trash2, Video, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { isDiarioPdfDownloadLink } from '@/lib/diario-pdf-link';
 import { useCanvas } from '@/contexts/canvas-context';
@@ -1630,20 +1630,34 @@ export default function AgentSidebar() {
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setPanelConversacionesAbierto((v) => !v)}
-                      className="px-2 py-1 text-xs rounded-md bg-white/10 border border-white/10 hover:bg-white/15 inline-flex items-center gap-1"
-                      aria-label="Mostrar conversaciones"
+                      onClick={nuevaConversacion}
+                      {...touchActivate(nuevaConversacion)}
+                      className="inline-flex items-center justify-center gap-1 min-h-9 px-2 shrink-0 rounded-md bg-white/10 border border-white/10 hover:bg-white/15 touch-manipulation text-xs font-medium"
+                      aria-label="Nueva conversación"
+                      title="Nueva conversación"
                     >
-                      <History className="size-3.5" aria-hidden />
+                      <Pencil className="size-5 shrink-0" aria-hidden />
+                      Nuevo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPanelConversacionesAbierto((v) => !v)}
+                      {...touchActivate(() => setPanelConversacionesAbierto((v) => !v))}
+                      className="flex items-center justify-center w-9 h-9 shrink-0 rounded-md bg-white/10 border border-white/10 hover:bg-white/15 touch-manipulation"
+                      aria-label="Mostrar conversaciones"
+                      title="Conversaciones"
+                    >
+                      <History className="size-5" aria-hidden />
                     </button>
                     <button
                       type="button"
                       onClick={() => setMobileOpen(false)}
                       {...touchActivate(() => setMobileOpen(false))}
-                      className="px-2 py-1 text-xs font-semibold rounded-md bg-white/5 hover:bg-white/10 border border-white/10 touch-manipulation"
+                      className="flex items-center justify-center w-9 h-9 shrink-0 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 touch-manipulation"
                       aria-label="Cerrar panel"
+                      title="Cerrar"
                     >
-                      ✕
+                      <X className="size-5" aria-hidden />
                     </button>
                   </div>
                 </div>
