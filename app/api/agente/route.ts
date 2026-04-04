@@ -398,12 +398,12 @@ type AgentIntentCategory =
 const ROUTER_SYSTEM_PROMPT = `Eres un clasificador. Responde SOLO con una palabra en minúsculas, sin comillas ni puntuación:
 documentos | emails | agenda | gastos | diario | clientes | calculo | general
 
-documentos: presupuestos, facturas, albaranes, vincular documentos a una obra (asociar_documentos_a_obra), crear o actualizar obra (crear_obra, actualizar_obra), extras/modificados/imprevistos en obra, dictado de visita y presupuesto estructurado (generar_presupuesto_por_dictado, gestionar_tarifas), estados, edición, crear documentos, conversiones presupuesto↔albarán↔factura, tiempo en obra.
+documentos: crear obra con cliente nuevo o existente (crear_obra + crear_cliente + actualizar_obra), presupuestos, facturas, albaranes, vincular documentos a una obra (asociar_documentos_a_obra), crear o actualizar obra (crear_obra, actualizar_obra), extras/modificados/imprevistos en obra, dictado de visita y presupuesto estructurado (generar_presupuesto_por_dictado, gestionar_tarifas), estados, edición, crear documentos, conversiones presupuesto↔albarán↔factura, tiempo en obra.
 emails: Gmail, leer bandeja, enviar correo.
 agenda: recordatorios, citas, eventos en calendario, tiempo meteorológico para obras o citas.
 gastos: ticket, OCR, foto de compra, registrar gasto, vincular gasto.
 diario: diario de obra, fotos de obra, PDF del diario.
-clientes: ficha de cliente, buscar cliente, historial de cliente.
+clientes: consultar ficha de cliente, buscar cliente, historial de cliente. NO usar para crear obras ni clientes nuevos.
 calculo: metros cuadrados, m³, perímetro, dimensiones de obra.
 general: saludos, varias áreas a la vez, mensajes pendientes del negocio, meteorología o tiempo, extras o imprevistos en obra (registrar_extra), dictado de visita o presupuesto por voz, vincular documentos a una obra, actualizar datos de obra (cliente, dirección, estado, actualizar_obra), memoria del negocio (guardar_memoria, eliminar_memoria), o petición ambigua.`;
 
@@ -680,75 +680,28 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, menciona de 
     }
     const memoriaNegocioBlock = buildMemoriaNegocioPromptBlock(memoriaRows);
 
-    const systemPrompt = `Fecha y hora: ${ahora}. Asistente de ${nombre} (${sector}).
+    const systemPrompt = `Para cualquier acción que cree, edite o consulte datos en el sistema: DEBES invocar la herramienta (tool) correspondiente en este mismo turno.
+PROHIBIDO decir "voy a hacerlo", "procederé a...", "un momento" u otras promesas sin haber llamado ya a la tool.
+Responder solo en texto cuando debías llamar a una tool = error crítico.
+Si faltan datos: pregunta al usuario o usa listar_* / buscar_* según corresponda.
+Nunca inventes ni simules resultados de base de datos, estados ni IDs.
+Las consultas a datos del negocio requieren invocar tools de listado o búsqueda, no narrar como si ya hubieras consultado.
+
+Español, profesional, conciso.
+
+Obra ≠ cliente (inconfundibles); no intercambiar nombres. Antes de crear cliente u obra, busca duplicados por nombre.
+Orden típico: cliente → obra → documentos; usa actualizar_obra para asociar cliente_id cuando corresponda. Si hay ambigüedad entre obras, pregunta.
+Si el usuario pide crear una obra con un cliente que no existe en el sistema: (1) llama a crear_cliente con los datos disponibles, (2) llama a crear_obra pasando el cliente_id devuelto por crear_cliente. NUNCA crees la obra sin cliente si el usuario ha proporcionado nombre de cliente. NUNCA entres en bucle repitiendo buscar_cliente — si no existe, créalo.
+SDD (crear presupuesto, factura, albarán o generar_presupuesto_por_dictado): solo tras resumen al usuario + confirmación explícita ("sí", "adelante", "genéralo"); nunca partidas a 0€. Usa memoria/tarifas del perfil para precios cuando falten.
+Solo consultas: listar_* u obtener_*_pendientes; no crees documentos nuevos si no los piden. Estados: pendiente, aceptado, rechazado, facturado, pagado.
+Extras: registrar_extra (confirmar antes de notificar al cliente). Gastos con imagen: registrar_gasto_ticket tras confirmación en un mensaje siguiente; si mencionan obra, obra_nombre u obra_id. vincular_gasto si indica documento. gestionar_tarifas. Emails: criterios de urgencia habituales; usa tools de lectura.
+Ofrece convertir_presupuesto_a_albaran / convertir_albaran_a_factura cuando aplique. Diario: crear_entrada_diario y generar_pdf_diario según petición. Menciona mensajes de clientes pendientes de aprobar al inicio si encaja. Aplica el bloque "## Lo que sé de este negocio" al final sin pedir repetición.
+
+Fecha y hora: ${ahora}. Negocio: ${nombre} (${sector}).
 ${descripcion}
 Servicios: ${servicios}
 Tarifas: ${tarifas}
 Contexto extra: ${contexto_adicional}${ubicacionMeteoPrompt}
-
-GESTIÓN DE OBRAS Y CLIENTES:
-1. Nunca inventes ni completes nombres de clientes. Si el usuario da solo un apellido, pregunta el nombre completo antes de hacer nada.
-2. El nombre de la obra y el nombre del cliente son cosas DISTINTAS e INCONFUNDIBLES. Ejemplo: si el usuario dice "crea la obra Tejado Renteria, el cliente es Augar", el nombre de la obra es "Tejado Renteria" y el nombre del cliente es "Augar". NUNCA uses el nombre de la obra como nombre de cliente ni viceversa. Esto es un error crítico imperdonable.
-3. Orden estricto e irrompible al crear obra con cliente nuevo:
-   (1) Crear el cliente con los datos que el usuario proporcione (nombre, teléfono, email, etc.)
-   (2) Crear la obra con cliente_nombre igual al nombre del cliente recién creado, NUNCA con el nombre de la obra
-   (3) Si la obra ya existe, llamar a actualizar_obra para asociar el cliente_id
-   (4) Solo entonces crear documentos
-   No puedes saltarte ningún paso ni cambiar el orden.
-4. Antes de crear un cliente o una obra, busca siempre si ya existe por nombre. Nunca crees duplicados.
-5. Cuando identifiques o crees un cliente vinculado a una obra, llama siempre a actualizar_obra para asociar el cliente_id. No dejes obras sin cliente si el cliente es conocido.
-6. Si hay ambigüedad entre varias obras, pregunta al usuario. Nunca asumas sin confirmación.
-
-Responde en español, profesional y conciso.
-
-VALIDACIÓN ANTES DE CREAR DOCUMENTOS (SDD):
-Aplica a crear_presupuesto, crear_factura, crear_albaran y generar_presupuesto_por_dictado. No aplica a enviar_email.
-
-Regla absoluta: NUNCA ejecutes ninguna de esas tools sin antes:
-(a) Tener los datos críticos completos
-(b) Haber mostrado un resumen en lenguaje natural de lo que vas a crear
-(c) Haber recibido confirmación explícita del usuario ("sí", "adelante", "genéralo")
-
-Datos críticos mínimos:
-- crear_presupuesto / generar_presupuesto_por_dictado: cliente identificado, al menos una partida con descripción y precio. Nunca crear partidas a 0€. Si el usuario dice "precios estándar", usa las tarifas del perfil o la memoria del negocio. Si falta algún precio, pregunta antes de crear.
-- crear_factura: cliente, importe, concepto
-- crear_albaran: cliente, descripción del trabajo
-
-Si faltan datos críticos: pregunta. No ejecutes la tool. No crees borradores vacíos.
-Si tienes todos los datos: muestra resumen breve y pregunta "¿Lo genero?". Tras confirmación, ejecuta directamente.
-
-Usa la memoria del negocio para sugerir valores habituales cuando falten datos.
-
-Documentos: crear_factura / crear_albaran / crear_presupuesto solo si pide crear o generar algo nuevo; si solo consulta, usa listar_* u obtener_*_pendientes. Estados: pendiente, aceptado, rechazado, facturado, pagado. Sin UUID: listar_* antes de cambiar_estado_* o editar_*. Para facturas y albaranes nuevos, respeta además la validación SDD de arriba (cliente, líneas/importes según el caso).
-
-CREACIÓN DE PRESUPUESTOS:
-- Si el usuario describe trabajos, medidas o materiales → usar generar_presupuesto_por_dictado, pero solo tras pasar por SDD
-- Solo usar crear_presupuesto si el usuario proporciona partidas ya estructuradas con totales definidos
-- Nunca crear presupuestos con partidas a 0€ ni sin precio
-- Cuando uses generar_presupuesto_por_dictado, incluye SIEMPRE obra_nombre si la obra ya es conocida en la conversación. Nunca dejes que el sistema infiera la obra desde el texto del dictado.
-
-Conversiones entre documentos: si confirma presupuesto aceptado o facturar albarán, ofrece convertir_presupuesto_a_albaran o convertir_albaran_a_factura.
-
-Extras y modificados: cuando el usuario mencione "extra", "modificado", "imprevisto" o "añadido" en el contexto de una obra, usa registrar_extra. Siempre pregunta confirmación antes de enviar la notificación al cliente (el borrador lo aprueba en el panel).
-
-gestionar_tarifas: ver o actualizar las tarifas del negocio para presupuestos estructurados (opcional junto con generar_presupuesto_por_dictado).
-
-Emails: urgente si palabras como urgente, pago, presupuesto, factura, reclamación, avería, etc.; >48 h sin leer; cliente conocido; respuesta a presupuesto. enviar_email deja borrador; el usuario aprueba en el panel.
-
-Canvas (mostrar_vista_visual): primero la tool de listado que toque; luego mostrar_vista_visual con el array completo en datos (p. ej. items). No abras canvas sin datos ni petición explícita de vista/tabla/panel. Tras abrir, mensaje breve.
-
-Medidas de obra: siempre calcular_medicion; no calcules totales a mano.
-
-Gastos / tickets: Imagen ticket/factura: resume OCR y pregunta; registrar_gasto_ticket solo tras confirmación explícita en un mensaje siguiente. Tras registrar bien, ofrece vincular. vincular_gasto solo si el usuario indica documento (antes listar_facturas/listar_albaranes si hace falta el id).
-Cuando el usuario mencione una obra o cliente al registrar un gasto con registrar_gasto_ticket, siempre incluye el parámetro obra_nombre o obra_id en la llamada a la tool para que el gasto quede vinculado a la obra correcta. Nunca registres un gasto sin intentar resolver la obra si el usuario la ha mencionado.
-
-Diario: crear_entrada_diario (obra_nombre para identificar la obra; detección automática desde nombre/cliente/dirección); generar_pdf_diario para exportar con el nombre exacto de obra.
-Cuando el usuario pida añadir una entrada al diario mencionando un cliente o nombre parcial de obra, SIEMPRE ejecuta crear_entrada_diario directamente con el obra_nombre que el usuario proporcionó. No preguntes por ambigüedad antes de ejecutar la tool — la tool tiene su propio sistema de resolución de obras. Solo pregunta si la tool devuelve un mensaje de ambigüedad.
-
-Si hay mensajes de clientes pendientes de aprobar, menciónalos al inicio cuando aplique.
-
-Memoria del negocio (tools guardar_memoria / eliminar_memoria): Si el usuario corrige de forma explícita ("no uses…", "preferimos…"), declara preferencias duraderas o menciona datos recurrentes (proveedor habitual, formato de presupuestos, precios típicos), llama a guardar_memoria sin pedir confirmación. Categorías válidas: ${MEMORIA_CATEGORIAS.join(', ')}. Usa clave en snake_case corta (ej. cemento_exterior). Responde con una frase muy breve como "Anotado, lo tendré en cuenta." Usa eliminar_memoria si pide olvidar o quitar una clave concreta. El bloque "## Lo que sé de este negocio" al final resume lo guardado: aplícalo en cada respuesta sin pedir que el usuario repita esa información.
-
 Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
 
     const ALL_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
@@ -843,7 +796,7 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
         function: {
           name: 'cambiar_estado_presupuesto',
           description:
-            'Cambia estado del presupuesto por UUID. Estados: pendiente, aceptado, rechazado, facturado, pagado. Sin id: listar_presupuestos antes.',
+            'Cambia estado del presupuesto por UUID. Estados: pendiente, aceptado, rechazado, facturado, pagado. Si no tienes el UUID, primero listar_presupuestos y usa el id de la fila correcta.',
           parameters: {
             type: 'object',
             properties: {
@@ -864,7 +817,7 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
         function: {
           name: 'cambiar_estado_factura',
           description:
-            'Cambia estado de la factura por UUID. Mismos estados que presupuestos. Sin id: listar_facturas antes.',
+            'Cambia estado de la factura por UUID. Mismos estados que presupuestos. Si no tienes el UUID, primero listar_facturas y usa el id correcto.',
           parameters: {
             type: 'object',
             properties: {
@@ -885,7 +838,7 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
         function: {
           name: 'cambiar_estado_albaran',
           description:
-            'Cambia estado del albarán por UUID. Mismos estados. Sin id: listar_albaranes antes.',
+            'Cambia estado del albarán por UUID. Mismos estados. Si no tienes el UUID, primero listar_albaranes y usa el id correcto.',
           parameters: {
             type: 'object',
             properties: {
@@ -906,7 +859,7 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
         function: {
           name: 'editar_presupuesto',
           description:
-            'Actualiza presupuesto por id: cliente_nombre, importe_total y/o texto (presupuesto_generado). Solo campos que cambien.',
+            'Actualiza presupuesto por id: cliente_nombre, importe_total y/o texto (presupuesto_generado). Solo campos que cambien. Si no tienes UUID, listar_presupuestos antes.',
           parameters: {
             type: 'object',
             properties: {
@@ -928,7 +881,7 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
         function: {
           name: 'editar_factura',
           description:
-            'Actualiza factura por id: cliente_nombre, total con IVA, descripcion_trabajos. Solo campos que cambien.',
+            'Actualiza factura por id: cliente_nombre, total con IVA, descripcion_trabajos. Solo campos que cambien. Si no tienes UUID, listar_facturas antes.',
           parameters: {
             type: 'object',
             properties: {
@@ -947,7 +900,7 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
         function: {
           name: 'editar_albaran',
           description:
-            'Actualiza albarán por id: cliente_nombre, importe_total, descripcion_trabajos. Solo campos que cambien.',
+            'Actualiza albarán por id: cliente_nombre, importe_total, descripcion_trabajos. Solo campos que cambien. Si no tienes UUID, listar_albaranes antes.',
           parameters: {
             type: 'object',
             properties: {
@@ -966,7 +919,7 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
         function: {
           name: 'generar_presupuesto_por_dictado',
           description:
-            "Usar SIEMPRE que el usuario pida crear un presupuesto describiendo trabajos, aunque la descripción sea breve. Ejemplos: 'presupuesto para enfoscado exterior 2500€', 'presupuesto para reforma de baño', 'presupuesto para pintar el salón de García'. También para dictado de visita: 'genera un presupuesto', 'haz un presupuesto de lo que he visto', 'acabo de visitar una obra'. Estructura el presupuesto en partidas automáticamente.",
+            "Usar SIEMPRE que el usuario pida crear un presupuesto describiendo trabajos, aunque la descripción sea breve. Ejemplos: 'presupuesto para enfoscado exterior 2500€', 'presupuesto para reforma de baño', 'presupuesto para pintar el salón de García'. También para dictado de visita: 'genera un presupuesto', 'haz un presupuesto de lo que he visto', 'acabo de visitar una obra'. Estructura el presupuesto en partidas automáticamente. SDD obligatorio: no ejecutar sin datos críticos completos; muestra resumen en lenguaje natural y espera confirmación explícita del usuario ('sí', 'adelante', 'genéralo'). Cliente identificado; al menos una partida con descripción y precio; nunca partidas a 0€; si dice 'precios estándar' usa tarifas del perfil o memoria del negocio; si falta precio, pregunta antes. Si faltan datos, no ejecutes ni crees borradores vacíos. Incluye SIEMPRE obra_nombre si la obra es conocida en la conversación (no infieras la obra solo del texto del dictado).",
           parameters: {
             type: 'object',
             properties: {
@@ -985,7 +938,7 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
               obra_id: {
                 type: 'string',
                 description:
-                  'UUID de la obra (opcional). Si no se envía, se detecta desde el dictado y el cliente.',
+                  'UUID de la obra (opcional). Si no se envía, usa obra_nombre y contexto del cliente; no uses el dictado de partidas para resolver obra.',
               },
             },
             required: ['dictado'],
@@ -1023,7 +976,7 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
         function: {
           name: 'crear_presupuesto',
           description:
-            'IMPORTANTE: Solo usar cuando el presupuesto ya viene completamente estructurado con partidas y totales definidos. Si el usuario describe trabajos en lenguaje natural, usar generar_presupuesto_por_dictado en su lugar. Guarda un presupuesto nuevo (texto completo ya estructurado).',
+            'Solo cuando el presupuesto ya viene estructurado con partidas y totales definidos; si describe trabajos en natural, usar generar_presupuesto_por_dictado. Guarda presupuesto nuevo (texto completo). SDD obligatorio: datos críticos completos; resumen al usuario + confirmación explícita antes de llamar; cliente identificado; partidas con precio; nunca 0€; sin borradores vacíos.',
           parameters: {
             type: 'object',
             properties: {
@@ -1051,7 +1004,8 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
         type: 'function',
         function: {
           name: 'crear_factura',
-          description: 'Registra factura nueva. Solo si pidió crear/generar factura.',
+          description:
+            'Registra factura nueva. Solo si pidió crear/generar factura. SDD obligatorio: cliente, importe/concepto completos; resumen + confirmación explícita del usuario antes de ejecutar; sin borradores vacíos.',
           parameters: {
             type: 'object',
             properties: {
@@ -1078,7 +1032,8 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
         type: 'function',
         function: {
           name: 'crear_albaran',
-          description: 'Registra albarán nuevo. Solo si pidió crear/generar albarán.',
+          description:
+            'Registra albarán nuevo. Solo si pidió crear/generar albarán. SDD obligatorio: cliente y descripción del trabajo; resumen + confirmación explícita antes de ejecutar; sin borradores vacíos.',
           parameters: {
             type: 'object',
             properties: {
@@ -1123,6 +1078,14 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
                 type: 'string',
                 description: 'Nombre del cliente si no se tiene cliente_id',
               },
+              cliente_telefono: {
+                type: 'string',
+                description: 'Teléfono del cliente (opcional; si no existe el cliente por nombre, se usa al crearlo automáticamente)',
+              },
+              cliente_email: {
+                type: 'string',
+                description: 'Email del cliente (opcional; si no existe el cliente por nombre, se usa al crearlo automáticamente)',
+              },
               direccion: { type: 'string', description: 'Dirección de la obra' },
               direccion_obra: {
                 type: 'string',
@@ -1144,7 +1107,7 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
         function: {
           name: 'actualizar_obra',
           description:
-            'Actualiza los datos de una obra existente: cliente, dirección, estado, nombre.',
+            'Actualiza campos de una obra existente en la base de datos. DEBES llamar a esta tool cuando el usuario pida vincular un cliente a una obra, cambiar la dirección, el estado o cualquier dato de la obra. NO uses guardar_memoria para vincular clientes a obras — eso solo guarda texto, no modifica la base de datos. Para vincular un cliente: pasa obra_id (o busca la obra por nombre primero con listar_obras) y cliente_id del cliente.',
           parameters: {
             type: 'object',
             properties: {
@@ -1262,7 +1225,7 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
         function: {
           name: 'enviar_email',
           description:
-            'Borrador Gmail (para, asunto, cuerpo); el envío requiere aprobación en el chat.',
+            'Crea borrador de email (para, asunto, cuerpo); el usuario aprueba y envía desde el panel, no se envía solo. No aplica el flujo SDD de presupuestos/facturas.',
           parameters: {
             type: 'object',
             properties: {
@@ -1332,7 +1295,7 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
         function: {
           name: 'calcular_medicion',
           description:
-            'Cálculo de obra (m², m³, ml, perímetro). Pasa dimensiones y tipo; no inventes totales en texto.',
+            'Cálculo de obra (m², m³, ml, perímetro). Pasa dimensiones y tipo. PROHIBIDO calcular superficies, volúmenes o totales a mano en texto; usa siempre esta tool.',
           parameters: {
             type: 'object',
             properties: {
@@ -1575,7 +1538,7 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
         function: {
           name: 'crear_entrada_diario',
           description:
-            'Entrada en diario de obra: texto, fotos y/o vídeos (URLs). Obligatorio obra_nombre para identificar la obra; el servidor resuelve obra_id por nombre, cliente o dirección.',
+            'Entrada en diario de obra: texto, fotos y/o vídeos (URLs). Obligatorio obra_nombre; el servidor resuelve obra_id. Ejecuta la tool directamente con el obra_nombre que dio el usuario; no pidas aclarar ambigüedad antes — solo si la tool devuelve mensaje de ambigüedad.',
           parameters: {
             type: 'object',
             properties: {
@@ -1738,8 +1701,7 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
         type: 'function',
         function: {
           name: 'guardar_memoria',
-          description:
-            'Guarda o actualiza un dato persistente del negocio (preferencia, corrección, proveedor habitual, formato, precio, etc.). Upsert por clave única por negocio. Sin confirmación al usuario.',
+          description: `Guarda o actualiza un dato persistente del negocio (preferencia, corrección, proveedor habitual, formato, precio, etc.). Upsert por clave única por negocio. Llama sin pedir confirmación si el usuario corrige con claridad o declara preferencias duraderas. Categorías válidas: ${MEMORIA_CATEGORIAS.join(', ')}. Usa clave en snake_case corta (ej. cemento_exterior). Responde muy breve ("Anotado…").`,
           parameters: {
             type: 'object',
             properties: {
@@ -1766,7 +1728,8 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
         type: 'function',
         function: {
           name: 'eliminar_memoria',
-          description: 'Elimina una entrada de memoria del negocio por su clave.',
+          description:
+            'Elimina una entrada de memoria del negocio por su clave (misma convención snake_case que al guardar). Usa cuando pida olvidar o quitar una clave concreta.',
           parameters: {
             type: 'object',
             properties: {
@@ -1785,7 +1748,7 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
         function: {
           name: 'mostrar_vista_visual',
           description:
-            'Panel modal (tabla/canvas). Tras listar_* o leer_emails: pasa items en datos. No para listados de chat sin pedir vista.',
+            'Panel modal (tabla/canvas). Orden obligatorio: primero ejecuta la tool de listado que corresponda (listar_* o leer_emails_recientes); luego llama a esta con el array completo en datos (p. ej. items). No abras canvas sin datos ni sin petición explícita de vista/tabla/panel. Tras abrir, mensaje breve.',
           parameters: {
             type: 'object',
             properties: {
@@ -2586,6 +2549,37 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
             }
           }
 
+          if (avisoSinCliente) {
+            const clienteNombre = String(toolArgs.cliente_nombre ?? '').trim();
+            // Si hay datos de cliente disponibles en toolArgs, crearlo automáticamente
+            const telefonoCli =
+              typeof toolArgs.cliente_telefono === 'string'
+                ? toolArgs.cliente_telefono.trim() || null
+                : null;
+            const emailCli =
+              typeof toolArgs.cliente_email === 'string'
+                ? toolArgs.cliente_email.trim() || null
+                : null;
+            const sinDatosCliente =
+              telefonoCli === null && emailCli === null && clienteNombre === '';
+            if (!sinDatosCliente) {
+              const { data: newCli, error: newCliErr } = await supabase
+                .from('clientes')
+                .insert({
+                  business_id,
+                  nombre: clienteNombre,
+                  telefono: telefonoCli,
+                  email: emailCli,
+                })
+                .select('id')
+                .maybeSingle();
+              if (!newCliErr && newCli?.id) {
+                clienteId = String((newCli as { id: string }).id);
+                clienteNombreResuelto = clienteNombre;
+              }
+            }
+          }
+
           const direccionObraFinal =
             direccionTool ||
             (!direccionTool && clienteDireccion ? clienteDireccion : '') ||
@@ -2604,12 +2598,6 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
           if (error) return { error: error.message };
 
           const dirMsg = direccionObraFinal || 'sin dirección';
-          if (avisoSinCliente) {
-            const buscado = String(toolArgs.cliente_nombre ?? '').trim();
-            return {
-              mensaje: `Obra '${nombre}' creada sin cliente asociado (no se encontró '${buscado}' en clientes). Dirección: ${dirMsg}. Estado: Abierta.`,
-            };
-          }
           const cliMsg = clienteNombreResuelto ?? 'sin cliente';
           return {
             mensaje: `Obra '${nombre}' creada para ${cliMsg} en ${dirMsg}. Estado: Abierta.`,
