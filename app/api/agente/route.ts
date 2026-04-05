@@ -693,6 +693,7 @@ Obra ≠ cliente (inconfundibles); no intercambiar nombres. Antes de crear clien
 Orden típico: cliente → obra → documentos; usa actualizar_obra para asociar cliente_id cuando corresponda. Si hay ambigüedad entre obras, pregunta.
 Si el usuario pide crear una obra con un cliente que no existe en el sistema: (1) llama a crear_cliente con los datos disponibles, (2) llama a crear_obra pasando el cliente_id devuelto por crear_cliente. NUNCA crees la obra sin cliente si el usuario ha proporcionado nombre de cliente. NUNCA entres en bucle repitiendo buscar_cliente — si no existe, créalo.
 SDD (crear presupuesto, factura, albarán o generar_presupuesto_por_dictado): solo tras resumen al usuario + confirmación explícita ("sí", "adelante", "genéralo"); nunca partidas a 0€. Usa memoria/tarifas del perfil para precios cuando falten.
+CREACIÓN DE PRESUPUESTOS: Al usar generar_presupuesto_por_dictado: primera llamada siempre con solo_vista_previa: true para mostrar borrador. Solo llamar de nuevo con solo_vista_previa: false tras confirmación explícita del usuario.
 Solo consultas: listar_* u obtener_*_pendientes; no crees documentos nuevos si no los piden. Estados: pendiente, aceptado, rechazado, facturado, pagado.
 Extras: registrar_extra (confirmar antes de notificar al cliente). Gastos con imagen: registrar_gasto_ticket tras confirmación en un mensaje siguiente; si mencionan obra, obra_nombre u obra_id. vincular_gasto si indica documento. gestionar_tarifas. Emails: criterios de urgencia habituales; usa tools de lectura.
 Ofrece convertir_presupuesto_a_albaran / convertir_albaran_a_factura cuando aplique. Diario: crear_entrada_diario y generar_pdf_diario según petición. Menciona mensajes de clientes pendientes de aprobar al inicio si encaja. Aplica el bloque "## Lo que sé de este negocio" al final sin pedir repetición.
@@ -939,6 +940,11 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
                 type: 'string',
                 description:
                   'UUID de la obra (opcional). Si no se envía, usa obra_nombre y contexto del cliente; no uses el dictado de partidas para resolver obra.',
+              },
+              solo_vista_previa: {
+                type: 'boolean',
+                description:
+                  'Si true, solo muestra el borrador sin guardarlo en BD. Usar true en la primera llamada para mostrar al usuario. Usar false (o omitir) solo cuando el usuario haya confirmado explícitamente.',
               },
             },
             required: ['dictado'],
@@ -4026,6 +4032,16 @@ Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegoci
             typeof mensaje === 'string' && mensaje.trim().length > 0
               ? mensaje.trim().slice(0, 2000)
               : 'Presupuesto generado por dictado de visita';
+
+          const soloVista = toolArgs.solo_vista_previa === true;
+          if (soloVista) {
+            return {
+              mensaje: `Borrador (sin guardar aún):\n\n${texto}`,
+              partidas,
+              importe_total: totalConIva,
+              pendiente_confirmacion: true,
+            };
+          }
 
           const { error: insErr } = await supabase.from('presupuestos').insert({
             business_id,
