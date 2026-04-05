@@ -520,303 +520,50 @@ export default function DashboardPage() {
     return () => window.removeEventListener('agenda-actualizada', loadAgenda);
   }, [loadAgenda]);
 
-  useEffect(() => {
-    const loadDashboard = async () => {
-      try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        const userId = user?.id;
+  const loadDashboard = useCallback(async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const userId = user?.id;
 
-        if (!userId) {
-          setGmailConectado(false);
-          return;
-        }
+      if (!userId) {
+        setGmailConectado(false);
+        return;
+      }
 
-        const bizRes = await supabase
-          .from('business_profiles')
-          .select('id, nombre')
-          .eq('user_id', userId)
-          .limit(1)
-          .single();
+      const bizRes = await supabase
+        .from('business_profiles')
+        .select('id, nombre')
+        .eq('user_id', userId)
+        .limit(1)
+        .single();
 
-        const businessId = bizRes.data?.id;
+      const businessId = bizRes.data?.id;
 
-        if (!bizRes.error && bizRes.data?.nombre) {
-          setBusinessName(bizRes.data.nombre);
-        }
+      if (!bizRes.error && bizRes.data?.nombre) {
+        setBusinessName(bizRes.data.nombre);
+      }
 
-        if (!businessId) {
-          setCounts({
-            urgentes: 0,
-            presupuestos: 0,
-            albaranesPendientes: 0,
-            facturasPendientes: 0,
-          });
-          setUltimosPresupuestos([]);
-          setAgendaEventos([]);
-          setDesglosePendiente([]);
-          setDesglosePresupuestado([]);
-          setDesgloseMateriales([]);
-          setImportePendienteCobro(0);
-          setImporteTotalPresupuestado(0);
-          setTotalMateriales(0);
-          setUltimasEntradasDiario([]);
-          setUltimosClientes([]);
-          setObrasActivas([]);
-          setEmailsUrgentes([]);
-
-          const { data: gmailToken } = await supabase
-            .from('gmail_tokens')
-            .select('user_id')
-            .eq('user_id', userId)
-            .maybeSingle();
-          setGmailConectado(!!gmailToken);
-          return;
-        }
-
-        const [
-          presupuestosRes,
-          albaranesRes,
-          facturasRes,
-          presListRes,
-          _agendaCargada,
-          facturasPendientesDataRes,
-          presupuestosMetricasRes,
-          presupuestosMaterialesRes,
-        ] = await Promise.all([
-          supabase
-            .from('presupuestos')
-            .select('id', { count: 'exact', head: true })
-            .eq('business_id', businessId),
-          supabase
-            .from('albaranes')
-            .select('id', { count: 'exact', head: true })
-            .eq('business_id', businessId)
-            .eq('estado', 'pendiente'),
-          supabase
-            .from('facturas')
-            .select('id', { count: 'exact', head: true })
-            .eq('business_id', businessId)
-            .eq('estado', 'pendiente'),
-          supabase
-            .from('presupuestos')
-            .select(
-              'id, fecha, estado, created_at, obra_id, cliente_nombre, obras ( nombre ), clientes ( nombre )'
-            )
-            .eq('business_id', businessId)
-            .order('created_at', { ascending: false })
-            .limit(5),
-          loadAgenda(businessId),
-          supabase
-            .from('facturas')
-            .select('id, cliente_nombre, total')
-            .eq('business_id', businessId)
-            .eq('estado', 'pendiente'),
-          supabase
-            .from('presupuestos')
-            .select('id, cliente_nombre, fecha, importe_total')
-            .eq('business_id', businessId),
-          supabase
-            .from('presupuestos')
-            .select('id, cliente_nombre, fecha, importe_total')
-            .eq('business_id', businessId)
-            .ilike('presupuesto_generado', '%material%'),
-        ]);
-
+      if (!businessId) {
         setCounts({
           urgentes: 0,
-          presupuestos: presupuestosRes.count ?? 0,
-          albaranesPendientes: albaranesRes.count ?? 0,
-          facturasPendientes: facturasRes.count ?? 0,
+          presupuestos: 0,
+          albaranesPendientes: 0,
+          facturasPendientes: 0,
         });
-
-        if (!presListRes.error && presListRes.data) {
-          const raw = presListRes.data as Array<{
-            id: string;
-            fecha: string | null;
-            estado: string | null;
-            created_at: string;
-            obra_id?: string | null;
-            cliente_nombre?: string | null;
-            obras?: { nombre?: string | null } | null;
-            clientes?: { nombre?: string | null } | null;
-          }>;
-          setUltimosPresupuestos(
-            raw.map((r) => {
-              const oj = r.obras && typeof r.obras === 'object' ? r.obras : null;
-              const cj = r.clientes && typeof r.clientes === 'object' ? r.clientes : null;
-              return {
-                id: r.id,
-                fecha: r.fecha,
-                estado: r.estado,
-                created_at: r.created_at,
-                obra_id: r.obra_id ?? null,
-                cliente_nombre: r.cliente_nombre ?? null,
-                obra_nombre: oj ? String(oj.nombre ?? '').trim() || null : null,
-                cliente_ficha_nombre: cj ? String(cj.nombre ?? '').trim() || null : null,
-              };
-            })
-          );
-        }
-
-        if (!facturasPendientesDataRes.error && facturasPendientesDataRes.data) {
-          const list = facturasPendientesDataRes.data as { id: string; cliente_nombre: string | null; total: number }[];
-          setDesglosePendiente(list);
-          setImportePendienteCobro(list.reduce((s, f) => s + (Number(f.total) || 0), 0));
-        }
-        if (!presupuestosMetricasRes.error && presupuestosMetricasRes.data) {
-          const list = presupuestosMetricasRes.data as { id: string; cliente_nombre: string | null; fecha: string | null; importe_total: number | null }[];
-          setDesglosePresupuestado(list);
-          setImporteTotalPresupuestado(list.reduce((s, p) => s + (Number(p.importe_total) || 0), 0));
-        }
-        if (!presupuestosMaterialesRes.error && presupuestosMaterialesRes.data) {
-          const list = presupuestosMaterialesRes.data as { id: string; cliente_nombre: string | null; fecha: string | null; importe_total: number | null }[];
-          setDesgloseMateriales(list);
-          setTotalMateriales(list.reduce((s, p) => s + (Number(p.importe_total) || 0), 0));
-        }
-
-        try {
-          const diarioRes = await fetch(
-            `/api/diario?business_id=${encodeURIComponent(businessId)}`,
-            { credentials: 'include' }
-          );
-          if (diarioRes.ok) {
-            const dj = (await diarioRes.json()) as {
-              agrupado_por_obra?: Record<string, DiarioEntradaWidget[]>;
-            };
-            const grouped = dj.agrupado_por_obra ?? {};
-            const flat = Object.values(grouped).flat() as DiarioEntradaWidget[];
-            flat.sort(
-              (a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()
-            );
-            setUltimasEntradasDiario(flat.slice(0, 3));
-          } else {
-            setUltimasEntradasDiario([]);
-          }
-        } catch {
-          setUltimasEntradasDiario([]);
-        }
-
-        try {
-          const obrasRes = await fetch(
-            `/api/obras?business_id=${encodeURIComponent(businessId)}`,
-            { credentials: 'include' }
-          );
-          if (!obrasRes.ok) {
-            setObrasActivas([]);
-          } else {
-            const json = (await obrasRes.json()) as {
-              obras?: Array<{
-                id: string;
-                nombre: string;
-                cliente_nombre: string | null;
-                direccion: string | null;
-                estado: string | null;
-                fecha_inicio: string | null;
-                created_at: string;
-                total_documentos?: number;
-                num_presupuestos?: number;
-                num_facturas?: number;
-                num_albaranes?: number;
-                num_gastos?: number;
-                tiene_diario?: number;
-              }>;
-            };
-            const activas = (json.obras ?? []).filter((o) =>
-              ['abierta', 'en_curso'].includes((o.estado ?? '').toLowerCase())
-            );
-            activas.sort(
-              (a, b) =>
-                new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-            );
-            const top = activas.slice(0, 5);
-            setObrasActivas(
-              top.map((o) => ({
-                id: o.id,
-                nombre: o.nombre,
-                cliente_nombre: o.cliente_nombre ?? null,
-                direccion: o.direccion ?? null,
-                estado: o.estado ?? null,
-                fecha_inicio: o.fecha_inicio ?? null,
-                num_documentos: documentosDesdeObraApi(o),
-              }))
-            );
-          }
-        } catch {
-          setObrasActivas([]);
-        }
-
-        try {
-          const { data: ucRows } = await supabase
-            .from('clientes')
-            .select('id, nombre, created_at')
-            .eq('business_id', businessId)
-            .order('created_at', { ascending: false })
-            .limit(3);
-          const uc = (ucRows ?? []) as { id: string; nombre: string }[];
-          const uids = uc.map((c) => c.id);
-          if (uids.length === 0) {
-            setUltimosClientes([]);
-          } else {
-            const [pR, fR, aR, gR, dR] = await Promise.all([
-              supabase
-                .from('presupuestos')
-                .select('cliente_id')
-                .eq('business_id', businessId)
-                .in('cliente_id', uids),
-              supabase
-                .from('facturas')
-                .select('cliente_id')
-                .eq('business_id', businessId)
-                .in('cliente_id', uids),
-              supabase
-                .from('albaranes')
-                .select('cliente_id')
-                .eq('business_id', businessId)
-                .in('cliente_id', uids),
-              supabase
-                .from('gastos')
-                .select('cliente_id')
-                .eq('business_id', businessId)
-                .in('cliente_id', uids),
-              supabase
-                .from('diario_obra')
-                .select('cliente_id')
-                .eq('business_id', businessId)
-                .in('cliente_id', uids),
-            ]);
-            const bump = (rows: { cliente_id: string | null }[] | null) => {
-              const m = new Map<string, number>();
-              for (const id of uids) m.set(id, 0);
-              for (const r of rows ?? []) {
-                const cid = r.cliente_id;
-                if (!cid) continue;
-                m.set(cid, (m.get(cid) ?? 0) + 1);
-              }
-              return m;
-            };
-            const mp = bump(pR.data as { cliente_id: string | null }[] | null);
-            const mf = bump(fR.data as { cliente_id: string | null }[] | null);
-            const ma = bump(aR.data as { cliente_id: string | null }[] | null);
-            const mg = bump(gR.data as { cliente_id: string | null }[] | null);
-            const md = bump(dR.data as { cliente_id: string | null }[] | null);
-            setUltimosClientes(
-              uc.map((c) => ({
-                id: c.id,
-                nombre: c.nombre,
-                num_documentos:
-                  (mp.get(c.id) ?? 0) +
-                  (mf.get(c.id) ?? 0) +
-                  (ma.get(c.id) ?? 0) +
-                  (mg.get(c.id) ?? 0) +
-                  (md.get(c.id) ?? 0),
-              }))
-            );
-          }
-        } catch {
-          setUltimosClientes([]);
-        }
+        setUltimosPresupuestos([]);
+        setAgendaEventos([]);
+        setDesglosePendiente([]);
+        setDesglosePresupuestado([]);
+        setDesgloseMateriales([]);
+        setImportePendienteCobro(0);
+        setImporteTotalPresupuestado(0);
+        setTotalMateriales(0);
+        setUltimasEntradasDiario([]);
+        setUltimosClientes([]);
+        setObrasActivas([]);
+        setEmailsUrgentes([]);
 
         const { data: gmailToken } = await supabase
           .from('gmail_tokens')
@@ -824,13 +571,274 @@ export default function DashboardPage() {
           .eq('user_id', userId)
           .maybeSingle();
         setGmailConectado(!!gmailToken);
-      } finally {
-        setLoading(false);
+        return;
       }
-    };
 
-    loadDashboard();
+      const [
+        presupuestosRes,
+        albaranesRes,
+        facturasRes,
+        presListRes,
+        _agendaCargada,
+        facturasPendientesDataRes,
+        presupuestosMetricasRes,
+        presupuestosMaterialesRes,
+      ] = await Promise.all([
+        supabase
+          .from('presupuestos')
+          .select('id', { count: 'exact', head: true })
+          .eq('business_id', businessId),
+        supabase
+          .from('albaranes')
+          .select('id', { count: 'exact', head: true })
+          .eq('business_id', businessId)
+          .eq('estado', 'pendiente'),
+        supabase
+          .from('facturas')
+          .select('id', { count: 'exact', head: true })
+          .eq('business_id', businessId)
+          .eq('estado', 'pendiente'),
+        supabase
+          .from('presupuestos')
+          .select(
+            'id, fecha, estado, created_at, obra_id, cliente_nombre, obras ( nombre ), clientes ( nombre )'
+          )
+          .eq('business_id', businessId)
+          .order('created_at', { ascending: false })
+          .limit(5),
+        loadAgenda(businessId),
+        supabase
+          .from('facturas')
+          .select('id, cliente_nombre, total')
+          .eq('business_id', businessId)
+          .eq('estado', 'pendiente'),
+        supabase
+          .from('presupuestos')
+          .select('id, cliente_nombre, fecha, importe_total')
+          .eq('business_id', businessId),
+        supabase
+          .from('presupuestos')
+          .select('id, cliente_nombre, fecha, importe_total')
+          .eq('business_id', businessId)
+          .ilike('presupuesto_generado', '%material%'),
+      ]);
+
+      setCounts({
+        urgentes: 0,
+        presupuestos: presupuestosRes.count ?? 0,
+        albaranesPendientes: albaranesRes.count ?? 0,
+        facturasPendientes: facturasRes.count ?? 0,
+      });
+
+      if (!presListRes.error && presListRes.data) {
+        const raw = presListRes.data as Array<{
+          id: string;
+          fecha: string | null;
+          estado: string | null;
+          created_at: string;
+          obra_id?: string | null;
+          cliente_nombre?: string | null;
+          obras?: { nombre?: string | null } | null;
+          clientes?: { nombre?: string | null } | null;
+        }>;
+        setUltimosPresupuestos(
+          raw.map((r) => {
+            const oj = r.obras && typeof r.obras === 'object' ? r.obras : null;
+            const cj = r.clientes && typeof r.clientes === 'object' ? r.clientes : null;
+            return {
+              id: r.id,
+              fecha: r.fecha,
+              estado: r.estado,
+              created_at: r.created_at,
+              obra_id: r.obra_id ?? null,
+              cliente_nombre: r.cliente_nombre ?? null,
+              obra_nombre: oj ? String(oj.nombre ?? '').trim() || null : null,
+              cliente_ficha_nombre: cj ? String(cj.nombre ?? '').trim() || null : null,
+            };
+          })
+        );
+      }
+
+      if (!facturasPendientesDataRes.error && facturasPendientesDataRes.data) {
+        const list = facturasPendientesDataRes.data as { id: string; cliente_nombre: string | null; total: number }[];
+        setDesglosePendiente(list);
+        setImportePendienteCobro(list.reduce((s, f) => s + (Number(f.total) || 0), 0));
+      }
+      if (!presupuestosMetricasRes.error && presupuestosMetricasRes.data) {
+        const list = presupuestosMetricasRes.data as { id: string; cliente_nombre: string | null; fecha: string | null; importe_total: number | null }[];
+        setDesglosePresupuestado(list);
+        setImporteTotalPresupuestado(list.reduce((s, p) => s + (Number(p.importe_total) || 0), 0));
+      }
+      if (!presupuestosMaterialesRes.error && presupuestosMaterialesRes.data) {
+        const list = presupuestosMaterialesRes.data as { id: string; cliente_nombre: string | null; fecha: string | null; importe_total: number | null }[];
+        setDesgloseMateriales(list);
+        setTotalMateriales(list.reduce((s, p) => s + (Number(p.importe_total) || 0), 0));
+      }
+
+      try {
+        const diarioRes = await fetch(
+          `/api/diario?business_id=${encodeURIComponent(businessId)}`,
+          { credentials: 'include' }
+        );
+        if (diarioRes.ok) {
+          const dj = (await diarioRes.json()) as {
+            agrupado_por_obra?: Record<string, DiarioEntradaWidget[]>;
+          };
+          const grouped = dj.agrupado_por_obra ?? {};
+          const flat = Object.values(grouped).flat() as DiarioEntradaWidget[];
+          flat.sort(
+            (a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()
+          );
+          setUltimasEntradasDiario(flat.slice(0, 3));
+        } else {
+          setUltimasEntradasDiario([]);
+        }
+      } catch {
+        setUltimasEntradasDiario([]);
+      }
+
+      try {
+        const obrasRes = await fetch(
+          `/api/obras?business_id=${encodeURIComponent(businessId)}`,
+          { credentials: 'include' }
+        );
+        if (!obrasRes.ok) {
+          setObrasActivas([]);
+        } else {
+          const json = (await obrasRes.json()) as {
+            obras?: Array<{
+              id: string;
+              nombre: string;
+              cliente_nombre: string | null;
+              direccion: string | null;
+              estado: string | null;
+              fecha_inicio: string | null;
+              created_at: string;
+              total_documentos?: number;
+              num_presupuestos?: number;
+              num_facturas?: number;
+              num_albaranes?: number;
+              num_gastos?: number;
+              tiene_diario?: number;
+            }>;
+          };
+          const activas = (json.obras ?? []).filter((o) =>
+            ['abierta', 'en_curso'].includes((o.estado ?? '').toLowerCase())
+          );
+          activas.sort(
+            (a, b) =>
+              new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          );
+          const top = activas.slice(0, 5);
+          setObrasActivas(
+            top.map((o) => ({
+              id: o.id,
+              nombre: o.nombre,
+              cliente_nombre: o.cliente_nombre ?? null,
+              direccion: o.direccion ?? null,
+              estado: o.estado ?? null,
+              fecha_inicio: o.fecha_inicio ?? null,
+              num_documentos: documentosDesdeObraApi(o),
+            }))
+          );
+        }
+      } catch {
+        setObrasActivas([]);
+      }
+
+      try {
+        const { data: ucRows } = await supabase
+          .from('clientes')
+          .select('id, nombre, created_at')
+          .eq('business_id', businessId)
+          .order('created_at', { ascending: false })
+          .limit(3);
+        const uc = (ucRows ?? []) as { id: string; nombre: string }[];
+        const uids = uc.map((c) => c.id);
+        if (uids.length === 0) {
+          setUltimosClientes([]);
+        } else {
+          const [pR, fR, aR, gR, dR] = await Promise.all([
+            supabase
+              .from('presupuestos')
+              .select('cliente_id')
+              .eq('business_id', businessId)
+              .in('cliente_id', uids),
+            supabase
+              .from('facturas')
+              .select('cliente_id')
+              .eq('business_id', businessId)
+              .in('cliente_id', uids),
+            supabase
+              .from('albaranes')
+              .select('cliente_id')
+              .eq('business_id', businessId)
+              .in('cliente_id', uids),
+            supabase
+              .from('gastos')
+              .select('cliente_id')
+              .eq('business_id', businessId)
+              .in('cliente_id', uids),
+            supabase
+              .from('diario_obra')
+              .select('cliente_id')
+              .eq('business_id', businessId)
+              .in('cliente_id', uids),
+          ]);
+          const bump = (rows: { cliente_id: string | null }[] | null) => {
+            const m = new Map<string, number>();
+            for (const id of uids) m.set(id, 0);
+            for (const r of rows ?? []) {
+              const cid = r.cliente_id;
+              if (!cid) continue;
+              m.set(cid, (m.get(cid) ?? 0) + 1);
+            }
+            return m;
+          };
+          const mp = bump(pR.data as { cliente_id: string | null }[] | null);
+          const mf = bump(fR.data as { cliente_id: string | null }[] | null);
+          const ma = bump(aR.data as { cliente_id: string | null }[] | null);
+          const mg = bump(gR.data as { cliente_id: string | null }[] | null);
+          const md = bump(dR.data as { cliente_id: string | null }[] | null);
+          setUltimosClientes(
+            uc.map((c) => ({
+              id: c.id,
+              nombre: c.nombre,
+              num_documentos:
+                (mp.get(c.id) ?? 0) +
+                (mf.get(c.id) ?? 0) +
+                (ma.get(c.id) ?? 0) +
+                (mg.get(c.id) ?? 0) +
+                (md.get(c.id) ?? 0),
+            }))
+          );
+        }
+      } catch {
+        setUltimosClientes([]);
+      }
+
+      const { data: gmailToken } = await supabase
+        .from('gmail_tokens')
+        .select('user_id')
+        .eq('user_id', userId)
+        .maybeSingle();
+      setGmailConectado(!!gmailToken);
+    } finally {
+      setLoading(false);
+    }
   }, [loadAgenda, supabase]);
+
+  useEffect(() => {
+    void loadDashboard();
+  }, [loadDashboard]);
+
+  useEffect(() => {
+    const handler = () => {
+      void loadDashboard();
+    };
+    window.addEventListener('perfilio:refresh', handler);
+    return () => window.removeEventListener('perfilio:refresh', handler);
+  }, [loadDashboard]);
 
   useEffect(() => {
     if (loading) return;

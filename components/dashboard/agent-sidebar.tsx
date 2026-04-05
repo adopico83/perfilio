@@ -788,6 +788,8 @@ export default function AgentSidebar() {
           },
         ]);
 
+        window.dispatchEvent(new CustomEvent('perfilio:refresh'));
+
         window.localStorage.setItem(storageKey, hoy);
       } catch {
         setError('Error de conexión al generar saludo automático');
@@ -958,6 +960,8 @@ export default function AgentSidebar() {
           content: respuestaTexto,
         },
       ]);
+
+      window.dispatchEvent(new CustomEvent('perfilio:refresh'));
     } catch {
       setError('Error de conexión');
     } finally {
