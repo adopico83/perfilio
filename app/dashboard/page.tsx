@@ -258,6 +258,7 @@ export default function DashboardPage() {
   const [ultimosPresupuestos, setUltimosPresupuestos] = useState<PresupuestoResumen[]>([]);
   const [agendaEventos, setAgendaEventos] = useState<AgendaItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [importePendienteCobro, setImportePendienteCobro] = useState(0);
   const [importeTotalPresupuestado, setImporteTotalPresupuestado] = useState(0);
@@ -834,7 +835,14 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const handler = () => {
-      void loadDashboard();
+      void (async () => {
+        setRefreshing(true);
+        try {
+          await loadDashboard();
+        } finally {
+          setRefreshing(false);
+        }
+      })();
     };
     window.addEventListener('perfilio:refresh', handler);
     return () => window.removeEventListener('perfilio:refresh', handler);
@@ -959,6 +967,19 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-white">
+      {refreshing ? (
+        <div
+          className="fixed top-5 right-5 z-50 pointer-events-none"
+          role="status"
+          aria-live="polite"
+        >
+          <span className="sr-only">Actualizando datos del panel</span>
+          <span
+            className="block size-2 shrink-0 rounded-full bg-[#ed8936] animate-pulse shadow-[0_0_10px_rgba(237,137,54,0.65)]"
+            aria-hidden
+          />
+        </div>
+      ) : null}
       <div className="border-b border-white/10 bg-[#0f172a]/95 backdrop-blur">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <a href="/dashboard" className="flex items-center gap-3 min-w-0">
