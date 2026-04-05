@@ -146,21 +146,25 @@ describe('POST /api/agente — extras', () => {
           };
         }
         if (table === 'clientes') {
+          const afterFirstEq = {
+            order: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue({ data: [], error: null }),
+            }),
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({
+                data: { email: 'cliente@example.com' },
+                error: null,
+              }),
+            }),
+            ilike: jest.fn().mockReturnValue({
+              order: jest.fn().mockReturnValue({
+                limit: jest.fn().mockResolvedValue({ data: [], error: null }),
+              }),
+            }),
+          };
           return {
             select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                eq: jest.fn().mockReturnValue({
-                  maybeSingle: jest.fn().mockResolvedValue({
-                    data: { email: 'cliente@example.com' },
-                    error: null,
-                  }),
-                }),
-                ilike: jest.fn().mockReturnValue({
-                  order: jest.fn().mockReturnValue({
-                    limit: jest.fn().mockResolvedValue({ data: [], error: null }),
-                  }),
-                }),
-              }),
+              eq: jest.fn().mockReturnValue(afterFirstEq),
             }),
           };
         }

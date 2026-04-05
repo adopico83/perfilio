@@ -680,6 +680,41 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, menciona de 
     }
     const memoriaNegocioBlock = buildMemoriaNegocioPromptBlock(memoriaRows);
 
+    const { data: obrasAbiertas } = await supabase
+      .from('obras')
+      .select('id, nombre, cliente_id, direccion')
+      .eq('business_id', business_id)
+      .in('estado', ['abierta', 'en_curso'])
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    const { data: clientesActivos } = await supabase
+      .from('clientes')
+      .select('id, nombre, email, telefono')
+      .eq('business_id', business_id)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    const obrasCtx =
+      (obrasAbiertas ?? []).length > 0
+        ? `\nOBRAS ABIERTAS ACTUALES:\n${(obrasAbiertas ?? [])
+            .map(
+              (o) =>
+                `- ${o.nombre} (id: ${o.id})${o.direccion ? ', dir: ' + o.direccion : ''}`
+            )
+            .join('\n')}`
+        : '\nNo hay obras abiertas actualmente.';
+
+    const clientesCtx =
+      (clientesActivos ?? []).length > 0
+        ? `\nCLIENTES REGISTRADOS:\n${(clientesActivos ?? [])
+            .map(
+              (c) =>
+                `- ${c.nombre} (id: ${c.id})${c.email ? ', email: ' + c.email : ''}${c.telefono ? ', tel: ' + c.telefono : ''}`
+            )
+            .join('\n')}`
+        : '\nNo hay clientes registrados.';
+
     const systemPrompt = `Para cualquier acción que cree, edite o consulte datos en el sistema: DEBES invocar la herramienta (tool) correspondiente en este mismo turno.
 PROHIBIDO decir "voy a hacerlo", "procederé a...", "un momento" u otras promesas sin haber llamado ya a la tool.
 Responder solo en texto cuando debías llamar a una tool = error crítico.
@@ -703,7 +738,7 @@ ${descripcion}
 Servicios: ${servicios}
 Tarifas: ${tarifas}
 Contexto extra: ${contexto_adicional}${ubicacionMeteoPrompt}
-Fecha presupuestos: ${fechaActual}.${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
+Fecha presupuestos: ${fechaActual}.${obrasCtx}${clientesCtx}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
 
     const ALL_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       {
