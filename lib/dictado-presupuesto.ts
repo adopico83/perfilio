@@ -91,6 +91,8 @@ Analiza el siguiente dictado de visita de obra y extrae las partidas de trabajo 
 
 Tarifas disponibles: ${tarifasJson}
 
+IMPORTANTE: Cuando el dictado mencione un trabajo que coincida con alguna tarifa disponible (por nombre o categoría), usa EXACTAMENTE la descripción del campo \`nombre\` de esa tarifa como \`descripcion\` de la partida. No reescribas ni resumas la descripción — cópiala tal cual. Usa el precio de la tarifa como \`precio_unitario\` base. Solo si no hay coincidencia en las tarifas, redacta una descripción propia.
+
 Responde SOLO con un array JSON válido de partidas, sin texto adicional.`;
 
   const completion = await openai.chat.completions.create({
