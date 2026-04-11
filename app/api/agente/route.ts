@@ -40,6 +40,13 @@ import {
   upsertMemoriaNegocio,
 } from '@/lib/memoria-negocio';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  OPERARIOS_AGENT_TOOLS,
+  ejecutarConsultarHorasObra,
+  ejecutarConsultarHorasOperario,
+  ejecutarListarOperarios,
+  ejecutarRegistrarJornada,
+} from '@/lib/agente/modules/operarios';
 
 /** Cliente de la obra (JOIN clientes) para heredar en documentos cuando no hay cliente_id explícito. */
 async function clienteDesdeObraSiAplica(
@@ -393,10 +400,11 @@ type AgentIntentCategory =
   | 'diario'
   | 'clientes'
   | 'calculo'
+  | 'operarios'
   | 'general';
 
 const ROUTER_SYSTEM_PROMPT = `Eres un clasificador. Responde SOLO con una palabra en minúsculas, sin comillas ni puntuación:
-documentos | emails | agenda | gastos | diario | clientes | calculo | general
+documentos | emails | agenda | gastos | diario | clientes | calculo | operarios | general
 
 documentos: crear obra con cliente nuevo o existente (crear_obra + crear_cliente + actualizar_obra), presupuestos, facturas, albaranes, vincular documentos a una obra (asociar_documentos_a_obra), crear o actualizar obra (crear_obra, actualizar_obra), extras/modificados/imprevistos en obra, dictado de visita y presupuesto estructurado (generar_presupuesto_por_dictado, gestionar_tarifas), estados, edición, crear documentos, conversiones presupuesto↔albarán↔factura, tiempo en obra.
 emails: Gmail, leer bandeja, enviar correo.
@@ -405,6 +413,7 @@ gastos: ticket, OCR, foto de compra, registrar gasto, vincular gasto.
 diario: diario de obra, fotos de obra, PDF del diario.
 clientes: consultar ficha de cliente, buscar cliente, historial de cliente. NO usar para crear obras ni clientes nuevos.
 calculo: metros cuadrados, m³, perímetro, dimensiones de obra.
+operarios: horas de trabajadores, operarios, jornada, parte de horas, nómina/convenio vs horas reales en obra, registrar o consultar horas por obra u operario.
 general: saludos, varias áreas a la vez, mensajes pendientes del negocio, meteorología o tiempo, extras o imprevistos en obra (registrar_extra), dictado de visita o presupuesto por voz, vincular documentos a una obra, actualizar datos de obra (cliente, dirección, estado, actualizar_obra), memoria del negocio (guardar_memoria, eliminar_memoria), o petición ambigua.`;
 
 const INTENT_TOOL_NAMES_DOCUMENTOS = new Set([
@@ -500,6 +509,16 @@ const INTENT_TOOL_NAMES_CALCULO = new Set([
   'eliminar_memoria',
 ]);
 
+const INTENT_TOOL_NAMES_OPERARIOS = new Set([
+  'registrar_jornada',
+  'listar_operarios',
+  'consultar_horas_obra',
+  'consultar_horas_operario',
+  'get_directions',
+  'guardar_memoria',
+  'eliminar_memoria',
+]);
+
 const INTENT_TOOL_NAMES: Record<AgentIntentCategory, Set<string> | null> = {
   documentos: INTENT_TOOL_NAMES_DOCUMENTOS,
   emails: INTENT_TOOL_NAMES_EMAILS,
@@ -508,6 +527,7 @@ const INTENT_TOOL_NAMES: Record<AgentIntentCategory, Set<string> | null> = {
   diario: INTENT_TOOL_NAMES_DIARIO,
   clientes: INTENT_TOOL_NAMES_CLIENTES,
   calculo: INTENT_TOOL_NAMES_CALCULO,
+  operarios: INTENT_TOOL_NAMES_OPERARIOS,
   general: null,
 };
 
@@ -520,6 +540,7 @@ function parseAgentIntentCategory(raw: string): AgentIntentCategory {
     'diario',
     'clientes',
     'calculo',
+    'operarios',
     'general',
   ];
   const trimmed = raw.trim().toLowerCase();
@@ -695,6 +716,20 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, menciona de 
       .order('created_at', { ascending: false })
       .limit(10);
 
+    const { data: operariosActivosRows } = await supabase
+      .from('operarios')
+      .select('nombre')
+      .eq('business_id', business_id)
+      .eq('activo', true)
+      .order('nombre', { ascending: true });
+    const nombresOperariosNegocio = (operariosActivosRows ?? [])
+      .map((r: { nombre?: string | null }) => String(r.nombre ?? '').trim())
+      .filter((n) => n.length > 0);
+    const bloqueOperariosPrompt =
+      nombresOperariosNegocio.length > 0
+        ? `Tienes acceso a la gestión de operarios. Puedes registrar horas de trabajo por obra, listar operarios y consultar resúmenes de horas. Los operarios de este negocio son: ${nombresOperariosNegocio.join(', ')}. Cuando registres horas, si el usuario no distingue entre reales y convenio, guarda el mismo valor en ambos.`
+        : `Tienes acceso a la gestión de operarios. Puedes registrar horas de trabajo por obra, listar operarios y consultar resúmenes de horas. Aún no hay operarios activos listados en el sistema para este negocio. Cuando registres horas, si el usuario no distingue entre reales y convenio, guarda el mismo valor en ambos.`;
+
     const obrasCtx =
       (obrasAbiertas ?? []).length > 0
         ? `\nOBRAS ABIERTAS ACTUALES:\n${(obrasAbiertas ?? [])
@@ -738,7 +773,9 @@ ${descripcion}
 Servicios: ${servicios}
 Tarifas: ${tarifas}
 Contexto extra: ${contexto_adicional}${ubicacionMeteoPrompt}
-Fecha presupuestos: ${fechaActual}.${obrasCtx}${clientesCtx}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
+Fecha presupuestos: ${fechaActual}.${obrasCtx}${clientesCtx}
+
+${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
 
     const ALL_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       {
@@ -1784,6 +1821,7 @@ Fecha presupuestos: ${fechaActual}.${obrasCtx}${clientesCtx}${agendaContextoPrim
           },
         },
       },
+      ...OPERARIOS_AGENT_TOOLS,
       {
         type: 'function',
         function: {
@@ -4887,6 +4925,35 @@ Fecha presupuestos: ${fechaActual}.${obrasCtx}${clientesCtx}${agendaContextoPrim
               'PDF del diario generado. El usuario puede descargarlo con el enlace (válido varios días).',
             url: signedPdf.signedUrl,
           };
+        }
+        case 'registrar_jornada': {
+          return ejecutarRegistrarJornada(
+            supabase,
+            typeof business_id === 'string' ? business_id : String(business_id ?? ''),
+            toolArgs,
+            mensajeTrim
+          );
+        }
+        case 'listar_operarios': {
+          return ejecutarListarOperarios(
+            supabase,
+            typeof business_id === 'string' ? business_id : String(business_id ?? '')
+          );
+        }
+        case 'consultar_horas_obra': {
+          return ejecutarConsultarHorasObra(
+            supabase,
+            typeof business_id === 'string' ? business_id : String(business_id ?? ''),
+            toolArgs,
+            mensajeTrim
+          );
+        }
+        case 'consultar_horas_operario': {
+          return ejecutarConsultarHorasOperario(
+            supabase,
+            typeof business_id === 'string' ? business_id : String(business_id ?? ''),
+            toolArgs
+          );
         }
         default:
           return { error: `Tool no soportada: ${toolName}` };
