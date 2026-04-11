@@ -323,6 +323,31 @@ function AgentTypingIndicator() {
   );
 }
 
+/** Mientras Whisper transcribe el audio tras soltar el micrófono (antes de que el texto aparezca en el chat). */
+function AgentTranscribingIndicator() {
+  return (
+    <div className="flex justify-start" aria-live="polite">
+      <div
+        className="max-w-[90%] px-4 py-3 rounded-xl rounded-bl-md bg-[#1a365d] text-white border border-white/15 flex items-center gap-2.5"
+        role="status"
+      >
+        <span className="sr-only">Transcribiendo audio</span>
+        <Loader2 className="size-4 text-[#ed8936] animate-spin shrink-0" aria-hidden />
+        <span className="text-sm text-white/95">Transcribiendo audio</span>
+        <span className="inline-flex items-center gap-0.5 h-4" aria-hidden>
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="agent-typing-dot inline-block size-1.5 rounded-full bg-white/80 shrink-0"
+              style={{ animationDelay: `${i * 0.18}s` }}
+            />
+          ))}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 const generateConversationId = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -447,6 +472,7 @@ export default function AgentSidebar() {
   const [saludoAutomaticoCargando, setSaludoAutomaticoCargando] = useState(false);
   const [historialInicialListo, setHistorialInicialListo] = useState(false);
   const [grabando, setGrabando] = useState(false);
+  const [transcribiendoAudio, setTranscribiendoAudio] = useState(false);
   const [error, setError] = useState('');
   const [emailSendLoadingId, setEmailSendLoadingId] = useState<string | null>(null);
   const [imagenPendiente, setImagenPendiente] = useState<string | null>(null);
@@ -812,12 +838,16 @@ export default function AgentSidebar() {
   useEffect(() => {
     if (!listRef.current) return;
     listRef.current.scrollTop = listRef.current.scrollHeight;
-  }, [historial, loading, collapsed, mobileOpen]);
+  }, [historial, loading, collapsed, mobileOpen, transcribiendoAudio]);
 
-  const handleEnviarTexto = async (texto: string) => {
+  const handleEnviarTexto = async (
+    texto: string,
+    opts?: { desdeTranscripcion?: boolean }
+  ) => {
     const textoTrim = texto.trim();
     const imagenEnviar = imagenPendiente;
     if (!selectedId || (!textoTrim && !imagenEnviar)) {
+      if (opts?.desdeTranscripcion) setTranscribiendoAudio(false);
       setError('Escribe un mensaje o adjunta una imagen del ticket.');
       return;
     }
@@ -839,6 +869,7 @@ export default function AgentSidebar() {
         imagenPreview: imagenEnviar ?? undefined,
       },
     ]);
+    if (opts?.desdeTranscripcion) setTranscribiendoAudio(false);
     if (esPrimerMensajeUsuarioDeConversacion) {
       const titulo = (contenidoUsuario || 'Nueva conversación').slice(0, 60);
       const createdAt = new Date().toISOString();
@@ -1005,6 +1036,7 @@ export default function AgentSidebar() {
       const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
       audioChunksRef.current = [];
       setGrabando(false);
+      setTranscribiendoAudio(true);
       void transcribeAndSend(audioBlob);
     };
 
@@ -1158,25 +1190,36 @@ export default function AgentSidebar() {
       });
 
       if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        setError(data?.error ?? 'Error al transcribir audio');
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        setTranscribiendoAudio(false);
+        setError(
+          typeof data?.error === 'string' && data.error.trim()
+            ? data.error
+            : 'Error al transcribir el audio'
+        );
         return;
       }
 
       const data = (await res.json()) as { texto?: string };
       const textoTranscrito = (data.texto ?? '').trim();
-      if (!textoTranscrito) return;
+      if (!textoTranscrito) {
+        setTranscribiendoAudio(false);
+        setError('Error al transcribir el audio');
+        return;
+      }
 
       setMensaje(textoTranscrito);
-      await handleEnviarTexto(textoTranscrito);
+      await handleEnviarTexto(textoTranscrito, { desdeTranscripcion: true });
     } catch {
-      setError('Error de conexión al transcribir');
+      setTranscribiendoAudio(false);
+      setError('Error al transcribir el audio');
     }
   };
 
   const nuevaConversacion = () => {
     setHistorial([]);
     setError('');
+    setTranscribiendoAudio(false);
     setImagenPendiente(null);
     setSubiendoVideo(false);
     setPanelConversacionesAbierto(false);
@@ -1414,7 +1457,7 @@ export default function AgentSidebar() {
                   </ul>
                 )}
               </div>
-            ) : historial.length === 0 ? (
+            ) : historial.length === 0 && !transcribiendoAudio ? (
               <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/70">
                 Escribe un mensaje para empezar.
               </div>
@@ -1471,6 +1514,7 @@ export default function AgentSidebar() {
                     </div>
                   )
                 )}
+                {transcribiendoAudio && <AgentTranscribingIndicator />}
                 {mostrarIndicadorEscribiendo && <AgentTypingIndicator />}
               </>
             )}
@@ -1705,7 +1749,7 @@ export default function AgentSidebar() {
                         </ul>
                       )}
                     </div>
-                  ) : historial.length === 0 ? (
+                  ) : historial.length === 0 && !transcribiendoAudio ? (
                     <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/70">
                       Escribe un mensaje para empezar.
                     </div>
@@ -1762,6 +1806,7 @@ export default function AgentSidebar() {
                           </div>
                         )
                       )}
+                      {transcribiendoAudio && <AgentTranscribingIndicator />}
                       {mostrarIndicadorEscribiendo && <AgentTypingIndicator />}
                     </>
                   )}
