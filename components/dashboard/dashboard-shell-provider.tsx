@@ -14,6 +14,7 @@ const DASHBOARD_PREFIXES = [
   '/clientes',
   '/facturas',
   '/obras',
+  '/operarios',
 ];
 
 export default function DashboardShellProvider({ children }: { children: ReactNode }) {

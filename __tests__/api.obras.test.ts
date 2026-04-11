@@ -133,6 +133,7 @@ describe('/api/obras', () => {
         if (table === 'albaranes') return listChain([{ id: 'a1', obra_id: 'obra-1', estado: 'pendiente', total: 80, fecha: '2026-01-18' }]);
         if (table === 'diario_obra') return listChain([{ id: 'd1', obra_id: 'obra-1', obra_nombre: 'Reforma Baño García', texto: 'Paso 1', fotos: [], videos: [], fecha: '2026-01-16' }]);
         if (table === 'gastos') return listChain([{ id: 'g1', obra_id: 'obra-1', proveedor: 'Proveedor', importe_total: 50, fecha: '2026-01-17' }]);
+        if (table === 'registros_jornada') return listChain([]);
 
         return {};
       }),
@@ -149,6 +150,7 @@ describe('/api/obras', () => {
     expect(json.albaranes).toHaveLength(1);
     expect(json.entradas_diario_obra).toHaveLength(1);
     expect(json.gastos).toHaveLength(1);
+    expect(json.registros_jornada).toEqual([]);
   });
 
   it("PATCH /api/obras cambia estado a 'cerrada'", async () => {

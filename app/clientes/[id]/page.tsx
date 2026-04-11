@@ -205,42 +205,81 @@ export default function ClienteFichaPage() {
   return (
     <div className="min-h-screen bg-[#0f172a] text-white">
       <div className="border-b border-white/10 bg-[#0f172a]/95 backdrop-blur">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link href="/dashboard" className="text-white font-bold text-xl sm:text-2xl truncate">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center gap-3 min-w-0">
+          <Link
+            href="/dashboard"
+            className="text-white font-bold text-xl sm:text-2xl truncate shrink-0 min-w-0 max-w-[min(220px,46vw)] sm:max-w-[min(260px,40vw)]"
+          >
             {businessName}
           </Link>
           <button
             type="button"
             onClick={() => setMenuMovilAbierto((v) => !v)}
-            className="md:hidden inline-flex items-center justify-center w-10 h-10 rounded-lg border border-white/20 text-white hover:bg-white/10 transition-colors"
+            className="md:hidden inline-flex items-center justify-center w-10 h-10 shrink-0 rounded-lg border border-white/20 text-white hover:bg-white/10 transition-colors ml-auto"
             aria-label="Abrir menú"
           >
             ☰
           </button>
-          <div className="hidden md:flex items-center gap-4">
-            <Link href="/mensajes" className="text-sm text-gray-200 hover:text-white transition-colors">
-              Mensajes
-            </Link>
-            <Link href="/presupuestos" className="text-sm text-gray-200 hover:text-white transition-colors">
-              Presupuestos
-            </Link>
-            <Link href="/albaranes" className="text-sm text-gray-200 hover:text-white transition-colors">
-              Albaranes
-            </Link>
-            <Link href="/facturas" className="text-sm text-gray-200 hover:text-white transition-colors">
-              Facturas
-            </Link>
-            <Link href="/diario" className="text-sm text-gray-200 hover:text-white transition-colors">
-              Diario
-            </Link>
-            <Link href="/obras" className="text-sm text-gray-200 hover:text-white transition-colors">
-              Obras
-            </Link>
-            <Link href="/clientes" className="text-sm font-medium text-[#ed8936]">
-              Clientes
-            </Link>
-            <ToggleAgenteNavButton className="inline-flex items-center px-4 py-2 text-sm font-medium text-[#ed8936] bg-transparent border border-[#ed8936] rounded-lg hover:bg-[#ed8936] hover:text-white transition-colors" />
-            <LogoutButton />
+          <div className="hidden md:flex flex-1 min-w-0 items-center justify-end gap-2 lg:gap-3">
+            <nav
+              className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain touch-pan-x [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+              aria-label="Secciones"
+            >
+              <div className="flex w-max max-w-full ml-auto flex-nowrap items-center justify-end gap-2 lg:gap-2.5 pr-1">
+                <Link
+                  href="/mensajes"
+                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
+                >
+                  Mensajes
+                </Link>
+                <Link
+                  href="/presupuestos"
+                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
+                >
+                  Presupuestos
+                </Link>
+                <Link
+                  href="/albaranes"
+                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
+                >
+                  Albaranes
+                </Link>
+                <Link
+                  href="/facturas"
+                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
+                >
+                  Facturas
+                </Link>
+                <Link
+                  href="/diario"
+                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
+                >
+                  Diario
+                </Link>
+                <Link
+                  href="/obras"
+                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
+                >
+                  Obras
+                </Link>
+                <Link
+                  href="/clientes"
+                  className="text-xs lg:text-sm font-medium text-[#ed8936] shrink-0"
+                >
+                  Clientes
+                </Link>
+                <Link
+                  href="/operarios"
+                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
+                >
+                  Operarios
+                </Link>
+                <ToggleAgenteNavButton className="inline-flex shrink-0 items-center px-3 py-1.5 lg:px-4 lg:py-2 text-xs lg:text-sm font-medium text-[#ed8936] bg-transparent border border-[#ed8936] rounded-lg hover:bg-[#ed8936] hover:text-white transition-colors" />
+              </div>
+            </nav>
+            <div className="flex shrink-0 flex-nowrap items-center gap-2">
+              <LogoutButton />
+            </div>
           </div>
         </div>
 
@@ -267,6 +306,9 @@ export default function ClienteFichaPage() {
               </Link>
               <Link href="/clientes" className="text-sm font-medium text-[#ed8936]" onClick={() => setMenuMovilAbierto(false)}>
                 Clientes
+              </Link>
+              <Link href="/operarios" className="text-sm text-gray-200 hover:text-white" onClick={() => setMenuMovilAbierto(false)}>
+                Operarios
               </Link>
               <div onClick={() => setMenuMovilAbierto(false)}>
                 <ToggleAgenteNavButton className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-[#ed8936] border border-[#ed8936] rounded-lg" />

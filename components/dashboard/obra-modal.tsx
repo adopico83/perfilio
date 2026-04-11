@@ -26,9 +26,17 @@ type FichaObraResponse = {
   albaranes: Array<Record<string, unknown>>;
   entradas_diario_obra: Array<Record<string, unknown>>;
   gastos: Array<Record<string, unknown>>;
+  registros_jornada: Array<Record<string, unknown>>;
 };
 
-type TabKey = 'resumen' | 'presupuestos' | 'albaranes' | 'facturas' | 'diario' | 'gastos';
+type TabKey =
+  | 'resumen'
+  | 'presupuestos'
+  | 'albaranes'
+  | 'facturas'
+  | 'diario'
+  | 'gastos'
+  | 'horas';
 
 function estadoBadge(estado: string | null | undefined): { label: string; className: string } {
   const s = (estado ?? '').toLowerCase();
@@ -79,7 +87,11 @@ export default function ObraModal() {
         setError(data.error ?? 'No se pudo cargar la ficha');
         return;
       }
-      setFicha((data as FichaObraResponse) ?? null);
+      const full = data as FichaObraResponse;
+      setFicha({
+        ...full,
+        registros_jornada: full.registros_jornada ?? [],
+      });
     } catch {
       setError('Error de conexión al cargar la ficha');
     } finally {
@@ -243,6 +255,7 @@ export default function ObraModal() {
                 ['facturas', '🧾 Facturas'],
                 ['diario', '📓 Diario'],
                 ['gastos', '💰 Gastos'],
+                ['horas', '⏱️ Horas'],
               ] as Array<[TabKey, string]>
             ).map(([k, label]) => (
               <button
@@ -519,6 +532,100 @@ export default function ObraModal() {
                     </tbody>
                   </table>
                 </div>
+              ) : null}
+
+              {tab === 'horas' ? (
+                (() => {
+                  const filas = ficha.registros_jornada ?? [];
+                  const totalReales = filas.reduce(
+                    (s, r) => s + parseNumber((r as { horas_reales?: unknown }).horas_reales),
+                    0
+                  );
+                  const totalConvenio = filas.reduce(
+                    (s, r) => s + parseNumber((r as { horas_convenio?: unknown }).horas_convenio),
+                    0
+                  );
+                  return (
+                    <div className="overflow-x-auto rounded-lg border border-white/10">
+                      <table className="w-full text-sm text-left">
+                        <thead>
+                          <tr className="border-b border-white/10 bg-[#0f2744]/90 text-white/80">
+                            <th className="px-3 py-2 font-medium">Operario</th>
+                            <th className="px-3 py-2 font-medium">Fecha</th>
+                            <th className="px-3 py-2 font-medium">Horas reales</th>
+                            <th className="px-3 py-2 font-medium">Horas convenio</th>
+                            <th className="px-3 py-2 font-medium">Notas</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filas.length === 0 ? (
+                            <tr>
+                              <td className="px-3 py-4 text-sm text-white/60" colSpan={5}>
+                                Sin horas registradas en esta obra
+                              </td>
+                            </tr>
+                          ) : (
+                            <>
+                              {filas.map((raw) => {
+                                const row = raw as {
+                                  id?: string;
+                                  fecha?: string | null;
+                                  horas_reales?: unknown;
+                                  horas_convenio?: unknown;
+                                  notas?: string | null;
+                                  operarios?: { nombre?: string | null } | null;
+                                };
+                                const nomOp =
+                                  row.operarios && typeof row.operarios === 'object'
+                                    ? String(row.operarios.nombre ?? '').trim() || '—'
+                                    : '—';
+                                const fechaStr = row.fecha
+                                  ? String(row.fecha).slice(0, 10)
+                                  : '—';
+                                return (
+                                  <tr
+                                    key={String(row.id ?? `${nomOp}-${fechaStr}`)}
+                                    className="border-b border-white/5 hover:bg-white/5"
+                                  >
+                                    <td className="px-3 py-2 font-medium text-white/90">{nomOp}</td>
+                                    <td className="px-3 py-2 text-xs text-white/60 tabular-nums">
+                                      {fechaStr !== '—'
+                                        ? new Date(fechaStr + 'T12:00:00').toLocaleDateString('es-ES', {
+                                            dateStyle: 'medium',
+                                          })
+                                        : '—'}
+                                    </td>
+                                    <td className="px-3 py-2 tabular-nums font-semibold">
+                                      {parseNumber(row.horas_reales).toFixed(2)}
+                                    </td>
+                                    <td className="px-3 py-2 tabular-nums font-semibold">
+                                      {parseNumber(row.horas_convenio).toFixed(2)}
+                                    </td>
+                                    <td className="px-3 py-2 text-xs text-white/70 max-w-[12rem] whitespace-pre-wrap break-words">
+                                      {row.notas?.trim() ? String(row.notas) : '—'}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                              <tr className="border-t border-[#ed8936]/40 bg-[#ed8936]/10 font-semibold">
+                                <td className="px-3 py-2 text-[#f6ad55]" colSpan={2}>
+                                  Totales
+                                </td>
+                                <td className="px-3 py-2 tabular-nums text-[#f6ad55]">
+                                  {totalReales.toFixed(2)}
+                                </td>
+                                <td className="px-3 py-2 tabular-nums text-[#f6ad55]">
+                                  {totalConvenio.toFixed(2)}
+                                </td>
+                                <td className="px-3 py-2" />
+                              </tr>
+                            </>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()
               ) : null}
             </>
           ) : null}

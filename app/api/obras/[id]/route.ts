@@ -63,7 +63,7 @@ export async function GET(
           .maybeSingle()
       : { data: null };
 
-    const [presRes, facRes, albRes, dioRes, gastRes] = await Promise.all([
+    const [presRes, facRes, albRes, dioRes, gastRes, jornRes] = await Promise.all([
       supabase
         .from('presupuestos')
         .select('*')
@@ -89,6 +89,14 @@ export async function GET(
         .select('*')
         .eq('obra_id', id)
         .order('fecha', { ascending: false }),
+      supabase
+        .from('registros_jornada')
+        .select(
+          'id, fecha, horas_reales, horas_convenio, notas, operario_id, operarios ( id, nombre )'
+        )
+        .eq('business_id', businessId)
+        .eq('obra_id', id)
+        .order('fecha', { ascending: false }),
     ]);
 
     return NextResponse.json({
@@ -99,6 +107,7 @@ export async function GET(
       albaranes: albRes.data ?? [],
       entradas_diario_obra: dioRes.data ?? [],
       gastos: gastRes.data ?? [],
+      registros_jornada: jornRes.data ?? [],
     });
   } catch (e) {
     console.error('[api/obras/[id] GET]', e);

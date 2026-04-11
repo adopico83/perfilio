@@ -177,30 +177,51 @@ export default function ClientesPage() {
               className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain touch-pan-x [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
               aria-label="Secciones"
             >
-              <div className="flex w-max max-w-full ml-auto flex-nowrap items-center justify-end gap-3 lg:gap-4 pr-1">
-                <Link href="/mensajes" className="text-sm text-gray-200 hover:text-white transition-colors shrink-0">
+              <div className="flex w-max max-w-full ml-auto flex-nowrap items-center justify-end gap-2 lg:gap-2.5 pr-1">
+                <Link
+                  href="/mensajes"
+                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
+                >
                   Mensajes
                 </Link>
                 <Link
                   href="/presupuestos"
-                  className="text-sm text-gray-200 hover:text-white transition-colors shrink-0"
+                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
                 >
                   Presupuestos
                 </Link>
-                <Link href="/albaranes" className="text-sm text-gray-200 hover:text-white transition-colors shrink-0">
+                <Link
+                  href="/albaranes"
+                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
+                >
                   Albaranes
                 </Link>
-                <Link href="/facturas" className="text-sm text-gray-200 hover:text-white transition-colors shrink-0">
+                <Link
+                  href="/facturas"
+                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
+                >
                   Facturas
                 </Link>
-                <Link href="/diario" className="text-sm text-gray-200 hover:text-white transition-colors shrink-0">
+                <Link
+                  href="/diario"
+                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
+                >
                   Diario
                 </Link>
-                <Link href="/obras" className="text-sm text-gray-200 hover:text-white transition-colors shrink-0">
+                <Link
+                  href="/obras"
+                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
+                >
                   Obras
                 </Link>
-                <span className="text-sm font-medium text-[#ed8936] shrink-0">Clientes</span>
-                <ToggleAgenteNavButton className="inline-flex shrink-0 items-center px-4 py-2 text-sm font-medium text-[#ed8936] bg-transparent border border-[#ed8936] rounded-lg hover:bg-[#ed8936] hover:text-white transition-colors" />
+                <span className="text-xs lg:text-sm font-medium text-[#ed8936] shrink-0">Clientes</span>
+                <Link
+                  href="/operarios"
+                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
+                >
+                  Operarios
+                </Link>
+                <ToggleAgenteNavButton className="inline-flex shrink-0 items-center px-3 py-1.5 lg:px-4 lg:py-2 text-xs lg:text-sm font-medium text-[#ed8936] bg-transparent border border-[#ed8936] rounded-lg hover:bg-[#ed8936] hover:text-white transition-colors" />
               </div>
             </nav>
             <div className="flex shrink-0 flex-nowrap items-center gap-2">
@@ -255,6 +276,13 @@ export default function ClientesPage() {
                 Obras
               </Link>
               <span className="text-sm font-medium text-[#ed8936]">Clientes</span>
+              <Link
+                href="/operarios"
+                className="text-sm text-gray-200 hover:text-white"
+                onClick={() => setMenuMovilAbierto(false)}
+              >
+                Operarios
+              </Link>
               <div onClick={() => setMenuMovilAbierto(false)}>
                 <ToggleAgenteNavButton className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-[#ed8936] border border-[#ed8936] rounded-lg" />
               </div>
