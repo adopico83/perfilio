@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { useEmailModal } from '@/contexts/email-modal-context';
 import { useObraModal } from '@/contexts/obra-modal-context';
-import ToggleAgenteNavButton from '@/components/dashboard/toggle-agente-nav-button';
+import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
 
 interface ResumenCounts {
   urgentes: number;
@@ -980,8 +980,8 @@ export default function DashboardPage() {
           />
         </div>
       ) : null}
-      <div className="border-b border-white/10 bg-[#0f172a]/95 backdrop-blur">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center gap-3 min-w-0">
+      <DashboardMainNav
+        brand={
           <a
             href="/dashboard"
             className="flex items-center gap-3 min-w-0 shrink-0 max-w-[min(220px,46vw)] sm:max-w-[min(260px,40vw)]"
@@ -1036,200 +1036,75 @@ export default function DashboardPage() {
               </span>
             )}
           </a>
-
-          <button
-            type="button"
-            onClick={() => setMenuMovilAbierto((v) => !v)}
-            className="md:hidden inline-flex items-center justify-center w-10 h-10 shrink-0 rounded-lg border border-white/20 text-white hover:bg-white/10 transition-colors ml-auto"
-            aria-label="Abrir menú"
-          >
-            ☰
-          </button>
-
-          <div className="hidden md:flex flex-1 min-w-0 items-center justify-end gap-2 lg:gap-3">
-            <nav
-              className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain touch-pan-x [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-              aria-label="Secciones"
-            >
-              <div className="flex w-max max-w-full ml-auto flex-nowrap items-center justify-end gap-2 lg:gap-2.5 pr-1">
-                <Link
-                  href="/mensajes"
-                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
-                >
-                  Mensajes
-                </Link>
-                <Link
-                  href="/presupuestos"
-                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
-                >
-                  Presupuestos
-                </Link>
-                <Link
-                  href="/albaranes"
-                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
-                >
-                  Albaranes
-                </Link>
-                <Link
-                  href="/facturas"
-                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
-                >
-                  Facturas
-                </Link>
-                <Link
-                  href="/diario"
-                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
-                >
-                  Diario
-                </Link>
-                <Link
-                  href="/obras"
-                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
-                >
-                  Obras
-                </Link>
-                <Link
-                  href="/clientes"
-                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
-                >
-                  Clientes
-                </Link>
-                <Link
-                  href="/operarios"
-                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
-                >
-                  Operarios
-                </Link>
-                <ToggleAgenteNavButton className="inline-flex shrink-0 items-center px-3 py-1.5 lg:px-4 lg:py-2 text-xs lg:text-sm font-medium text-[#ed8936] bg-transparent border border-[#ed8936] rounded-lg hover:bg-[#ed8936] hover:text-white transition-colors" />
-              </div>
-            </nav>
-            <div className="flex shrink-0 flex-nowrap items-center gap-2">
-              {gmailConectado ? (
-                <button
-                  type="button"
-                  onClick={desconectarGmail}
-                  disabled={gmailAccionLoading}
-                  title="Pulsa para desconectar Gmail"
-                  aria-label="Gmail conectado. Pulsa para desconectar"
-                  className="inline-flex items-center px-3 py-2 sm:px-4 text-sm font-medium text-green-200 bg-green-900/40 border border-green-500/60 rounded-lg hover:bg-green-900/55 transition-colors disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
-                >
-                  {gmailAccionLoading ? '…' : 'Gmail conectado ✓'}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={conectarGmail}
-                  disabled={gmailAccionLoading}
-                  title="Conectar cuenta de Gmail"
-                  aria-label="Conectar Gmail"
-                  className="inline-flex items-center px-3 py-2 sm:px-4 text-sm font-medium text-red-100 bg-gray-800/80 border border-red-500/45 rounded-lg hover:bg-gray-800 hover:border-red-400/60 transition-colors disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
-                >
-                  {gmailAccionLoading ? '…' : 'Conectar Gmail'}
-                </button>
-              )}
+        }
+        menuMovilAbierto={menuMovilAbierto}
+        setMenuMovilAbierto={setMenuMovilAbierto}
+        active={null}
+        desktopTrailing={
+          <>
+            {gmailConectado ? (
+              <button
+                type="button"
+                onClick={desconectarGmail}
+                disabled={gmailAccionLoading}
+                title="Pulsa para desconectar Gmail"
+                aria-label="Gmail conectado. Pulsa para desconectar"
+                className="inline-flex items-center px-3 py-2 sm:px-4 text-sm font-medium text-green-200 bg-green-900/40 border border-green-500/60 rounded-lg hover:bg-green-900/55 transition-colors disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
+              >
+                {gmailAccionLoading ? '…' : 'Gmail conectado ✓'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={conectarGmail}
+                disabled={gmailAccionLoading}
+                title="Conectar cuenta de Gmail"
+                aria-label="Conectar Gmail"
+                className="inline-flex items-center px-3 py-2 sm:px-4 text-sm font-medium text-red-100 bg-gray-800/80 border border-red-500/45 rounded-lg hover:bg-gray-800 hover:border-red-400/60 transition-colors disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
+              >
+                {gmailAccionLoading ? '…' : 'Conectar Gmail'}
+              </button>
+            )}
+            <LogoutButton />
+          </>
+        }
+        mobileDrawerFooter={
+          <>
+            {gmailConectado ? (
+              <button
+                type="button"
+                onClick={() => {
+                  void desconectarGmail();
+                  setMenuMovilAbierto(false);
+                }}
+                disabled={gmailAccionLoading}
+                title="Pulsa para desconectar Gmail"
+                aria-label="Gmail conectado. Pulsa para desconectar"
+                className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-green-200 bg-green-900/40 border border-green-500/60 rounded-lg hover:bg-green-900/55 transition-colors disabled:opacity-60 disabled:cursor-not-allowed w-full"
+              >
+                {gmailAccionLoading ? '…' : 'Gmail conectado ✓'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  void conectarGmail();
+                  setMenuMovilAbierto(false);
+                }}
+                disabled={gmailAccionLoading}
+                title="Conectar cuenta de Gmail"
+                aria-label="Conectar Gmail"
+                className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-red-100 bg-gray-800/80 border border-red-500/45 rounded-lg hover:bg-gray-800 hover:border-red-400/60 transition-colors disabled:opacity-60 disabled:cursor-not-allowed w-full"
+              >
+                {gmailAccionLoading ? '…' : 'Conectar Gmail'}
+              </button>
+            )}
+            <div className="pt-1">
               <LogoutButton />
             </div>
-          </div>
-        </div>
-
-        {menuMovilAbierto && (
-          <div className="md:hidden max-w-7xl mx-auto px-6 pb-4">
-            <div className="bg-[#111827] border border-white/10 rounded-xl p-4 flex flex-col gap-3">
-              <Link
-                href="/mensajes"
-                className="text-sm text-gray-200 hover:text-white transition-colors"
-                onClick={() => setMenuMovilAbierto(false)}
-              >
-                Mensajes
-              </Link>
-              <Link
-                href="/presupuestos"
-                className="text-sm text-gray-200 hover:text-white transition-colors"
-                onClick={() => setMenuMovilAbierto(false)}
-              >
-                Presupuestos
-              </Link>
-              <Link
-                href="/albaranes"
-                className="text-sm text-gray-200 hover:text-white transition-colors"
-                onClick={() => setMenuMovilAbierto(false)}
-              >
-                Albaranes
-              </Link>
-              <Link
-                href="/facturas"
-                className="text-sm text-gray-200 hover:text-white transition-colors"
-                onClick={() => setMenuMovilAbierto(false)}
-              >
-                Facturas
-              </Link>
-              <Link
-                href="/diario"
-                className="text-sm text-gray-200 hover:text-white transition-colors"
-                onClick={() => setMenuMovilAbierto(false)}
-              >
-                Diario
-              </Link>
-              <Link
-                href="/obras"
-                className="text-sm text-gray-200 hover:text-white transition-colors"
-                onClick={() => setMenuMovilAbierto(false)}
-              >
-                Obras
-              </Link>
-              <Link
-                href="/clientes"
-                className="text-sm text-gray-200 hover:text-white transition-colors"
-                onClick={() => setMenuMovilAbierto(false)}
-              >
-                Clientes
-              </Link>
-              <Link
-                href="/operarios"
-                className="text-sm text-gray-200 hover:text-white transition-colors"
-                onClick={() => setMenuMovilAbierto(false)}
-              >
-                Operarios
-              </Link>
-              <div onClick={() => setMenuMovilAbierto(false)}>
-                <ToggleAgenteNavButton className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-[#ed8936] bg-transparent border border-[#ed8936] rounded-lg hover:bg-[#ed8936] hover:text-white transition-colors" />
-              </div>
-              {gmailConectado ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    void desconectarGmail();
-                    setMenuMovilAbierto(false);
-                  }}
-                  disabled={gmailAccionLoading}
-                  title="Pulsa para desconectar Gmail"
-                  aria-label="Gmail conectado. Pulsa para desconectar"
-                  className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-green-200 bg-green-900/40 border border-green-500/60 rounded-lg hover:bg-green-900/55 transition-colors disabled:opacity-60 disabled:cursor-not-allowed w-full"
-                >
-                  {gmailAccionLoading ? '…' : 'Gmail conectado ✓'}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    void conectarGmail();
-                    setMenuMovilAbierto(false);
-                  }}
-                  disabled={gmailAccionLoading}
-                  title="Conectar cuenta de Gmail"
-                  aria-label="Conectar Gmail"
-                  className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-red-100 bg-gray-800/80 border border-red-500/45 rounded-lg hover:bg-gray-800 hover:border-red-400/60 transition-colors disabled:opacity-60 disabled:cursor-not-allowed w-full"
-                >
-                  {gmailAccionLoading ? '…' : 'Conectar Gmail'}
-                </button>
-              )}
-              <div className="pt-1">
-                <LogoutButton />
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+          </>
+        }
+      />
 
       <main className="max-w-7xl mx-auto px-6 py-3 lg:py-4 space-y-3 lg:space-y-3">
         <section className="flex flex-col gap-0.5">

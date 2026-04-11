@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import { Pencil } from 'lucide-react';
 import LogoutButton from '@/app/dashboard/logout-button';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
-import ToggleAgenteNavButton from '@/components/dashboard/toggle-agente-nav-button';
+import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
 import { useObraModal } from '@/contexts/obra-modal-context';
 
 type ObraRow = {
@@ -62,6 +62,7 @@ export default function ObrasPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [busqueda, setBusqueda] = useState('');
+  const [menuMovilAbierto, setMenuMovilAbierto] = useState(false);
 
   const [modalNuevo, setModalNuevo] = useState(false);
   const [modalEditar, setModalEditar] = useState<ObraRow | null>(null);
@@ -327,80 +328,29 @@ export default function ObrasPage() {
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-white">
-      <div className="border-b border-white/10 bg-[#0f172a]/95 backdrop-blur">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center gap-3 min-w-0">
+      <DashboardMainNav
+        brand={
           <Link
             href="/dashboard"
             className="text-white font-bold text-xl sm:text-2xl truncate shrink-0 min-w-0 max-w-[min(220px,46vw)] sm:max-w-[min(260px,40vw)]"
           >
             {businessName}
           </Link>
-
+        }
+        betweenBrandAndMenu={
           <button
             type="button"
             onClick={() => router.refresh()}
             className="hidden"
             aria-hidden
           />
-
-          <div className="hidden md:flex flex-1 min-w-0 items-center justify-end gap-2 lg:gap-3">
-            <nav
-              className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain touch-pan-x [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-              aria-label="Secciones"
-            >
-              <div className="flex w-max max-w-full ml-auto flex-nowrap items-center justify-end gap-2 lg:gap-2.5 pr-1">
-                <Link
-                  href="/mensajes"
-                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
-                >
-                  Mensajes
-                </Link>
-                <Link
-                  href="/presupuestos"
-                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
-                >
-                  Presupuestos
-                </Link>
-                <Link
-                  href="/albaranes"
-                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
-                >
-                  Albaranes
-                </Link>
-                <Link
-                  href="/facturas"
-                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
-                >
-                  Facturas
-                </Link>
-                <Link
-                  href="/diario"
-                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
-                >
-                  Diario
-                </Link>
-                <span className="text-xs lg:text-sm font-medium text-[#ed8936] shrink-0">Obras</span>
-                <Link
-                  href="/clientes"
-                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
-                >
-                  Clientes
-                </Link>
-                <Link
-                  href="/operarios"
-                  className="text-xs lg:text-sm text-gray-200 hover:text-white transition-colors shrink-0"
-                >
-                  Operarios
-                </Link>
-                <ToggleAgenteNavButton className="inline-flex shrink-0 items-center px-3 py-1.5 lg:px-4 lg:py-2 text-xs lg:text-sm font-medium text-[#ed8936] bg-transparent border border-[#ed8936] rounded-lg hover:bg-[#ed8936] hover:text-white transition-colors" />
-              </div>
-            </nav>
-            <div className="flex shrink-0 flex-nowrap items-center gap-2">
-              <LogoutButton />
-            </div>
-          </div>
-        </div>
-      </div>
+        }
+        menuMovilAbierto={menuMovilAbierto}
+        setMenuMovilAbierto={setMenuMovilAbierto}
+        active="obras"
+        desktopTrailing={<LogoutButton />}
+        mobileDrawerFooter={<LogoutButton />}
+      />
 
       <div className="max-w-7xl mx-auto px-6 pt-3 pb-1">
         <VolverAlDashboard />
