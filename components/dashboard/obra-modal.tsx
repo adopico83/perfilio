@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { X } from 'lucide-react';
 import { useObraModal } from '@/contexts/obra-modal-context';
+import { etiquetaGastoCategoria } from '@/lib/gastos-categoria';
 
 type FichaObraResponse = {
   obra: {
@@ -494,44 +495,100 @@ export default function ObraModal() {
               ) : null}
 
               {tab === 'gastos' ? (
-                <div className="overflow-x-auto rounded-lg border border-white/10">
-                  <table className="w-full text-sm text-left">
-                    <thead>
-                      <tr className="border-b border-white/10 bg-[#0f2744]/90 text-white/80">
-                        <th className="px-3 py-2 font-medium">Proveedor</th>
-                        <th className="px-3 py-2 font-medium">Importe</th>
-                        <th className="px-3 py-2 font-medium">Fecha</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {ficha.gastos.length === 0 ? (
-                        <tr>
-                          <td className="px-3 py-4 text-sm text-white/60" colSpan={3}>
-                            Sin gastos para esta obra
-                          </td>
-                        </tr>
-                      ) : (
-                        ficha.gastos.map((g) => {
-                          const row = g as any;
-                          return (
-                            <tr key={String(row.id)} className="border-b border-white/5 hover:bg-white/5">
-                              <td className="px-3 py-2">
-                                <p className="text-sm font-medium text-white/90">{String(row.proveedor ?? '—')}</p>
-                                {row.descripcion ? (
-                                  <p className="text-xs text-white/60 mt-0.5">{String(row.descripcion)}</p>
-                                ) : null}
+                (() => {
+                  /** Mismo proveedor junto (lectura más fácil); dentro de cada uno, más reciente primero. */
+                  const gastosSorted = [...ficha.gastos].sort((a, b) => {
+                    const ra = a as { proveedor?: unknown; fecha?: unknown; created_at?: unknown };
+                    const rb = b as { proveedor?: unknown; fecha?: unknown; created_at?: unknown };
+                    const pa = String(ra.proveedor ?? '')
+                      .toLocaleLowerCase('es')
+                      .localeCompare(String(rb.proveedor ?? '').toLocaleLowerCase('es'), 'es');
+                    if (pa !== 0) return pa;
+                    const fa = String(ra.fecha ?? ra.created_at ?? '');
+                    const fb = String(rb.fecha ?? rb.created_at ?? '');
+                    return fb.localeCompare(fa);
+                  });
+                  const totalObra = gastosSorted.reduce(
+                    (s, g) => s + parseNumber((g as { importe_total?: unknown }).importe_total),
+                    0
+                  );
+                  return (
+                    <div className="overflow-x-auto rounded-lg border border-white/10">
+                      <table className="w-full text-sm text-left min-w-[640px]">
+                        <thead>
+                          <tr className="border-b border-white/10 bg-[#0f2744]/90 text-white/80">
+                            <th className="px-3 py-2 font-medium">Fecha</th>
+                            <th className="px-3 py-2 font-medium">Proveedor</th>
+                            <th className="px-3 py-2 font-medium">Descripción</th>
+                            <th className="px-3 py-2 font-medium">Categoría</th>
+                            <th className="px-3 py-2 font-medium">Importe</th>
+                            <th className="px-3 py-2 font-medium">IVA</th>
+                            <th className="px-3 py-2 font-medium">Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {gastosSorted.length === 0 ? (
+                            <tr>
+                              <td className="px-3 py-4 text-sm text-white/60" colSpan={7}>
+                                Sin gastos registrados en esta obra
                               </td>
-                              <td className="px-3 py-2 tabular-nums font-semibold">
-                                {parseNumber(row.importe_total).toFixed(2)} €
-                              </td>
-                              <td className="px-3 py-2 text-xs text-white/60">{fmtFecha(row.fecha ?? row.created_at)}</td>
                             </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                          ) : (
+                            <>
+                              {gastosSorted.map((g, idx) => {
+                                const row = g as {
+                                  id?: string;
+                                  proveedor?: unknown;
+                                  descripcion?: unknown;
+                                  categoria?: unknown;
+                                  importe?: unknown;
+                                  iva?: unknown;
+                                  importe_total?: unknown;
+                                  fecha?: unknown;
+                                  created_at?: unknown;
+                                };
+                                const prov = String(row.proveedor ?? '—');
+                                const cat = etiquetaGastoCategoria(row.categoria);
+                                return (
+                                  <tr
+                                    key={String(row.id ?? idx)}
+                                    className="border-b border-white/5 hover:bg-white/5"
+                                  >
+                                    <td className="px-3 py-2 text-xs text-white/70 whitespace-nowrap">
+                                      {fmtFecha(row.fecha ?? row.created_at)}
+                                    </td>
+                                    <td className="px-3 py-2 text-sm font-medium text-white/90">{prov}</td>
+                                    <td className="px-3 py-2 text-xs text-white/65 max-w-[14rem] break-words">
+                                      {row.descripcion ? String(row.descripcion) : '—'}
+                                    </td>
+                                    <td className="px-3 py-2 text-xs text-white/80">{cat}</td>
+                                    <td className="px-3 py-2 tabular-nums font-semibold">
+                                      {parseNumber(row.importe).toFixed(2)} €
+                                    </td>
+                                    <td className="px-3 py-2 tabular-nums font-semibold">
+                                      {parseNumber(row.iva).toFixed(2)} €
+                                    </td>
+                                    <td className="px-3 py-2 tabular-nums font-semibold text-[#f6ad55]">
+                                      {parseNumber(row.importe_total).toFixed(2)} €
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                              <tr className="border-t border-[#ed8936]/40 bg-[#ed8936]/10">
+                                <td className="px-3 py-2.5 text-sm font-semibold text-[#f6ad55]" colSpan={6}>
+                                  Total gastos de esta obra
+                                </td>
+                                <td className="px-3 py-2.5 text-sm font-semibold text-[#f6ad55] tabular-nums">
+                                  {totalObra.toFixed(2)} €
+                                </td>
+                              </tr>
+                            </>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()
               ) : null}
 
               {tab === 'horas' ? (

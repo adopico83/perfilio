@@ -13,6 +13,7 @@ const DASHBOARD_PREFIXES = [
   '/diario',
   '/clientes',
   '/facturas',
+  '/gastos',
   '/obras',
   '/operarios',
 ];

@@ -9,6 +9,7 @@ export type DashboardNavActive =
   | 'presupuestos'
   | 'albaranes'
   | 'facturas'
+  | 'gastos'
   | 'diario'
   | 'obras'
   | 'clientes'
@@ -19,6 +20,7 @@ const NAV_ITEMS: { key: DashboardNavActive; href: string; label: string }[] = [
   { key: 'presupuestos', href: '/presupuestos', label: 'Presupuestos' },
   { key: 'albaranes', href: '/albaranes', label: 'Albaranes' },
   { key: 'facturas', href: '/facturas', label: 'Facturas' },
+  { key: 'gastos', href: '/gastos', label: 'Gastos' },
   { key: 'diario', href: '/diario', label: 'Diario' },
   { key: 'obras', href: '/obras', label: 'Obras' },
   { key: 'clientes', href: '/clientes', label: 'Clientes' },
@@ -31,6 +33,7 @@ const MORE_KEYS = new Set<DashboardNavActive>([
   'presupuestos',
   'albaranes',
   'facturas',
+  'gastos',
   'clientes',
 ]);
 

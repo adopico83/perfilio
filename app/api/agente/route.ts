@@ -47,6 +47,7 @@ import {
   ejecutarListarOperarios,
   ejecutarRegistrarJornada,
 } from '@/lib/agente/modules/operarios';
+import { normalizeGastoCategoria } from '@/lib/gastos-categoria';
 
 /** Cliente de la obra (JOIN clientes) para heredar en documentos cuando no hay cliente_id explícito. */
 async function clienteDesdeObraSiAplica(
@@ -765,7 +766,7 @@ Si el usuario pide crear una obra con un cliente que no existe en el sistema: (1
 SDD (crear presupuesto, factura, albarán o generar_presupuesto_por_dictado): solo tras resumen al usuario + confirmación explícita ("sí", "adelante", "genéralo"); nunca partidas a 0€. Usa memoria/tarifas del perfil para precios cuando falten.
 CREACIÓN DE PRESUPUESTOS: Al usar generar_presupuesto_por_dictado: primera llamada siempre con solo_vista_previa: true para mostrar borrador. Solo llamar de nuevo con solo_vista_previa: false tras confirmación explícita del usuario.
 Solo consultas: listar_* u obtener_*_pendientes; no crees documentos nuevos si no los piden. Estados: pendiente, aceptado, rechazado, facturado, pagado.
-Extras: registrar_extra (confirmar antes de notificar al cliente). Gastos con imagen: registrar_gasto_ticket tras confirmación en un mensaje siguiente; si mencionan obra, obra_nombre u obra_id. vincular_gasto si indica documento. gestionar_tarifas. Emails: criterios de urgencia habituales; usa tools de lectura.
+Extras: registrar_extra (confirmar antes de notificar al cliente). Gastos con imagen: registrar_gasto_ticket tras confirmación en un mensaje siguiente; si mencionan obra, obra_nombre u obra_id. En registrar_gasto_ticket incluye categoria cuando puedas inferirla del texto (material, herramienta, vertido, subcontrata, transporte, otros); si no está claro, omite el campo o usa material. vincular_gasto si indica documento. gestionar_tarifas. Emails: criterios de urgencia habituales; usa tools de lectura.
 Ofrece convertir_presupuesto_a_albaran / convertir_albaran_a_factura cuando aplique. Diario: crear_entrada_diario y generar_pdf_diario según petición. Menciona mensajes de clientes pendientes de aprobar al inicio si encaja. Aplica el bloque "## Lo que sé de este negocio" al final sin pedir repetición.
 
 Fecha y hora: ${ahora}. Negocio: ${nombre} (${sector}).
@@ -1541,7 +1542,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
         function: {
           name: 'registrar_gasto_ticket',
           description:
-            'Guarda gasto desde ticket/OCR solo tras confirmación explícita del usuario.',
+            'Guarda gasto desde ticket/OCR solo tras confirmación explícita del usuario. Infiere o pregunta la categoría del gasto según el concepto (ladrillos, cemento → material; alquiler contenedor → vertido; furgoneta/transporte → transporte; subcontratista → subcontrata; herramienta → herramienta). Si no está claro, usa material.',
           parameters: {
             type: 'object',
             properties: {
@@ -1552,6 +1553,12 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
               },
               iva: { type: 'number', description: 'Cuantía del IVA en la misma moneda' },
               importe_total: { type: 'number', description: 'Total con IVA' },
+              categoria: {
+                type: 'string',
+                enum: ['material', 'herramienta', 'vertido', 'subcontrata', 'transporte', 'otros'],
+                description:
+                  'Tipo de gasto. Inferir del lenguaje del usuario o del ticket; por defecto material si hay duda.',
+              },
               obra_id: {
                 type: 'string',
                 description: 'UUID de la obra (opcional). Si hay obra activa se rellena automáticamente.',
@@ -4428,6 +4435,8 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
             return { error: 'La fecha debe tener formato YYYY-MM-DD' };
           }
 
+          const categoria = normalizeGastoCategoria(toolArgs.categoria);
+
           const { data: row, error } = await supabase
             .from('gastos')
             .insert({
@@ -4437,6 +4446,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
               iva,
               importe_total: importeTotal,
               fecha,
+              categoria,
               descripcion: descripcion.length > 0 ? descripcion : null,
               ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
               ...(clienteIdGasto ? { cliente_id: clienteIdGasto } : {}),
