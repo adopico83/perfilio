@@ -1542,7 +1542,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
         function: {
           name: 'registrar_gasto_ticket',
           description:
-            'Guarda gasto desde ticket/OCR solo tras confirmación explícita del usuario. Infiere o pregunta la categoría del gasto según el concepto (ladrillos, cemento → material; alquiler contenedor → vertido; furgoneta/transporte → transporte; subcontratista → subcontrata; herramienta → herramienta). Si no está claro, usa material.',
+            'Registra un gasto (ticket, voz, OCR). SDD obligatorio como en generar_presupuesto_por_dictado: primero muestra resumen y espera confirmación explícita del usuario; solo entonces guarda. Usa solo_vista_previa true en la primera llamada (sin insertar en BD). Usa solo_vista_previa false u omítelo solo cuando el usuario haya confirmado (sí, adelante, correcto). Infiere o pregunta la categoría del gasto según el concepto (ladrillos, cemento → material; alquiler contenedor → vertido; furgoneta/transporte → transporte; subcontratista → subcontrata; herramienta → herramienta). Si no está claro, usa material.',
           parameters: {
             type: 'object',
             properties: {
@@ -1579,6 +1579,11 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
               descripcion: {
                 type: 'string',
                 description: 'Resumen breve del concepto del gasto (opcional)',
+              },
+              solo_vista_previa: {
+                type: 'boolean',
+                description:
+                  'Si true, solo muestra el resumen sin guardar en BD. Usar true en la primera llamada. Usar false (u omitir) solo tras confirmación explícita del usuario.',
               },
             },
             required: ['proveedor', 'importe', 'iva', 'importe_total', 'fecha'],
@@ -4436,6 +4441,49 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
           }
 
           const categoria = normalizeGastoCategoria(toolArgs.categoria);
+
+          const r2Gasto = (n: number) => Math.round(n * 100) / 100;
+          const importeR = r2Gasto(importe);
+          const ivaR = r2Gasto(iva);
+          const importeTotalR = r2Gasto(importeTotal);
+
+          const soloVistaGasto = toolArgs.solo_vista_previa === true;
+          if (soloVistaGasto) {
+            const lineas = [
+              'Resumen del gasto (no guardado aún):',
+              `• Proveedor: ${proveedor}`,
+              `• Base: ${importeR.toFixed(2)} €, IVA: ${ivaR.toFixed(2)} €, Total: ${importeTotalR.toFixed(2)} €`,
+              `• Fecha: ${fecha}`,
+              `• Categoría: ${categoria}`,
+            ];
+            if (descripcion.length > 0) lineas.push(`• Concepto: ${descripcion}`);
+            if (obraIdFinal) lineas.push('• Obra: vinculada (resuelta en servidor).');
+            return {
+              mensaje: lineas.join('\n'),
+              pendiente_confirmacion: true,
+            };
+          }
+
+          const { data: candidatosDup, error: dupErr } = await supabase
+            .from('gastos')
+            .select('id, importe_total')
+            .eq('business_id', businessIdGasto)
+            .eq('proveedor', proveedor)
+            .eq('fecha', fecha);
+
+          if (dupErr) {
+            return { error: dupErr.message };
+          }
+
+          const duplicado = (candidatosDup ?? []).some(
+            (g) => r2Gasto(Number((g as { importe_total?: unknown }).importe_total ?? 0)) === importeTotalR
+          );
+          if (duplicado) {
+            return {
+              mensaje: `Ya hay un gasto el ${fecha} para «${proveedor}» con el mismo importe total (${importeTotalR.toFixed(2)} €). No se ha vuelto a insertar para evitar duplicados.`,
+              duplicado_evitado: true,
+            };
+          }
 
           const { data: row, error } = await supabase
             .from('gastos')
