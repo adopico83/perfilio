@@ -571,12 +571,22 @@ function toolsForAgentIntent(
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { mensaje, business_id, historial, imagen, imagen_mime } = body;
+    const { mensaje, business_id, historial, imagen, imagen_mime, imagenes } = body;
 
     const mensajeTrim = typeof mensaje === 'string' ? mensaje.trim() : '';
-    const imagenDataUrl = normalizarImagenVision(imagen, imagen_mime);
+    const imagenesNormalizadas: string[] = [];
+    if (Array.isArray(imagenes)) {
+      for (const raw of imagenes) {
+        const u = normalizarImagenVision(raw, undefined);
+        if (u) imagenesNormalizadas.push(u);
+      }
+    }
+    if (imagenesNormalizadas.length === 0) {
+      const single = normalizarImagenVision(imagen, imagen_mime);
+      if (single) imagenesNormalizadas.push(single);
+    }
 
-    if (!mensajeTrim && !imagenDataUrl) {
+    if (!mensajeTrim && imagenesNormalizadas.length === 0) {
       return NextResponse.json(
         {
           error:
@@ -1632,7 +1642,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
         function: {
           name: 'crear_entrada_diario',
           description:
-            'Entrada en diario de obra: texto y opcionalmente fotos/vídeos. Obligatorio obra_nombre; el servidor resuelve obra_id. Si el usuario adjuntó una imagen en este mensaje, el servidor la sube a Storage automáticamente: NO inventes URLs ni pongas texto en fotos. Omite el array fotos salvo que haya URLs reales del bucket (p. ej. tras subir con el endpoint de diario). Ejecuta la tool con el obra_nombre que dio el usuario; no pidas aclarar ambigüedad antes — solo si la tool devuelve mensaje de ambigüedad.',
+            'Entrada en diario de obra: texto y opcionalmente fotos/vídeos. Obligatorio obra_nombre; el servidor resuelve obra_id. Si el usuario adjuntó una o más imágenes en este mensaje, el servidor las sube a Storage automáticamente (una entrada con todas las fotos): NO inventes URLs ni pongas texto en fotos. Omite el array fotos salvo que haya URLs reales del bucket (p. ej. tras subir con el endpoint de diario). Ejecuta la tool con el obra_nombre que dio el usuario; no pidas aclarar ambigüedad antes — solo si la tool devuelve mensaje de ambigüedad.',
           parameters: {
             type: 'object',
             properties: {
@@ -1887,10 +1897,10 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
     const userContent: OpenAI.Chat.ChatCompletionContentPart[] = [
       { type: 'text', text: textoUsuario },
     ];
-    if (imagenDataUrl) {
+    for (const u of imagenesNormalizadas) {
       userContent.push({
         type: 'image_url',
-        image_url: { url: imagenDataUrl, detail: 'auto' },
+        image_url: { url: u, detail: 'auto' },
       });
     }
 
@@ -1919,7 +1929,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
       { role: 'user', content: userContent },
     ];
 
-    const maxTokensAgente = imagenDataUrl ? 1600 : 800;
+    const maxTokensAgente = imagenesNormalizadas.length > 0 ? 1600 : 800;
 
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -4681,19 +4691,20 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
           if (!obraDiarioRes.ok) return { mensaje: obraDiarioRes.mensaje };
 
           const pathsSubidaAdjunto: string[] = [];
-          if (imagenDataUrl) {
-            const decoded = decodeDataUrlImageForDiarioUpload(imagenDataUrl);
+          for (let ix = 0; ix < imagenesNormalizadas.length; ix++) {
+            const dataUrl = imagenesNormalizadas[ix];
+            const decoded = decodeDataUrlImageForDiarioUpload(dataUrl);
             if (!decoded) {
               return {
                 error:
-                  'La imagen adjunta no es válida para el diario (usa jpg, png, gif o webp).',
+                  'Una de las imágenes adjuntas no es válida para el diario (usa jpg, png, gif o webp).',
               };
             }
             const up = await uploadDiarioObraMediaToBucket(supabase, {
               businessId: businessIdDiario,
               buffer: decoded.buffer,
               contentType: decoded.contentType,
-              stem: sanitizeDiarioFilePart('diario_adjunto'),
+              stem: sanitizeDiarioFilePart(`diario_adjunto_${ix}`),
             });
             if ('error' in up) {
               return {

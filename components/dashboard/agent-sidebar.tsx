@@ -40,8 +40,8 @@ interface ChatMessage {
   id: string;
   role: MessageRole;
   content: string;
-  /** Data URL solo para mostrar mensajes de usuario con imagen adjunta */
-  imagenPreview?: string;
+  /** Data URLs para mostrar mensajes de usuario con fotos adjuntas */
+  imagenPreviews?: string[];
   emailPendiente?: EmailPendienteEnMensaje;
 }
 
@@ -63,6 +63,23 @@ function formatFechaRelativa(input: string) {
   if (diff === 1) return 'Ayer';
   if (diff < 7) return `Hace ${diff} días`;
   return d.toLocaleDateString('es-ES', { dateStyle: 'short' });
+}
+
+/**
+ * Un INSERT con varias filas puede dejar el mismo `created_at` en usuario y asistente;
+ * entonces el orden en BD no es estable. Ordenamos por tiempo y, si empatan, usuario antes que asistente.
+ */
+function sortMensajesHistorialPorOrdenConversacion<
+  T extends { role: string; created_at?: string | null },
+>(rows: T[]): T[] {
+  const orderRole = (r: string) =>
+    r === 'user' ? 0 : r === 'assistant' ? 1 : 2;
+  return [...rows].sort((a, b) => {
+    const ta = new Date(a.created_at ?? 0).getTime();
+    const tb = new Date(b.created_at ?? 0).getTime();
+    if (ta !== tb) return ta - tb;
+    return orderRole(a.role) - orderRole(b.role);
+  });
 }
 
 /** Reduce tamaño para el body JSON (JPEG) antes de enviar al agente. */
@@ -475,7 +492,7 @@ export default function AgentSidebar() {
   const [transcribiendoAudio, setTranscribiendoAudio] = useState(false);
   const [error, setError] = useState('');
   const [emailSendLoadingId, setEmailSendLoadingId] = useState<string | null>(null);
-  const [imagenPendiente, setImagenPendiente] = useState<string | null>(null);
+  const [imagenesPendientes, setImagenesPendientes] = useState<string[]>([]);
   const [subiendoVideo, setSubiendoVideo] = useState(false);
   const [confirmDeleteConversationId, setConfirmDeleteConversationId] = useState<string | null>(
     null
@@ -675,8 +692,11 @@ export default function AgentSidebar() {
         console.log('Error cargando mensajes de conversation_history:', rowsError);
       }
 
-      const mapped = ((rows ?? []) as Array<{ role: string; content: string }>)
-        .reverse()
+      const sorted = sortMensajesHistorialPorOrdenConversacion(
+        (rows ?? []) as Array<{ role: string; content: string; created_at?: string | null }>
+      );
+
+      const mapped = sorted
         .filter((r) => (r.role === 'user' || r.role === 'assistant') && typeof r.content === 'string')
         .map((r) => ({
           id:
@@ -811,6 +831,7 @@ export default function AgentSidebar() {
             sender_email: currentUserEmail,
             role: 'assistant',
             content: respuestaTexto,
+            created_at: new Date().toISOString(),
           },
         ]);
 
@@ -845,18 +866,21 @@ export default function AgentSidebar() {
     opts?: { desdeTranscripcion?: boolean }
   ) => {
     const textoTrim = texto.trim();
-    const imagenEnviar = imagenPendiente;
-    if (!selectedId || (!textoTrim && !imagenEnviar)) {
+    const imagenesEnviar = imagenesPendientes;
+    if (!selectedId || (!textoTrim && imagenesEnviar.length === 0)) {
       if (opts?.desdeTranscripcion) setTranscribiendoAudio(false);
       setError('Escribe un mensaje o adjunta una imagen del ticket.');
       return;
     }
     setError('');
     setMensaje('');
-    setImagenPendiente(null);
+    setImagenesPendientes([]);
     const esPrimerMensajeUsuarioDeConversacion = !historial.some((m) => m.role === 'user');
     const contenidoUsuario =
-      textoTrim || '📎 Imagen adjunta (ticket / factura)';
+      textoTrim ||
+      (imagenesEnviar.length > 1
+        ? `📎 ${imagenesEnviar.length} imágenes adjuntas (obra / ticket)`
+        : '📎 Imagen adjunta (ticket / factura)');
     setHistorial((prev) => [
       ...prev,
       {
@@ -866,7 +890,7 @@ export default function AgentSidebar() {
             : `u_${Date.now()}`,
         role: 'user',
         content: contenidoUsuario,
-        imagenPreview: imagenEnviar ?? undefined,
+        imagenPreviews: imagenesEnviar.length > 0 ? imagenesEnviar.slice() : undefined,
       },
     ]);
     if (opts?.desdeTranscripcion) setTranscribiendoAudio(false);
@@ -902,7 +926,7 @@ export default function AgentSidebar() {
           mensaje: textoTrim,
           business_id: selectedId,
           historial,
-          ...(imagenEnviar ? { imagen: imagenEnviar } : {}),
+          ...(imagenesEnviar.length > 0 ? { imagenes: imagenesEnviar } : {}),
         }),
       });
       const data = (await res.json()) as Record<string, unknown>;
@@ -971,6 +995,10 @@ export default function AgentSidebar() {
       const activeConversationId = conversationId || generateConversationId();
       if (!conversationId) setConversationId(activeConversationId);
 
+      const tMs = Date.now();
+      const isoUsuario = new Date(tMs).toISOString();
+      const isoAsistente = new Date(tMs + 1).toISOString();
+
       await supabase.from('conversation_history').insert([
         {
           conversation_id: activeConversationId,
@@ -978,9 +1006,11 @@ export default function AgentSidebar() {
           user_id: currentUserId,
           sender_email: currentUserEmail,
           role: 'user',
-          content: imagenEnviar
-            ? `${textoTrim ? `${textoTrim}\n` : ''}[Imagen adjunta: ticket o factura]`
-            : textoTrim,
+          content:
+            imagenesEnviar.length > 0
+              ? `${textoTrim ? `${textoTrim}\n` : ''}[${imagenesEnviar.length} imagen${imagenesEnviar.length === 1 ? '' : 'es'} adjunta${imagenesEnviar.length === 1 ? '' : 's'}: ticket / obra]`
+              : textoTrim,
+          created_at: isoUsuario,
         },
         {
           conversation_id: activeConversationId,
@@ -989,6 +1019,7 @@ export default function AgentSidebar() {
           sender_email: currentUserEmail,
           role: 'assistant',
           content: respuestaTexto,
+          created_at: isoAsistente,
         },
       ]);
 
@@ -1220,27 +1251,44 @@ export default function AgentSidebar() {
     setHistorial([]);
     setError('');
     setTranscribiendoAudio(false);
-    setImagenPendiente(null);
+    setImagenesPendientes([]);
     setSubiendoVideo(false);
     setPanelConversacionesAbierto(false);
     const nextConversationId = generateConversationId();
     setConversationId(nextConversationId);
   };
 
+  const MAX_IMAGENES_AGENTE_ADJUNTAS = 15;
+
   const handleSeleccionarImagen = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const list = e.target.files;
     e.target.value = '';
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setError('Selecciona un archivo de imagen.');
-      return;
-    }
+    if (!list?.length) return;
     setError('');
-    try {
-      const dataUrl = await comprimirImagenParaAgente(file);
-      setImagenPendiente(dataUrl);
-    } catch {
-      setError('No se pudo cargar la imagen. Prueba con otra foto.');
+    const nuevas: string[] = [];
+    for (let i = 0; i < list.length; i++) {
+      const file = list[i];
+      if (!file.type.startsWith('image/')) {
+        setError('Solo se admiten archivos de imagen.');
+        return;
+      }
+      try {
+        nuevas.push(await comprimirImagenParaAgente(file));
+      } catch {
+        setError('No se pudo cargar una de las imágenes. Prueba con otras fotos.');
+        return;
+      }
+    }
+    let truncadas = false;
+    setImagenesPendientes((prev) => {
+      const merged = [...prev, ...nuevas];
+      if (merged.length > MAX_IMAGENES_AGENTE_ADJUNTAS) {
+        truncadas = true;
+      }
+      return merged.slice(0, MAX_IMAGENES_AGENTE_ADJUNTAS);
+    });
+    if (truncadas) {
+      setError(`Máximo ${MAX_IMAGENES_AGENTE_ADJUNTAS} imágenes por mensaje.`);
     }
   };
 
@@ -1369,7 +1417,8 @@ export default function AgentSidebar() {
       historial[historial.length - 1]?.role === 'user');
 
   const puedeEnviarMensaje =
-    Boolean(selectedId) && (mensaje.trim().length > 0 || Boolean(imagenPendiente));
+    Boolean(selectedId) &&
+    (mensaje.trim().length > 0 || imagenesPendientes.length > 0);
 
   const Panel = (
     <aside
@@ -1467,12 +1516,17 @@ export default function AgentSidebar() {
                   msg.role === 'user' ? (
                     <div key={msg.id} className="flex justify-end">
                       <div className="max-w-[90%] px-3 py-2 rounded-xl rounded-br-md bg-[#ed8936] text-white">
-                        {msg.imagenPreview ? (
-                          <img
-                            src={msg.imagenPreview}
-                            alt=""
-                            className="mb-2 max-h-28 w-auto max-w-full rounded-md border border-white/25 object-cover"
-                          />
+                        {(msg.imagenPreviews ?? []).length > 0 ? (
+                          <div className="mb-2 flex flex-wrap gap-1.5 justify-end">
+                            {(msg.imagenPreviews ?? []).map((src, idx) => (
+                              <img
+                                key={`${msg.id}-img-${idx}`}
+                                src={src}
+                                alt=""
+                                className="max-h-28 w-auto max-w-[45%] sm:max-w-[32%] rounded-md border border-white/25 object-cover"
+                              />
+                            ))}
+                          </div>
                         ) : null}
                         <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
                       </div>
@@ -1526,24 +1580,37 @@ export default function AgentSidebar() {
                 {error}
               </div>
             )}
-            {imagenPendiente ? (
-              <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 p-2">
-                <img
-                  src={imagenPendiente}
-                  alt=""
-                  className="h-14 w-14 shrink-0 rounded-md border border-white/10 object-cover"
-                />
-                <p className="flex-1 min-w-0 text-xs text-white/70">
-                  Vista previa — se enviará con el próximo mensaje
+            {imagenesPendientes.length > 0 ? (
+              <div className="rounded-lg border border-white/10 bg-white/5 p-2 space-y-2">
+                <div className="flex flex-wrap gap-2">
+                  {imagenesPendientes.map((src, idx) => (
+                    <div
+                      key={`pend-${idx}-${src.slice(0, 24)}`}
+                      className="relative shrink-0"
+                    >
+                      <img
+                        src={src}
+                        alt=""
+                        className="h-16 w-16 rounded-md border border-white/10 object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setImagenesPendientes((prev) => prev.filter((_, i) => i !== idx))
+                        }
+                        className="absolute -top-1 -right-1 p-1 rounded-full bg-black/70 border border-white/20 text-white hover:bg-red-600/90 touch-manipulation"
+                        aria-label={`Quitar imagen ${idx + 1}`}
+                      >
+                        <X className="size-3" aria-hidden />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-white/70">
+                  {imagenesPendientes.length === 1
+                    ? 'Vista previa — se enviará con el próximo mensaje'
+                    : `${imagenesPendientes.length} fotos — se enviarán juntas en el próximo mensaje`}
                 </p>
-                <button
-                  type="button"
-                  onClick={() => setImagenPendiente(null)}
-                  className="shrink-0 p-2 rounded-lg bg-white/10 hover:bg-white/15 border border-white/10 touch-manipulation"
-                  aria-label="Quitar imagen"
-                >
-                  <X className="size-4 text-white" aria-hidden />
-                </button>
               </div>
             ) : null}
             <textarea
@@ -1617,6 +1684,7 @@ export default function AgentSidebar() {
         ref={fileInputImagenRef}
         type="file"
         accept="image/*"
+        multiple
         className="hidden"
         aria-hidden
         onChange={(e) => void handleSeleccionarImagen(e)}
@@ -1759,12 +1827,17 @@ export default function AgentSidebar() {
                         msg.role === 'user' ? (
                           <div key={msg.id} className="flex justify-end">
                             <div className="max-w-[90%] px-3 py-2 rounded-xl rounded-br-md bg-[#ed8936] text-white">
-                              {msg.imagenPreview ? (
-                                <img
-                                  src={msg.imagenPreview}
-                                  alt=""
-                                  className="mb-2 max-h-28 w-auto max-w-full rounded-md border border-white/25 object-cover"
-                                />
+                              {(msg.imagenPreviews ?? []).length > 0 ? (
+                                <div className="mb-2 flex flex-wrap gap-1.5 justify-end">
+                                  {(msg.imagenPreviews ?? []).map((src, idx) => (
+                                    <img
+                                      key={`${msg.id}-img-${idx}`}
+                                      src={src}
+                                      alt=""
+                                      className="max-h-28 w-auto max-w-[45%] sm:max-w-[32%] rounded-md border border-white/25 object-cover"
+                                    />
+                                  ))}
+                                </div>
                               ) : null}
                               <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
                             </div>
@@ -1818,24 +1891,37 @@ export default function AgentSidebar() {
                       {error}
                     </div>
                   )}
-                  {imagenPendiente ? (
-                    <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 p-2">
-                      <img
-                        src={imagenPendiente}
-                        alt=""
-                        className="h-14 w-14 shrink-0 rounded-md border border-white/10 object-cover"
-                      />
-                      <p className="flex-1 min-w-0 text-xs text-white/70">
-                        Vista previa — se enviará con el próximo mensaje
+                  {imagenesPendientes.length > 0 ? (
+                    <div className="rounded-lg border border-white/10 bg-white/5 p-2 space-y-2">
+                      <div className="flex flex-wrap gap-2">
+                        {imagenesPendientes.map((src, idx) => (
+                          <div
+                            key={`pend-m-${idx}-${src.slice(0, 24)}`}
+                            className="relative shrink-0"
+                          >
+                            <img
+                              src={src}
+                              alt=""
+                              className="h-16 w-16 rounded-md border border-white/10 object-cover"
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setImagenesPendientes((prev) => prev.filter((_, i) => i !== idx))
+                              }
+                              className="absolute -top-1 -right-1 p-1 rounded-full bg-black/70 border border-white/20 text-white hover:bg-red-600/90 touch-manipulation"
+                              aria-label={`Quitar imagen ${idx + 1}`}
+                            >
+                              <X className="size-3" aria-hidden />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-white/70">
+                        {imagenesPendientes.length === 1
+                          ? 'Vista previa — se enviará con el próximo mensaje'
+                          : `${imagenesPendientes.length} fotos — se enviarán juntas en el próximo mensaje`}
                       </p>
-                      <button
-                        type="button"
-                        onClick={() => setImagenPendiente(null)}
-                        className="shrink-0 p-2 rounded-lg bg-white/10 hover:bg-white/15 border border-white/10 touch-manipulation"
-                        aria-label="Quitar imagen"
-                      >
-                        <X className="size-4 text-white" aria-hidden />
-                      </button>
                     </div>
                   ) : null}
                   <textarea
