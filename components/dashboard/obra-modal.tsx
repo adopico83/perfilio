@@ -2,13 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { X } from 'lucide-react';
+import { Trash2, X } from 'lucide-react';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import { etiquetaGastoCategoria } from '@/lib/gastos-categoria';
+import DiarioEntradaDeleteDialog from '@/components/dashboard/diario-entrada-delete-dialog';
 
 type FichaObraResponse = {
   obra: {
     id: string;
+    business_id: string;
     nombre: string;
     cliente_id: string | null;
     direccion: string | null;
@@ -74,6 +76,8 @@ export default function ObraModal() {
   const [ficha, setFicha] = useState<FichaObraResponse | null>(null);
   const [tab, setTab] = useState<TabKey>('resumen');
   const [estadoUpdating, setEstadoUpdating] = useState(false);
+  const [pendingDeleteDiarioId, setPendingDeleteDiarioId] = useState<string | null>(null);
+  const [deletingDiarioId, setDeletingDiarioId] = useState<string | null>(null);
 
   const recargarFicha = useCallback(async () => {
     if (!obraId) return;
@@ -109,6 +113,39 @@ export default function ObraModal() {
 
     void recargarFicha();
   }, [isOpen, obraId]);
+
+  const confirmarEliminarDiario = useCallback(async () => {
+    if (!pendingDeleteDiarioId || !ficha?.obra?.business_id) return;
+    const bid = ficha.obra.business_id;
+    const entryId = pendingDeleteDiarioId;
+    setDeletingDiarioId(entryId);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/diario/${encodeURIComponent(entryId)}?business_id=${encodeURIComponent(bid)}`,
+        { method: 'DELETE', credentials: 'include' }
+      );
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setError(data.error ?? 'No se pudo eliminar la entrada');
+        return;
+      }
+      setPendingDeleteDiarioId(null);
+      setFicha((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          entradas_diario_obra: prev.entradas_diario_obra.filter(
+            (row) => String((row as { id?: unknown }).id ?? '') !== entryId
+          ),
+        };
+      });
+    } catch {
+      setError('Error de conexión al eliminar la entrada');
+    } finally {
+      setDeletingDiarioId(null);
+    }
+  }, [pendingDeleteDiarioId, ficha?.obra?.business_id]);
 
   const badge = useMemo(() => estadoBadge(ficha?.obra?.estado), [ficha]);
 
@@ -174,6 +211,7 @@ export default function ObraModal() {
   if (!isOpen || !obraId) return null;
 
   return (
+    <>
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
       role="presentation"
@@ -462,15 +500,29 @@ export default function ObraModal() {
                     ficha.entradas_diario_obra.map((e) => {
                       const row = e as any;
                       const fotos = Array.isArray(row.fotos) ? (row.fotos as unknown[]).filter((x) => typeof x === 'string' && x.trim()) : [];
+                      const rowId = String(row.id ?? '');
                       return (
-                        <div key={String(row.id)} className="bg-white/5 border border-white/10 rounded-xl p-3">
+                        <div key={rowId} className="bg-white/5 border border-white/10 rounded-xl p-3">
                           <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
+                            <div className="min-w-0 flex-1">
                               <p className="font-semibold text-white/90 truncate">{String(row.obra_nombre ?? ficha.obra.nombre)}</p>
                               <p className="text-xs text-white/60 tabular-nums mt-1">
                                 {fmtFecha(row.fecha ?? row.created_at)}
                               </p>
                             </div>
+                            <button
+                              type="button"
+                              title="Eliminar entrada"
+                              disabled={!ficha.obra.business_id || deletingDiarioId === rowId}
+                              onClick={() => {
+                                if (!rowId || !ficha.obra.business_id) return;
+                                setPendingDeleteDiarioId(rowId);
+                              }}
+                              className="shrink-0 p-2 rounded-lg text-white/50 hover:text-red-300 hover:bg-red-500/15 border border-transparent hover:border-red-500/30 transition-colors disabled:opacity-40 touch-manipulation"
+                              aria-label="Eliminar entrada del diario"
+                            >
+                              <Trash2 className="size-4" aria-hidden />
+                            </button>
                           </div>
                           {row.texto ? (
                             <p className="text-sm text-white/80 mt-2 whitespace-pre-wrap">{String(row.texto)}</p>
@@ -689,6 +741,15 @@ export default function ObraModal() {
         </div>
       </div>
     </div>
+    <DiarioEntradaDeleteDialog
+      open={pendingDeleteDiarioId !== null}
+      loading={Boolean(deletingDiarioId)}
+      onClose={() => {
+        if (!deletingDiarioId) setPendingDeleteDiarioId(null);
+      }}
+      onConfirm={confirmarEliminarDiario}
+    />
+    </>
   );
 }
 

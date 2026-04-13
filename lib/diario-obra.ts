@@ -121,6 +121,37 @@ export async function signDiarioObraEntriesMedia<T extends DiarioObraMediaFields
   return out;
 }
 
+/**
+ * Rutas dentro del bucket `diario-obra` extraídas de fotos y vídeos de una fila (deduplicadas).
+ */
+export function collectDiarioObraStoragePathsFromEntry(row: {
+  fotos?: string[] | null;
+  videos?: string[] | null;
+}): string[] {
+  const paths = new Set<string>();
+  for (const arr of [row.fotos, row.videos] as const) {
+    if (!Array.isArray(arr)) continue;
+    for (const u of arr) {
+      if (typeof u !== 'string') continue;
+      const p = extractDiarioObraObjectPath(u);
+      if (p) paths.add(p);
+    }
+  }
+  return [...paths];
+}
+
+/** Elimina objetos del bucket; los errores se registran en consola. */
+export async function removeDiarioObraStorageObjects(
+  supabase: SupabaseClient,
+  paths: string[]
+): Promise<void> {
+  if (paths.length === 0) return;
+  const { error } = await supabase.storage.from(DIARIO_OBRA_STORAGE_BUCKET).remove(paths);
+  if (error) {
+    console.error('removeDiarioObraStorageObjects', error.message);
+  }
+}
+
 /** Mismos MIME que `app/api/diario/upload` (imagen y vídeo). */
 const DIARIO_UPLOAD_ALLOWED_MIME = new Set([
   'image/jpeg',

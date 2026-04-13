@@ -4,11 +4,12 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { createBrowserClient } from '@supabase/ssr';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Trash2 } from 'lucide-react';
 import LogoutButton from '@/app/dashboard/logout-button';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
 import DiarioEntradaModal from '@/components/dashboard/diario-entrada-modal';
+import DiarioEntradaDeleteDialog from '@/components/dashboard/diario-entrada-delete-dialog';
 import { useObraModal } from '@/contexts/obra-modal-context';
 
 type DiarioEntrada = {
@@ -45,6 +46,8 @@ function DiarioPageInner() {
   const [openObras, setOpenObras] = useState<Set<string>>(new Set());
   const [highlightObra, setHighlightObra] = useState<string | null>(null);
   const [entradaSeleccionada, setEntradaSeleccionada] = useState<DiarioEntrada | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<DiarioEntrada | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const obraRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const toggleObra = useCallback((nombre: string) => {
@@ -55,6 +58,38 @@ function DiarioPageInner() {
       return next;
     });
   }, []);
+
+  const confirmarEliminarEntrada = useCallback(async () => {
+    if (!businessId || !pendingDelete?.id) return;
+    setDeletingId(pendingDelete.id);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/diario/${encodeURIComponent(pendingDelete.id)}?business_id=${encodeURIComponent(businessId)}`,
+        { method: 'DELETE', credentials: 'include' }
+      );
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setError(json.error ?? 'No se pudo eliminar la entrada');
+        return;
+      }
+      const removedId = pendingDelete.id;
+      setPendingDelete(null);
+      setAgrupado((prev) => {
+        const next: Record<string, DiarioEntrada[]> = { ...prev };
+        for (const k of Object.keys(next)) {
+          next[k] = next[k].filter((e) => e.id !== removedId);
+          if (next[k].length === 0) delete next[k];
+        }
+        return next;
+      });
+      setEntradaSeleccionada((cur) => (cur?.id === removedId ? null : cur));
+    } catch {
+      setError('Error de conexión al eliminar');
+    } finally {
+      setDeletingId(null);
+    }
+  }, [businessId, pendingDelete]);
 
   useEffect(() => {
     const run = async () => {
@@ -320,7 +355,8 @@ function DiarioPageInner() {
                                 }}
                                 className="w-full text-left rounded-lg px-2 py-2 -mx-2 space-y-2 pb-3 transition-colors cursor-pointer hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#ed8936]/60"
                               >
-                                <div className="flex flex-wrap items-center gap-2">
+                                <div className="flex flex-wrap items-start justify-between gap-2">
+                                  <div className="flex flex-wrap items-center gap-2 min-w-0">
                                   <p className="text-xs font-medium text-[#ed8936] tabular-nums">
                                     {new Date(e.fecha).toLocaleString('es-ES', {
                                       dateStyle: 'full',
@@ -347,6 +383,22 @@ function DiarioPageInner() {
                                       {obraNombre}
                                     </span>
                                   ) : null}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    title="Eliminar entrada"
+                                    disabled={!businessId || deletingId === e.id}
+                                    onClick={(ev) => {
+                                      ev.stopPropagation();
+                                      ev.preventDefault();
+                                      if (!businessId) return;
+                                      setPendingDelete(e);
+                                    }}
+                                    className="shrink-0 p-2 rounded-lg text-white/50 hover:text-red-300 hover:bg-red-500/15 border border-transparent hover:border-red-500/30 transition-colors disabled:opacity-40 touch-manipulation"
+                                    aria-label="Eliminar entrada del diario"
+                                  >
+                                    <Trash2 className="size-4" aria-hidden />
+                                  </button>
                                 </div>
                                 {e.texto ? (
                                   <p className="text-sm text-white/90 line-clamp-4 leading-relaxed">
@@ -395,6 +447,15 @@ function DiarioPageInner() {
           onClose={() => setEntradaSeleccionada(null)}
         />
       ) : null}
+
+      <DiarioEntradaDeleteDialog
+        open={Boolean(pendingDelete)}
+        onClose={() => {
+          if (!deletingId) setPendingDelete(null);
+        }}
+        loading={Boolean(deletingId)}
+        onConfirm={confirmarEliminarEntrada}
+      />
     </div>
   );
 }
