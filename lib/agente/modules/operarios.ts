@@ -101,7 +101,7 @@ export const OPERARIOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[]
     function: {
       name: 'registrar_jornada',
       description:
-        'Registra horas de un operario en una obra. Busca el operario por nombre aproximado (coincidencia parcial). Si solo hay un número de horas, usa horas o horas_reales y deja horas_convenio vacío para que se copie el mismo valor. Si el usuario distingue reales vs convenio/oficiales/nómina, envía ambos. Tras insertar, confirma con el formato: Registrado: {nombre} {reales}h reales ({convenio}h convenio) en {obra}.',
+        'Registra o actualiza horas de un operario en una obra. Mismo flujo SDD que los gastos: primera llamada con solo_vista_previa true (solo resumen, pendiente_confirmacion); cuando el usuario confirme, segunda llamada con solo_vista_previa false u omitido para guardar. Si ya existe un registro para el mismo operario, obra y fecha, el servidor hace UPDATE en lugar de insertar otro (las correcciones sustituyen el registro). Si solo hay un número de horas, usa horas o horas_reales y deja horas_convenio vacío para copiar el mismo valor. Si el usuario distingue reales vs convenio/nómina, envía ambos.',
       parameters: {
         type: 'object',
         properties: {
@@ -128,6 +128,11 @@ export const OPERARIOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[]
             description: 'Horas de convenio/nómina; omitir para copiar horas_reales u horas',
           },
           notas: { type: 'string', description: 'Notas opcionales' },
+          solo_vista_previa: {
+            type: 'boolean',
+            description:
+              'True: solo muestra resumen y espera confirmación del usuario (no guarda en BD). False u omitido: guarda o actualiza el registro.',
+          },
         },
         required: ['operario_nombre'],
         additionalProperties: false,
@@ -187,6 +192,10 @@ export async function ejecutarRegistrarJornada(
   toolArgs: Record<string, unknown>,
   mensajeUsuario: string
 ): Promise<Record<string, unknown>> {
+  const soloVista =
+    toolArgs.solo_vista_previa === true ||
+    String(toolArgs.solo_vista_previa ?? '').toLowerCase() === 'true';
+
   const operarioNombre = String(toolArgs.operario_nombre ?? '').trim();
   if (!operarioNombre) {
     return { error: 'operario_nombre es obligatorio' };
@@ -245,21 +254,11 @@ export async function ejecutarRegistrarJornada(
       ? String(toolArgs.notas).trim()
       : null;
 
-  const { error: insErr } = await supabase.from('registros_jornada').insert({
-    business_id: businessId,
-    operario_id: operario.id,
-    obra_id: obraRes.obra_id,
-    fecha,
-    horas_reales: hr,
-    horas_convenio: hc,
-    notas,
-  });
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const hrN = r2(hr);
+  const hcN = r2(hc);
 
-  if (insErr) {
-    return { error: `No se pudo registrar la jornada: ${insErr.message}` };
-  }
-
-  const { data: obraRow } = await supabase
+  const { data: obraRowPreview } = await supabase
     .from('obras')
     .select('nombre, direccion')
     .eq('id', obraRes.obra_id)
@@ -267,14 +266,80 @@ export async function ejecutarRegistrarJornada(
     .maybeSingle();
 
   const nombreObra =
-    (obraRow as { nombre?: string | null } | null)?.nombre?.trim() ||
+    (obraRowPreview as { nombre?: string | null } | null)?.nombre?.trim() ||
     obraRes.obra_nombre?.trim() ||
     'Obra';
-  const dir = String((obraRow as { direccion?: string | null } | null)?.direccion ?? '').trim();
+  const dir = String((obraRowPreview as { direccion?: string | null } | null)?.direccion ?? '').trim();
   const obraEtiqueta = dir ? `${nombreObra} - ${dir}` : nombreObra;
 
-  const mensaje = `Registrado: ${operario.nombre} ${hr}h reales (${hc}h convenio) en ${obraEtiqueta}`;
-  return { mensaje };
+  const { data: registroExistente } = await supabase
+    .from('registros_jornada')
+    .select('id')
+    .eq('business_id', businessId)
+    .eq('operario_id', operario.id)
+    .eq('obra_id', obraRes.obra_id)
+    .eq('fecha', fecha)
+    .maybeSingle();
+
+  if (soloVista) {
+    const lineas = [
+      'Resumen de jornada (no guardado aún):',
+      `• Operario: ${operario.nombre}`,
+      `• Obra: ${obraEtiqueta}`,
+      `• Fecha: ${fecha}`,
+      `• Horas reales: ${hrN} h, horas convenio: ${hcN} h`,
+    ];
+    if (notas) lineas.push(`• Notas: ${notas}`);
+    lineas.push(
+      registroExistente?.id
+        ? '• Ya existe un registro para este operario, obra y fecha: al confirmar se actualizará.'
+        : '• Al confirmar se creará un registro nuevo.'
+    );
+    lineas.push('Pide confirmación explícita al usuario antes de guardar.');
+    return {
+      mensaje: lineas.join('\n'),
+      pendiente_confirmacion: true,
+    };
+  }
+
+  if (registroExistente?.id) {
+    const { error: updErr } = await supabase
+      .from('registros_jornada')
+      .update({
+        horas_reales: hrN,
+        horas_convenio: hcN,
+        notas,
+      })
+      .eq('id', registroExistente.id)
+      .eq('business_id', businessId);
+
+    if (updErr) {
+      return { error: `No se pudo actualizar la jornada: ${updErr.message}` };
+    }
+    const mensaje = `Actualizado: ${operario.nombre} ${hrN}h reales (${hcN}h convenio) en ${obraEtiqueta}`;
+    return { mensaje, actualizado: true, id: registroExistente.id };
+  }
+
+  const { data: insertado, error: insErr } = await supabase
+    .from('registros_jornada')
+    .insert({
+      business_id: businessId,
+      operario_id: operario.id,
+      obra_id: obraRes.obra_id,
+      fecha,
+      horas_reales: hrN,
+      horas_convenio: hcN,
+      notas,
+    })
+    .select('id')
+    .maybeSingle();
+
+  if (insErr) {
+    return { error: `No se pudo registrar la jornada: ${insErr.message}` };
+  }
+
+  const mensaje = `Registrado: ${operario.nombre} ${hrN}h reales (${hcN}h convenio) en ${obraEtiqueta}`;
+  return { mensaje, id: (insertado as { id?: string } | null)?.id ?? null };
 }
 
 export async function ejecutarListarOperarios(

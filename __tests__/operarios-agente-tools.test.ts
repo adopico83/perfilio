@@ -145,7 +145,11 @@ describe('tools operarios (lib/agente/modules/operarios)', () => {
       obra_nombre: 'Reforma Paqui',
     });
 
-    const insertMock = jest.fn().mockResolvedValue({ error: null });
+    const insertMock = jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'rj-1' }, error: null }),
+      }),
+    });
     const obraSelect = {
       select: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
@@ -155,6 +159,7 @@ describe('tools operarios (lib/agente/modules/operarios)', () => {
       }),
     };
 
+    let registrosJornadaCalls = 0;
     const supabase = {
       from: jest.fn((table: string) => {
         if (table === 'operarios') {
@@ -170,6 +175,18 @@ describe('tools operarios (lib/agente/modules/operarios)', () => {
           };
         }
         if (table === 'registros_jornada') {
+          registrosJornadaCalls += 1;
+          if (registrosJornadaCalls === 1) {
+            const dupChain: Record<string, jest.Mock> = {
+              select: jest.fn(),
+              eq: jest.fn(),
+              maybeSingle: jest.fn(),
+            };
+            dupChain.select.mockReturnValue(dupChain);
+            dupChain.eq.mockReturnValue(dupChain);
+            dupChain.maybeSingle.mockResolvedValue({ data: null, error: null });
+            return dupChain;
+          }
           return { insert: insertMock };
         }
         if (table === 'obras') {
@@ -196,5 +213,84 @@ describe('tools operarios (lib/agente/modules/operarios)', () => {
     expect((r as { mensaje: string }).mensaje).toContain('8h reales');
     expect((r as { mensaje: string }).mensaje).toContain('8h convenio');
     expect((r as { mensaje: string }).mensaje).toContain('Reforma Paqui');
+  });
+
+  it('registrar_jornada actualiza si ya existe registro (mismo operario, obra y fecha)', async () => {
+    mockResolver.mockResolvedValue({
+      ok: true,
+      obra_id: 'obra-1',
+      obra_nombre: 'Reforma Paqui',
+    });
+
+    const updateMock = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({ error: null }),
+      }),
+    });
+
+    const obraSelect = {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      maybeSingle: jest.fn().mockResolvedValue({
+        data: { nombre: 'Reforma Paqui', direccion: null },
+        error: null,
+      }),
+    };
+
+    let registrosJornadaCalls = 0;
+    const supabase = {
+      from: jest.fn((table: string) => {
+        if (table === 'operarios') {
+          return {
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            ilike: jest.fn().mockReturnThis(),
+            order: jest.fn().mockReturnThis(),
+            limit: jest.fn().mockResolvedValue({
+              data: [{ id: 'op-w', nombre: 'Artxi', coste_hora: null }],
+              error: null,
+            }),
+          };
+        }
+        if (table === 'registros_jornada') {
+          registrosJornadaCalls += 1;
+          if (registrosJornadaCalls === 1) {
+            const dupChain: Record<string, jest.Mock> = {
+              select: jest.fn(),
+              eq: jest.fn(),
+              maybeSingle: jest.fn(),
+            };
+            dupChain.select.mockReturnValue(dupChain);
+            dupChain.eq.mockReturnValue(dupChain);
+            dupChain.maybeSingle.mockResolvedValue({ data: { id: 'rj-existente' }, error: null });
+            return dupChain;
+          }
+          return { update: updateMock };
+        }
+        if (table === 'obras') {
+          return obraSelect;
+        }
+        return {};
+      }),
+    } as unknown as SupabaseClient;
+
+    const r = await ejecutarRegistrarJornada(
+      supabase,
+      'biz-1',
+      {
+        operario_nombre: 'Artxi',
+        obra_nombre: 'Paqui',
+        horas_reales: 9,
+        horas_convenio: 8,
+        fecha: '2026-04-10',
+      },
+      ''
+    );
+
+    expect(updateMock).toHaveBeenCalled();
+    expect((r as { mensaje: string }).mensaje).toContain('Actualizado: Artxi');
+    expect((r as { mensaje: string }).mensaje).toContain('9h reales');
+    expect((r as { mensaje: string }).mensaje).toContain('8h convenio');
+    expect((r as { actualizado?: boolean }).actualizado).toBe(true);
   });
 });
