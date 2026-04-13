@@ -1336,13 +1336,18 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
         function: {
           name: 'crear_recordatorio',
           description:
-            'Nuevo evento en agenda: título, fecha YYYY-MM-DD, hora opcional.',
+            'Nuevo evento en agenda: título, fecha YYYY-MM-DD, hora opcional. SDD obligatorio: primero solo_vista_previa true (resumen sin guardar, pendiente_confirmacion); solo tras confirmación explícita del usuario, misma llamada con solo_vista_previa false u omitido para insertar. No llames varias veces a guardar en la misma petición.',
           parameters: {
             type: 'object',
             properties: {
               titulo: { type: 'string', description: 'Título del recordatorio' },
               fecha: { type: 'string', description: 'Fecha en formato YYYY-MM-DD' },
               hora: { type: 'string', description: 'Hora opcional (texto libre)' },
+              solo_vista_previa: {
+                type: 'boolean',
+                description:
+                  'Si true, solo muestra resumen y no inserta. Usar true en la primera llamada. Tras confirmación del usuario, llamar de nuevo con false u omitir para guardar.',
+              },
             },
             required: ['titulo', 'fecha'],
             additionalProperties: false,
@@ -3646,6 +3651,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
           const titulo = String(toolArgs.titulo ?? '').trim();
           const fechaRaw = String(toolArgs.fecha ?? '').trim();
           const horaOpt = toolArgs.hora != null ? String(toolArgs.hora).trim() : '';
+          const soloVistaPrevia = toolArgs.solo_vista_previa === true;
 
           if (!titulo) {
             return { error: 'El título del recordatorio es obligatorio' };
@@ -3655,11 +3661,82 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
           }
 
           const businessIdBody =
-            typeof body.business_id === 'string'
-              ? body.business_id
-              : String(body.business_id ?? '');
+            typeof business_id === 'string'
+              ? business_id
+              : String(business_id ?? '');
           if (!businessIdBody) {
             return { error: 'business_id es requerido' };
+          }
+
+          if (soloVistaPrevia) {
+            const lineas = [
+              'Resumen del evento (no guardado aún):',
+              `• Título: ${titulo}`,
+              `• Fecha: ${fechaRaw}`,
+            ];
+            if (horaOpt) lineas.push(`• Hora: ${horaOpt}`);
+            lineas.push(
+              '',
+              'Si el usuario confirma, vuelve a llamar a crear_recordatorio con los mismos titulo, fecha y hora, y solo_vista_previa false (u omítelo) para guardar en la agenda.'
+            );
+            return {
+              mensaje: lineas.join('\n'),
+              pendiente_confirmacion: true,
+            };
+          }
+
+          const normTituloAgenda = (s: string) =>
+            s
+              .trim()
+              .toLowerCase()
+              .normalize('NFD')
+              .replace(/\p{M}/gu, '')
+              .replace(/\s+/g, ' ');
+
+          const tituloNorm = normTituloAgenda(titulo);
+          const { data: mismoDia, error: errMismoDia } = await supabase
+            .from('agenda')
+            .select('id, titulo')
+            .eq('business_id', businessIdBody)
+            .eq('fecha', fechaRaw);
+
+          if (errMismoDia) {
+            return { error: errMismoDia.message };
+          }
+
+          const minLenSimilar = 12;
+          const safeIlike = titulo.replace(/[%_]/g, '').trim().toLowerCase();
+          for (const r of mismoDia ?? []) {
+            const ex = String((r as { titulo?: string | null }).titulo ?? '');
+            const nEx = normTituloAgenda(ex);
+            if (nEx === tituloNorm) {
+              return {
+                mensaje: 'Ya tienes este evento agendado',
+                duplicado_evitado: true,
+              };
+            }
+            if (
+              tituloNorm.length >= minLenSimilar &&
+              nEx.length >= minLenSimilar &&
+              (tituloNorm.includes(nEx) || nEx.includes(tituloNorm))
+            ) {
+              return {
+                mensaje: 'Ya tienes este evento agendado',
+                duplicado_evitado: true,
+              };
+            }
+            const exLow = ex.toLowerCase();
+            const tituloLow = titulo.toLowerCase();
+            if (
+              safeIlike.length >= 4 &&
+              (exLow.includes(safeIlike) ||
+                (ex.trim().length >= 4 && tituloLow.includes(ex.trim().toLowerCase())))
+            ) {
+              return {
+                mensaje: 'Ya tienes este evento agendado',
+                duplicado_evitado: true,
+              };
+            }
           }
 
           const insertPayload: {
