@@ -3,9 +3,13 @@ import OpenAI from 'openai';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import {
   buildDiarioObraPdf,
+  decodeDataUrlImageForDiarioUpload,
   fetchDiarioObraEntries,
   insertDiarioObraEntry,
+  normalizeDiarioObraRowMediaForInsert,
   sanitizeDiarioFilePart,
+  signDiarioObraEntriesMedia,
+  uploadDiarioObraMediaToBucket,
 } from '@/lib/diario-obra';
 import { getGmailAccessTokenForUser } from '@/lib/gmail/get-access-token';
 import {
@@ -1628,7 +1632,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
         function: {
           name: 'crear_entrada_diario',
           description:
-            'Entrada en diario de obra: texto, fotos y/o vídeos (URLs). Obligatorio obra_nombre; el servidor resuelve obra_id. Ejecuta la tool directamente con el obra_nombre que dio el usuario; no pidas aclarar ambigüedad antes — solo si la tool devuelve mensaje de ambigüedad.',
+            'Entrada en diario de obra: texto y opcionalmente fotos/vídeos. Obligatorio obra_nombre; el servidor resuelve obra_id. Si el usuario adjuntó una imagen en este mensaje, el servidor la sube a Storage automáticamente: NO inventes URLs ni pongas texto en fotos. Omite el array fotos salvo que haya URLs reales del bucket (p. ej. tras subir con el endpoint de diario). Ejecuta la tool con el obra_nombre que dio el usuario; no pidas aclarar ambigüedad antes — solo si la tool devuelve mensaje de ambigüedad.',
           parameters: {
             type: 'object',
             properties: {
@@ -1654,12 +1658,14 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
               fotos: {
                 type: 'array',
                 items: { type: 'string' },
-                description: 'URLs de las fotos subidas previamente',
+                description:
+                  'Solo rutas/URLs reales del bucket diario-obra si ya existen; no rellenes con enlaces inventados. Si el usuario adjuntó foto en el chat, déjalo vacío: el servidor la sube.',
               },
               videos: {
                 type: 'array',
                 items: { type: 'string' },
-                description: 'URLs de los vídeos subidos previamente',
+                description:
+                  'Solo rutas/URLs reales del bucket para vídeos ya subidos; no inventes enlaces.',
               },
             },
             required: ['obra_nombre'],
@@ -4650,6 +4656,13 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
               )
             : undefined;
 
+          const toolMedia = normalizeDiarioObraRowMediaForInsert({
+            fotos: fotosDiario ?? null,
+            videos: videosDiario ?? null,
+          });
+          const fotosDesdeTool = toolMedia.fotos ?? [];
+          const videosDesdeTool = toolMedia.videos ?? [];
+
           const explicitObraDiario =
             typeof toolArgs.obra_id === 'string' && toolArgs.obra_id.trim()
               ? String(toolArgs.obra_id).trim()
@@ -4666,6 +4679,33 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
             'entrada_diario'
           );
           if (!obraDiarioRes.ok) return { mensaje: obraDiarioRes.mensaje };
+
+          const pathsSubidaAdjunto: string[] = [];
+          if (imagenDataUrl) {
+            const decoded = decodeDataUrlImageForDiarioUpload(imagenDataUrl);
+            if (!decoded) {
+              return {
+                error:
+                  'La imagen adjunta no es válida para el diario (usa jpg, png, gif o webp).',
+              };
+            }
+            const up = await uploadDiarioObraMediaToBucket(supabase, {
+              businessId: businessIdDiario,
+              buffer: decoded.buffer,
+              contentType: decoded.contentType,
+              stem: sanitizeDiarioFilePart('diario_adjunto'),
+            });
+            if ('error' in up) {
+              return {
+                error: `No se pudo subir la foto al almacenamiento del diario: ${up.error}`,
+              };
+            }
+            pathsSubidaAdjunto.push(up.path);
+          }
+
+          const fotosCombinadas = [...new Set([...pathsSubidaAdjunto, ...fotosDesdeTool])];
+          const fotosParaInsertar = fotosCombinadas.length > 0 ? fotosCombinadas : null;
+          const videosParaInsertar = videosDesdeTool.length > 0 ? videosDesdeTool : null;
 
           const obraIdFinal = obraDiarioRes.obra_id ?? '';
           const nombreObraDiario =
@@ -4693,8 +4733,8 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
               obra_id: obraIdFinal || null,
               obra_direccion: obraDireccionDiario || null,
               texto: textoDiario || null,
-              fotos: fotosDiario ?? null,
-              videos: videosDiario ?? null,
+              fotos: fotosParaInsertar,
+              videos: videosParaInsertar,
             }
           );
 
@@ -4947,7 +4987,8 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
 
           let pdfBytes: Uint8Array;
           try {
-            pdfBytes = await buildDiarioObraPdf(entradasPdf);
+            const entradasConUrls = await signDiarioObraEntriesMedia(supabase, entradasPdf);
+            pdfBytes = await buildDiarioObraPdf(entradasConUrls);
           } catch (e) {
             console.error('buildDiarioObraPdf', e);
             return { error: 'No se pudo generar el PDF' };

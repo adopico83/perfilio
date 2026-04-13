@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { signDiarioObraEntriesMedia } from '@/lib/diario-obra';
 
 async function assertUserOwnsBusiness(
   supabaseAuth: Awaited<ReturnType<typeof createClient>>,
@@ -84,13 +85,18 @@ export async function GET(
         .order('fecha', { ascending: false }),
     ]);
 
+    const diarioObraSigned = await signDiarioObraEntriesMedia(
+      supabase,
+      dioRes.data ?? []
+    );
+
     return NextResponse.json({
       cliente,
       presupuestos: presRes.data ?? [],
       facturas: facRes.data ?? [],
       albaranes: albRes.data ?? [],
       gastos: gasRes.data ?? [],
-      diario_obra: dioRes.data ?? [],
+      diario_obra: diarioObraSigned,
     });
   } catch (e) {
     console.error('[api/clientes/[id] GET]', e);

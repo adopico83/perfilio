@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { uploadDiarioObraMediaToBucket } from '@/lib/diario-obra';
 
 const BUCKET = 'diario-obra';
 
@@ -10,6 +11,7 @@ const ALLOWED_MIME = new Set([
   'image/webp',
   'image/heic',
   'image/heif',
+  'image/gif',
   'video/mp4',
   'video/quicktime',
   'video/x-quicktime',
@@ -19,6 +21,7 @@ const ALLOWED_MIME = new Set([
 function extFromMime(mime: string): string {
   const m = mime.toLowerCase();
   if (m.includes('png')) return 'png';
+  if (m.includes('gif')) return 'gif';
   if (m.includes('webp')) return 'webp';
   if (m.includes('heic') || m.includes('heif')) return 'heic';
   if (m.includes('quicktime') || m.includes('mov')) return 'mov';
@@ -80,7 +83,7 @@ export async function POST(request: NextRequest) {
     }
 
     const mime = (file.type || '').toLowerCase();
-    const extByName = /\.(jpe?g|png|webp|heic|heif|mp4|mov)$/i.exec(file.name);
+    const extByName = /\.(jpe?g|png|gif|webp|heic|heif|mp4|mov)$/i.exec(file.name);
     const allowed =
       ALLOWED_MIME.has(mime) || Boolean(extByName);
 
@@ -103,10 +106,6 @@ export async function POST(request: NextRequest) {
     }
     const stem = file.name.replace(/\.[^.]+$/, '');
     const base = sanitizeFilename(stem || 'archivo');
-    const ts = Date.now();
-    const path = `${business_id}/${ts}_${base}.${ext === 'jpeg' ? 'jpg' : ext}`;
-
-    const supabase = createServiceClient();
     const buf = Buffer.from(await file.arrayBuffer());
 
     const contentType =
@@ -114,28 +113,35 @@ export async function POST(request: NextRequest) {
         ? file.type
         : ext === 'png'
           ? 'image/png'
-          : ext === 'webp'
-            ? 'image/webp'
-            : ext === 'heic' || ext === 'heif'
-              ? 'image/heic'
-              : ext === 'mp4'
-                ? 'video/mp4'
-                : ext === 'mov'
-                  ? 'video/quicktime'
-                  : 'image/jpeg';
+          : ext === 'gif'
+            ? 'image/gif'
+            : ext === 'webp'
+              ? 'image/webp'
+              : ext === 'heic' || ext === 'heif'
+                ? 'image/heic'
+                : ext === 'mp4'
+                  ? 'video/mp4'
+                  : ext === 'mov'
+                    ? 'video/quicktime'
+                    : 'image/jpeg';
 
-    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, buf, {
+    const supabase = createServiceClient();
+    const up = await uploadDiarioObraMediaToBucket(supabase, {
+      businessId: business_id,
+      buffer: buf,
       contentType,
-      upsert: false,
+      stem: base,
     });
 
-    if (upErr) {
-      console.error('Storage upload diario:', upErr);
+    if ('error' in up) {
+      console.error('Storage upload diario:', up.error);
       return NextResponse.json(
-        { error: `No se pudo subir el archivo: ${upErr.message}` },
+        { error: `No se pudo subir el archivo: ${up.error}` },
         { status: 500 }
       );
     }
+
+    const path = up.path;
 
     const { data: signed, error: signErr } = await supabase.storage
       .from(BUCKET)

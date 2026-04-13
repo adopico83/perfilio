@@ -4,6 +4,7 @@ import {
   fetchDiarioObraEntries,
   groupDiarioEntriesByObra,
   insertDiarioObraEntry,
+  signDiarioObraEntriesMedia,
 } from '@/lib/diario-obra';
 
 async function assertUserOwnsBusiness(
@@ -125,12 +126,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const dataSigned = await signDiarioObraEntriesMedia(supabase, data);
+
     if (obra_nombre) {
-      return NextResponse.json({ entradas: data });
+      return NextResponse.json({ entradas: dataSigned });
     }
 
     return NextResponse.json({
-      agrupado_por_obra: groupDiarioEntriesByObra(data),
+      agrupado_por_obra: groupDiarioEntriesByObra(dataSigned),
     });
   } catch (e) {
     console.error('GET /api/diario:', e);
