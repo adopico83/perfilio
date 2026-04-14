@@ -82,6 +82,35 @@ function sortMensajesHistorialPorOrdenConversacion<
   });
 }
 
+const TZ_MADRID = 'Europe/Madrid';
+
+/** Prefijo en conversation_history para detectar saludo automático (sin mostrarlo en UI). */
+const SALUDO_AUTO_MARKER = '__SALUDO_AUTO__\n';
+
+function formatYmdMadrid(d: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ_MADRID,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d);
+}
+
+function getHourInMadrid(d: Date): number {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: TZ_MADRID,
+    hour: 'numeric',
+    hourCycle: 'h23',
+  }).formatToParts(d);
+  const h = parts.find((p) => p.type === 'hour')?.value;
+  return h != null ? parseInt(h, 10) : 0;
+}
+
+/** Quitar marcador interno del saludo automático para mostrar / TTS. */
+function textoAsistenteVisible(content: string): string {
+  return content.startsWith(SALUDO_AUTO_MARKER) ? content.slice(SALUDO_AUTO_MARKER.length) : content;
+}
+
 /** Reduce tamaño para el body JSON (JPEG) antes de enviar al agente. */
 async function comprimirImagenParaAgente(file: File): Promise<string> {
   const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -487,7 +516,6 @@ export default function AgentSidebar() {
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [saludoAutomaticoCargando, setSaludoAutomaticoCargando] = useState(false);
-  const [historialInicialListo, setHistorialInicialListo] = useState(false);
   const [grabando, setGrabando] = useState(false);
   const [transcribiendoAudio, setTranscribiendoAudio] = useState(false);
   const [error, setError] = useState('');
@@ -508,7 +536,7 @@ export default function AgentSidebar() {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<BlobPart[]>([]);
   const mediaRecorderMimeTypeRef = useRef<string>('audio/webm');
-  const saludoAutomaticoProcesadoRef = useRef(false);
+  const saludoDiarioEnCursoRef = useRef(false);
   /** Evita doble ejecución pointerdown + click; getUserMedia debe ir en el gesto directo (Safari iOS). */
   const micGestureHandledRef = useRef(false);
 
@@ -731,14 +759,12 @@ export default function AgentSidebar() {
       const activeConversationId = latestConversationId || generateConversationId();
       setConversationId(activeConversationId);
       await cargarMensajesDeConversacion(activeConversationId);
-      setHistorialInicialListo(true);
     } catch (e) {
       console.log('Error cargando conversaciones:', e);
       setConversaciones([]);
       const fallbackConversationId = generateConversationId();
       setConversationId(fallbackConversationId);
       setHistorial([]);
-      setHistorialInicialListo(true);
     } finally {
       setConversacionesLoading(false);
     }
@@ -748,44 +774,76 @@ export default function AgentSidebar() {
     void cargarConversaciones();
   }, [cargarConversaciones]);
 
-  useEffect(() => {
-    const maybeEnviarSaludoAutomatico = async () => {
-      if (!selectedId || !currentUserId || !historialInicialListo) return;
-      if (saludoAutomaticoProcesadoRef.current) return;
+  const maybeEnviarSaludoNuevaConversacion = useCallback(
+    async (activeConversationId: string) => {
+      if (!selectedId || !currentUserId || typeof window === 'undefined') return;
+      if (saludoDiarioEnCursoRef.current) return;
+      saludoDiarioEnCursoRef.current = true;
 
-      const hoy = new Date().toISOString().slice(0, 10);
-      const storageKey = 'perfilio_saludo_fecha';
-      const ultimaFecha = window.localStorage.getItem(storageKey);
-      if (ultimaFecha === hoy) {
-        saludoAutomaticoProcesadoRef.current = true;
-        return;
-      }
-
-      saludoAutomaticoProcesadoRef.current = true;
-      setSaludoAutomaticoCargando(true);
-      setError('');
-
-      const promptInterno =
-        "Genera un saludo automático para el usuario.\n" +
-        "Usa 'Buenos días' si son antes de las 12h,\n" +
-        "'Buenas tardes' si son entre 12h y 20h,\n" +
-        "'Buenas noches' si son después de las 20h.\n" +
-        'Luego incluye un resumen breve del día:\n' +
-        '- Eventos de agenda de hoy y mañana (usa la tool recordatorio_agenda)\n' +
-        "- Presupuestos pendientes de respuesta (usa listar_presupuestos filtrando estado 'pendiente')\n" +
-        '- Emails urgentes si los hay (usa leer_emails_recientes)\n' +
-        '- Albaranes pendientes de facturar más de 7 días (usa albaranes_sin_facturar)\n' +
-        '- Consulta el tiempo para hoy y mañana en la ubicación del negocio (usa consultar_tiempo, el agente conoce la ciudad). Si hay lluvia o mal tiempo que afecte a obras, avísalo claramente.\n' +
-        'Sé breve y directo, estilo asistente profesional.';
+      const ymdMadrid = formatYmdMadrid(new Date());
+      const storageKey = `perfilio_saludo_fecha_${selectedId}`;
 
       try {
+        const since = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+        const { data: saludosRows, error: saludosErr } = await supabase
+          .from('conversation_history')
+          .select('created_at, content')
+          .eq('business_id', selectedId)
+          .eq('user_id', currentUserId)
+          .eq('role', 'assistant')
+          .gte('created_at', since)
+          .order('created_at', { ascending: false })
+          .limit(200);
+
+        if (saludosErr) {
+          console.log('Error comprobando saludo automático:', saludosErr);
+        }
+
+        const yaHaySaludoHoy = (saludosRows ?? []).some(
+          (row) =>
+            typeof row.content === 'string' &&
+            row.content.startsWith(SALUDO_AUTO_MARKER) &&
+            formatYmdMadrid(new Date(row.created_at)) === ymdMadrid
+        );
+
+        if (yaHaySaludoHoy) {
+          window.localStorage.setItem(storageKey, ymdMadrid);
+          return;
+        }
+
+        if (window.localStorage.getItem(storageKey) === ymdMadrid) {
+          return;
+        }
+
+        setSaludoAutomaticoCargando(true);
+        setError('');
+
+        const h = getHourInMadrid(new Date());
+        const instruccionHora =
+          h < 14
+            ? "Debes empezar el mensaje con 'Buenos días' (hasta las 14:00, hora España, Europe/Madrid)."
+            : h < 21
+              ? "Debes empezar el mensaje con 'Buenas tardes' (entre las 14:00 y las 21:00, hora España, Europe/Madrid)."
+              : "Debes empezar el mensaje con 'Buenas noches' (a partir de las 21:00, hora España, Europe/Madrid).";
+
+        const promptInterno =
+          'Genera un saludo automático para el usuario.\n' +
+          `${instruccionHora}\n` +
+          'Luego incluye un resumen breve del día:\n' +
+          '- Eventos de agenda de hoy y mañana (usa la tool recordatorio_agenda)\n' +
+          "- Presupuestos pendientes de respuesta (usa listar_presupuestos filtrando estado 'pendiente')\n" +
+          '- Emails urgentes si los hay (usa leer_emails_recientes)\n' +
+          '- Albaranes pendientes de facturar más de 7 días (usa albaranes_sin_facturar)\n' +
+          '- Consulta el tiempo para hoy y mañana en la ubicación del negocio (usa consultar_tiempo, el agente conoce la ciudad). Si hay lluvia o mal tiempo que afecte a obras, avísalo claramente.\n' +
+          'Sé breve y directo, estilo asistente profesional.';
+
         const res = await fetch('/api/agente', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             mensaje: promptInterno,
             business_id: selectedId,
-            historial,
+            historial: [],
           }),
         });
 
@@ -809,6 +867,8 @@ export default function AgentSidebar() {
           typeof data.respuesta === 'string' ? data.respuesta.trim() : '';
         if (!respuestaTexto) return;
 
+        const contentParaInsertar = `${SALUDO_AUTO_MARKER}${respuestaTexto}`;
+
         setHistorial((prev) => [
           ...prev,
           {
@@ -817,12 +877,10 @@ export default function AgentSidebar() {
                 ? crypto.randomUUID()
                 : `sa_${Date.now()}`,
             role: 'assistant',
-            content: respuestaTexto,
+            content: contentParaInsertar,
           },
         ]);
 
-        const activeConversationId = conversationId || generateConversationId();
-        if (!conversationId) setConversationId(activeConversationId);
         await supabase.from('conversation_history').insert([
           {
             conversation_id: activeConversationId,
@@ -830,31 +888,23 @@ export default function AgentSidebar() {
             user_id: currentUserId,
             sender_email: currentUserEmail,
             role: 'assistant',
-            content: respuestaTexto,
+            content: contentParaInsertar,
             created_at: new Date().toISOString(),
           },
         ]);
 
         window.dispatchEvent(new CustomEvent('perfilio:refresh'));
 
-        window.localStorage.setItem(storageKey, hoy);
+        window.localStorage.setItem(storageKey, ymdMadrid);
       } catch {
         setError('Error de conexión al generar saludo automático');
       } finally {
         setSaludoAutomaticoCargando(false);
+        saludoDiarioEnCursoRef.current = false;
       }
-    };
-
-    void maybeEnviarSaludoAutomatico();
-  }, [
-    conversationId,
-    currentUserEmail,
-    currentUserId,
-    historial,
-    historialInicialListo,
-    selectedId,
-    supabase,
-  ]);
+    },
+    [abrirObra, currentUserEmail, currentUserId, selectedId, supabase]
+  );
 
   useEffect(() => {
     if (!listRef.current) return;
@@ -1256,6 +1306,7 @@ export default function AgentSidebar() {
     setPanelConversacionesAbierto(false);
     const nextConversationId = generateConversationId();
     setConversationId(nextConversationId);
+    void maybeEnviarSaludoNuevaConversacion(nextConversationId);
   };
 
   const MAX_IMAGENES_AGENTE_ADJUNTAS = 15;
@@ -1538,16 +1589,18 @@ export default function AgentSidebar() {
                           <div className="min-w-0 max-w-[min(90%,calc(100%-2.5rem))] px-3 py-2 rounded-xl rounded-bl-md bg-[#0f2744] text-white border border-white/10">
                             <div className="text-sm leading-relaxed [&>*+*]:mt-2">
                               <ReactMarkdown components={agentAssistantMarkdownComponents}>
-                                {msg.content}
+                                {textoAsistenteVisible(msg.content)}
                               </ReactMarkdown>
                             </div>
                           </div>
                           <AssistantTtsButton
-                            content={msg.content}
+                            content={textoAsistenteVisible(msg.content)}
                             isLoading={ttsLoadingId === msg.id}
                             isActive={ttsPlaybackMessageId === msg.id}
                             isPaused={ttsPlaybackPaused}
-                            onToggle={() => void toggleAssistantTts(msg.id, msg.content)}
+                            onToggle={() =>
+                              void toggleAssistantTts(msg.id, textoAsistenteVisible(msg.content))
+                            }
                           />
                         </div>
                         {msg.emailPendiente && (
@@ -1849,16 +1902,18 @@ export default function AgentSidebar() {
                                 <div className="min-w-0 max-w-[min(90%,calc(100%-2.5rem))] px-3 py-2 rounded-xl rounded-bl-md bg-[#0f2744] text-white border border-white/10">
                                   <div className="text-sm leading-relaxed [&>*+*]:mt-2">
                                     <ReactMarkdown components={agentAssistantMarkdownComponents}>
-                                      {msg.content}
+                                      {textoAsistenteVisible(msg.content)}
                                     </ReactMarkdown>
                                   </div>
                                 </div>
                                 <AssistantTtsButton
-                                  content={msg.content}
+                                  content={textoAsistenteVisible(msg.content)}
                                   isLoading={ttsLoadingId === msg.id}
                                   isActive={ttsPlaybackMessageId === msg.id}
                                   isPaused={ttsPlaybackPaused}
-                                  onToggle={() => void toggleAssistantTts(msg.id, msg.content)}
+                                  onToggle={() =>
+                                    void toggleAssistantTts(msg.id, textoAsistenteVisible(msg.content))
+                                  }
                                 />
                               </div>
                               {msg.emailPendiente && (
