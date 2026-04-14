@@ -1261,13 +1261,13 @@ export default function AgentSidebar() {
   const MAX_IMAGENES_AGENTE_ADJUNTAS = 15;
 
   const handleSeleccionarImagen = async (e: ChangeEvent<HTMLInputElement>) => {
-    const list = e.target.files;
+    const files = Array.from(e.target.files ?? []);
     e.target.value = '';
-    if (!list?.length) return;
+    if (files.length === 0) return;
     setError('');
     const nuevas: string[] = [];
-    for (let i = 0; i < list.length; i++) {
-      const file = list[i];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
       if (!file.type.startsWith('image/')) {
         setError('Solo se admiten archivos de imagen.');
         return;

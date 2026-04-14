@@ -149,7 +149,17 @@ function normalizarImagenVision(
   if (s.startsWith('data:image/')) {
     const mi = s.indexOf(marker);
     if (mi === -1) return null;
-    mime = s.slice('data:'.length, mi).toLowerCase();
+    // Tras `data:` el tipo MIME va hasta el primer `;` o `,` (RFC 2397). Si usamos el índice de
+    // `;base64,` como fin, un `;charset=utf-8` intermedio deja `image/jpeg;charset=utf-8` y falla la validación.
+    const rest = s.slice('data:'.length);
+    const idxSemi = rest.indexOf(';');
+    const idxComma = rest.indexOf(',');
+    let endMime = -1;
+    if (idxSemi !== -1 && idxComma !== -1) endMime = Math.min(idxSemi, idxComma);
+    else if (idxSemi !== -1) endMime = idxSemi;
+    else if (idxComma !== -1) endMime = idxComma;
+    else return null;
+    mime = rest.slice(0, endMime).toLowerCase();
     if (mime === 'image/jpg') mime = 'image/jpeg';
     if (!IMAGEN_VISION_MIMES.has(mime)) return null;
     b64 = s.slice(mi + marker.length).replace(/\s/g, '');
