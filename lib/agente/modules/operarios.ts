@@ -184,6 +184,39 @@ export const OPERARIOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[]
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'eliminar_registro_jornada',
+      description:
+        'Elimina un registro de horas (registros_jornada) por operario, obra y fecha, o por registro_id. SDD: primero solo_vista_previa true (resumen o lista de candidatos, pendiente_confirmacion); tras confirmación explícita del usuario, misma tool con solo_vista_previa false y registro_id para borrar. Filtra siempre por el negocio de la sesión.',
+      parameters: {
+        type: 'object',
+        properties: {
+          operario_nombre: {
+            type: 'string',
+            description: 'Nombre o fragmento del operario (obligatorio si no hay registro_id)',
+          },
+          obra_nombre: { type: 'string', description: 'Texto para identificar la obra' },
+          obra_id: { type: 'string', description: 'UUID de la obra si se conoce' },
+          fecha: {
+            type: 'string',
+            description: 'Fecha YYYY-MM-DD del parte; por defecto hoy en Europa/Madrid',
+          },
+          registro_id: {
+            type: 'string',
+            description: 'UUID del registro en registros_jornada (tras elegir candidato o para ejecutar el borrado)',
+          },
+          solo_vista_previa: {
+            type: 'boolean',
+            description:
+              'True: solo muestra resumen o candidatos (no borra). False u omitido: borra el registro indicado por registro_id.',
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
 ];
 
 export async function ejecutarRegistrarJornada(
@@ -516,4 +549,198 @@ export async function ejecutarConsultarHorasOperario(
     horas_convenio_total: totalConvenio,
     detalle_por_dia: porDia,
   };
+}
+
+function fmtFechaEs(ymd: string): string {
+  const d = new Date(`${ymd}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return ymd;
+  return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+export async function ejecutarEliminarRegistroJornada(
+  supabase: SupabaseClient,
+  businessId: string,
+  toolArgs: Record<string, unknown>,
+  mensajeUsuario: string
+): Promise<Record<string, unknown>> {
+  const soloVista =
+    toolArgs.solo_vista_previa === true ||
+    String(toolArgs.solo_vista_previa ?? '').toLowerCase() === 'true';
+
+  const registroIdRaw =
+    typeof toolArgs.registro_id === 'string' && toolArgs.registro_id.trim()
+      ? toolArgs.registro_id.trim()
+      : '';
+
+  const previewOrDeleteById = async (
+    id: string,
+    mode: 'preview' | 'delete'
+  ): Promise<Record<string, unknown>> => {
+    const { data: row, error } = await supabase
+      .from('registros_jornada')
+      .select(
+        'id, fecha, horas_reales, horas_convenio, notas, operario_id, obra_id, operarios ( nombre ), obras ( nombre )'
+      )
+      .eq('id', id)
+      .eq('business_id', businessId)
+      .maybeSingle();
+    if (error) return { error: error.message };
+    if (!row) {
+      return { mensaje: 'No he encontrado ningún registro de jornada que coincida.' };
+    }
+    const r = row as {
+      id: string;
+      fecha: string;
+      horas_reales: number | null;
+      horas_convenio: number | null;
+      notas: string | null;
+      operarios?: { nombre?: string | null } | null;
+      obras?: { nombre?: string | null } | null;
+    };
+    const nomOp =
+      r.operarios && typeof r.operarios === 'object'
+        ? String((r.operarios as { nombre?: string | null }).nombre ?? '').trim()
+        : '';
+    const nomObra =
+      r.obras && typeof r.obras === 'object'
+        ? String((r.obras as { nombre?: string | null }).nombre ?? '').trim()
+        : '';
+    const hr = Number(r.horas_reales ?? 0);
+    const hc = Number(r.horas_convenio ?? 0);
+    const fechaFmt = fmtFechaEs(r.fecha);
+
+    if (mode === 'delete') {
+      const { data: del, error: delErr } = await supabase
+        .from('registros_jornada')
+        .delete()
+        .eq('id', id)
+        .eq('business_id', businessId)
+        .select('id')
+        .maybeSingle();
+      if (delErr) return { error: delErr.message };
+      if (!del?.id) {
+        return { error: 'No se pudo eliminar el registro o no pertenece a este negocio' };
+      }
+      return {
+        mensaje: `Registro de jornada eliminado (${nomOp || 'operario'} · ${nomObra || 'obra'} · ${fechaFmt}).`,
+        ok: true,
+      };
+    }
+
+    const lineas = [
+      'Resumen del registro a eliminar (no borrado aún):',
+      `• Operario: ${nomOp || '—'}`,
+      `• Obra: ${nomObra || '—'}`,
+      `• Fecha: ${fechaFmt} (${r.fecha})`,
+      `• Horas reales: ${hr} h, convenio: ${hc} h`,
+    ];
+    if (r.notas?.trim()) lineas.push(`• Notas: ${r.notas.trim()}`);
+    lineas.push(
+      '',
+      '¿Confirmas eliminar este registro de jornada? Si el usuario confirma, vuelve a llamar a eliminar_registro_jornada con el mismo registro_id y solo_vista_previa false o omitido.'
+    );
+    return {
+      mensaje: lineas.join('\n'),
+      pendiente_confirmacion: true,
+      registro_id: r.id,
+    };
+  };
+
+  if (registroIdRaw) {
+    if (soloVista) {
+      return previewOrDeleteById(registroIdRaw, 'preview');
+    }
+    return previewOrDeleteById(registroIdRaw, 'delete');
+  }
+
+  const operarioNombre = String(toolArgs.operario_nombre ?? '').trim();
+  if (!operarioNombre) {
+    return { error: 'Indica operario_nombre o registro_id para localizar el parte.' };
+  }
+
+  const opRes = await buscarOperariosPorNombre(supabase, businessId, operarioNombre);
+  if (!opRes.ok) return { error: opRes.error };
+  if (opRes.filas.length === 0) {
+    return { mensaje: 'No he encontrado ningún registro de jornada que coincida.' };
+  }
+  if (opRes.filas.length > 1) {
+    const lista = opRes.filas.map((o, i) => `${i + 1}. ${o.nombre}`).join('\n');
+    return {
+      mensaje: `Hay varios operarios que encajan:\n${lista}\nIndica el nombre completo o más concreto.`,
+    };
+  }
+  const operario = opRes.filas[0]!;
+
+  const obraNombreArg = String(toolArgs.obra_nombre ?? '').trim();
+  const obraIdArg =
+    typeof toolArgs.obra_id === 'string' && toolArgs.obra_id.trim()
+      ? toolArgs.obra_id.trim()
+      : undefined;
+  const textoBusqueda = [obraNombreArg, mensajeUsuario].filter(Boolean).join(' ').trim();
+  const obraRes = await resolverObraDocumentoAgente(
+    supabase,
+    businessId,
+    obraIdArg,
+    textoBusqueda,
+    'documento'
+  );
+  if (!obraRes.ok) return { mensaje: obraRes.mensaje };
+  if (!obraRes.obra_id) {
+    return { error: 'Indica la obra (nombre, dirección u obra_id) para localizar el registro de jornada.' };
+  }
+
+  const fecha = parseYmdOptional(toolArgs.fecha) ?? ymdTodayMadrid();
+
+  const { data: filas, error: qErr } = await supabase
+    .from('registros_jornada')
+    .select(
+      'id, fecha, horas_reales, horas_convenio, notas, obras ( nombre )'
+    )
+    .eq('business_id', businessId)
+    .eq('operario_id', operario.id)
+    .eq('obra_id', obraRes.obra_id)
+    .eq('fecha', fecha)
+    .order('id', { ascending: false })
+    .limit(20);
+
+  if (qErr) return { error: qErr.message };
+
+  const rows = (filas ?? []) as Array<{
+    id: string;
+    fecha: string;
+    horas_reales: number | null;
+    horas_convenio: number | null;
+    notas: string | null;
+    obras?: { nombre?: string | null } | null;
+  }>;
+
+  if (rows.length === 0) {
+    return { mensaje: 'No he encontrado ningún registro de jornada que coincida.' };
+  }
+
+  if (rows.length > 1) {
+    const lista = rows.map((r, i) => {
+      const oNom =
+        r.obras && typeof r.obras === 'object'
+          ? String((r.obras as { nombre?: string | null }).nombre ?? '').trim()
+          : '';
+      const hr = Number(r.horas_reales ?? 0);
+      return `${i + 1}. id ${r.id} — ${fmtFechaEs(r.fecha)} — ${hr} h${oNom ? ` — ${oNom}` : ''}`;
+    }).join('\n');
+    return {
+      mensaje:
+        `Hay varios registros de jornada que coinciden:\n${lista}\nIndica cuál borrar pasando registro_id en la siguiente llamada (solo_vista_previa true para confirmar).`,
+      candidatos: rows.map((r) => r.id),
+    };
+  }
+
+  const uno = rows[0]!;
+  if (!soloVista) {
+    return {
+      error:
+        'Para borrar con seguridad, primero muestra la vista prevía con solo_vista_previa true (o pasa registro_id tras listar candidatos).',
+    };
+  }
+
+  return previewOrDeleteById(uno.id, 'preview');
 }

@@ -3,10 +3,12 @@ import OpenAI from 'openai';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import {
   buildDiarioObraPdf,
+  collectDiarioObraStoragePathsFromEntry,
   decodeDataUrlImageForDiarioUpload,
   fetchDiarioObraEntries,
   insertDiarioObraEntry,
   normalizeDiarioObraRowMediaForInsert,
+  removeDiarioObraStorageObjects,
   sanitizeDiarioFilePart,
   signDiarioObraEntriesMedia,
   uploadDiarioObraMediaToBucket,
@@ -48,6 +50,7 @@ import {
   OPERARIOS_AGENT_TOOLS,
   ejecutarConsultarHorasObra,
   ejecutarConsultarHorasOperario,
+  ejecutarEliminarRegistroJornada,
   ejecutarListarOperarios,
   ejecutarRegistrarJornada,
 } from '@/lib/agente/modules/operarios';
@@ -481,6 +484,8 @@ const INTENT_TOOL_NAMES_AGENDA = new Set([
   'crear_recordatorio',
   'editar_recordatorio',
   'eliminar_recordatorio',
+  'eliminar_evento_agenda',
+  'modificar_evento_agenda',
   'get_directions',
   'consultar_tiempo',
   'guardar_memoria',
@@ -490,6 +495,8 @@ const INTENT_TOOL_NAMES_AGENDA = new Set([
 const INTENT_TOOL_NAMES_GASTOS = new Set([
   'registrar_gasto_ticket',
   'vincular_gasto',
+  'eliminar_gasto',
+  'modificar_gasto',
   'listar_facturas',
   'listar_albaranes',
   'mostrar_vista_visual',
@@ -501,6 +508,7 @@ const INTENT_TOOL_NAMES_GASTOS = new Set([
 const INTENT_TOOL_NAMES_DIARIO = new Set([
   'crear_entrada_diario',
   'generar_pdf_diario',
+  'eliminar_entrada_diario',
   'mostrar_vista_visual',
   'get_directions',
   'guardar_memoria',
@@ -529,6 +537,7 @@ const INTENT_TOOL_NAMES_OPERARIOS = new Set([
   'listar_operarios',
   'consultar_horas_obra',
   'consultar_horas_operario',
+  'eliminar_registro_jornada',
   'get_directions',
   'guardar_memoria',
   'eliminar_memoria',
@@ -1860,6 +1869,143 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
               },
             },
             required: ['clave'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'eliminar_entrada_diario',
+          description:
+            'Elimina una entrada del diario de obra (diario_obra). Busca por nombre de obra y opcionalmente fecha o texto en la descripción. SDD: solo_vista_previa true primero (resumen o candidatos); tras confirmación, solo_vista_previa false con entrada_id. Elimina también fotos/vídeos del bucket Storage.',
+          parameters: {
+            type: 'object',
+            properties: {
+              obra_nombre: {
+                type: 'string',
+                description: 'Nombre o texto para identificar la obra (p. ej. Reforma Paqui)',
+              },
+              obra_id: { type: 'string', description: 'UUID de la obra si se conoce' },
+              fecha: { type: 'string', description: 'Fecha de la entrada YYYY-MM-DD (opcional)' },
+              texto_fragmento: {
+                type: 'string',
+                description: 'Fragmento del texto de la entrada (opcional, búsqueda aproximada)',
+              },
+              entrada_id: { type: 'string', description: 'UUID de la fila diario_obra a eliminar' },
+              solo_vista_previa: {
+                type: 'boolean',
+                description:
+                  'True: solo muestra vista previa o lista de candidatos. False u omitido: ejecuta el borrado con entrada_id.',
+              },
+            },
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'eliminar_gasto',
+          description:
+            'Elimina un gasto (tabla gastos). Busca por proveedor, fecha, obra o descripción. SDD obligatorio: solo_vista_previa true primero; confirmación y solo_vista_previa false con gasto_id.',
+          parameters: {
+            type: 'object',
+            properties: {
+              proveedor: { type: 'string', description: 'Nombre o fragmento del proveedor' },
+              fecha: { type: 'string', description: 'Fecha YYYY-MM-DD (opcional)' },
+              obra_nombre: { type: 'string', description: 'Texto para filtrar por obra vinculada' },
+              obra_id: { type: 'string', description: 'UUID de obra' },
+              descripcion_fragmento: { type: 'string', description: 'Fragmento de descripción (opcional)' },
+              gasto_id: { type: 'string', description: 'UUID del gasto a eliminar' },
+              solo_vista_previa: {
+                type: 'boolean',
+                description:
+                  'True: solo muestra vista previa o candidatos. False u omitido: borra con gasto_id.',
+              },
+            },
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'eliminar_evento_agenda',
+          description:
+            'Elimina un evento de agenda buscando por título aproximado y/o fecha. SDD: solo_vista_previa true primero; luego solo_vista_previa false con evento_id. No confundir con eliminar_recordatorio por id si solo se conoce el UUID.',
+          parameters: {
+            type: 'object',
+            properties: {
+              titulo_fragmento: { type: 'string', description: 'Texto del título del recordatorio (búsqueda aproximada)' },
+              fecha: { type: 'string', description: 'Fecha YYYY-MM-DD (opcional)' },
+              evento_id: { type: 'string', description: 'UUID del evento en agenda' },
+              solo_vista_previa: {
+                type: 'boolean',
+                description:
+                  'True: solo muestra vista previa o candidatos. False u omitido: borra con evento_id.',
+              },
+            },
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'modificar_gasto',
+          description:
+            'Modifica un gasto existente (importe, proveedor, descripción, categoría, fecha). Busca por criterios o por gasto_id. SDD: solo_vista_previa true con cambios propuestos; luego solo_vista_previa false con gasto_id.',
+          parameters: {
+            type: 'object',
+            properties: {
+              gasto_id: { type: 'string', description: 'UUID del gasto' },
+              proveedor: { type: 'string', description: 'Para buscar si no hay gasto_id' },
+              fecha: { type: 'string', description: 'Fecha YYYY-MM-DD para buscar' },
+              obra_nombre: { type: 'string', description: 'Nombre de obra para filtrar' },
+              descripcion_fragmento: { type: 'string', description: 'Fragmento de descripción (búsqueda)' },
+              nuevo_proveedor: { type: 'string', description: 'Nuevo nombre de proveedor' },
+              nuevo_importe: { type: 'number', description: 'Nueva base imponible (sin IVA)' },
+              nuevo_iva: { type: 'number', description: 'Nueva cuota de IVA' },
+              nuevo_importe_total: { type: 'number', description: 'Nuevo total con IVA' },
+              nueva_descripcion: { type: 'string', description: 'Nueva descripción' },
+              nueva_categoria: {
+                type: 'string',
+                enum: ['material', 'herramienta', 'vertido', 'subcontrata', 'transporte', 'otros'],
+                description: 'Nueva categoría',
+              },
+              nueva_fecha: { type: 'string', description: 'Nueva fecha YYYY-MM-DD' },
+              solo_vista_previa: {
+                type: 'boolean',
+                description:
+                  'True: solo muestra vista previa o candidatos. False u omitido: aplica cambios con gasto_id.',
+              },
+            },
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'modificar_evento_agenda',
+          description:
+            'Modifica un evento de agenda (título, fecha, hora). Busca por ID o por título/fecha. SDD: solo_vista_previa true primero (resumen del cambio); luego solo_vista_previa false con evento_id.',
+          parameters: {
+            type: 'object',
+            properties: {
+              evento_id: { type: 'string', description: 'UUID del evento' },
+              titulo_fragmento: { type: 'string', description: 'Para buscar si no hay evento_id' },
+              fecha: { type: 'string', description: 'Fecha YYYY-MM-DD para buscar' },
+              nuevo_titulo: { type: 'string', description: 'Nuevo título' },
+              nueva_fecha: { type: 'string', description: 'Nueva fecha YYYY-MM-DD' },
+              nueva_hora: { type: 'string', description: 'Nueva hora (texto libre) o vacío para quitar' },
+              solo_vista_previa: {
+                type: 'boolean',
+                description:
+                  'True: solo muestra vista previa o candidatos. False u omitido: aplica cambios con evento_id.',
+              },
+            },
             additionalProperties: false,
           },
         },
@@ -4387,6 +4533,714 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
             mensaje: r.deleted ? 'Entrada eliminada.' : 'No había entrada con esa clave.',
           };
         }
+        case 'eliminar_entrada_diario': {
+          const bidDiarioDel =
+            typeof business_id === 'string' ? business_id : String(business_id ?? '');
+          if (!bidDiarioDel) return { error: 'business_id es requerido' };
+          const soloVistaDiario =
+            toolArgs.solo_vista_previa === true ||
+            String(toolArgs.solo_vista_previa ?? '').toLowerCase() === 'true';
+          const entradaIdDiario =
+            typeof toolArgs.entrada_id === 'string' && toolArgs.entrada_id.trim()
+              ? toolArgs.entrada_id.trim()
+              : '';
+          const obraNombreDiarioArg = String(toolArgs.obra_nombre ?? '').trim();
+          const obraIdDiarioArg =
+            typeof toolArgs.obra_id === 'string' && toolArgs.obra_id.trim()
+              ? toolArgs.obra_id.trim()
+              : undefined;
+          const fechaDiarioArg = String(toolArgs.fecha ?? '').trim();
+          const textoFragDiario = String(toolArgs.texto_fragmento ?? '').trim();
+
+          const ymdRowDiario = (iso: string | null | undefined) =>
+            formatYmdInTimeZone(new Date(iso ?? 0), 'Europe/Madrid');
+
+          const previewDiario = async (row: {
+            id: string;
+            obra_nombre: string | null;
+            texto: string | null;
+            fecha: string | null;
+          }) => {
+            const tituloTxt = String(row.texto ?? '')
+              .trim()
+              .slice(0, 80);
+            const fechaFmt = row.fecha
+              ? new Date(row.fecha).toLocaleDateString('es-ES', {
+                  day: 'numeric',
+                  month: 'short',
+                  year: 'numeric',
+                })
+              : '—';
+            const frag = tituloTxt || '(sin texto)';
+            return {
+              mensaje:
+                `¿Eliminar esta entrada del diario?\n` +
+                `• Obra: ${String(row.obra_nombre ?? '').trim() || '—'}\n` +
+                `• Fecha: ${fechaFmt}\n` +
+                `• Texto: ${frag}${String(row.texto ?? '').trim().length > 80 ? '…' : ''}\n\n` +
+                `Si el usuario confirma, vuelve a llamar a eliminar_entrada_diario con entrada_id "${row.id}" y solo_vista_previa false (u omítelo).`,
+              pendiente_confirmacion: true,
+              entrada_id: row.id,
+            };
+          };
+
+          const ejecutarBorradoDiario = async (id: string) => {
+            const { data: rowD, error: feD } = await supabase
+              .from('diario_obra')
+              .select('id, fotos, videos')
+              .eq('id', id)
+              .eq('business_id', bidDiarioDel)
+              .maybeSingle();
+            if (feD) return { error: feD.message };
+            if (!rowD?.id) {
+              return { mensaje: 'No he encontrado ninguna entrada del diario que coincida.' };
+            }
+            const paths = collectDiarioObraStoragePathsFromEntry({
+              fotos: rowD.fotos as string[] | null,
+              videos: rowD.videos as string[] | null,
+            });
+            await removeDiarioObraStorageObjects(supabase, paths);
+            const { error: deD } = await supabase
+              .from('diario_obra')
+              .delete()
+              .eq('id', id)
+              .eq('business_id', bidDiarioDel);
+            if (deD) return { error: deD.message };
+            return { mensaje: 'Entrada del diario eliminada.', ok: true };
+          };
+
+          if (entradaIdDiario) {
+            if (soloVistaDiario) {
+              const { data: row1, error: e1 } = await supabase
+                .from('diario_obra')
+                .select('id, obra_nombre, texto, fecha')
+                .eq('id', entradaIdDiario)
+                .eq('business_id', bidDiarioDel)
+                .maybeSingle();
+              if (e1) return { error: e1.message };
+              if (!row1?.id) {
+                return { mensaje: 'No he encontrado ninguna entrada del diario que coincida.' };
+              }
+              return previewDiario(row1 as { id: string; obra_nombre: string | null; texto: string | null; fecha: string | null });
+            }
+            return ejecutarBorradoDiario(entradaIdDiario);
+          }
+
+          const textoBusObraDiario = [obraNombreDiarioArg, mensajeTrim].filter(Boolean).join(' ').trim();
+          const obraResDiario = await resolverObraDocumentoAgente(
+            supabase,
+            bidDiarioDel,
+            obraIdDiarioArg,
+            textoBusObraDiario,
+            'entrada_diario'
+          );
+          if (!obraResDiario.ok) return { mensaje: obraResDiario.mensaje };
+          if (!obraResDiario.obra_id) {
+            return { error: 'Indica la obra (obra_nombre u obra_id) para localizar la entrada del diario.' };
+          }
+
+          let qDiario = supabase
+            .from('diario_obra')
+            .select('id, obra_nombre, texto, fecha, created_at')
+            .eq('business_id', bidDiarioDel)
+            .eq('obra_id', obraResDiario.obra_id)
+            .order('fecha', { ascending: false })
+            .limit(80);
+
+          if (textoFragDiario) {
+            const safeTx = textoFragDiario.replace(/[%_*]/g, '').slice(0, 200);
+            if (safeTx) {
+              qDiario = qDiario.ilike('texto', `%${safeTx}%`);
+            }
+          }
+
+          const { data: filasD, error: errD } = await qDiario;
+          if (errD) return { error: errD.message };
+
+          let candidatosD = (filasD ?? []) as Array<{
+            id: string;
+            obra_nombre: string | null;
+            texto: string | null;
+            fecha: string | null;
+          }>;
+
+          if (/^\d{4}-\d{2}-\d{2}$/.test(fechaDiarioArg)) {
+            candidatosD = candidatosD.filter((r) => ymdRowDiario(r.fecha) === fechaDiarioArg);
+          }
+
+          if (candidatosD.length === 0) {
+            return { mensaje: 'No he encontrado ninguna entrada del diario que coincida.' };
+          }
+
+          if (candidatosD.length > 1) {
+            const lista = candidatosD.slice(0, 15).map((r, i) => {
+              const frag = String(r.texto ?? '')
+                .trim()
+                .slice(0, 60);
+              const f = r.fecha
+                ? new Date(r.fecha).toLocaleDateString('es-ES', { dateStyle: 'short' })
+                : '—';
+              return `${i + 1}. ${f} — ${frag || '(sin texto)'} — id ${r.id}`;
+            });
+            return {
+              mensaje:
+                `Hay varias entradas que encajan:\n${lista.join('\n')}\nIndica cuál eliminar pasando entrada_id (luego solo_vista_previa true y confirmación).`,
+              candidatos: candidatosD.map((c) => c.id),
+            };
+          }
+
+          const unoD = candidatosD[0]!;
+          if (!soloVistaDiario) {
+            return {
+              error:
+                'Para borrar con seguridad, primero muestra la vista prevía con solo_vista_previa true.',
+            };
+          }
+          return previewDiario(unoD);
+        }
+        case 'eliminar_gasto': {
+          const bidGDel =
+            typeof business_id === 'string' ? business_id : String(business_id ?? '');
+          if (!bidGDel) return { error: 'business_id es requerido' };
+          const soloVG =
+            toolArgs.solo_vista_previa === true ||
+            String(toolArgs.solo_vista_previa ?? '').toLowerCase() === 'true';
+          const gastoIdG = typeof toolArgs.gasto_id === 'string' && toolArgs.gasto_id.trim()
+            ? toolArgs.gasto_id.trim()
+            : '';
+          const proveedorG = String(toolArgs.proveedor ?? '').trim();
+          const fechaG = String(toolArgs.fecha ?? '').trim();
+          const obraNombreG = String(toolArgs.obra_nombre ?? '').trim();
+          const obraIdG =
+            typeof toolArgs.obra_id === 'string' && toolArgs.obra_id.trim()
+              ? toolArgs.obra_id.trim()
+              : '';
+          const descFragG = String(toolArgs.descripcion_fragmento ?? '').trim();
+
+          const previewGastoRow = (r: {
+            id: string;
+            proveedor: string | null;
+            importe_total: number | null;
+            fecha: string | null;
+            descripcion: string | null;
+            obra_id?: string | null;
+          }) => ({
+            mensaje:
+              `¿Eliminar este gasto?\n` +
+              `• Proveedor: ${String(r.proveedor ?? '').trim() || '—'}\n` +
+              `• Total: ${r.importe_total != null ? `${Number(r.importe_total).toFixed(2)} €` : '—'}\n` +
+              `• Fecha: ${r.fecha ?? '—'}\n` +
+              `• Descripción: ${String(r.descripcion ?? '').trim().slice(0, 120) || '—'}\n\n` +
+              `Si el usuario confirma, vuelve a llamar a eliminar_gasto con gasto_id "${r.id}" y solo_vista_previa false (u omítelo).`,
+            pendiente_confirmacion: true,
+            gasto_id: r.id,
+          });
+
+          const borrarGasto = async (id: string) => {
+            const { data: delG, error: delErr } = await supabase
+              .from('gastos')
+              .delete()
+              .eq('id', id)
+              .eq('business_id', bidGDel)
+              .select('id')
+              .maybeSingle();
+            if (delErr) return { error: delErr.message };
+            if (!delG?.id) {
+              return { mensaje: 'No he encontrado ningún gasto que coincida.' };
+            }
+            return { mensaje: 'Gasto eliminado.', ok: true };
+          };
+
+          if (gastoIdG) {
+            if (soloVG) {
+              const { data: gr, error: ge } = await supabase
+                .from('gastos')
+                .select('id, proveedor, importe_total, fecha, descripcion, obra_id')
+                .eq('id', gastoIdG)
+                .eq('business_id', bidGDel)
+                .maybeSingle();
+              if (ge) return { error: ge.message };
+              if (!gr?.id) {
+                return { mensaje: 'No he encontrado ningún gasto que coincida.' };
+              }
+              return previewGastoRow(gr as { id: string; proveedor: string | null; importe_total: number | null; fecha: string | null; descripcion: string | null; obra_id?: string | null });
+            }
+            return borrarGasto(gastoIdG);
+          }
+
+          let qG = supabase
+            .from('gastos')
+            .select('id, proveedor, importe_total, fecha, descripcion, obra_id')
+            .eq('business_id', bidGDel)
+            .order('fecha', { ascending: false })
+            .limit(80);
+
+          if (proveedorG) {
+            const safeP = proveedorG.replace(/[%_*]/g, '').slice(0, 120);
+            if (safeP) qG = qG.ilike('proveedor', `%${safeP}%`);
+          }
+          if (/^\d{4}-\d{2}-\d{2}$/.test(fechaG)) {
+            qG = qG.eq('fecha', fechaG);
+          }
+          if (descFragG) {
+            const safeD = descFragG.replace(/[%_*]/g, '').slice(0, 200);
+            if (safeD) qG = qG.ilike('descripcion', `%${safeD}%`);
+          }
+
+          const { data: gastosFilas, error: gErr } = await qG;
+          if (gErr) return { error: gErr.message };
+
+          let listaG = (gastosFilas ?? []) as Array<{
+            id: string;
+            proveedor: string | null;
+            importe_total: number | null;
+            fecha: string | null;
+            descripcion: string | null;
+            obra_id: string | null;
+          }>;
+
+          if (obraIdG) {
+            listaG = listaG.filter((g) => g.obra_id === obraIdG);
+          } else if (obraNombreG) {
+            const obraResG = await resolverObraDocumentoAgente(
+              supabase,
+              bidGDel,
+              undefined,
+              [obraNombreG, mensajeTrim].filter(Boolean).join(' '),
+              'gasto'
+            );
+            if (obraResG.ok && obraResG.obra_id) {
+              listaG = listaG.filter((g) => g.obra_id === obraResG.obra_id);
+            }
+          }
+
+          if (listaG.length === 0) {
+            return { mensaje: 'No he encontrado ningún gasto que coincida.' };
+          }
+          if (listaG.length > 1) {
+            const lines = listaG.slice(0, 15).map((g, i) => {
+              const tot = g.importe_total != null ? `${Number(g.importe_total).toFixed(2)} €` : '—';
+              return `${i + 1}. ${g.fecha ?? '—'} — ${String(g.proveedor ?? '').trim() || '—'} — ${tot} — id ${g.id}`;
+            });
+            return {
+              mensaje: `Hay varios gastos que encajan:\n${lines.join('\n')}\nIndica cuál eliminar con gasto_id.`,
+              candidatos: listaG.map((g) => g.id),
+            };
+          }
+
+          const unoG = listaG[0]!;
+          if (!soloVG) {
+            return {
+              error:
+                'Para borrar con seguridad, primero muestra la vista prevía con solo_vista_previa true.',
+            };
+          }
+          return previewGastoRow(unoG);
+        }
+        case 'eliminar_evento_agenda': {
+          const bidAgDel =
+            typeof business_id === 'string' ? business_id : String(business_id ?? '');
+          if (!bidAgDel) return { error: 'business_id es requerido' };
+          const soloVAg =
+            toolArgs.solo_vista_previa === true ||
+            String(toolArgs.solo_vista_previa ?? '').toLowerCase() === 'true';
+          const eventoIdAg =
+            typeof toolArgs.evento_id === 'string' && toolArgs.evento_id.trim()
+              ? toolArgs.evento_id.trim()
+              : '';
+          const tituloFragAg = String(toolArgs.titulo_fragmento ?? '').trim();
+          const fechaAg = String(toolArgs.fecha ?? '').trim();
+
+          if (eventoIdAg) {
+            if (soloVAg) {
+              const { data: ev, error: evErr } = await supabase
+                .from('agenda')
+                .select('id, titulo, fecha, hora')
+                .eq('id', eventoIdAg)
+                .eq('business_id', bidAgDel)
+                .maybeSingle();
+              if (evErr) return { error: evErr.message };
+              if (!ev?.id) {
+                return { mensaje: 'No he encontrado ningún evento de agenda que coincida.' };
+              }
+              return {
+                mensaje:
+                  `¿Eliminar este recordatorio?\n` +
+                  `• ${String(ev.titulo ?? '').trim() || '—'}\n` +
+                  `• Fecha: ${String(ev.fecha ?? '').trim() || '—'}\n` +
+                  `• Hora: ${String(ev.hora ?? '').trim() || '—'}\n\n` +
+                  `Si el usuario confirma, vuelve a llamar a eliminar_evento_agenda con el mismo evento_id y solo_vista_previa false.`,
+                pendiente_confirmacion: true,
+                evento_id: ev.id,
+              };
+            }
+            const { data: delEv, error: delEvErr } = await supabase
+              .from('agenda')
+              .delete()
+              .eq('id', eventoIdAg)
+              .eq('business_id', bidAgDel)
+              .select('id')
+              .maybeSingle();
+            if (delEvErr) return { error: delEvErr.message };
+            if (!delEv?.id) {
+              return { mensaje: 'No he encontrado ningún evento de agenda que coincida.' };
+            }
+            return { mensaje: 'Evento de agenda eliminado.', ok: true };
+          }
+
+          if (!tituloFragAg && !/^\d{4}-\d{2}-\d{2}$/.test(fechaAg)) {
+            return {
+              error: 'Indica titulo_fragmento y/o fecha (YYYY-MM-DD) para buscar el evento, o evento_id.',
+            };
+          }
+
+          let qEv = supabase
+            .from('agenda')
+            .select('id, titulo, fecha, hora')
+            .eq('business_id', bidAgDel)
+            .order('fecha', { ascending: false })
+            .limit(80);
+
+          if (/^\d{4}-\d{2}-\d{2}$/.test(fechaAg)) {
+            qEv = qEv.eq('fecha', fechaAg);
+          }
+          if (tituloFragAg) {
+            const safeT = tituloFragAg.replace(/[%_*]/g, '').slice(0, 200);
+            if (safeT) qEv = qEv.ilike('titulo', `%${safeT}%`);
+          }
+
+          const { data: evRows, error: evQErr } = await qEv;
+          if (evQErr) return { error: evQErr.message };
+
+          const evList = (evRows ?? []) as Array<{
+            id: string;
+            titulo: string | null;
+            fecha: string | null;
+            hora: string | null;
+          }>;
+
+          if (evList.length === 0) {
+            return { mensaje: 'No he encontrado ningún evento de agenda que coincida.' };
+          }
+          if (evList.length > 1) {
+            const lines = evList.slice(0, 15).map((e, i) => {
+              return `${i + 1}. ${e.fecha ?? '—'} — ${String(e.titulo ?? '').trim() || '—'} — id ${e.id}`;
+            });
+            return {
+              mensaje: `Hay varios eventos que encajan:\n${lines.join('\n')}\nIndica cuál eliminar con evento_id.`,
+              candidatos: evList.map((e) => e.id),
+            };
+          }
+
+          const unoEv = evList[0]!;
+          if (!soloVAg) {
+            return {
+              error:
+                'Para borrar con seguridad, primero muestra la vista prevía con solo_vista_previa true.',
+            };
+          }
+          return {
+            mensaje:
+              `¿Eliminar este recordatorio?\n` +
+              `• ${String(unoEv.titulo ?? '').trim() || '—'}\n` +
+              `• Fecha: ${String(unoEv.fecha ?? '').trim() || '—'}\n` +
+              `• Hora: ${String(unoEv.hora ?? '').trim() || '—'}\n\n` +
+              `Si el usuario confirma, vuelve a llamar a eliminar_evento_agenda con evento_id "${unoEv.id}" y solo_vista_previa false.`,
+            pendiente_confirmacion: true,
+            evento_id: unoEv.id,
+          };
+        }
+        case 'modificar_gasto': {
+          const bidModG =
+            typeof business_id === 'string' ? business_id : String(business_id ?? '');
+          if (!bidModG) return { error: 'business_id es requerido' };
+          const soloVMG =
+            toolArgs.solo_vista_previa === true ||
+            String(toolArgs.solo_vista_previa ?? '').toLowerCase() === 'true';
+          const gastoIdMod =
+            typeof toolArgs.gasto_id === 'string' && toolArgs.gasto_id.trim()
+              ? toolArgs.gasto_id.trim()
+              : '';
+
+          const nuevoProv = toolArgs.nuevo_proveedor != null ? String(toolArgs.nuevo_proveedor).trim() : '';
+          const nuevoImp = toolArgs.nuevo_importe;
+          const nuevoIva = toolArgs.nuevo_iva;
+          const nuevoTot = toolArgs.nuevo_importe_total;
+          const nuevaDesc =
+            toolArgs.nueva_descripcion != null ? String(toolArgs.nueva_descripcion).trim() : '';
+          const nuevaFecha = String(toolArgs.nueva_fecha ?? '').trim();
+          const categoriaExplicita =
+            toolArgs.nueva_categoria !== undefined && toolArgs.nueva_categoria !== null;
+
+          const tieneCambios =
+            nuevoProv.length > 0 ||
+            (typeof nuevoImp === 'number' && Number.isFinite(nuevoImp)) ||
+            (typeof nuevoIva === 'number' && Number.isFinite(nuevoIva)) ||
+            (typeof nuevoTot === 'number' && Number.isFinite(nuevoTot)) ||
+            nuevaDesc.length > 0 ||
+            categoriaExplicita ||
+            /^\d{4}-\d{2}-\d{2}$/.test(nuevaFecha);
+
+          if (!tieneCambios) {
+            return { error: 'Indica al menos un campo nuevo (nuevo_proveedor, importes, descripción, categoría o fecha).' };
+          }
+
+          const cargarGasto = async (id: string) => {
+            const { data: g, error } = await supabase
+              .from('gastos')
+              .select('id, proveedor, importe, iva, importe_total, fecha, descripcion, categoria, obra_id')
+              .eq('id', id)
+              .eq('business_id', bidModG)
+              .maybeSingle();
+            if (error) return { error: error.message } as const;
+            if (!g?.id) return { notFound: true } as const;
+            return { row: g } as const;
+          };
+
+          let targetId = gastoIdMod;
+
+          if (!targetId) {
+            const proveedorS = String(toolArgs.proveedor ?? '').trim();
+            const fechaS = String(toolArgs.fecha ?? '').trim();
+            const obraNombreS = String(toolArgs.obra_nombre ?? '').trim();
+            const descFragS = String(toolArgs.descripcion_fragmento ?? '').trim();
+
+            let qS = supabase
+              .from('gastos')
+              .select('id, proveedor, importe, iva, importe_total, fecha, descripcion, categoria, obra_id')
+              .eq('business_id', bidModG)
+              .order('fecha', { ascending: false })
+              .limit(80);
+            if (proveedorS) {
+              const safe = proveedorS.replace(/[%_*]/g, '').slice(0, 120);
+              if (safe) qS = qS.ilike('proveedor', `%${safe}%`);
+            }
+            if (/^\d{4}-\d{2}-\d{2}$/.test(fechaS)) qS = qS.eq('fecha', fechaS);
+            if (descFragS) {
+              const sd = descFragS.replace(/[%_*]/g, '').slice(0, 200);
+              if (sd) qS = qS.ilike('descripcion', `%${sd}%`);
+            }
+            const { data: gs, error: gsErr } = await qS;
+            if (gsErr) return { error: gsErr.message };
+            let listS = (gs ?? []) as Array<{ id: string; obra_id: string | null }>;
+            if (obraNombreS) {
+              const oRes = await resolverObraDocumentoAgente(
+                supabase,
+                bidModG,
+                undefined,
+                [obraNombreS, mensajeTrim].filter(Boolean).join(' '),
+                'gasto'
+              );
+              if (oRes.ok && oRes.obra_id) {
+                listS = listS.filter((x) => x.obra_id === oRes.obra_id);
+              }
+            }
+            if (listS.length === 0) {
+              return { mensaje: 'No he encontrado ningún gasto que coincida.' };
+            }
+            if (listS.length > 1) {
+              const lines = listS.slice(0, 15).map((g, i) => `${i + 1}. id ${g.id}`);
+              return {
+                mensaje: `Hay varios gastos que encajan:\n${lines.join('\n')}\nIndica gasto_id y los cambios.`,
+                candidatos: listS.map((g) => g.id),
+              };
+            }
+            targetId = listS[0]!.id;
+          }
+
+          const loaded = await cargarGasto(targetId);
+          if ('error' in loaded && loaded.error) return { error: loaded.error };
+          if ('notFound' in loaded && loaded.notFound) {
+            return { mensaje: 'No he encontrado ningún gasto que coincida.' };
+          }
+          const rowG = (loaded as { row: Record<string, unknown> }).row;
+          const provAct = String(rowG.proveedor ?? '');
+          const impAct = Number(rowG.importe ?? 0);
+          const ivaAct = Number(rowG.iva ?? 0);
+          const totAct = Number(rowG.importe_total ?? 0);
+          const descAct = String(rowG.descripcion ?? '');
+          const catAct = String(rowG.categoria ?? '');
+          const fechaAct = String(rowG.fecha ?? '');
+
+          const provN = nuevoProv || provAct;
+          let impN = typeof nuevoImp === 'number' && Number.isFinite(nuevoImp) ? nuevoImp : impAct;
+          let ivaN = typeof nuevoIva === 'number' && Number.isFinite(nuevoIva) ? nuevoIva : ivaAct;
+          let totN =
+            typeof nuevoTot === 'number' && Number.isFinite(nuevoTot) ? nuevoTot : totAct;
+          if (typeof nuevoTot === 'number' && Number.isFinite(nuevoTot) && nuevoImp === undefined && nuevoIva === undefined) {
+            totN = nuevoTot;
+            const base = totN / 1.21;
+            impN = Math.round(base * 100) / 100;
+            ivaN = Math.round((totN - impN) * 100) / 100;
+          }
+          const descN = nuevaDesc.length > 0 ? nuevaDesc : descAct;
+          const catN = categoriaExplicita ? normalizeGastoCategoria(toolArgs.nueva_categoria) : catAct;
+          const fechaN = /^\d{4}-\d{2}-\d{2}$/.test(nuevaFecha) ? nuevaFecha : fechaAct;
+
+          const lineasPrev = [
+            'Cambios propuestos en el gasto (no guardados aún):',
+            `• Proveedor: ${provAct} → ${provN}`,
+            `• Base: ${impAct.toFixed(2)} € → ${impN.toFixed(2)} €`,
+            `• IVA: ${ivaAct.toFixed(2)} € → ${ivaN.toFixed(2)} €`,
+            `• Total: ${totAct.toFixed(2)} € → ${totN.toFixed(2)} €`,
+            `• Fecha: ${fechaAct} → ${fechaN}`,
+            `• Descripción: ${descAct || '—'} → ${descN || '—'}`,
+            `• Categoría: ${catAct || '—'} → ${catN || '—'}`,
+            '',
+            'Si el usuario confirma, vuelve a llamar a modificar_gasto con el mismo gasto_id y solo_vista_previa false.',
+          ];
+
+          if (soloVMG) {
+            return {
+              mensaje: lineasPrev.join('\n'),
+              pendiente_confirmacion: true,
+              gasto_id: targetId,
+            };
+          }
+
+          const { data: upG, error: upGErr } = await supabase
+            .from('gastos')
+            .update({
+              proveedor: provN,
+              importe: impN,
+              iva: ivaN,
+              importe_total: totN,
+              fecha: fechaN,
+              descripcion: descN.length > 0 ? descN : null,
+              categoria: catN || null,
+            })
+            .eq('id', targetId)
+            .eq('business_id', bidModG)
+            .select('id')
+            .maybeSingle();
+          if (upGErr) return { error: upGErr.message };
+          if (!upG?.id) {
+            return { mensaje: 'No he encontrado ningún gasto que coincida.' };
+          }
+          return { mensaje: 'Gasto actualizado correctamente.', ok: true, id: upG.id as string };
+        }
+        case 'modificar_evento_agenda': {
+          const bidEvM =
+            typeof business_id === 'string' ? business_id : String(business_id ?? '');
+          if (!bidEvM) return { error: 'business_id es requerido' };
+          const soloVEv =
+            toolArgs.solo_vista_previa === true ||
+            String(toolArgs.solo_vista_previa ?? '').toLowerCase() === 'true';
+          const eventoIdM =
+            typeof toolArgs.evento_id === 'string' && toolArgs.evento_id.trim()
+              ? toolArgs.evento_id.trim()
+              : '';
+
+          const nuevoTit = toolArgs.nuevo_titulo != null ? String(toolArgs.nuevo_titulo).trim() : '';
+          const nuevaFechaM = String(toolArgs.nueva_fecha ?? '').trim();
+          const nuevaHoraM = toolArgs.nueva_hora !== undefined ? String(toolArgs.nueva_hora) : undefined;
+
+          const tieneAlguno =
+            nuevoTit.length > 0 ||
+            /^\d{4}-\d{2}-\d{2}$/.test(nuevaFechaM) ||
+            nuevaHoraM !== undefined;
+          if (!tieneAlguno) {
+            return { error: 'Indica nuevo_titulo, nueva_fecha y/o nueva_hora para modificar el evento.' };
+          }
+
+          let idEv = eventoIdM;
+          if (!idEv) {
+            const titFr = String(toolArgs.titulo_fragmento ?? '').trim();
+            const fechaBus = String(toolArgs.fecha ?? '').trim();
+            if (!titFr && !/^\d{4}-\d{2}-\d{2}$/.test(fechaBus)) {
+              return { error: 'Indica evento_id o titulo_fragmento y/o fecha para buscar el evento.' };
+            }
+            let qM = supabase
+              .from('agenda')
+              .select('id, titulo, fecha, hora')
+              .eq('business_id', bidEvM)
+              .order('fecha', { ascending: false })
+              .limit(80);
+            if (/^\d{4}-\d{2}-\d{2}$/.test(fechaBus)) qM = qM.eq('fecha', fechaBus);
+            if (titFr) {
+              const st = titFr.replace(/[%_*]/g, '').slice(0, 200);
+              if (st) qM = qM.ilike('titulo', `%${st}%`);
+            }
+            const { data: rowsM, error: errM } = await qM;
+            if (errM) return { error: errM.message };
+            const listM = (rowsM ?? []) as Array<{ id: string }>;
+            if (listM.length === 0) {
+              return { mensaje: 'No he encontrado ningún evento de agenda que coincida.' };
+            }
+            if (listM.length > 1) {
+              return {
+                mensaje: `Hay varios eventos que encajan. Indica evento_id.\n${listM
+                  .slice(0, 15)
+                  .map((e, i) => `${i + 1}. ${e.id}`)
+                  .join('\n')}`,
+                candidatos: listM.map((e) => e.id),
+              };
+            }
+            idEv = listM[0]!.id;
+          }
+
+          const { data: evRow, error: evFE } = await supabase
+            .from('agenda')
+            .select('id, titulo, fecha, hora')
+            .eq('id', idEv)
+            .eq('business_id', bidEvM)
+            .maybeSingle();
+          if (evFE) return { error: evFE.message };
+          if (!evRow?.id) {
+            return { mensaje: 'No he encontrado ningún evento de agenda que coincida.' };
+          }
+
+          const titAct = String(evRow.titulo ?? '');
+          const fechaActE = String(evRow.fecha ?? '');
+          const horaAct = String(evRow.hora ?? '');
+
+          const titN = nuevoTit || titAct;
+          const fechaN = /^\d{4}-\d{2}-\d{2}$/.test(nuevaFechaM) ? nuevaFechaM : fechaActE;
+          let horaN: string | null = horaAct;
+          if (nuevaHoraM !== undefined) {
+            const h = nuevaHoraM.trim();
+            horaN = h.length > 0 ? h : null;
+          }
+
+          const prevLines = [
+            'Cambios propuestos en el evento (no guardados aún):',
+            `• Título: ${titAct} → ${titN}`,
+            `• Fecha: ${fechaActE} → ${fechaN}`,
+            `• Hora: ${horaAct || '—'} → ${horaN ?? '—'}`,
+            '',
+            'Si el usuario confirma, vuelve a llamar a modificar_evento_agenda con el mismo evento_id y solo_vista_previa false.',
+          ];
+
+          if (soloVEv) {
+            return {
+              mensaje: prevLines.join('\n'),
+              pendiente_confirmacion: true,
+              evento_id: idEv,
+            };
+          }
+
+          const updatesEv: { titulo?: string; fecha?: string; hora?: string | null } = {};
+          if (nuevoTit.length > 0) updatesEv.titulo = titN;
+          if (/^\d{4}-\d{2}-\d{2}$/.test(nuevaFechaM)) updatesEv.fecha = fechaN;
+          if (nuevaHoraM !== undefined) updatesEv.hora = horaN;
+
+          if (Object.keys(updatesEv).length === 0) {
+            return { error: 'No hay cambios que aplicar.' };
+          }
+
+          const { data: upEv, error: upEvErr } = await supabase
+            .from('agenda')
+            .update(updatesEv)
+            .eq('id', idEv)
+            .eq('business_id', bidEvM)
+            .select('id')
+            .maybeSingle();
+          if (upEvErr) return { error: upEvErr.message };
+          if (!upEv?.id) {
+            return { mensaje: 'No he encontrado ningún evento de agenda que coincida.' };
+          }
+          return { mensaje: 'Evento de agenda actualizado.', ok: true, id: upEv.id as string };
+        }
         case 'registrar_gasto_ticket': {
           const proveedor = String(toolArgs.proveedor ?? '').trim();
           const importe = Number(toolArgs.importe);
@@ -5150,6 +6004,14 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
             supabase,
             typeof business_id === 'string' ? business_id : String(business_id ?? ''),
             toolArgs
+          );
+        }
+        case 'eliminar_registro_jornada': {
+          return ejecutarEliminarRegistroJornada(
+            supabase,
+            typeof business_id === 'string' ? business_id : String(business_id ?? ''),
+            toolArgs,
+            mensajeTrim
           );
         }
         default:
