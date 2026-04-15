@@ -14,11 +14,17 @@ type OperarioResumenPorObra = {
   obra_nombre: string;
   horas_reales: number;
   horas_convenio: number;
+  por_dia: Array<{
+    fecha: string;
+    horas_reales: number;
+    horas_convenio: number;
+  }>;
 };
 
 type OperarioResumenFila = {
   id: string;
   nombre: string;
+  dni: string | null;
   horas_reales_mes: number;
   horas_convenio_mes: number;
   por_obra: OperarioResumenPorObra[];
@@ -44,6 +50,17 @@ function mesActualYyyyMmMadrid(): string {
   return `${y}-${m}-${d}`.slice(0, 7);
 }
 
+function formatearDiaCorto(fechaIso: string): string {
+  const d = new Date(`${fechaIso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return fechaIso;
+  const txt = new Intl.DateTimeFormat('es-ES', {
+    day: '2-digit',
+    month: 'short',
+    timeZone: 'Europe/Madrid',
+  }).format(d);
+  return txt.replace('.', '').toLowerCase();
+}
+
 export default function OperariosPage() {
   const router = useRouter();
   const supabase = useMemo(
@@ -65,6 +82,10 @@ export default function OperariosPage() {
   const [error, setError] = useState<string | null>(null);
   const [menuMovilAbierto, setMenuMovilAbierto] = useState(false);
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
+  const [modalDniAbierto, setModalDniAbierto] = useState(false);
+  const [operarioEditando, setOperarioEditando] = useState<OperarioResumenFila | null>(null);
+  const [dniDraft, setDniDraft] = useState('');
+  const [guardandoDni, setGuardandoDni] = useState(false);
 
   const toggleExpand = useCallback((id: string) => {
     setExpandidos((prev) => {
@@ -131,6 +152,52 @@ export default function OperariosPage() {
       setLoading(false);
     }
   }, [businessId, mes]);
+
+  const abrirEditorDni = useCallback((op: OperarioResumenFila) => {
+    setOperarioEditando(op);
+    setDniDraft(op.dni ?? '');
+    setModalDniAbierto(true);
+  }, []);
+
+  const guardarDni = useCallback(async () => {
+    if (!businessId || !operarioEditando) return;
+    setGuardandoDni(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/operarios/dni', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          business_id: businessId,
+          operario_id: operarioEditando.id,
+          dni: dniDraft.trim(),
+        }),
+      });
+      const json = (await res.json()) as {
+        error?: string;
+        operario?: { id: string; dni: string | null };
+      };
+      if (!res.ok) {
+        setError(json.error ?? 'No se pudo actualizar el DNI');
+        return;
+      }
+      setFilas((prev) =>
+        prev.map((f) =>
+          f.id === operarioEditando.id
+            ? { ...f, dni: json.operario?.dni ?? (dniDraft.trim() || null) }
+            : f
+        )
+      );
+      setModalDniAbierto(false);
+      setOperarioEditando(null);
+      setDniDraft('');
+    } catch {
+      setError('Error de conexión');
+    } finally {
+      setGuardandoDni(false);
+    }
+  }, [businessId, dniDraft, operarioEditando]);
 
   useEffect(() => {
     if (!authChecking && businessId) void cargarResumen();
@@ -210,29 +277,41 @@ export default function OperariosPage() {
                       key={op.id}
                       className="rounded-xl border border-white/10 bg-[#111827]/90 overflow-hidden"
                     >
-                      <button
-                        type="button"
-                        onClick={() => toggleExpand(op.id)}
-                        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/5 transition-colors touch-manipulation"
-                        aria-expanded={abierto}
-                      >
-                        <ChevronDown
-                          className={`size-5 shrink-0 text-[#ed8936] transition-transform ${abierto ? 'rotate-180' : ''}`}
-                          aria-hidden
-                        />
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-white truncate">{op.nombre}</p>
-                          <p className="text-xs text-white/60 mt-0.5 tabular-nums">
-                            Mes: {op.horas_reales_mes.toFixed(2)} h reales ·{' '}
-                            {op.horas_convenio_mes.toFixed(2)} h convenio
-                          </p>
-                        </div>
-                        {!tieneObra ? (
-                          <span className="text-[10px] uppercase tracking-wide text-white/40 shrink-0 hidden sm:inline">
-                            Sin obra este mes
-                          </span>
-                        ) : null}
-                      </button>
+                      <div className="w-full flex items-stretch gap-2 px-4 py-3 hover:bg-white/5 transition-colors">
+                        <button
+                          type="button"
+                          onClick={() => toggleExpand(op.id)}
+                          className="flex-1 min-w-0 flex items-center gap-3 text-left touch-manipulation"
+                          aria-expanded={abierto}
+                        >
+                          <ChevronDown
+                            className={`size-5 shrink-0 text-[#ed8936] transition-transform ${abierto ? 'rotate-180' : ''}`}
+                            aria-hidden
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-white truncate">
+                              {op.nombre}
+                              {op.dni ? <span className="text-white/60 font-normal"> · DNI {op.dni}</span> : null}
+                            </p>
+                            <p className="text-xs text-white/60 mt-0.5 tabular-nums">
+                              Mes: {op.horas_reales_mes.toFixed(2)} h reales ·{' '}
+                              {op.horas_convenio_mes.toFixed(2)} h convenio
+                            </p>
+                          </div>
+                          {!tieneObra ? (
+                            <span className="text-[10px] uppercase tracking-wide text-white/40 shrink-0 hidden sm:inline">
+                              Sin obra este mes
+                            </span>
+                          ) : null}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => abrirEditorDni(op)}
+                          className="shrink-0 px-2.5 py-1.5 h-fit self-center rounded-md border border-white/20 text-xs text-white/80 hover:bg-white/10"
+                        >
+                          Editar DNI
+                        </button>
+                      </div>
                       {abierto ? (
                         <div className="border-t border-white/10 px-4 py-3 bg-[#0f172a]/80">
                           {op.por_obra.length === 0 ? (
@@ -242,7 +321,7 @@ export default function OperariosPage() {
                               <table className="w-full text-sm text-left min-w-[280px]">
                                 <thead>
                                   <tr className="border-b border-white/10 bg-[#0f2744]/90 text-white/80">
-                                    <th className="px-3 py-2 font-medium">Obra</th>
+                                    <th className="px-3 py-2 font-medium">Detalle</th>
                                     <th className="px-3 py-2 font-medium">Horas reales</th>
                                     <th className="px-3 py-2 font-medium">Horas convenio</th>
                                   </tr>
@@ -250,12 +329,43 @@ export default function OperariosPage() {
                                 <tbody>
                                   {op.por_obra.map((row) => (
                                     <tr key={`${op.id}-${row.obra_id || row.obra_nombre}`} className="border-b border-white/5">
-                                      <td className="px-3 py-2 text-white/90">{row.obra_nombre}</td>
-                                      <td className="px-3 py-2 tabular-nums font-semibold">
-                                        {row.horas_reales.toFixed(2)}
-                                      </td>
-                                      <td className="px-3 py-2 tabular-nums font-semibold">
-                                        {row.horas_convenio.toFixed(2)}
+                                      <td colSpan={3} className="px-0 py-0">
+                                        <table className="w-full text-sm text-left">
+                                          <tbody>
+                                            <tr className="bg-white/[0.03]">
+                                              <td className="px-3 py-2 text-white font-medium">{row.obra_nombre}</td>
+                                              <td className="px-3 py-2 tabular-nums text-white/70">—</td>
+                                              <td className="px-3 py-2 tabular-nums text-white/70">—</td>
+                                            </tr>
+                                            {row.por_dia.map((dia) => (
+                                              <tr
+                                                key={`${op.id}-${row.obra_id || row.obra_nombre}-${dia.fecha}`}
+                                                className="border-t border-white/5"
+                                              >
+                                                <td className="px-3 py-2 text-white/80">
+                                                  {formatearDiaCorto(dia.fecha)}
+                                                </td>
+                                                <td className="px-3 py-2 tabular-nums">
+                                                  {dia.horas_reales.toFixed(2)}
+                                                </td>
+                                                <td className="px-3 py-2 tabular-nums">
+                                                  {dia.horas_convenio.toFixed(2)}
+                                                </td>
+                                              </tr>
+                                            ))}
+                                            <tr className="border-t border-white/10 bg-[#ed8936]/10">
+                                              <td className="px-3 py-2 text-[#f6ad55] font-semibold">
+                                                Total {row.obra_nombre}
+                                              </td>
+                                              <td className="px-3 py-2 tabular-nums font-semibold text-[#f6ad55]">
+                                                {row.horas_reales.toFixed(2)}
+                                              </td>
+                                              <td className="px-3 py-2 tabular-nums font-semibold text-[#f6ad55]">
+                                                {row.horas_convenio.toFixed(2)}
+                                              </td>
+                                            </tr>
+                                          </tbody>
+                                        </table>
                                       </td>
                                     </tr>
                                   ))}
@@ -292,6 +402,55 @@ export default function OperariosPage() {
           </div>
         )}
       </main>
+
+      {modalDniAbierto && operarioEditando ? (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/70"
+          role="presentation"
+          onClick={() => !guardandoDni && setModalDniAbierto(false)}
+        >
+          <div
+            className="bg-[#1a365d] border border-[#ed8936]/50 rounded-xl w-full max-w-md shadow-xl p-5"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-dni-titulo"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="modal-dni-titulo" className="text-lg font-semibold text-[#ed8936] mb-1">
+              Editar DNI
+            </h2>
+            <p className="text-sm text-white/70 mb-4">{operarioEditando.nombre}</p>
+            <label className="text-xs text-white/60 block mb-1">DNI</label>
+            <input
+              value={dniDraft}
+              onChange={(e) => setDniDraft(e.target.value)}
+              placeholder="Ej: 12345678A"
+              className="w-full rounded-lg border border-white/15 bg-[#0f2744] px-3 py-2 text-sm text-white"
+            />
+            <p className="text-xs text-white/55 mt-2">
+              Deja vacío para quitar el DNI del operario.
+            </p>
+            <div className="flex justify-end gap-2 mt-5">
+              <button
+                type="button"
+                disabled={guardandoDni}
+                onClick={() => setModalDniAbierto(false)}
+                className="px-4 py-2 text-sm rounded-lg border border-white/20 text-white/90 hover:bg-white/10"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={guardandoDni}
+                onClick={() => void guardarDni()}
+                className="px-4 py-2 text-sm rounded-lg bg-[#ed8936] hover:bg-[#dd6b20] text-white disabled:opacity-50"
+              >
+                {guardandoDni ? 'Guardando…' : 'Guardar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

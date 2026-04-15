@@ -47,11 +47,17 @@ export type OperarioResumenPorObra = {
   obra_nombre: string;
   horas_reales: number;
   horas_convenio: number;
+  por_dia: Array<{
+    fecha: string;
+    horas_reales: number;
+    horas_convenio: number;
+  }>;
 };
 
 export type OperarioResumenFila = {
   id: string;
   nombre: string;
+  dni: string | null;
   horas_reales_mes: number;
   horas_convenio_mes: number;
   por_obra: OperarioResumenPorObra[];
@@ -93,7 +99,7 @@ export async function GET(request: NextRequest) {
 
     const { data: operariosRows, error: opErr } = await supabase
       .from('operarios')
-      .select('id, nombre')
+      .select('id, nombre, dni')
       .eq('business_id', businessId)
       .eq('activo', true)
       .order('nombre', { ascending: true });
@@ -104,7 +110,7 @@ export async function GET(request: NextRequest) {
 
     const { data: jornadas, error: jErr } = await supabase
       .from('registros_jornada')
-      .select('operario_id, obra_id, horas_reales, horas_convenio, obras ( id, nombre )')
+      .select('operario_id, obra_id, fecha, horas_reales, horas_convenio, obras ( id, nombre )')
       .eq('business_id', businessId)
       .gte('fecha', bounds.start)
       .lte('fecha', bounds.end);
@@ -116,6 +122,7 @@ export async function GET(request: NextRequest) {
     type JRow = {
       operario_id: string;
       obra_id: string | null;
+      fecha: string | null;
       horas_reales: number | string | null;
       horas_convenio: number | string | null;
       obras?: { id?: string; nombre?: string | null } | null;
@@ -126,7 +133,15 @@ export async function GET(request: NextRequest) {
       {
         horas_reales: number;
         horas_convenio: number;
-        porObra: Map<string, { obra_nombre: string; horas_reales: number; horas_convenio: number }>;
+        porObra: Map<
+          string,
+          {
+            obra_nombre: string;
+            horas_reales: number;
+            horas_convenio: number;
+            porDia: Map<string, { horas_reales: number; horas_convenio: number }>;
+          }
+        >;
       }
     >();
 
@@ -135,6 +150,7 @@ export async function GET(request: NextRequest) {
       if (!oid) continue;
       const hr = Number(raw.horas_reales ?? 0) || 0;
       const hc = Number(raw.horas_convenio ?? 0) || 0;
+      const fecha = String(raw.fecha ?? '').trim();
       const obraId = raw.obra_id != null && String(raw.obra_id).trim() ? String(raw.obra_id) : '';
       const obraNom =
         raw.obras && typeof raw.obras === 'object'
@@ -154,16 +170,30 @@ export async function GET(request: NextRequest) {
       if (prevOb) {
         prevOb.horas_reales += hr;
         prevOb.horas_convenio += hc;
+        if (fecha) {
+          const prevDia = prevOb.porDia.get(fecha);
+          if (prevDia) {
+            prevDia.horas_reales += hr;
+            prevDia.horas_convenio += hc;
+          } else {
+            prevOb.porDia.set(fecha, { horas_reales: hr, horas_convenio: hc });
+          }
+        }
       } else {
+        const porDia = new Map<string, { horas_reales: number; horas_convenio: number }>();
+        if (fecha) {
+          porDia.set(fecha, { horas_reales: hr, horas_convenio: hc });
+        }
         bucket.porObra.set(obKey, {
           obra_nombre: obraNom,
           horas_reales: hr,
           horas_convenio: hc,
+          porDia,
         });
       }
     }
 
-    const operarios = (operariosRows ?? []) as Array<{ id: string; nombre: string | null }>;
+    const operarios = (operariosRows ?? []) as Array<{ id: string; nombre: string | null; dni: string | null }>;
     const filas: OperarioResumenFila[] = operarios.map((op) => {
       const agg = porOperario.get(op.id);
       const por_obra: OperarioResumenPorObra[] = agg
@@ -173,6 +203,13 @@ export async function GET(request: NextRequest) {
               obra_nombre: v.obra_nombre,
               horas_reales: v.horas_reales,
               horas_convenio: v.horas_convenio,
+              por_dia: [...v.porDia.entries()]
+                .map(([fecha, d]) => ({
+                  fecha,
+                  horas_reales: d.horas_reales,
+                  horas_convenio: d.horas_convenio,
+                }))
+                .sort((a, b) => a.fecha.localeCompare(b.fecha)),
             }))
             .sort((a, b) => a.obra_nombre.localeCompare(b.obra_nombre, 'es'))
         : [];
@@ -180,6 +217,7 @@ export async function GET(request: NextRequest) {
       return {
         id: op.id,
         nombre: String(op.nombre ?? '').trim() || 'Sin nombre',
+        dni: typeof op.dni === 'string' && op.dni.trim() ? op.dni.trim() : null,
         horas_reales_mes: agg?.horas_reales ?? 0,
         horas_convenio_mes: agg?.horas_convenio ?? 0,
         por_obra,

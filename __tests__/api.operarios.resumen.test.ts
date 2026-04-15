@@ -72,6 +72,7 @@ describe('/api/operarios/resumen', () => {
                 {
                   operario_id: 'op-1',
                   obra_id: 'obra-1',
+                  fecha: '2026-04-14',
                   horas_reales: 8,
                   horas_convenio: 8,
                   obras: { id: 'obra-1', nombre: 'Reforma Norte' },
@@ -79,6 +80,7 @@ describe('/api/operarios/resumen', () => {
                 {
                   operario_id: 'op-1',
                   obra_id: 'obra-2',
+                  fecha: '2026-04-13',
                   horas_reales: 2,
                   horas_convenio: 2,
                   obras: { id: 'obra-2', nombre: 'Baño Sur' },
@@ -107,6 +109,9 @@ describe('/api/operarios/resumen', () => {
     const luis = json.operarios.find((o) => o.id === 'op-1');
     expect(luis?.horas_reales_mes).toBe(10);
     expect(luis?.por_obra).toHaveLength(2);
+    expect((luis?.por_obra?.[0] as { por_dia?: Array<{ fecha: string }> }).por_dia?.[0]?.fecha).toBe(
+      '2026-04-13'
+    );
     expect(json.totales.horas_reales).toBe(10);
     expect(json.totales.horas_convenio).toBe(10);
   });
