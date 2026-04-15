@@ -76,6 +76,7 @@ interface PresupuestoMetricaItem {
   cliente_nombre: string | null;
   fecha: string | null;
   importe_total: number | null;
+  presupuesto_generado?: string | null;
 }
 
 interface DiarioEntradaWidget {
@@ -218,6 +219,19 @@ function getSaludo() {
   return 'Buenas noches';
 }
 
+function fmtEurosEs(value: number): string {
+  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(value);
+}
+
+function extraerIvaPorcentajeDesdePresupuesto(texto: string | null | undefined): number | null {
+  if (!texto) return null;
+  const m = texto.match(/iva\s*\(\s*(\d+(?:[.,]\d+)?)\s*%?\s*\)/i);
+  if (!m?.[1]) return null;
+  const n = Number(m[1].replace(',', '.'));
+  if (!Number.isFinite(n)) return null;
+  return n;
+}
+
 function construirCeldasMes(year: number, month: number) {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const startOffset = (new Date(year, month, 1).getDay() + 6) % 7;
@@ -262,6 +276,7 @@ export default function DashboardPage() {
 
   const [importePendienteCobro, setImportePendienteCobro] = useState(0);
   const [importeTotalPresupuestado, setImporteTotalPresupuestado] = useState(0);
+  const [importeTotalConIva, setImporteTotalConIva] = useState(0);
   const [totalMateriales, setTotalMateriales] = useState(0);
   const [desglosePendiente, setDesglosePendiente] = useState<FacturaPendienteItem[]>([]);
   const [desglosePresupuestado, setDesglosePresupuestado] = useState<PresupuestoMetricaItem[]>([]);
@@ -560,6 +575,7 @@ export default function DashboardPage() {
         setDesgloseMateriales([]);
         setImportePendienteCobro(0);
         setImporteTotalPresupuestado(0);
+        setImporteTotalConIva(0);
         setTotalMateriales(0);
         setUltimasEntradasDiario([]);
         setUltimosClientes([]);
@@ -615,7 +631,7 @@ export default function DashboardPage() {
           .eq('estado', 'pendiente'),
         supabase
           .from('presupuestos')
-          .select('id, cliente_nombre, fecha, importe_total')
+          .select('id, cliente_nombre, fecha, importe_total, presupuesto_generado')
           .eq('business_id', businessId),
         supabase
           .from('presupuestos')
@@ -666,9 +682,22 @@ export default function DashboardPage() {
         setImportePendienteCobro(list.reduce((s, f) => s + (Number(f.total) || 0), 0));
       }
       if (!presupuestosMetricasRes.error && presupuestosMetricasRes.data) {
-        const list = presupuestosMetricasRes.data as { id: string; cliente_nombre: string | null; fecha: string | null; importe_total: number | null }[];
+        const list = presupuestosMetricasRes.data as {
+          id: string;
+          cliente_nombre: string | null;
+          fecha: string | null;
+          importe_total: number | null;
+          presupuesto_generado?: string | null;
+        }[];
         setDesglosePresupuestado(list);
         setImporteTotalPresupuestado(list.reduce((s, p) => s + (Number(p.importe_total) || 0), 0));
+        setImporteTotalConIva(
+          list.reduce((s, p) => {
+            const base = Number(p.importe_total) || 0;
+            const ivaPct = extraerIvaPorcentajeDesdePresupuesto(p.presupuesto_generado) ?? 21;
+            return s + base * (1 + ivaPct / 100);
+          }, 0)
+        );
       }
       if (!presupuestosMaterialesRes.error && presupuestosMaterialesRes.data) {
         const list = presupuestosMaterialesRes.data as { id: string; cliente_nombre: string | null; fecha: string | null; importe_total: number | null }[];
@@ -1257,8 +1286,13 @@ export default function DashboardPage() {
                   📄 Importe total presupuestado
                 </span>
               </div>
-              <div className="text-xl sm:text-2xl font-bold text-[#ed8936]">
-                {loading ? '—' : `${importeTotalPresupuestado.toFixed(2)} €`}
+              <div className="text-xs text-white/80">TOTAL PRESUPUESTADO (base):</div>
+              <div className="text-lg sm:text-xl font-bold text-[#f6ad55]">
+                {loading ? '—' : fmtEurosEs(importeTotalPresupuestado)}
+              </div>
+              <div className="text-xs text-white/90 mt-1">TOTAL CON IVA:</div>
+              <div className="text-2xl sm:text-3xl font-bold text-[#ed8936] leading-tight">
+                {loading ? '—' : fmtEurosEs(importeTotalConIva)}
               </div>
               <span className="text-xs text-white/60">Clic para ver desglose por presupuesto</span>
             </button>

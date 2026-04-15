@@ -67,6 +67,17 @@ function fmtFecha(iso: unknown): string {
   return d.toLocaleDateString('es-ES', { dateStyle: 'medium' });
 }
 
+function fmtDiaCorto(iso: unknown): string {
+  if (!iso) return '—';
+  const s = String(iso).slice(0, 10);
+  const d = new Date(`${s}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return s;
+  return d
+    .toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })
+    .replace('.', '')
+    .toLowerCase();
+}
+
 export default function ObraModal() {
   const router = useRouter();
   const { isOpen, obraId, cerrarObra } = useObraModal();
@@ -646,79 +657,127 @@ export default function ObraModal() {
               {tab === 'horas' ? (
                 (() => {
                   const filas = ficha.registros_jornada ?? [];
-                  const totalReales = filas.reduce(
-                    (s, r) => s + parseNumber((r as { horas_reales?: unknown }).horas_reales),
-                    0
-                  );
-                  const totalConvenio = filas.reduce(
-                    (s, r) => s + parseNumber((r as { horas_convenio?: unknown }).horas_convenio),
-                    0
-                  );
+                  const porOperario = new Map<
+                    string,
+                    {
+                      operario: string;
+                      dias: Array<{ fecha: string; horasReales: number; horasConvenio: number }>;
+                      totalReales: number;
+                      totalConvenio: number;
+                    }
+                  >();
+
+                  for (const raw of filas) {
+                    const row = raw as {
+                      fecha?: string | null;
+                      horas_reales?: unknown;
+                      horas_convenio?: unknown;
+                      operario_id?: string | null;
+                      operarios?: { nombre?: string | null } | null;
+                    };
+                    const operarioNombre =
+                      row.operarios && typeof row.operarios === 'object'
+                        ? String(row.operarios.nombre ?? '').trim() || '—'
+                        : '—';
+                    const key = String(row.operario_id ?? '').trim() || operarioNombre;
+                    const fecha = String(row.fecha ?? '').slice(0, 10);
+                    const horasReales = parseNumber(row.horas_reales);
+                    const horasConvenio = parseNumber(row.horas_convenio);
+
+                    const prev = porOperario.get(key);
+                    if (prev) {
+                      prev.totalReales += horasReales;
+                      prev.totalConvenio += horasConvenio;
+                      const diaPrev = prev.dias.find((d) => d.fecha === fecha);
+                      if (diaPrev) {
+                        diaPrev.horasReales += horasReales;
+                        diaPrev.horasConvenio += horasConvenio;
+                      } else {
+                        prev.dias.push({ fecha, horasReales, horasConvenio });
+                      }
+                    } else {
+                      porOperario.set(key, {
+                        operario: operarioNombre,
+                        dias: [{ fecha, horasReales, horasConvenio }],
+                        totalReales: horasReales,
+                        totalConvenio: horasConvenio,
+                      });
+                    }
+                  }
+
+                  const bloques = [...porOperario.values()]
+                    .map((b) => ({
+                      ...b,
+                      dias: [...b.dias].sort((a, b2) => a.fecha.localeCompare(b2.fecha)),
+                    }))
+                    .sort((a, b) => a.operario.localeCompare(b.operario, 'es'));
+
+                  const totalReales = bloques.reduce((s, b) => s + b.totalReales, 0);
+                  const totalConvenio = bloques.reduce((s, b) => s + b.totalConvenio, 0);
                   return (
                     <div className="overflow-x-auto rounded-lg border border-white/10">
-                      <table className="w-full text-sm text-left">
+                      <table className="w-full text-sm text-left min-w-[280px]">
                         <thead>
                           <tr className="border-b border-white/10 bg-[#0f2744]/90 text-white/80">
-                            <th className="px-3 py-2 font-medium">Operario</th>
-                            <th className="px-3 py-2 font-medium">Fecha</th>
+                            <th className="px-3 py-2 font-medium">Detalle</th>
                             <th className="px-3 py-2 font-medium">Horas reales</th>
                             <th className="px-3 py-2 font-medium">Horas convenio</th>
-                            <th className="px-3 py-2 font-medium">Notas</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {filas.length === 0 ? (
+                          {bloques.length === 0 ? (
                             <tr>
-                              <td className="px-3 py-4 text-sm text-white/60" colSpan={5}>
+                              <td className="px-3 py-4 text-sm text-white/60" colSpan={3}>
                                 Sin horas registradas en esta obra
                               </td>
                             </tr>
                           ) : (
                             <>
-                              {filas.map((raw) => {
-                                const row = raw as {
-                                  id?: string;
-                                  fecha?: string | null;
-                                  horas_reales?: unknown;
-                                  horas_convenio?: unknown;
-                                  notas?: string | null;
-                                  operarios?: { nombre?: string | null } | null;
-                                };
-                                const nomOp =
-                                  row.operarios && typeof row.operarios === 'object'
-                                    ? String(row.operarios.nombre ?? '').trim() || '—'
-                                    : '—';
-                                const fechaStr = row.fecha
-                                  ? String(row.fecha).slice(0, 10)
-                                  : '—';
+                              {bloques.map((bloque) => {
                                 return (
-                                  <tr
-                                    key={String(row.id ?? `${nomOp}-${fechaStr}`)}
-                                    className="border-b border-white/5 hover:bg-white/5"
-                                  >
-                                    <td className="px-3 py-2 font-medium text-white/90">{nomOp}</td>
-                                    <td className="px-3 py-2 text-xs text-white/60 tabular-nums">
-                                      {fechaStr !== '—'
-                                        ? new Date(fechaStr + 'T12:00:00').toLocaleDateString('es-ES', {
-                                            dateStyle: 'medium',
-                                          })
-                                        : '—'}
-                                    </td>
-                                    <td className="px-3 py-2 tabular-nums font-semibold">
-                                      {parseNumber(row.horas_reales).toFixed(2)}
-                                    </td>
-                                    <td className="px-3 py-2 tabular-nums font-semibold">
-                                      {parseNumber(row.horas_convenio).toFixed(2)}
-                                    </td>
-                                    <td className="px-3 py-2 text-xs text-white/70 max-w-[12rem] whitespace-pre-wrap break-words">
-                                      {row.notas?.trim() ? String(row.notas) : '—'}
+                                  <tr key={`horas-${bloque.operario}`} className="border-b border-white/5">
+                                    <td colSpan={3} className="px-0 py-0">
+                                      <table className="w-full text-sm text-left">
+                                        <tbody>
+                                          <tr className="bg-white/[0.03]">
+                                            <td className="px-3 py-2 text-white font-medium">{bloque.operario}</td>
+                                            <td className="px-3 py-2 tabular-nums text-white/70">—</td>
+                                            <td className="px-3 py-2 tabular-nums text-white/70">—</td>
+                                          </tr>
+                                          {bloque.dias.map((dia) => (
+                                            <tr
+                                              key={`${bloque.operario}-${dia.fecha}`}
+                                              className="border-t border-white/5"
+                                            >
+                                              <td className="px-3 py-2 text-white/80">{fmtDiaCorto(dia.fecha)}</td>
+                                              <td className="px-3 py-2 tabular-nums">
+                                                {dia.horasReales.toFixed(2)}
+                                              </td>
+                                              <td className="px-3 py-2 tabular-nums">
+                                                {dia.horasConvenio.toFixed(2)}
+                                              </td>
+                                            </tr>
+                                          ))}
+                                          <tr className="border-t border-white/10 bg-[#ed8936]/10">
+                                            <td className="px-3 py-2 text-[#f6ad55] font-semibold">
+                                              Total {bloque.operario}
+                                            </td>
+                                            <td className="px-3 py-2 tabular-nums font-semibold text-[#f6ad55]">
+                                              {bloque.totalReales.toFixed(2)}
+                                            </td>
+                                            <td className="px-3 py-2 tabular-nums font-semibold text-[#f6ad55]">
+                                              {bloque.totalConvenio.toFixed(2)}
+                                            </td>
+                                          </tr>
+                                        </tbody>
+                                      </table>
                                     </td>
                                   </tr>
                                 );
                               })}
                               <tr className="border-t border-[#ed8936]/40 bg-[#ed8936]/10 font-semibold">
-                                <td className="px-3 py-2 text-[#f6ad55]" colSpan={2}>
-                                  Totales
+                                <td className="px-3 py-2 text-[#f6ad55]">
+                                  Total obra
                                 </td>
                                 <td className="px-3 py-2 tabular-nums text-[#f6ad55]">
                                   {totalReales.toFixed(2)}
@@ -726,7 +785,6 @@ export default function ObraModal() {
                                 <td className="px-3 py-2 tabular-nums text-[#f6ad55]">
                                   {totalConvenio.toFixed(2)}
                                 </td>
-                                <td className="px-3 py-2" />
                               </tr>
                             </>
                           )}
