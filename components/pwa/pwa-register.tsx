@@ -27,42 +27,73 @@ export async function subscribeToPush(): Promise<void> {
   const vapidPublic = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim();
   if (!vapidPublic || !('PushManager' in window)) return;
 
-  const permission = await Notification.requestPermission();
-  if (permission !== 'granted') return;
+  let permission: NotificationPermission;
+  try {
+    permission = await Notification.requestPermission();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`Error en requestPermission: ${msg}`);
+  }
+  if (permission !== 'granted') {
+    throw new Error(`Error en requestPermission: permiso no concedido (${permission})`);
+  }
 
-  const existing = await reg.pushManager.getSubscription();
-  const sub =
-    existing ??
-    (await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(vapidPublic),
-    }));
+  let sub: PushSubscription;
+  try {
+    const existing = await reg.pushManager.getSubscription();
+    sub =
+      existing ??
+      (await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidPublic),
+      }));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`Error en pushManager.subscribe: ${msg}`);
+  }
 
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user?.id) return;
+  try {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user?.id) {
+      throw new Error('no hay usuario autenticado');
+    }
 
-  const { data: profile } = await supabase
-    .from('business_profiles')
-    .select('id')
-    .eq('user_id', user.id)
-    .limit(1)
-    .maybeSingle();
+    const { data: profile } = await supabase
+      .from('business_profiles')
+      .select('id')
+      .eq('user_id', user.id)
+      .limit(1)
+      .maybeSingle();
 
-  const businessId = profile?.id;
-  if (!businessId) return;
+    const businessId = profile?.id;
+    if (!businessId) {
+      throw new Error('no hay negocio asociado');
+    }
 
-  await fetch('/api/push/subscribe', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({
-      business_id: businessId,
-      subscription: sub.toJSON(),
-    }),
-  });
+    const res = await fetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        business_id: businessId,
+        subscription: sub.toJSON(),
+      }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`HTTP ${res.status}${text ? `: ${text}` : ''}`);
+    }
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith('Error en POST')) {
+      throw e;
+    }
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`Error en POST /api/push/subscribe: ${msg}`);
+  }
 }
 
 export default function PwaRegister() {
