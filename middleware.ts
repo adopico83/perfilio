@@ -40,6 +40,6 @@ export const config = {
      * - /api/lista-espera-notificacion (pública, landing sin sesión)
      * - (API routes protegidas si no hay usuario)
      */
-    '/((?!api/lista-espera-notificacion(?:/|$)|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!api/lista-espera-notificacion|api/push/test-send|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
