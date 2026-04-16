@@ -1,18 +1,15 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useCallback, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { subscribeToPush } from '@/components/pwa/pwa-register';
 
-function NotificationButtonInner() {
-  const searchParams = useSearchParams();
+export default function NotificationButton() {
   const [perm, setPerm] = useState<'default' | 'granted' | 'denied' | 'hidden'>('hidden');
   const [busy, setBusy] = useState(false);
   const [permissionBefore, setPermissionBefore] = useState<string | null>(null);
   const [permissionAfter, setPermissionAfter] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [envAllowsTest, setEnvAllowsTest] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !('Notification' in window)) {
@@ -21,13 +18,6 @@ function NotificationButtonInner() {
     }
     setPerm(Notification.permission === 'default' ? 'default' : Notification.permission);
   }, []);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const localhost = window.location.href.includes('localhost');
-    const debug = searchParams.get('debug') === '1';
-    setEnvAllowsTest(localhost || debug);
-  }, [searchParams]);
 
   const onClick = useCallback(async () => {
     if (busy) return;
@@ -112,14 +102,9 @@ function NotificationButtonInner() {
 
   if (perm === 'hidden' || perm === 'denied') return null;
 
-  const showActivate = perm === 'default';
-  const showTest = perm === 'granted' && envAllowsTest;
-
-  if (!showActivate && !showTest) return null;
-
   return (
     <div className="flex flex-col items-end gap-1 max-w-full">
-      {showActivate ? (
+      {perm === 'default' ? (
         <>
           <button
             type="button"
@@ -149,7 +134,7 @@ function NotificationButtonInner() {
         </>
       ) : null}
 
-      {showTest ? (
+      {perm === 'granted' ? (
         <>
           <button
             type="button"
@@ -167,13 +152,5 @@ function NotificationButtonInner() {
         </>
       ) : null}
     </div>
-  );
-}
-
-export default function NotificationButton() {
-  return (
-    <Suspense fallback={null}>
-      <NotificationButtonInner />
-    </Suspense>
   );
 }
