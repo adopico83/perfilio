@@ -3804,6 +3804,56 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
           };
         }
         case 'crear_recordatorio': {
+          const normalizeHora = (raw: string): string | null => {
+            const s = raw.trim();
+            if (!s) return null;
+
+            let m = s.match(/^(\d{1,2}):(\d{2})$/);
+            if (m) {
+              const h = Number(m[1]);
+              const min = Number(m[2]);
+              if (h >= 0 && h <= 23 && min >= 0 && min <= 59) {
+                return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+              }
+            }
+
+            m = s.match(/^(\d{1,2})\s*h$/i);
+            if (m) {
+              const h = Number(m[1]);
+              if (h >= 0 && h <= 23) return `${String(h).padStart(2, '0')}:00`;
+            }
+
+            const low = s.toLowerCase();
+            const mañana = low.includes('mañana') || low.includes('manana');
+            const tarde = low.includes('tarde');
+            const noche = low.includes('noche');
+
+            m = s.match(/(?:a\s+las|^las)\s+(\d{1,2})(?::(\d{2}))?/i);
+            if (!m) {
+              m = s.match(/^(\d{1,2})(?::(\d{2}))?$/);
+            }
+            if (!m) {
+              m = s.match(/(\d{1,2})\s*(?:de\s+la\s+)?(?:mañana|manana)/i);
+            }
+            if (m) {
+              let h = Number(m[1]);
+              const min = m[2] != null && m[2] !== '' ? Number(m[2]) : 0;
+              if (Number.isNaN(min) || min < 0 || min > 59) return null;
+              if (tarde && h >= 1 && h <= 11) {
+                h += 12;
+              } else if (noche && h >= 1 && h <= 11) {
+                h += 12;
+              } else if (mañana && h >= 1 && h <= 11) {
+                /* mañana: 1–11 se interpretan como horas de la mañana */
+              }
+              if (h >= 0 && h <= 23) {
+                return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+              }
+            }
+
+            return null;
+          };
+
           const titulo = String(toolArgs.titulo ?? '').trim();
           const fechaRaw = String(toolArgs.fecha ?? '').trim();
           const horaOpt = toolArgs.hora != null ? String(toolArgs.hora).trim() : '';
@@ -3906,7 +3956,8 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
             fecha: fechaRaw,
           };
           if (horaOpt) {
-            insertPayload.hora = horaOpt;
+            const normalized = normalizeHora(horaOpt);
+            insertPayload.hora = normalized ?? horaOpt;
           }
 
           const { data: row, error } = await supabase
