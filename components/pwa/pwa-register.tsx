@@ -24,8 +24,11 @@ export async function subscribeToPush(): Promise<void> {
 
   const reg = await navigator.serviceWorker.ready;
 
-  const vapidPublic = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim();
-  if (!vapidPublic || !('PushManager' in window)) return;
+  await new Promise((resolve) => setTimeout(resolve, 500));
+
+  if (!('Notification' in window)) {
+    throw new Error('Error en requestPermission: Notifications API no disponible');
+  }
 
   let permission: NotificationPermission;
   try {
@@ -34,9 +37,15 @@ export async function subscribeToPush(): Promise<void> {
     const msg = e instanceof Error ? e.message : String(e);
     throw new Error(`Error en requestPermission: ${msg}`);
   }
-  if (permission !== 'granted') {
-    throw new Error(`Error en requestPermission: permiso no concedido (${permission})`);
+  const result = permission;
+  if (result !== 'granted') {
+    throw new Error(
+      'Error en requestPermission: permiso denegado o ignorado (resultado: ' + result + ')'
+    );
   }
+
+  const vapidPublic = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim();
+  if (!vapidPublic || !('PushManager' in window)) return;
 
   let sub: PushSubscription;
   try {
