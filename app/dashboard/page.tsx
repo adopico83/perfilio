@@ -20,6 +20,7 @@ import {
 import { useEmailModal } from '@/contexts/email-modal-context';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
+import NotificationButton from '@/components/pwa/notification-button';
 
 interface ResumenCounts {
   urgentes: number;
@@ -1140,7 +1141,10 @@ export default function DashboardPage() {
           <h1 className="text-2xl sm:text-3xl font-bold">
             {saludo}, <span className="text-[#ed8936]">{businessName}</span>
           </h1>
-          <p className="text-sm text-white/70">Aquí tienes el resumen de tu negocio</p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+            <p className="text-sm text-white/70">Aquí tienes el resumen de tu negocio</p>
+            <NotificationButton />
+          </div>
         </section>
 
         <section>

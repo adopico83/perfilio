@@ -14,6 +14,57 @@ function urlBase64ToUint8Array(base64String: string): BufferSource {
   return outputArray;
 }
 
+/**
+ * Flujo completo de permiso + suscripción push + registro en servidor.
+ * Debe llamarse desde un gesto de usuario (p. ej. click) para cumplir con iOS Safari.
+ */
+export async function subscribeToPush(): Promise<void> {
+  if (typeof window === 'undefined') return;
+  if (!('serviceWorker' in navigator)) return;
+
+  const reg = await navigator.serviceWorker.ready;
+
+  const vapidPublic = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim();
+  if (!vapidPublic || !('PushManager' in window)) return;
+
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') return;
+
+  const existing = await reg.pushManager.getSubscription();
+  const sub =
+    existing ??
+    (await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(vapidPublic),
+    }));
+
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user?.id) return;
+
+  const { data: profile } = await supabase
+    .from('business_profiles')
+    .select('id')
+    .eq('user_id', user.id)
+    .limit(1)
+    .maybeSingle();
+
+  const businessId = profile?.id;
+  if (!businessId) return;
+
+  await fetch('/api/push/subscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      business_id: businessId,
+      subscription: sub.toJSON(),
+    }),
+  });
+}
+
 export default function PwaRegister() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -30,47 +81,6 @@ export default function PwaRegister() {
         if (cancelled) return;
 
         await reg.update().catch(() => {});
-
-        const vapidPublic = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim();
-        if (!vapidPublic || !('PushManager' in window)) return;
-
-        const permission = await Notification.requestPermission();
-        if (permission !== 'granted' || cancelled) return;
-
-        const existing = await reg.pushManager.getSubscription();
-        const sub =
-          existing ??
-          (await reg.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: urlBase64ToUint8Array(vapidPublic),
-          }));
-        if (cancelled) return;
-
-        const supabase = createClient();
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (!user?.id) return;
-
-        const { data: profile } = await supabase
-          .from('business_profiles')
-          .select('id')
-          .eq('user_id', user.id)
-          .limit(1)
-          .maybeSingle();
-
-        const businessId = profile?.id;
-        if (!businessId) return;
-
-        await fetch('/api/push/subscribe', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({
-            business_id: businessId,
-            subscription: sub.toJSON(),
-          }),
-        });
       } catch {
         /* registro PWA opcional */
       }
