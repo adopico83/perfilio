@@ -141,14 +141,13 @@ type AgendaRow = {
 };
 
 export async function GET(request: NextRequest) {
-  try {
-    const secret = process.env.CRON_SECRET?.trim();
-    const auth = request.headers.get('authorization');
-    const bearer = auth?.startsWith('Bearer ') ? auth.slice(7).trim() : '';
-    if (!secret || bearer !== secret) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+  const auth = request.headers.get('authorization') ?? '';
+  const secret = process.env.CRON_SECRET?.trim() ?? '';
+  if (!secret || auth !== 'Bearer ' + secret) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
 
+  try {
     configureWebPush();
 
     const now = new Date();

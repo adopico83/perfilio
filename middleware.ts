@@ -7,6 +7,14 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
+  if (pathname.startsWith('/api/cron/')) {
+    return supabaseResponse;
+  }
+
+  if (pathname.startsWith('/api/lista-espera-notificacion')) {
+    return supabaseResponse;
+  }
+
   // Si el usuario intenta acceder al dashboard sin estar autenticado
   if (pathname.startsWith('/dashboard') && !user) {
     const url = request.nextUrl.clone();
@@ -31,6 +39,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$)(?!api/lista-espera-notificacion)(?!api/push/test-send)(?!api/cron/agenda-push).*)',
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
