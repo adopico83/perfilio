@@ -1,11 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { subscribeToPush } from '@/components/pwa/pwa-register';
 
-export default function NotificationButton() {
+function NotificationButtonInner() {
   const searchParams = useSearchParams();
   const [perm, setPerm] = useState<'default' | 'granted' | 'denied' | 'hidden'>('hidden');
   const [busy, setBusy] = useState(false);
@@ -167,5 +167,13 @@ export default function NotificationButton() {
         </>
       ) : null}
     </div>
+  );
+}
+
+export default function NotificationButton() {
+  return (
+    <Suspense fallback={null}>
+      <NotificationButtonInner />
+    </Suspense>
   );
 }
