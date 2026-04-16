@@ -88,11 +88,18 @@ export default function NotificationButton() {
           mensaje: 'Notificación de prueba',
         }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      const bodyText = await res.text();
       if (!res.ok) {
-        setErrorMessage(data.error ?? `Error ${res.status}`);
+        const full = `HTTP ${res.status}\n${bodyText}`;
+        console.log('Probar notificación error (respuesta no ok)', {
+          status: res.status,
+          body: bodyText,
+        });
+        setErrorMessage(full);
+        return;
       }
     } catch (e) {
+      console.log('Probar notificación error (excepción)', e);
       const msg = e instanceof Error ? e.message : String(e);
       setErrorMessage(msg);
     } finally {
@@ -145,7 +152,7 @@ export default function NotificationButton() {
             Probar notificación
           </button>
           {errorMessage ? (
-            <p className="text-[10px] sm:text-[11px] text-right text-red-400 break-words max-w-[min(100%,20rem)]">
+            <p className="text-[10px] sm:text-[11px] text-right text-red-400 break-words whitespace-pre-wrap max-w-[min(100%,20rem)]">
               {errorMessage}
             </p>
           ) : null}
