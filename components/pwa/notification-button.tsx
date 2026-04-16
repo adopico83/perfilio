@@ -4,12 +4,18 @@ import { useCallback, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { subscribeToPush } from '@/components/pwa/pwa-register';
 
+type TestPushResult = {
+  variant: 'success' | 'error' | 'exception';
+  text: string;
+};
+
 export default function NotificationButton() {
   const [perm, setPerm] = useState<'default' | 'granted' | 'denied' | 'hidden'>('hidden');
   const [busy, setBusy] = useState(false);
   const [permissionBefore, setPermissionBefore] = useState<string | null>(null);
   const [permissionAfter, setPermissionAfter] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [testPushResult, setTestPushResult] = useState<TestPushResult | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !('Notification' in window)) {
@@ -57,14 +63,17 @@ export default function NotificationButton() {
   const onTestPush = useCallback(async () => {
     if (busy) return;
     setBusy(true);
-    setErrorMessage(null);
+    setTestPushResult(null);
     try {
       const supabase = createClient();
       const {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user?.id) {
-        setErrorMessage('No hay sesión para enviar la prueba.');
+        setTestPushResult({
+          variant: 'exception',
+          text: 'Excepción: No hay sesión para enviar la prueba.',
+        });
         return;
       }
       const { data: profile } = await supabase
@@ -75,7 +84,10 @@ export default function NotificationButton() {
         .maybeSingle();
       const businessId = profile?.id;
       if (!businessId) {
-        setErrorMessage('No hay negocio asociado.');
+        setTestPushResult({
+          variant: 'exception',
+          text: 'Excepción: No hay negocio asociado.',
+        });
         return;
       }
       const res = await fetch('/api/push/send', {
@@ -89,19 +101,28 @@ export default function NotificationButton() {
         }),
       });
       const bodyText = await res.text();
-      if (!res.ok) {
-        const full = `HTTP ${res.status}\n${bodyText}`;
+      if (res.ok) {
+        setTestPushResult({
+          variant: 'success',
+          text: `Enviado ✓ — status: ${res.status}, body: ${bodyText}`,
+        });
+      } else {
         console.log('Probar notificación error (respuesta no ok)', {
           status: res.status,
           body: bodyText,
         });
-        setErrorMessage(full);
-        return;
+        setTestPushResult({
+          variant: 'error',
+          text: `Error — status: ${res.status}, body: ${bodyText}`,
+        });
       }
     } catch (e) {
       console.log('Probar notificación error (excepción)', e);
       const msg = e instanceof Error ? e.message : String(e);
-      setErrorMessage(msg);
+      setTestPushResult({
+        variant: 'exception',
+        text: `Excepción: ${msg}`,
+      });
     } finally {
       setBusy(false);
     }
@@ -151,9 +172,15 @@ export default function NotificationButton() {
           >
             Probar notificación
           </button>
-          {errorMessage ? (
-            <p className="text-[10px] sm:text-[11px] text-right text-red-400 break-words whitespace-pre-wrap max-w-[min(100%,20rem)]">
-              {errorMessage}
+          {testPushResult ? (
+            <p
+              className={`text-[10px] sm:text-[11px] text-right break-words whitespace-pre-wrap max-w-[min(100%,24rem)] ${
+                testPushResult.variant === 'success'
+                  ? 'text-emerald-400'
+                  : 'text-red-400'
+              }`}
+            >
+              {testPushResult.text}
             </p>
           ) : null}
         </>
