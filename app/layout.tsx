@@ -4,6 +4,7 @@ import { ThemeProvider } from '@/components/ui/theme-provider';
 import DashboardShellProvider from '@/components/dashboard/dashboard-shell-provider';
 import AppShellClient from '@/components/providers/app-shell-client';
 import './globals.css';
+import PwaRegister from '@/components/pwa/pwa-register';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -28,7 +29,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es" suppressHydrationWarning>
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#1a365d" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+      </head>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+        <PwaRegister />
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <AppShellClient>
             <DashboardShellProvider>{children}</DashboardShellProvider>
