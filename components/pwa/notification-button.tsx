@@ -25,6 +25,19 @@ export default function NotificationButton() {
     setPerm(Notification.permission === 'default' ? 'default' : Notification.permission);
   }, []);
 
+  useEffect(() => {
+    if (perm !== 'granted') return;
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+
+    void (async () => {
+      try {
+        await subscribeToPush();
+      } catch {
+        /* re-registro silencioso */
+      }
+    })();
+  }, [perm]);
+
   const onClick = useCallback(async () => {
     if (busy) return;
     setBusy(true);

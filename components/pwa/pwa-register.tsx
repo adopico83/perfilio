@@ -30,18 +30,20 @@ export async function subscribeToPush(): Promise<void> {
     throw new Error('Error en requestPermission: Notifications API no disponible');
   }
 
-  let permission: NotificationPermission;
-  try {
-    permission = await Notification.requestPermission();
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    throw new Error(`Error en requestPermission: ${msg}`);
-  }
-  const result = permission;
-  if (result !== 'granted') {
-    throw new Error(
-      'Error en requestPermission: permiso denegado o ignorado (resultado: ' + result + ')'
-    );
+  if (Notification.permission !== 'granted') {
+    let permission: NotificationPermission;
+    try {
+      permission = await Notification.requestPermission();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new Error(`Error en requestPermission: ${msg}`);
+    }
+    const result = permission;
+    if (result !== 'granted') {
+      throw new Error(
+        'Error en requestPermission: permiso denegado o ignorado (resultado: ' + result + ')'
+      );
+    }
   }
 
   const vapidPublic = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim();
