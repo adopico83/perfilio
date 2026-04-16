@@ -1,0 +1,16 @@
+name: Agenda Push Notifications
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  agenda-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call agenda-push cron
+        run: |
+          curl -sS -f \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://perfilio.vercel.app/api/cron/agenda-push
