@@ -196,7 +196,7 @@ export async function GET(request: NextRequest) {
       const normalized = normalizeHora(horaRaw);
       if (!normalized) continue;
       const eventMinutes = parseHmToMinutes(normalized);
-      if (eventMinutes >= nowMinutes && eventMinutes < nowMinutes + 10) {
+      if (eventMinutes >= nowMinutes - 60 && eventMinutes < nowMinutes + 15) {
         const titulo = String(row.titulo ?? '').trim() || 'Recordatorio';
         const r = await sendPushToBusiness(
           row.business_id,
