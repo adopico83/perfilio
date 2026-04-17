@@ -76,7 +76,13 @@ self.addEventListener('push', (event) => {
         }
       }
 
-      await self.registration.showNotification(title, { body, icon });
+      await self.registration.showNotification(title, {
+        body,
+        icon,
+        badge: '/icons/icon-192x192.png',
+        tag: 'perfilio-notification',
+        renotify: true,
+      });
     })()
   );
 });
