@@ -8,9 +8,9 @@ import {
   View,
 } from '@react-pdf/renderer';
 import type { PresupuestoPdfProps } from './types';
+import { formatEuro } from './parser';
 
-const EMPRESA_PINO_TEXTO =
-  'AL&CA Pino Gutiérrez Albañilería en General S.L. / C/ Bartolomé de Urdinso Nº 15 Local 1 Bis / C.P. 20.301 Irún (Guipúzcoa) / NIF: B-75207308 R.E.A. 15/20/0014364 / Oficina: 943 57 49 19 E-mail: info@pinoalbanileria.com / Instagram: @pinoalbanileria';
+export { formatEuro };
 
 const OBSERVACIONES_TEXTO =
   'La presente oferta sólo incluye los trabajos en ella expresamente indicados... Todo trabajo fuera de presupuesto tendrá un importe de 30€/hora más el material empleado.';
@@ -159,15 +159,6 @@ const styles = StyleSheet.create({
   },
 });
 
-function fmtEuro(n: number): string {
-  return (
-    new Intl.NumberFormat('es-ES', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(n) + ' €'
-  );
-}
-
 function fmtNum(n: number): string {
   return new Intl.NumberFormat('es-ES', {
     minimumFractionDigits: 0,
@@ -191,7 +182,12 @@ export function PresupuestoPdfDocument(props: PresupuestoPdfProps) {
             <View style={styles.logoPlaceholder} />
           )}
           <View style={styles.empresaBox}>
-            <Text>{EMPRESA_PINO_TEXTO}</Text>
+            <Text>AL&CA Pino Gutiérrez Albañilería en General S.L.</Text>
+            <Text>C/ Bartolomé de Urdinso Nº 15 Local 1 Bis</Text>
+            <Text>C.P. 20.301 Irún (Guipúzcoa)</Text>
+            <Text>NIF: B-75207308  R.E.A. 15/20/0014364</Text>
+            <Text>Oficina: 943 57 49 19  E-mail: info@pinoalbanileria.com</Text>
+            <Text>Instagram: @pinoalbanileria</Text>
           </View>
         </View>
 
@@ -233,12 +229,12 @@ export function PresupuestoPdfDocument(props: PresupuestoPdfProps) {
                   <View key={`${idx}-${j}`} style={styles.rowPartida} wrap={false}>
                     <Text style={styles.tdConcepto}>{p.concepto}</Text>
                     <Text style={styles.tdCant}>{fmtNum(p.cantidad)}</Text>
-                    <Text style={styles.tdPrecio}>{fmtEuro(p.precio)}</Text>
-                    <Text style={styles.tdImporte}>{fmtEuro(p.importe)}</Text>
+                    <Text style={styles.tdPrecio}>{formatEuro(p.precio)}</Text>
+                    <Text style={styles.tdImporte}>{formatEuro(p.importe)}</Text>
                   </View>
                 ))}
                 <Text style={styles.totalCap}>
-                  TOTAL {cap.nombre.toUpperCase()} — {fmtEuro(cap.total)}
+                  TOTAL {cap.nombre.toUpperCase()} — {formatEuro(cap.total)}
                 </Text>
                 {idx < parsed.capitulos.length - 1 ? <View style={styles.sepCap} /> : null}
               </View>
@@ -250,13 +246,13 @@ export function PresupuestoPdfDocument(props: PresupuestoPdfProps) {
 
         {showPie ? (
           <View style={styles.pieTotales} wrap={false}>
-            <Text style={styles.pieCol}>BASE IMPONIBLE{'\n'}{fmtEuro(parsed.baseImponible)}</Text>
+            <Text style={styles.pieCol}>BASE IMPONIBLE{'\n'}{formatEuro(parsed.baseImponible)}</Text>
             <Text style={styles.pieCol}>
               % IVA{'\n'}
               {parsed.porcentajeIva}%
             </Text>
-            <Text style={styles.pieCol}>IMPORTE IVA{'\n'}{fmtEuro(parsed.importeIva)}</Text>
-            <Text style={styles.pieCol}>TOTAL PRESUPUESTO{'\n'}{fmtEuro(parsed.total)}</Text>
+            <Text style={styles.pieCol}>IMPORTE IVA{'\n'}{formatEuro(parsed.importeIva)}</Text>
+            <Text style={styles.pieCol}>TOTAL PRESUPUESTO{'\n'}{formatEuro(parsed.total)}</Text>
           </View>
         ) : null}
 

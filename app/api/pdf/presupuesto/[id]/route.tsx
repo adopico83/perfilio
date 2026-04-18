@@ -20,11 +20,15 @@ async function assertUserOwnsBusiness(
   return Boolean(data?.id);
 }
 
-function extractNumeroPresupuesto(mensaje: string | null): string {
-  if (!mensaje) return '—';
-  const m =
-    mensaje.match(/(?:Pre|N[º°]|N\.º)\s*(\d+\/\d+)/i) ?? mensaje.match(/\b(\d{1,4}\/\d{1,4})\b/);
-  return m?.[1] ?? '—';
+/** Nº legible desde `mensaje_cliente`: "Pre XX/YY" o "XX/YY"; si no, 8 primeros caracteres del id. */
+function numeroPresupuestoDesdeMensaje(mensaje: string | null | undefined, id: string): string {
+  const texto = String(mensaje ?? '');
+  const conPre = texto.match(/Pre\s+\d{1,4}\/\d{1,4}/i);
+  if (conPre) return conPre[0].replace(/\s+/g, ' ').trim();
+  const solo = texto.match(/\b\d{1,4}\/\d{1,4}\b/);
+  if (solo) return solo[0];
+  const rid = String(id ?? '').trim();
+  return rid.length > 0 ? rid.slice(0, 8) : '—';
 }
 
 export async function GET(
@@ -99,8 +103,8 @@ export async function GET(
     const fecha =
       fechaRaw && fechaRaw.trim().length > 0 ? fechaRaw.trim() : fechaFallback;
 
-    const mensaje = (pres as { mensaje_cliente?: string | null }).mensaje_cliente ?? null;
-    const numero = extractNumeroPresupuesto(mensaje);
+    const mensaje = (pres as { mensaje_cliente?: string | null }).mensaje_cliente;
+    const numero = numeroPresupuestoDesdeMensaje(mensaje, pres.id as string);
 
     const obraJoin = (pres as { obras?: { nombre?: string } | { nombre?: string }[] | null }).obras;
     const obraNombre = Array.isArray(obraJoin) ? obraJoin[0]?.nombre : obraJoin?.nombre;

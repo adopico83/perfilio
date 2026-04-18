@@ -1,5 +1,15 @@
 import type { CapituloPresupuestoPdf, PresupuestoGeneradoParseado } from './types';
 
+/** Formato español para importes en PDF (miles con punto, decimales con coma). */
+export function formatEuro(n: number): string {
+  return (
+    n.toLocaleString('es-ES', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }) + ' €'
+  );
+}
+
 const RE_FOOTER =
   /BASE\s+IMPONIBLE:\s*([\d.]+,\d{2})\s*€\s*\|\s*IVA\s*\((\d+)\s*%\)\s*:\s*([\d.]+,\d{2})\s*€\s*\|\s*TOTAL:\s*([\d.]+,\d{2})\s*€/i;
 
