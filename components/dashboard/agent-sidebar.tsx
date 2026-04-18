@@ -18,6 +18,7 @@ import ReactMarkdown from 'react-markdown';
 import { isDiarioPdfDownloadLink } from '@/lib/diario-pdf-link';
 import { useCanvas } from '@/contexts/canvas-context';
 import { useObraModal } from '@/contexts/obra-modal-context';
+import { PresupuestoBorradorCanvas } from '@/components/presupuesto-borrador-canvas';
 
 interface BusinessProfile {
   id: string;
@@ -495,6 +496,8 @@ export default function AgentSidebar() {
   const { abrirCanvas } = useCanvas();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  /** null hasta hidratar: evita doble Realtime entre panel escritorio (oculto en móvil) y drawer. */
+  const [viewportLg, setViewportLg] = useState<boolean | null>(null);
 
   const supabase = useMemo(
     () =>
@@ -504,6 +507,14 @@ export default function AgentSidebar() {
       ),
     []
   );
+
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const apply = () => setViewportLg(mq.matches);
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
 
   const [selectedId, setSelectedId] = useState('');
   const [mensaje, setMensaje] = useState('');
@@ -1522,6 +1533,16 @@ export default function AgentSidebar() {
 
       {!collapsed && (
         <>
+          {selectedId && currentUserId && viewportLg !== null ? (
+            <PresupuestoBorradorCanvas
+              businessId={selectedId}
+              userId={currentUserId}
+              supabase={supabase}
+              onSendAgentMessage={(t) => handleEnviarTexto(t)}
+              agentLoading={loading}
+              enableRealtime={viewportLg}
+            />
+          ) : null}
           <div ref={listRef} className="flex-1 overflow-y-auto p-3 space-y-3">
             {panelConversacionesAbierto ? (
               <div className="space-y-2">
@@ -1830,6 +1851,17 @@ export default function AgentSidebar() {
                     </button>
                   </div>
                 </div>
+
+                {selectedId && currentUserId && viewportLg !== null ? (
+                  <PresupuestoBorradorCanvas
+                    businessId={selectedId}
+                    userId={currentUserId}
+                    supabase={supabase}
+                    onSendAgentMessage={(t) => handleEnviarTexto(t)}
+                    agentLoading={loading}
+                    enableRealtime={!viewportLg && mobileOpen}
+                  />
+                ) : null}
 
                 <div ref={listRef} className="flex-1 overflow-y-auto p-3 space-y-3">
                   {panelConversacionesAbierto ? (

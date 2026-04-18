@@ -54,6 +54,12 @@ import {
   ejecutarListarOperarios,
   ejecutarRegistrarJornada,
 } from '@/lib/agente/modules/operarios';
+import {
+  handlePresupuestos,
+  PRESUPUESTOS_AGENT_SYSTEM_PROMPT,
+  PRESUPUESTOS_AGENT_TOOLS,
+  PRESUPUESTOS_HANDLED_TOOLS,
+} from '@/lib/agente/modules/presupuestos';
 import { normalizeGastoCategoria } from '@/lib/gastos-categoria';
 
 /** Cliente de la obra (JOIN clientes) para heredar en documentos cuando no hay cliente_id explícito. */
@@ -419,12 +425,19 @@ type AgentIntentCategory =
   | 'clientes'
   | 'calculo'
   | 'operarios'
+  | 'presupuesto'
   | 'general';
 
-const ROUTER_SYSTEM_PROMPT = `Eres un clasificador. Responde SOLO con una palabra en minúsculas, sin comillas ni puntuación:
-documentos | emails | agenda | gastos | diario | clientes | calculo | operarios | general
+const ROUTER_SYSTEM_PROMPT = `Eres un clasificador.
 
-documentos: crear obra con cliente nuevo o existente (crear_obra + crear_cliente + actualizar_obra), presupuestos, facturas, albaranes, vincular documentos a una obra (asociar_documentos_a_obra), crear o actualizar obra (crear_obra, actualizar_obra), extras/modificados/imprevistos en obra, dictado de visita y presupuesto estructurado (generar_presupuesto_por_dictado, gestionar_tarifas), estados, edición, crear documentos, conversiones presupuesto↔albarán↔factura, tiempo en obra.
+PRIORIDAD MÁXIMA — borrador de presupuesto:
+Si hay un borrador de presupuesto en construcción (presupuesto_borrador con estado en_construccion), CUALQUIER mensaje del usuario debe clasificarse como intención 'presupuesto' y delegarse al subagente de presupuestos, EXCEPTO si el usuario dice explícitamente 'cancelar presupuesto' o 'salir del presupuesto'.
+
+Responde SOLO con una palabra en minúsculas, sin comillas ni puntuación:
+documentos | emails | agenda | gastos | diario | clientes | calculo | operarios | presupuesto | general
+
+documentos: crear obra con cliente nuevo o existente (crear_obra + crear_cliente + actualizar_obra), facturas, albaranes, vincular documentos a una obra (asociar_documentos_a_obra), crear o actualizar obra (crear_obra, actualizar_obra), extras/modificados/imprevistos en obra, dictado de visita y presupuesto estructurado (generar_presupuesto_por_dictado, gestionar_tarifas), crear presupuesto ya redactado (crear_presupuesto), estados de facturas/albaranes, edición de facturas/albaranes, conversiones albarán↔factura, tiempo en obra.
+presupuesto: presupuestos por voz o línea a línea, borrador en construcción, partidas, listar o editar presupuestos, pendientes, cambiar estado de presupuesto, convertir presupuesto a albarán, confirmar o cancelar borrador, obtener borrador activo.
 emails: Gmail, leer bandeja, enviar correo.
 agenda: recordatorios, citas, eventos en calendario, tiempo meteorológico para obras o citas.
 gastos: ticket, OCR, foto de compra, registrar gasto, vincular gasto.
@@ -435,16 +448,12 @@ operarios: horas de trabajadores, operarios, jornada, parte de horas, nómina/co
 general: saludos, varias áreas a la vez, mensajes pendientes del negocio, meteorología o tiempo, extras o imprevistos en obra (registrar_extra), dictado de visita o presupuesto por voz, vincular documentos a una obra, actualizar datos de obra (cliente, dirección, estado, actualizar_obra), memoria del negocio (guardar_memoria, eliminar_memoria), o petición ambigua.`;
 
 const INTENT_TOOL_NAMES_DOCUMENTOS = new Set([
-  'obtener_presupuestos_pendientes',
   'obtener_facturas_pendientes',
   'obtener_albaranes_pendientes',
-  'listar_presupuestos',
   'listar_facturas',
   'listar_albaranes',
-  'cambiar_estado_presupuesto',
   'cambiar_estado_factura',
   'cambiar_estado_albaran',
-  'editar_presupuesto',
   'editar_factura',
   'editar_albaran',
   'generar_presupuesto_por_dictado',
@@ -457,7 +466,6 @@ const INTENT_TOOL_NAMES_DOCUMENTOS = new Set([
   'buscar_obra',
   'ver_ficha_obra',
   'asociar_documentos_a_obra',
-  'convertir_presupuesto_a_albaran',
   'convertir_albaran_a_factura',
   'buscar_cliente',
   'ver_cliente',
@@ -543,6 +551,14 @@ const INTENT_TOOL_NAMES_OPERARIOS = new Set([
   'eliminar_memoria',
 ]);
 
+const INTENT_TOOL_NAMES_PRESUPUESTO = new Set([
+  ...PRESUPUESTOS_HANDLED_TOOLS,
+  'mostrar_vista_visual',
+  'get_directions',
+  'guardar_memoria',
+  'eliminar_memoria',
+]);
+
 const INTENT_TOOL_NAMES: Record<AgentIntentCategory, Set<string> | null> = {
   documentos: INTENT_TOOL_NAMES_DOCUMENTOS,
   emails: INTENT_TOOL_NAMES_EMAILS,
@@ -552,6 +568,7 @@ const INTENT_TOOL_NAMES: Record<AgentIntentCategory, Set<string> | null> = {
   clientes: INTENT_TOOL_NAMES_CLIENTES,
   calculo: INTENT_TOOL_NAMES_CALCULO,
   operarios: INTENT_TOOL_NAMES_OPERARIOS,
+  presupuesto: INTENT_TOOL_NAMES_PRESUPUESTO,
   general: null,
 };
 
@@ -565,6 +582,7 @@ function parseAgentIntentCategory(raw: string): AgentIntentCategory {
     'clientes',
     'calculo',
     'operarios',
+    'presupuesto',
     'general',
   ];
   const trimmed = raw.trim().toLowerCase();
@@ -815,18 +833,6 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
       {
         type: 'function',
         function: {
-          name: 'obtener_presupuestos_pendientes',
-          description: 'Presupuestos en estado pendiente: cliente, importe, fecha.',
-          parameters: {
-            type: 'object',
-            properties: {},
-            additionalProperties: false,
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
           name: 'obtener_facturas_pendientes',
           description: 'Facturas en estado pendiente: cliente, importe, fecha.',
           parameters: {
@@ -841,19 +847,6 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
         function: {
           name: 'obtener_albaranes_pendientes',
           description: 'Albaranes pendientes: cliente y fecha.',
-          parameters: {
-            type: 'object',
-            properties: {},
-            additionalProperties: false,
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'listar_presupuestos',
-          description:
-            'Últimos 10 presupuestos (todos los estados). Listar o consultar sin crear uno nuevo.',
           parameters: {
             type: 'object',
             properties: {},
@@ -901,27 +894,6 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
       {
         type: 'function',
         function: {
-          name: 'cambiar_estado_presupuesto',
-          description:
-            'Cambia estado del presupuesto por UUID. Estados: pendiente, aceptado, rechazado, facturado, pagado. Si no tienes el UUID, primero listar_presupuestos y usa el id de la fila correcta.',
-          parameters: {
-            type: 'object',
-            properties: {
-              id: { type: 'string', description: 'UUID del presupuesto' },
-              estado: {
-                type: 'string',
-                enum: [...ESTADOS_DOC],
-                description: 'Nuevo estado',
-              },
-            },
-            required: ['id', 'estado'],
-            additionalProperties: false,
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
           name: 'cambiar_estado_factura',
           description:
             'Cambia estado de la factura por UUID. Mismos estados que presupuestos. Si no tienes el UUID, primero listar_facturas y usa el id correcto.',
@@ -957,28 +929,6 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
               },
             },
             required: ['id', 'estado'],
-            additionalProperties: false,
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'editar_presupuesto',
-          description:
-            'Actualiza presupuesto por id: cliente_nombre, importe_total y/o texto (presupuesto_generado). Solo campos que cambien. Si no tienes UUID, listar_presupuestos antes.',
-          parameters: {
-            type: 'object',
-            properties: {
-              id: { type: 'string', description: 'UUID del presupuesto' },
-              cliente_nombre: { type: 'string', description: 'Nombre del cliente' },
-              importe_total: { type: 'number', description: 'Importe total' },
-              descripcion: {
-                type: 'string',
-                description: 'Nuevo texto del presupuesto (sustituye presupuesto_generado)',
-              },
-            },
-            required: ['id'],
             additionalProperties: false,
           },
         },
@@ -1780,29 +1730,6 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
       {
         type: 'function',
         function: {
-          name: 'convertir_presupuesto_a_albaran',
-          description:
-            'Presupuesto aceptado → albarán (copia datos; actualiza estado del presupuesto).',
-          parameters: {
-            type: 'object',
-            properties: {
-              presupuesto_id: {
-                type: 'string',
-                description: 'UUID del presupuesto a convertir',
-              },
-              observaciones: {
-                type: 'string',
-                description: 'Notas adicionales para el albarán',
-              },
-            },
-            required: ['presupuesto_id'],
-            additionalProperties: false,
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
           name: 'convertir_albaran_a_factura',
           description:
             'Albarán → factura (copia datos; IVA opcional; marca albarán facturado).',
@@ -2011,6 +1938,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
         },
       },
       ...OPERARIOS_AGENT_TOOLS,
+      ...PRESUPUESTOS_AGENT_TOOLS,
       {
         type: 'function',
         function: {
@@ -2065,10 +1993,33 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
       });
     }
 
+    let routerSystemContent = ROUTER_SYSTEM_PROMPT;
+    if (authUser?.id) {
+      const borradorRes = await supabase
+        .from('presupuesto_borrador')
+        .select('id')
+        .eq('business_id', business_id)
+        .eq('user_id', authUser.id)
+        .eq('estado', 'en_construccion')
+        .limit(1);
+      const rows = borradorRes.data;
+      const hasBorradorActivo = Array.isArray(rows)
+        ? rows.length > 0 && Boolean((rows[0] as { id?: string } | undefined)?.id)
+        : Boolean(
+            rows &&
+              typeof rows === 'object' &&
+              'id' in (rows as object) &&
+              String((rows as { id?: unknown }).id ?? '').trim().length > 0
+          );
+      if (hasBorradorActivo) {
+        routerSystemContent = `ATENCIÓN: Hay un presupuesto en construcción activo. TODO va a presupuestos.\n\n${ROUTER_SYSTEM_PROMPT}`;
+      }
+    }
+
     const routerCompletion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: ROUTER_SYSTEM_PROMPT },
+        { role: 'system', content: routerSystemContent },
         { role: 'user', content: userContent },
       ],
       max_tokens: 30,
@@ -2082,10 +2033,15 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
       tools = ALL_AGENT_TOOLS;
     }
 
+    const systemPromptEfectivo =
+      intentCategory === 'presupuesto'
+        ? `${PRESUPUESTOS_AGENT_SYSTEM_PROMPT}\n\n---\nContexto del negocio (solo referencia; mantén tus reglas de brevedad).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlock}`
+        : systemPrompt;
+
     const historialLimitado = historialValido.slice(-10);
 
     let messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: systemPromptEfectivo },
       ...historialLimitado.map((m) => ({ role: m.role, content: m.content })),
       { role: 'user', content: userContent },
     ];
@@ -2129,24 +2085,19 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
         return { ok: true, id: cid };
       };
 
+      if (PRESUPUESTOS_HANDLED_TOOLS.has(toolName)) {
+        return handlePresupuestos(
+          toolName,
+          toolArgs,
+          typeof business_id === 'string' ? business_id : String(business_id ?? ''),
+          authUser?.id ?? null,
+          supabase,
+          openai,
+          { mensajeTrim }
+        );
+      }
+
       switch (toolName) {
-        case 'obtener_presupuestos_pendientes': {
-          const { data, error } = await supabase
-            .from('presupuestos')
-            .select('cliente_nombre, importe_total, fecha')
-            .eq('business_id', business_id)
-            .eq('estado', 'pendiente')
-            .order('fecha', { ascending: false })
-            .limit(50);
-          if (error) return { error: error.message };
-          return {
-            items: (data ?? []).map((r: any) => ({
-              cliente: r.cliente_nombre ?? null,
-              importe: r.importe_total ?? null,
-              fecha: r.fecha ?? null,
-            })),
-          };
-        }
         case 'obtener_facturas_pendientes': {
           const { data, error } = await supabase
             .from('facturas')
@@ -2177,35 +2128,6 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
             items: (data ?? []).map((r: any) => ({
               cliente: r.cliente_nombre ?? null,
               fecha: r.fecha ?? null,
-            })),
-          };
-        }
-        case 'listar_presupuestos': {
-          const { data, error } = await supabase
-            .from('presupuestos')
-            .select('id, cliente_nombre, cliente_id, importe_total, fecha, estado')
-            .eq('business_id', business_id)
-            .order('fecha', { ascending: false })
-            .limit(10);
-          if (error) {
-            console.error('[agente] listar_presupuestos Supabase:', error);
-            return { error: error.message };
-          }
-          return {
-            items: (data ?? []).map((r: {
-              id?: string;
-              cliente_nombre?: string | null;
-              cliente_id?: string | null;
-              importe_total?: number | null;
-              fecha?: string | null;
-              estado?: string | null;
-            }) => ({
-              id: r.id ?? null,
-              cliente: r.cliente_nombre ?? null,
-              cliente_id: r.cliente_id ?? null,
-              importe_total: r.importe_total ?? null,
-              fecha: r.fecha ?? null,
-              estado: r.estado ?? null,
             })),
           };
         }
@@ -2312,29 +2234,6 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
             };
           }
         }
-        case 'cambiar_estado_presupuesto': {
-          const id = String(toolArgs.id ?? '').trim();
-          const estado = parseEstadoDoc(toolArgs.estado);
-          if (!id) return { error: 'id es obligatorio' };
-          if (!estado) {
-            return {
-              error:
-                'estado inválido; use uno de: pendiente, aceptado, rechazado, facturado, pagado',
-            };
-          }
-          const { data: row, error } = await supabase
-            .from('presupuestos')
-            .update({ estado })
-            .eq('id', id)
-            .eq('business_id', business_id)
-            .select('id')
-            .maybeSingle();
-          if (error) return { error: error.message };
-          if (!row?.id) {
-            return { error: 'No se encontró el presupuesto o no pertenece a este negocio' };
-          }
-          return { ok: true, id: row.id as string };
-        }
         case 'cambiar_estado_factura': {
           const id = String(toolArgs.id ?? '').trim();
           const estado = parseEstadoDoc(toolArgs.estado);
@@ -2378,45 +2277,6 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
           if (error) return { error: error.message };
           if (!row?.id) {
             return { error: 'No se encontró el albarán o no pertenece a este negocio' };
-          }
-          return { ok: true, id: row.id as string };
-        }
-        case 'editar_presupuesto': {
-          const id = String(toolArgs.id ?? '').trim();
-          if (!id) return { error: 'id es obligatorio' };
-          const updates: {
-            cliente_nombre?: string;
-            importe_total?: number;
-            presupuesto_generado?: string;
-          } = {};
-          if (toolArgs.cliente_nombre !== undefined) {
-            const c = String(toolArgs.cliente_nombre ?? '').trim().slice(0, 255);
-            if (!c) return { error: 'cliente_nombre no puede estar vacío' };
-            updates.cliente_nombre = c;
-          }
-          if (toolArgs.importe_total !== undefined) {
-            const n = Number(toolArgs.importe_total);
-            if (!Number.isFinite(n)) return { error: 'importe_total debe ser un número válido' };
-            updates.importe_total = n;
-          }
-          if (toolArgs.descripcion !== undefined) {
-            const d = String(toolArgs.descripcion ?? '').trim();
-            if (!d) return { error: 'descripcion no puede estar vacía' };
-            updates.presupuesto_generado = d;
-          }
-          if (Object.keys(updates).length === 0) {
-            return { error: 'Indica al menos un campo a actualizar (cliente_nombre, importe_total o descripcion)' };
-          }
-          const { data: row, error } = await supabase
-            .from('presupuestos')
-            .update(updates)
-            .eq('id', id)
-            .eq('business_id', business_id)
-            .select('id')
-            .maybeSingle();
-          if (error) return { error: error.message };
-          if (!row?.id) {
-            return { error: 'No se encontró el presupuesto o no pertenece a este negocio' };
           }
           return { ok: true, id: row.id as string };
         }
@@ -3496,64 +3356,6 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
             facturas: facV.data ?? [],
             albaranes: albV.data ?? [],
             diario_obra: dioV.data ?? [],
-          };
-        }
-        case 'convertir_presupuesto_a_albaran': {
-          const presupuestoId = String(toolArgs.presupuesto_id ?? '').trim();
-          const observaciones =
-            toolArgs.observaciones != null
-              ? String(toolArgs.observaciones).trim()
-              : '';
-          if (!presupuestoId) return { error: 'presupuesto_id es obligatorio' };
-
-          const { data: pRow, error: pErr } = await supabase
-            .from('presupuestos')
-            .select(
-              'id, estado, cliente_nombre, cliente_id, presupuesto_generado, importe_total, obra_id'
-            )
-            .eq('id', presupuestoId)
-            .eq('business_id', business_id)
-            .maybeSingle();
-          if (pErr) return { error: pErr.message };
-          if (!pRow) return { error: 'Presupuesto no encontrado' };
-
-          const clienteNombre = (pRow.cliente_nombre ?? '') as string;
-          const totalNum =
-            pRow.importe_total != null && Number.isFinite(Number(pRow.importe_total))
-              ? Number(pRow.importe_total)
-              : 0;
-          const texto = (pRow.presupuesto_generado ?? '') as string;
-
-          const { error: insertErr } = await supabase.from('albaranes').insert({
-            business_id,
-            cliente_nombre: clienteNombre || null,
-            cliente_id: pRow.cliente_id ?? null,
-            obra_id: (pRow as { obra_id?: string | null }).obra_id ?? null,
-            descripcion_trabajos: texto || null,
-            total: totalNum,
-            fecha: new Date().toISOString().split('T')[0],
-            estado: 'pendiente',
-            observaciones:
-              observaciones.length > 0 ? observaciones : 'Generado desde presupuesto',
-          });
-
-          if (insertErr) return { error: insertErr.message };
-
-          if ((pRow.estado ?? '').toLowerCase() !== 'aceptado') {
-            const { error: updErr } = await supabase
-              .from('presupuestos')
-              .update({ estado: 'aceptado' })
-              .eq('id', presupuestoId)
-              .eq('business_id', business_id)
-              .select('id')
-              .maybeSingle();
-            if (updErr) return { error: updErr.message };
-          }
-
-          return {
-            mensaje:
-              `Albarán creado correctamente a partir del presupuesto de ${clienteNombre}.\n` +
-              'El presupuesto ha sido marcado como aceptado.',
           };
         }
         case 'convertir_albaran_a_factura': {
