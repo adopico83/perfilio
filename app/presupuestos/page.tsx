@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import ReactMarkdown from 'react-markdown';
 import { X } from 'lucide-react';
-import { jsPDF } from 'jspdf';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import { type ObrasNombreJoin, nombreObraDesdeJoin } from '@/lib/obras-nombre-join';
 
@@ -143,51 +142,29 @@ function PresupuestosPageContent() {
   };
 
   const descargarPDF = async (p: Presupuesto) => {
-    const { data: biz } = await supabase.from('business_profiles').select('nombre').eq('id', p.business_id).single();
-    const nombreNegocio = (biz as { nombre?: string } | null)?.nombre ?? 'Negocio';
-    const fechaStr = p.fecha ?? new Date(p.created_at).toISOString().split('T')[0];
-    const contenido = (p.presupuesto_generado ?? '').replace(/\*\*/g, '').replace(/^[-*]\s/gm, '• ').trim();
-
-    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-    const margin = 20;
-    const pageW = 210;
-    const pageH = 297;
-    let y = margin;
-
-    doc.setFontSize(18);
-    doc.setTextColor(26, 54, 93);
-    doc.text('PRESUPUESTO', margin, y);
-    y += 10;
-
-    doc.setFontSize(10);
-    doc.setTextColor(0, 0, 0);
-    doc.text(`Fecha: ${fechaStr}`, margin, y);
-    y += 6;
-    doc.text(`Cliente/Negocio: ${nombreNegocio}`, margin, y);
-    y += 10;
-
-    doc.setFontSize(11);
-    const lineHeight = 6;
-    const maxW = pageW - margin * 2;
-    const lines = doc.splitTextToSize(contenido, maxW);
-    for (const line of lines) {
-      if (y > pageH - margin - 15) {
-        doc.addPage();
-        y = margin;
+    const res = await fetch(`/api/pdf/presupuesto/${encodeURIComponent(p.id)}`, {
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      let msg = 'Error al generar el PDF';
+      try {
+        const j = (await res.json()) as { error?: string };
+        if (j?.error) msg = j.error;
+      } catch {
+        /* ignore */
       }
-      doc.text(line, margin, y);
-      y += lineHeight;
+      throw new Error(msg);
     }
-
-    const totalPages = doc.getNumberOfPages();
-    for (let i = 1; i <= totalPages; i++) {
-      doc.setPage(i);
-      doc.setFontSize(8);
-      doc.setTextColor(100, 100, 100);
-      doc.text('Generado por Perfilio', margin, pageH - 10);
-    }
-
-    doc.save(`presupuesto-${fechaStr}.pdf`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const fechaStr = p.fecha ?? new Date(p.created_at).toISOString().split('T')[0];
+    a.download = `presupuesto-${fechaStr}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   };
 
   if (authChecking) {
@@ -250,7 +227,14 @@ function PresupuestosPageContent() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => descargarPDF(p)}
+                    onClick={async () => {
+                      try {
+                        await descargarPDF(p);
+                      } catch (e) {
+                        console.error(e);
+                        alert(e instanceof Error ? e.message : 'Error al descargar el PDF');
+                      }
+                    }}
                     className="px-3 py-1.5 text-sm font-medium bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-lg transition-colors"
                   >
                     Descargar PDF
