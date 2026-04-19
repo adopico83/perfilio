@@ -421,24 +421,34 @@ type AgentIntentCategory =
   | 'presupuesto'
   | 'general';
 
-const ROUTER_SYSTEM_PROMPT = `Eres un clasificador.
+const ROUTER_SYSTEM_PROMPT = `Eres un clasificador de intención (una sola categoría de salida).
 
-PRIORIDAD MÁXIMA — borrador de presupuesto:
-Si hay un borrador de presupuesto en construcción (presupuesto_borrador con estado en_construccion), CUALQUIER mensaje del usuario debe clasificarse como intención 'presupuesto' y delegarse al subagente de presupuestos, EXCEPTO si el usuario dice explícitamente 'cancelar presupuesto' o 'salir del presupuesto'.
+PRIORIDAD DE SEÑALES EXPLÍCITAS (aplica la primera categoría coherente; no mezcles con otras salvo ambigüedad real):
+- operarios: registrar o consultar horas de trabajo en obra, control de horas, horas de obra, horas de operarios, parte de horas, fichar jornada, convenio vs horas reales, "cuántas horas llevamos", etc. Incluye frases típicas: "registrar horas", "horas de obra", "control de horas", "jornada" (en sentido laboral en obra).
+- diario: diario de obra, anotar en obra, incidencias o apuntes del día en obra, entrada del diario, "foto de obra" como registro de obra (no ticket de compra), PDF del diario, texto del diario. Incluye: "diario de obra", "anotar en obra", "foto de obra" (contexto obra).
+- presupuesto: presupuesto, partidas, líneas del presupuesto, "añadir al presupuesto", importes por partida, listar o editar presupuestos, pendientes de presupuesto, cambiar estado de presupuesto, convertir presupuesto a albarán, confirmar o cancelar borrador de presupuesto, obtener borrador activo, presupuesto por voz cuando el foco es el importe/partidas (no confundir con horas ni diario).
+
+Borrador de presupuesto en construcción (si el sistema te avisa de que existe):
+- Solo debe sesgar hacia presupuesto cuando el mensaje sea ambiguo, muy corto sin tema claro, o siga claramente el hilo del presupuesto (partidas, importes, confirmaciones del borrador).
+- NUNCA fuerces presupuesto por tener borrador activo si el usuario habla de horas/jornada/operarios o de diario de obra/fotos/anotaciones en obra: en esos casos la salida es operarios o diario.
+- "cancelar presupuesto" o "salir del presupuesto" → presupuesto (gestión del flujo de presupuesto).
+
+Mensajes muy cortos (sí, no, vale, ok, adelante, genial, perfecto, etc.):
+- Debes basarte en el ÚLTIMO mensaje del asistente que recibes en el historial inmediato antes del mensaje del usuario. Si el asistente preguntaba por horas u operarios → operarios; si por diario/fotos/anotación en obra → diario; si por presupuesto, partidas o confirmación del borrador → presupuesto. Si no hay pista clara, entonces aplica la regla del borrador activo solo si aplica como mensaje ambiguo.
 
 Responde SOLO con una palabra en minúsculas, sin comillas ni puntuación:
 documentos | emails | agenda | gastos | diario | clientes | calculo | operarios | presupuesto | general
 
 documentos: crear obra con cliente nuevo o existente (crear_obra + crear_cliente + actualizar_obra), facturas, albaranes, vincular documentos a una obra (asociar_documentos_a_obra), crear o actualizar obra (crear_obra, actualizar_obra), extras/modificados/imprevistos en obra, dictado de visita y presupuesto estructurado (generar_presupuesto_por_dictado, gestionar_tarifas), crear presupuesto ya redactado (crear_presupuesto), estados de facturas/albaranes, edición de facturas/albaranes, conversiones albarán↔factura, tiempo en obra.
-presupuesto: presupuestos por voz o línea a línea, borrador en construcción, partidas, listar o editar presupuestos, pendientes, cambiar estado de presupuesto, convertir presupuesto a albarán, confirmar o cancelar borrador, obtener borrador activo.
+presupuesto: ya detallado arriba cuando el foco es presupuesto/partidas/borrador de presupuesto (no operarios ni diario).
 emails: Gmail, leer bandeja, enviar correo.
 agenda: recordatorios, citas, eventos en calendario, tiempo meteorológico para obras o citas.
 gastos: ticket, OCR, foto de compra, registrar gasto, vincular gasto.
-diario: diario de obra, fotos de obra, PDF del diario.
+diario: ya detallado arriba (diario de obra y registro en obra).
 clientes: consultar ficha de cliente, buscar cliente, historial de cliente. NO usar para crear obras ni clientes nuevos.
 calculo: metros cuadrados, m³, perímetro, dimensiones de obra.
-operarios: horas de trabajadores, operarios, jornada, parte de horas, nómina/convenio vs horas reales en obra, registrar o consultar horas por obra u operario.
-general: saludos, varias áreas a la vez, mensajes pendientes del negocio, meteorología o tiempo, extras o imprevistos en obra (registrar_extra), dictado de visita o presupuesto por voz, vincular documentos a una obra, actualizar datos de obra (cliente, dirección, estado, actualizar_obra), memoria del negocio (guardar_memoria, eliminar_memoria), o petición ambigua.`;
+operarios: ya detallado arriba (horas y jornada en obra).
+general: saludos, varias áreas a la vez, mensajes pendientes del negocio, meteorología o tiempo, extras o imprevistos en obra (registrar_extra), vincular documentos a una obra, actualizar datos de obra (cliente, dirección, estado, actualizar_obra), memoria del negocio (guardar_memoria, eliminar_memoria), o petición ambigua sin encaje claro.`;
 
 const INTENT_TOOL_NAMES_DOCUMENTOS = new Set([
   'obtener_facturas_pendientes',
@@ -2003,16 +2013,28 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
               String((rows as { id?: unknown }).id ?? '').trim().length > 0
           );
       if (hasBorradorActivo) {
-        routerSystemContent = `ATENCIÓN: Hay un presupuesto en construcción activo. TODO va a presupuestos.\n\n${ROUTER_SYSTEM_PROMPT}`;
+        routerSystemContent = `CONTEXTO: Hay un borrador de presupuesto en construcción (estado en_construccion). Úsalo solo como sesgo hacia intención presupuesto cuando el mensaje del usuario sea ambiguo o siga claramente el hilo del presupuesto/partidas/confirmación del borrador. NO fuerces presupuesto si el mensaje trata de horas de operarios, jornada, control de horas ni de diario de obra, anotaciones en obra o fotos de obra en sentido de registro de obra: en esos casos clasifica operarios o diario.\n\n${ROUTER_SYSTEM_PROMPT}`;
       }
     }
 
+    const ultimoAsistenteRouter = [...historialValido]
+      .reverse()
+      .find((m) => m.role === 'assistant' && m.content.trim().length > 0);
+
+    const routerMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      { role: 'system', content: routerSystemContent },
+    ];
+    if (ultimoAsistenteRouter) {
+      routerMessages.push({
+        role: 'assistant',
+        content: ultimoAsistenteRouter.content,
+      });
+    }
+    routerMessages.push({ role: 'user', content: userContent });
+
     const routerCompletion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: routerSystemContent },
-        { role: 'user', content: userContent },
-      ],
+      messages: routerMessages,
       max_tokens: 30,
       temperature: 0,
     });
