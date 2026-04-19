@@ -22,20 +22,22 @@ export default function LoginPage() {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
-      });
+        options: { shouldCreateUser: false },
+      } as Parameters<typeof supabase.auth.signInWithPassword>[0]);
 
       if (error) {
         setError('Credenciales incorrectas. Por favor, verifica tu email y contraseña.');
-        setLoading(false);
         return;
       }
 
       if (data.user) {
+        await supabase.auth.getSession();
         router.push('/dashboard');
         router.refresh();
       }
     } catch (err) {
       setError('Error al iniciar sesión. Por favor, inténtalo de nuevo.');
+    } finally {
       setLoading(false);
     }
   };

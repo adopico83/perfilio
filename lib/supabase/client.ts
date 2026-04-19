@@ -1,8 +1,34 @@
 import { createBrowserClient } from '@supabase/ssr';
 
+/**
+ * Cliente de Supabase para el navegador (login, PWA, etc.).
+ *
+ * Nota sobre `auth.storage` / `localStorage`: `createBrowserClient` de `@supabase/ssr`
+ * construye siempre un adaptador basado en cookies y lo asigna a `auth.storage` al
+ * crear el cliente (sustituye cualquier `auth.storage` pasado en opciones). La
+ * persistencia entre cierres del navegador depende de `cookieOptions` (p. ej. `maxAge`).
+ *
+ * Sobre `auth.storageKey`: si se fija una clave distinta a la del resto de instancias
+ * (`createBrowserClient` en páginas del dashboard, etc.), las cookies no coincidirán y
+ * la sesión no se verá en otras rutas. Mantener la clave por defecto del proyecto salvo
+ * que se unifique en todos los puntos de creación del cliente.
+ */
 export function createClient() {
   return createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      /** Evita reutilizar un singleton creado antes sin estas `cookieOptions`. */
+      isSingleton: false,
+      auth: {
+        persistSession: true,
+      },
+      cookieOptions: {
+        maxAge: 400 * 24 * 60 * 60,
+        path: '/',
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+      },
+    }
   );
 }
