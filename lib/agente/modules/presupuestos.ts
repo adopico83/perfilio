@@ -14,6 +14,21 @@ function escapeIlike(s: string): string {
   return s.replace(/[%_]/g, '');
 }
 
+/** Mayor puntuación = descripción más parecida al fragmento buscado (desempate externo, p. ej. por orden). */
+function scoreDescripcionMatch(desc: string, needle: string): number {
+  const d = desc.trim().toLowerCase();
+  const n = needle.trim().toLowerCase();
+  if (!n) return 0;
+  if (d === n) return 100_000;
+  const idx = d.indexOf(n);
+  if (idx >= 0) return 50_000 - idx - Math.abs(d.length - n.length) * 0.01;
+  let sc = 0;
+  for (const w of n.split(/\s+/).filter((x) => x.length > 1)) {
+    if (d.includes(w)) sc += 100 + w.length;
+  }
+  return sc;
+}
+
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 function fmtImporteLinea(n: number): string {
@@ -75,6 +90,7 @@ export const PRESUPUESTOS_HANDLED_TOOLS = new Set([
   'convertir_presupuesto_a_albaran',
   'iniciar_borrador_presupuesto',
   'agregar_partida_borrador',
+  'modificar_partida_borrador',
   'listar_partidas_borrador',
   'eliminar_partida_borrador',
   'confirmar_borrador',
@@ -85,11 +101,13 @@ export const PRESUPUESTOS_HANDLED_TOOLS = new Set([
 export const PRESUPUESTOS_AGENT_SYSTEM_PROMPT = `Eres el especialista en presupuestos de Perfilio. Tu único trabajo es crear y gestionar presupuestos de obra.
 
 REGLAS DE RESPUESTA:
+- REGLA CRÍTICA: Cada vez que el usuario dicte una partida, DEBES llamar a la tool agregar_partida_borrador. Está terminantemente prohibido confirmar una partida en el texto de respuesta si no has recibido el éxito de la ejecución de dicha tool. Sin TOOL RESULT con ok:true, no puedes decir Añadido.
 - REGLA ABSOLUTA: NUNCA respondas 'Añadido' ni confirmes una partida sin haber recibido un TOOL RESULT de agregar_partida_borrador con ok:true. Si no has llamado a la tool o no has recibido ok:true, NO confirmes la partida. Llama a la tool primero, espera el resultado, y solo entonces confirma.
 - Sé extremadamente breve y directo. Formato obligatorio al añadir partida: 'Añadido: [descripción] ([total]€). ¿Siguiente?'
 - Nunca escribas párrafos largos. Pino escucha por voz.
 - Nunca inventes precios. Si no tienes el precio, pregunta: '¿A qué precio va [descripción]?'
 - Siempre confirma cantidad y precio en cada partida para que Pino pueda corregir errores de voz.
+- CORRECCIONES: Si el usuario dice 'no, eran X euros', 'cámbialo a X', 'la partida Y vale Z' o similar, llama a modificar_partida_borrador con los datos corregidos. Confirma: 'Corregido: [descripción] ([nuevo total]€). ¿Seguimos?'
 
 MODO PRESUPUESTO ACTIVO:
 Cuando hay un borrador en construcción, interpreta TODO como partidas de obra.
@@ -217,6 +235,31 @@ export const PRESUPUESTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
           raw_dictado: { type: 'string', description: 'Texto exacto de voz del usuario' },
         },
         required: ['borrador_id', 'descripcion', 'cantidad', 'unidad', 'precio_unitario', 'raw_dictado'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'modificar_partida_borrador',
+      description:
+        'Corrige una partida del borrador (precio, cantidad, unidad o texto). Usa item_id si lo tienes; si no, descripcion_busqueda para localizar la partida en este borrador.',
+      parameters: {
+        type: 'object',
+        properties: {
+          borrador_id: { type: 'string' },
+          item_id: { type: 'string', description: 'UUID de la fila en presupuesto_borrador_items (opcional)' },
+          descripcion_busqueda: {
+            type: 'string',
+            description: 'Fragmento para buscar la partida por descripción si no hay item_id',
+          },
+          descripcion: { type: 'string', description: 'Nueva descripción (opcional)' },
+          cantidad: { type: 'number', description: 'Nueva cantidad (opcional)' },
+          unidad: { type: 'string', description: 'Nueva unidad (opcional)' },
+          precio_unitario: { type: 'number', description: 'Nuevo precio unitario (opcional)' },
+        },
+        required: ['borrador_id'],
         additionalProperties: false,
       },
     },
@@ -461,6 +504,24 @@ export async function handlePresupuestos(
   ctx: HandlePresupuestosCtx = {}
 ): Promise<Record<string, unknown>> {
   void ctx.mensajeTrim;
+
+  if (toolName === 'agregar_partida_borrador') {
+    const bidRaw = toolArgs.borrador_id;
+    const borradorIdEmpty =
+      bidRaw == null || (typeof bidRaw === 'string' && !String(bidRaw).trim());
+    if (borradorIdEmpty && userId) {
+      const row = await obtenerBorradorActivoRow(supabase, businessId, userId);
+      const id = row && String(row.id ?? '').trim();
+      if (id) toolArgs.borrador_id = id;
+    }
+    const bidFinal = String(toolArgs.borrador_id ?? '').trim();
+    if (!bidFinal && userId) {
+      return {
+        error:
+          'No se encontró un borrador activo. Por favor, inicia uno nuevo diciendo: presupuesto para [cliente]',
+      };
+    }
+  }
 
   switch (toolName) {
     case 'listar_presupuestos': {
@@ -708,7 +769,13 @@ export async function handlePresupuestos(
       return { ok: true, borrador_id: (ins as { id: string }).id, ya_existia: false };
     }
     case 'agregar_partida_borrador': {
-      if (!userId) return { error: 'Usuario no autenticado.' };
+      const args = toolArgs;
+      console.log('[PRESUPUESTOS] agregar_partida_borrador llamado con:', JSON.stringify(args));
+      const fin = (resultado: Record<string, unknown>) => {
+        console.log('[PRESUPUESTOS] agregar_partida_borrador resultado:', JSON.stringify(resultado));
+        return resultado;
+      };
+      if (!userId) return fin({ error: 'Usuario no autenticado.' });
       const borradorId = String(toolArgs.borrador_id ?? '').trim();
       const descripcion = String(toolArgs.descripcion ?? '').trim();
       const rawDictado = String(toolArgs.raw_dictado ?? '').trim();
@@ -719,12 +786,12 @@ export async function handlePresupuestos(
       const unidad = String(toolArgs.unidad ?? 'ud').trim().slice(0, 32) || 'ud';
       const cantidad = Number(toolArgs.cantidad);
       let precioUnitario = Number(toolArgs.precio_unitario);
-      if (!borradorId) return { error: 'borrador_id es obligatorio' };
-      if (!descripcion) return { error: 'descripcion es obligatoria' };
-      if (!rawDictado) return { error: 'raw_dictado es obligatorio' };
-      if (!Number.isFinite(cantidad) || cantidad < 0) return { error: 'cantidad inválida' };
+      if (!borradorId) return fin({ error: 'borrador_id es obligatorio' });
+      if (!descripcion) return fin({ error: 'descripcion es obligatoria' });
+      if (!rawDictado) return fin({ error: 'raw_dictado es obligatorio' });
+      if (!Number.isFinite(cantidad) || cantidad < 0) return fin({ error: 'cantidad inválida' });
       if (!Number.isFinite(precioUnitario) || precioUnitario < 0) {
-        return { error: 'precio_unitario inválido' };
+        return fin({ error: 'precio_unitario inválido' });
       }
 
       let borradorEfectivoId = borradorId;
@@ -738,32 +805,32 @@ export async function handlePresupuestos(
       }
       if (!br.ok) {
         if (br.error === 'Borrador no encontrado o sin acceso.') {
-          return { error: 'Borrador no encontrado. Inicia un nuevo presupuesto.' };
+          return fin({ error: 'Borrador no encontrado. Inicia un nuevo presupuesto.' });
         }
-        return { error: br.error };
+        return fin({ error: br.error });
       }
       if (String(br.row.estado) !== 'en_construccion') {
-        return { error: 'El borrador no está en construcción.' };
+        return fin({ error: 'El borrador no está en construcción.' });
       }
 
       let mensajeTarifa: string | null = null;
       if (precioUnitario === 0) {
         const candidatas = await buscarTarifasCandidatas(supabase, businessId, descripcion);
         if (candidatas.length === 0) {
-          return {
+          return fin({
             mensaje: `No hay tarifas candidatas para «${descripcion}». Indica el precio unitario antes de insertar la partida.`,
             pendiente_precio: true,
-          };
+          });
         }
         const idx = await elegirTarifaConGpt(openai, descripcion, rawDictado, candidatas);
         if (idx == null) {
-          return {
+          return fin({
             mensaje:
               'No encontré una tarifa clara para esta partida. ¿A qué precio unitario va «' +
               descripcion +
               '»?',
             pendiente_precio: true,
-          };
+          });
         }
         const elegida = candidatas[idx]!;
         precioUnitario = Number(elegida.precio);
@@ -788,19 +855,155 @@ export async function handlePresupuestos(
         precio_unitario: precioUnitario,
         raw_dictado: rawDictado,
       });
-      if (insErr) return { error: insErr.message };
+      if (insErr) return fin({ error: insErr.message });
 
       await supabase
         .from('presupuesto_borrador')
         .update({ updated_at: new Date().toISOString() })
         .eq('id', borradorEfectivoId);
 
-      return {
+      return fin({
         ok: true,
         borrador_id: borradorEfectivoId,
         orden,
         importe,
         mensaje: mensajeTarifa,
+      });
+    }
+    case 'modificar_partida_borrador': {
+      if (!userId) return { error: 'Usuario no autenticado.' };
+      const borradorId = String(toolArgs.borrador_id ?? '').trim();
+      const itemIdIn = String(toolArgs.item_id ?? '').trim();
+      const busquedaRaw =
+        toolArgs.descripcion_busqueda != null ? String(toolArgs.descripcion_busqueda).trim() : '';
+      if (!borradorId) return { error: 'borrador_id es obligatorio' };
+      const br = await assertBorrador(supabase, businessId, userId, borradorId);
+      if (!br.ok) return { error: br.error };
+      if (String(br.row.estado) !== 'en_construccion') {
+        return { error: 'El borrador no está en construcción.' };
+      }
+
+      const tienePatch =
+        toolArgs.descripcion !== undefined ||
+        toolArgs.cantidad !== undefined ||
+        toolArgs.unidad !== undefined ||
+        toolArgs.precio_unitario !== undefined;
+      if (!tienePatch) {
+        return { error: 'Indica al menos un campo a modificar: descripcion, cantidad, unidad o precio_unitario.' };
+      }
+
+      type ItemRow = {
+        id: string;
+        descripcion: string;
+        cantidad: number;
+        unidad: string;
+        precio_unitario: number;
+        importe: number;
+        orden: number;
+      };
+
+      let itemRow: ItemRow | null = null;
+
+      if (itemIdIn) {
+        const { data: row, error: fe } = await supabase
+          .from('presupuesto_borrador_items')
+          .select('id, borrador_id, descripcion, cantidad, unidad, precio_unitario, importe, orden')
+          .eq('id', itemIdIn)
+          .eq('business_id', businessId)
+          .maybeSingle();
+        if (fe) return { error: fe.message };
+        if (!row) return { error: 'Partida no encontrada.' };
+        if (String((row as { borrador_id: string }).borrador_id) !== borradorId) {
+          return { error: 'La partida no pertenece a este borrador.' };
+        }
+        itemRow = row as ItemRow;
+      } else if (busquedaRaw) {
+        const safe = escapeIlike(busquedaRaw);
+        if (!safe) return { error: 'descripcion_busqueda no válida.' };
+        const { data: candidatas, error: ce } = await supabase
+          .from('presupuesto_borrador_items')
+          .select('id, descripcion, cantidad, unidad, precio_unitario, importe, orden')
+          .eq('borrador_id', borradorId)
+          .eq('business_id', businessId)
+          .ilike('descripcion', `%${safe}%`)
+          .order('orden', { ascending: true });
+        if (ce) return { error: ce.message };
+        const list = (candidatas ?? []) as ItemRow[];
+        if (list.length === 0) {
+          return { error: 'No encontré ninguna partida que coincida con la descripción indicada.' };
+        }
+        let best = list[0]!;
+        let bestScore = scoreDescripcionMatch(best.descripcion, busquedaRaw);
+        for (let i = 1; i < list.length; i++) {
+          const it = list[i]!;
+          const sc = scoreDescripcionMatch(it.descripcion, busquedaRaw);
+          if (sc > bestScore || (sc === bestScore && it.orden < best.orden)) {
+            best = it;
+            bestScore = sc;
+          }
+        }
+        itemRow = best;
+      } else {
+        return { error: 'Indica item_id o descripcion_busqueda para localizar la partida.' };
+      }
+
+      let nuevaDesc = String(itemRow.descripcion ?? '').trim();
+      if (toolArgs.descripcion !== undefined) {
+        const nd = String(toolArgs.descripcion ?? '').trim();
+        if (!nd) return { error: 'descripcion no puede quedar vacía.' };
+        nuevaDesc = nd.slice(0, 2000);
+      }
+
+      let nuevaCant = Number(itemRow.cantidad);
+      if (toolArgs.cantidad !== undefined) {
+        nuevaCant = Number(toolArgs.cantidad);
+        if (!Number.isFinite(nuevaCant) || nuevaCant < 0) return { error: 'cantidad inválida' };
+      }
+
+      let nuevaUnidad = String(itemRow.unidad ?? 'ud').trim().slice(0, 32) || 'ud';
+      if (toolArgs.unidad !== undefined) {
+        const u = String(toolArgs.unidad ?? '').trim().slice(0, 32);
+        if (!u) return { error: 'unidad no puede quedar vacía.' };
+        nuevaUnidad = u;
+      }
+
+      let nuevoPu = Number(itemRow.precio_unitario);
+      if (toolArgs.precio_unitario !== undefined) {
+        nuevoPu = Number(toolArgs.precio_unitario);
+        if (!Number.isFinite(nuevoPu) || nuevoPu < 0) return { error: 'precio_unitario inválido' };
+      }
+
+      const nuevoImporte = r2(nuevaCant * nuevoPu);
+
+      const patch: Record<string, unknown> = {};
+      if (toolArgs.descripcion !== undefined) patch.descripcion = nuevaDesc;
+      if (toolArgs.cantidad !== undefined) patch.cantidad = nuevaCant;
+      if (toolArgs.unidad !== undefined) patch.unidad = nuevaUnidad;
+      if (toolArgs.precio_unitario !== undefined) patch.precio_unitario = nuevoPu;
+      if (toolArgs.cantidad !== undefined || toolArgs.precio_unitario !== undefined) {
+        patch.importe = nuevoImporte;
+      }
+
+      const { error: upErr } = await supabase
+        .from('presupuesto_borrador_items')
+        .update(patch)
+        .eq('id', itemRow.id)
+        .eq('business_id', businessId);
+
+      if (upErr) return { error: upErr.message };
+
+      await supabase
+        .from('presupuesto_borrador')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', borradorId);
+
+      return {
+        ok: true,
+        descripcion: nuevaDesc,
+        cantidad: nuevaCant,
+        unidad: nuevaUnidad,
+        precio_unitario: nuevoPu,
+        importe: nuevoImporte,
       };
     }
     case 'listar_partidas_borrador': {

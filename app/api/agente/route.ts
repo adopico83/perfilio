@@ -2053,6 +2053,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
       messages,
       tools,
       tool_choice: 'auto',
+      ...(intentCategory === 'presupuesto' ? { parallel_tool_calls: false } : {}),
       temperature: 0.7,
       max_tokens: maxTokensAgente,
     });
@@ -5974,6 +5975,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
         messages,
         tools,
         tool_choice: isLastToolRound ? 'none' : 'auto',
+        ...(intentCategory === 'presupuesto' ? { parallel_tool_calls: false } : {}),
         temperature: 0.7,
         max_tokens: maxTokensAgente,
       });
