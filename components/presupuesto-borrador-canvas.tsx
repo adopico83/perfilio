@@ -28,12 +28,34 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Formato es-ES estable (SSR + cliente) sin depender de `Intl`/motor del entorno. */
+function formatEsEnteroConSeparadores(absEntero: string): string {
+  const digits = absEntero.replace(/\D/g, '') || '0';
+  const rev = digits.split('').reverse();
+  const out: string[] = [];
+  for (let i = 0; i < rev.length; i++) {
+    if (i > 0 && i % 3 === 0) out.push('.');
+    out.push(rev[i]!);
+  }
+  return out.reverse().join('');
+}
+
 function fmtEUR(n: number): string {
-  return `${n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+  const sign = n < 0 ? '-' : '';
+  const v = Math.abs(n);
+  const fixed = v.toFixed(2);
+  const [intPart, frac] = fixed.split('.');
+  return `${sign}${formatEsEnteroConSeparadores(intPart)},${frac} €`;
 }
 
 function fmtCantidad(n: number): string {
-  return n.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 4 });
+  const sign = n < 0 ? '-' : '';
+  const v = Math.abs(n);
+  const [intRaw, fracRaw = ''] = v.toFixed(4).split('.');
+  const frac = fracRaw.replace(/0+$/, '');
+  const intFmt = formatEsEnteroConSeparadores(intRaw);
+  if (!frac) return `${sign}${intFmt}`;
+  return `${sign}${intFmt},${frac}`;
 }
 
 export function PresupuestoBorradorCanvas({
