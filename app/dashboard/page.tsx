@@ -213,8 +213,7 @@ function documentosDesdeObraApi(o: {
   );
 }
 
-function getSaludo() {
-  const hora = new Date().getHours();
+function getSaludoDesdeHoraLocal(hora: number) {
   if (hora >= 6 && hora < 12) return 'Buenos días';
   if (hora >= 12 && hora < 20) return 'Buenas tardes';
   return 'Buenas noches';
@@ -295,7 +294,8 @@ export default function DashboardPage() {
   const [obrasActivas, setObrasActivas] = useState<ObraActivaWidget[]>([]);
 
   const [modalAgendaAbierto, setModalAgendaAbierto] = useState(false);
-  const [mesCalendario, setMesCalendario] = useState(() => new Date());
+  /** null hasta montar en cliente: evita desajuste SSR/hidratación con `new Date()` en el render. */
+  const [mesCalendario, setMesCalendario] = useState<Date | null>(null);
   const [diaDetalleFecha, setDiaDetalleFecha] = useState<string | null>(null);
   const [agendaEditandoId, setAgendaEditandoId] = useState<string | null>(null);
   const [draftTitulo, setDraftTitulo] = useState('');
@@ -305,6 +305,18 @@ export default function DashboardPage() {
   const [secResumenOpen, setSecResumenOpen] = useState(true);
   const [secMetricasOpen, setSecMetricasOpen] = useState(true);
   const [secActividadOpen, setSecActividadOpen] = useState(true);
+
+  /** Cadena vacía hasta montar: el saludo depende de la hora local (no SSR). */
+  const [saludoBanner, setSaludoBanner] = useState('');
+  /** Vacío hasta montar: “hoy” en UTC para marcar celdas (misma lógica que antes, solo tras mount). */
+  const [fechaHoyIso, setFechaHoyIso] = useState('');
+
+  useEffect(() => {
+    const d = new Date();
+    setMesCalendario((prev) => prev ?? d);
+    setFechaHoyIso(d.toISOString().slice(0, 10));
+    setSaludoBanner(getSaludoDesdeHoraLocal(d.getHours()));
+  }, []);
 
   useEffect(() => {
     setSecResumenOpen(readDashboardSeccionAbierta(LS_DASH_SEC_RESUMEN));
@@ -444,12 +456,11 @@ export default function DashboardPage() {
   };
 
   const celdasCalendario = useMemo(() => {
+    if (!mesCalendario) return [];
     const y = mesCalendario.getFullYear();
     const m = mesCalendario.getMonth();
     return construirCeldasMes(y, m);
   }, [mesCalendario]);
-
-  const fechaHoyIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   const conectarGmail = async () => {
     if (gmailAccionLoading) return;
@@ -993,8 +1004,6 @@ export default function DashboardPage() {
     };
   }, [loading, gmailConectado]);
 
-  const saludo = getSaludo();
-
   return (
     <div className="min-h-screen bg-[#0f172a] text-white">
       {refreshing ? (
@@ -1139,7 +1148,8 @@ export default function DashboardPage() {
       <main className="max-w-7xl mx-auto px-6 py-3 lg:py-4 space-y-3 lg:space-y-3">
         <section className="flex flex-col gap-0.5">
           <h1 className="text-2xl sm:text-3xl font-bold">
-            {saludo}, <span className="text-[#ed8936]">{businessName}</span>
+            {saludoBanner ? `${saludoBanner}, ` : ''}
+            <span className="text-[#ed8936]">{businessName}</span>
           </h1>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
             <p className="text-sm text-white/70">Aquí tienes el resumen de tu negocio</p>
@@ -1726,9 +1736,10 @@ export default function DashboardPage() {
                   type="button"
                   onClick={() => {
                     setDiaDetalleFecha(null);
-                    setMesCalendario(
-                      (prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1)
-                    );
+                    setMesCalendario((prev) => {
+                      const base = prev ?? new Date();
+                      return new Date(base.getFullYear(), base.getMonth() - 1, 1);
+                    });
                   }}
                   className="inline-flex items-center justify-center w-10 h-10 rounded-lg border border-white/15 text-white hover:bg-white/10 transition-colors"
                   aria-label="Mes anterior"
@@ -1736,19 +1747,22 @@ export default function DashboardPage() {
                   <ChevronLeft className="w-5 h-5" />
                 </button>
                 <p className="text-center text-base sm:text-lg font-semibold text-white capitalize flex-1 min-w-0 truncate px-1">
-                  {new Date(
-                    mesCalendario.getFullYear(),
-                    mesCalendario.getMonth(),
-                    1
-                  ).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
+                  {mesCalendario
+                    ? new Date(
+                        mesCalendario.getFullYear(),
+                        mesCalendario.getMonth(),
+                        1
+                      ).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })
+                    : ''}
                 </p>
                 <button
                   type="button"
                   onClick={() => {
                     setDiaDetalleFecha(null);
-                    setMesCalendario(
-                      (prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1)
-                    );
+                    setMesCalendario((prev) => {
+                      const base = prev ?? new Date();
+                      return new Date(base.getFullYear(), base.getMonth() + 1, 1);
+                    });
                   }}
                   className="inline-flex items-center justify-center w-10 h-10 rounded-lg border border-white/15 text-white hover:bg-white/10 transition-colors"
                   aria-label="Mes siguiente"

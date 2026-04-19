@@ -53,10 +53,11 @@ interface ConversationSummaryItem {
   total_mensajes: number;
 }
 
-function formatFechaRelativa(input: string) {
+function formatFechaRelativa(input: string, anchorMs: number | null) {
+  if (anchorMs == null) return '';
   const d = new Date(input);
   if (Number.isNaN(d.getTime())) return 'Fecha desconocida';
-  const now = new Date();
+  const now = new Date(anchorMs);
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const diff = Math.round((today.getTime() - target.getTime()) / (1000 * 60 * 60 * 24));
@@ -407,6 +408,7 @@ function ConversacionListRow({
   isActive,
   isConfirming,
   isDeleting,
+  fechaRelativaAnchorMs,
   onSelect,
   onRequestDelete,
   onCancelDelete,
@@ -416,6 +418,8 @@ function ConversacionListRow({
   isActive: boolean;
   isConfirming: boolean;
   isDeleting: boolean;
+  /** null hasta montar en cliente: evita “Hoy/Ayer” distinto entre SSR e hidratación. */
+  fechaRelativaAnchorMs: number | null;
   onSelect: () => void;
   onRequestDelete: () => void;
   onCancelDelete: () => void;
@@ -471,7 +475,8 @@ function ConversacionListRow({
         >
           <p className="text-sm text-white truncate pr-1">{conv.titulo}</p>
           <p className="mt-1 text-[11px] text-white/60">
-            {formatFechaRelativa(conv.created_at)} · {conv.total_mensajes} mensajes
+            {formatFechaRelativa(conv.created_at, fechaRelativaAnchorMs)} · {conv.total_mensajes}{' '}
+            mensajes
           </p>
         </button>
         <button
@@ -498,6 +503,8 @@ export default function AgentSidebar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   /** null hasta hidratar: evita doble Realtime entre panel escritorio (oculto en móvil) y drawer. */
   const [viewportLg, setViewportLg] = useState<boolean | null>(null);
+  /** null hasta montar: ancla “hoy” para fechas relativas en lista (evita mismatch SSR/cliente). */
+  const [fechaRelativaAnchorMs, setFechaRelativaAnchorMs] = useState<number | null>(null);
 
   const supabase = useMemo(
     () =>
@@ -514,6 +521,10 @@ export default function AgentSidebar() {
     apply();
     mq.addEventListener('change', apply);
     return () => mq.removeEventListener('change', apply);
+  }, []);
+
+  useEffect(() => {
+    setFechaRelativaAnchorMs(Date.now());
   }, []);
 
   const [selectedId, setSelectedId] = useState('');
@@ -1569,6 +1580,7 @@ export default function AgentSidebar() {
                         isActive={conv.conversation_id === conversationId}
                         isConfirming={confirmDeleteConversationId === conv.conversation_id}
                         isDeleting={deletingConversationId === conv.conversation_id}
+                        fechaRelativaAnchorMs={fechaRelativaAnchorMs}
                         onSelect={() => seleccionarConversacion(conv.conversation_id)}
                         onRequestDelete={() => setConfirmDeleteConversationId(conv.conversation_id)}
                         onCancelDelete={() => setConfirmDeleteConversationId(null)}
@@ -1889,6 +1901,7 @@ export default function AgentSidebar() {
                               isActive={conv.conversation_id === conversationId}
                               isConfirming={confirmDeleteConversationId === conv.conversation_id}
                               isDeleting={deletingConversationId === conv.conversation_id}
+                              fechaRelativaAnchorMs={fechaRelativaAnchorMs}
                               onSelect={() => seleccionarConversacion(conv.conversation_id)}
                               onRequestDelete={() =>
                                 setConfirmDeleteConversationId(conv.conversation_id)
