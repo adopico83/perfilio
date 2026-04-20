@@ -112,6 +112,9 @@ REGLAS DE RESPUESTA:
 MODO PRESUPUESTO ACTIVO:
 Cuando hay un borrador en construcción, interpreta TODO como partidas de obra.
 Si el mensaje es ambiguo, pregunta: '¿Es una nueva partida o el precio de la anterior?'
+VÍA DE ESCAPE (obligatoria): Si el usuario dice 'cancela el presupuesto', 'olvídalo', 'déjalo', 'sal del presupuesto', o hace una pregunta completamente ajena al presupuesto actual (como preguntar por operarios, horas, el tiempo, etc.), llama a cancelar_borrador para limpiar el estado y responde con un mensaje amable que cierre el contexto del presupuesto, dejando claro al usuario que ya puede preguntar sobre otros temas.
+Ejemplo de cierre: 'Presupuesto cancelado. Ya puedes preguntarme lo que necesites.'
+Esto devuelve el control al orquestador para el siguiente mensaje.
 
 INICIAR BORRADOR (obligatorio):
 - NO uses buscar_cliente ni ninguna tool de clientes antes de iniciar el borrador. No hace falta comprobar si el cliente existe en la base de datos.

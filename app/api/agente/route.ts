@@ -1994,6 +1994,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
       });
     }
 
+    let hasBorradorActivo = false;
     let routerSystemContent = ROUTER_SYSTEM_PROMPT;
     if (authUser?.id) {
       const borradorRes = await supabase
@@ -2004,7 +2005,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
         .eq('estado', 'en_construccion')
         .limit(1);
       const rows = borradorRes.data;
-      const hasBorradorActivo = Array.isArray(rows)
+      hasBorradorActivo = Array.isArray(rows)
         ? rows.length > 0 && Boolean((rows[0] as { id?: string } | undefined)?.id)
         : Boolean(
             rows &&
@@ -2017,30 +2018,35 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
       }
     }
 
-    const ultimoAsistenteRouter = [...historialValido]
-      .reverse()
-      .find((m) => m.role === 'assistant' && m.content.trim().length > 0);
+    let intentCategory: AgentIntentCategory;
+    if (hasBorradorActivo) {
+      intentCategory = 'presupuesto';
+    } else {
+      const ultimoAsistenteRouter = [...historialValido]
+        .reverse()
+        .find((m) => m.role === 'assistant' && m.content.trim().length > 0);
 
-    const routerMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-      { role: 'system', content: routerSystemContent },
-    ];
-    if (ultimoAsistenteRouter) {
-      routerMessages.push({
-        role: 'assistant',
-        content: ultimoAsistenteRouter.content,
+      const routerMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+        { role: 'system', content: routerSystemContent },
+      ];
+      if (ultimoAsistenteRouter) {
+        routerMessages.push({
+          role: 'assistant',
+          content: ultimoAsistenteRouter.content,
+        });
+      }
+      routerMessages.push({ role: 'user', content: userContent });
+
+      const routerCompletion = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: routerMessages,
+        max_tokens: 30,
+        temperature: 0,
       });
+
+      const intentRaw = routerCompletion.choices[0]?.message?.content ?? '';
+      intentCategory = parseAgentIntentCategory(intentRaw);
     }
-    routerMessages.push({ role: 'user', content: userContent });
-
-    const routerCompletion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: routerMessages,
-      max_tokens: 30,
-      temperature: 0,
-    });
-
-    const intentRaw = routerCompletion.choices[0]?.message?.content ?? '';
-    const intentCategory = parseAgentIntentCategory(intentRaw);
     let tools = toolsForAgentIntent(intentCategory, ALL_AGENT_TOOLS);
     if (tools.length === 0) {
       tools = ALL_AGENT_TOOLS;
