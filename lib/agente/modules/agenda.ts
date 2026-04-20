@@ -61,6 +61,34 @@ function normTituloAgenda(s: string): string {
     .replace(/\s+/g, ' ');
 }
 
+/** Mensajes cortos de confirmación (p. ej. tras vista previa SDD). Evita bucles si el modelo repite solo_vista_previa true. */
+function esConfirmacionUsuario(raw: string): boolean {
+  const s = raw
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '');
+  if (!s) return false;
+  const t = s.replace(/\s+/g, ' ').replace(/[¡!?¿.]/g, '').trim();
+  if (/^(no|nop|no gracias|mejor no|cancela|cancelar|dejalo|déjalo|olvida|olvídalo)\b/.test(t)) {
+    return false;
+  }
+  if (t.length <= 40) {
+    if (
+      /^(sí|si|vale|ok|okay|adelante|confirmo|correcto|exacto|hazlo|claro|genial|perfecto|listo)$/.test(t)
+    ) {
+      return true;
+    }
+    if (/^(si|sí)(\s+(por favor|vale|ok|adelante|elimina|borra))?$/.test(t)) {
+      return true;
+    }
+    if (/^(elimina|eliminar|borra|borrar|elimínalo|borralo)$/.test(t)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export const AGENDA_HANDLED_TOOLS = new Set([
   'crear_recordatorio',
   'editar_recordatorio',
@@ -76,9 +104,15 @@ REGLAS ABSOLUTAS:
 2. Formato de confirmación obligatorio: 'Recordatorio [operación]: [título] para [fecha] a las [hora]. ¿Algo más?'
 3. NUNCA uses body.business_id — usa siempre el business_id recibido por parámetro.
 4. Si el usuario dicta una hora en lenguaje natural ('a las 9 de la mañana', 'a las 3 de la tarde'), conviértela siempre a formato HH:MM antes de guardar.
-5. Si el usuario dice algo ajeno a la agenda, responde: 'Para eso tendrás que preguntarme fuera del contexto de agenda. ¿Algo más con los recordatorios?'`;
+5. Si el usuario dice algo ajeno a la agenda, responde: 'Para eso tendrás que preguntarme fuera del contexto de agenda. ¿Algo más con los recordatorios?'
 
-export type HandleAgendaCtx = Record<string, never>;
+ELIMINACIÓN (SDD — obligatorio):
+6. Si el TOOL RESULT trae pendiente_confirmacion: true (vista previa de borrado), el siguiente mensaje del usuario que sea afirmación corta (sí, vale, ok, adelante, elimina, etc.) DEBE ejecutar el borrado: misma tool (eliminar_recordatorio o eliminar_evento_agenda) con el mismo id/evento_id y solo_vista_previa false u omitido. NO vuelvas a llamar con solo_vista_previa true tras una vista previa de borrado.
+7. Si ya mostraste la vista previa y el usuario confirma, nunca repitas la pregunta de confirmación sin llamar antes a la tool en modo ejecución (solo_vista_previa false).`;
+
+export type HandleAgendaCtx = {
+  mensajeTrim?: string;
+};
 
 export async function handleAgenda(
   toolName: string,
@@ -87,11 +121,11 @@ export async function handleAgenda(
   userId: string | null,
   supabase: SupabaseClient,
   _openai: OpenAI,
-  _ctx: HandleAgendaCtx = {}
+  ctx: HandleAgendaCtx = {}
 ): Promise<Record<string, unknown>> {
   void userId;
   void _openai;
-  void _ctx;
+  const mensajeTrim = ctx.mensajeTrim ?? '';
 
   const bid =
     typeof businessId === 'string' ? businessId : String(businessId ?? '');
@@ -262,6 +296,40 @@ export async function handleAgenda(
         return { error: 'id es obligatorio' };
       }
 
+      const soloVR =
+        toolArgs.solo_vista_previa === true ||
+        String(toolArgs.solo_vista_previa ?? '').toLowerCase() === 'true';
+      const userConfirms = esConfirmacionUsuario(mensajeTrim);
+
+      const previewElimRec = async () => {
+        const { data: ev, error: evErr } = await supabase
+          .from('agenda')
+          .select('id, titulo, fecha, hora')
+          .eq('id', id)
+          .eq('business_id', bid)
+          .maybeSingle();
+        if (evErr) return { error: evErr.message } as const;
+        if (!ev?.id) {
+          return { mensaje: 'No he encontrado ningún evento de agenda que coincida.' } as const;
+        }
+        return {
+          mensaje:
+            `¿Eliminar este recordatorio?\n` +
+            `• ${String(ev.titulo ?? '').trim() || '—'}\n` +
+            `• Fecha: ${String(ev.fecha ?? '').trim() || '—'}\n` +
+            `• Hora: ${String(ev.hora ?? '').trim() || '—'}\n\n` +
+            `Si el usuario confirma, vuelve a llamar a eliminar_recordatorio con el mismo id y solo_vista_previa false (u omítelo).`,
+          pendiente_confirmacion: true,
+          id: ev.id as string,
+        } as const;
+      };
+
+      if (soloVR && !userConfirms) {
+        const prev = await previewElimRec();
+        if ('error' in prev && prev.error) return { error: prev.error };
+        return prev;
+      }
+
       const { data: deleted, error } = await supabase
         .from('agenda')
         .delete()
@@ -282,6 +350,7 @@ export async function handleAgenda(
       const soloVAg =
         toolArgs.solo_vista_previa === true ||
         String(toolArgs.solo_vista_previa ?? '').toLowerCase() === 'true';
+      const userConfirms = esConfirmacionUsuario(mensajeTrim);
       const eventoIdAg =
         typeof toolArgs.evento_id === 'string' && toolArgs.evento_id.trim()
           ? toolArgs.evento_id.trim()
@@ -290,7 +359,7 @@ export async function handleAgenda(
       const fechaAg = String(toolArgs.fecha ?? '').trim();
 
       if (eventoIdAg) {
-        if (soloVAg) {
+        if (soloVAg && !userConfirms) {
           const { data: ev, error: evErr } = await supabase
             .from('agenda')
             .select('id, titulo, fecha, hora')
@@ -307,7 +376,7 @@ export async function handleAgenda(
               `• ${String(ev.titulo ?? '').trim() || '—'}\n` +
               `• Fecha: ${String(ev.fecha ?? '').trim() || '—'}\n` +
               `• Hora: ${String(ev.hora ?? '').trim() || '—'}\n\n` +
-              `Si el usuario confirma, vuelve a llamar a eliminar_evento_agenda con el mismo evento_id y solo_vista_previa false.`,
+              `Si el usuario confirma, vuelve a llamar a eliminar_evento_agenda con el mismo evento_id y solo_vista_previa false (u omítelo).`,
             pendiente_confirmacion: true,
             evento_id: ev.id,
           };
@@ -371,22 +440,37 @@ export async function handleAgenda(
       }
 
       const unoEv = evList[0]!;
-      if (!soloVAg) {
+      if (soloVAg && !userConfirms) {
+        return {
+          mensaje:
+            `¿Eliminar este recordatorio?\n` +
+            `• ${String(unoEv.titulo ?? '').trim() || '—'}\n` +
+            `• Fecha: ${String(unoEv.fecha ?? '').trim() || '—'}\n` +
+            `• Hora: ${String(unoEv.hora ?? '').trim() || '—'}\n\n` +
+            `Si el usuario confirma, vuelve a llamar a eliminar_evento_agenda con evento_id "${unoEv.id}" y solo_vista_previa false (u omítelo).`,
+          pendiente_confirmacion: true,
+          evento_id: unoEv.id,
+        };
+      }
+      if (!soloVAg && !userConfirms) {
         return {
           error:
             'Para borrar con seguridad, primero muestra la vista prevía con solo_vista_previa true.',
         };
       }
-      return {
-        mensaje:
-          `¿Eliminar este recordatorio?\n` +
-          `• ${String(unoEv.titulo ?? '').trim() || '—'}\n` +
-          `• Fecha: ${String(unoEv.fecha ?? '').trim() || '—'}\n` +
-          `• Hora: ${String(unoEv.hora ?? '').trim() || '—'}\n\n` +
-          `Si el usuario confirma, vuelve a llamar a eliminar_evento_agenda con evento_id "${unoEv.id}" y solo_vista_previa false.`,
-        pendiente_confirmacion: true,
-        evento_id: unoEv.id,
-      };
+
+      const { data: delUno, error: delUnoErr } = await supabase
+        .from('agenda')
+        .delete()
+        .eq('id', unoEv.id)
+        .eq('business_id', bid)
+        .select('id')
+        .maybeSingle();
+      if (delUnoErr) return { error: delUnoErr.message };
+      if (!delUno?.id) {
+        return { mensaje: 'No he encontrado ningún evento de agenda que coincida.' };
+      }
+      return { mensaje: 'Evento de agenda eliminado.', ok: true };
     }
     case 'modificar_evento_agenda': {
       const soloVEv =

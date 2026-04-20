@@ -1352,11 +1352,17 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
         type: 'function',
         function: {
           name: 'eliminar_recordatorio',
-          description: 'Elimina un recordatorio de la agenda por id.',
+          description:
+            'Elimina un recordatorio de la agenda por id. SDD: primero solo_vista_previa true (muestra qué se va a borrar, pendiente_confirmacion); tras confirmación explícita del usuario, misma llamada con el mismo id y solo_vista_previa false u omitido para borrar. Si el usuario ya confirmó con sí/vale/ok, no repitas la vista previa.',
           parameters: {
             type: 'object',
             properties: {
               id: { type: 'string', description: 'UUID del evento en agenda' },
+              solo_vista_previa: {
+                type: 'boolean',
+                description:
+                  'True: solo muestra vista previa del evento (no borra). False u omitido: ejecuta el borrado con id.',
+              },
             },
             required: ['id'],
             additionalProperties: false,
@@ -2148,7 +2154,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
           authUser?.id ?? null,
           supabase,
           openai,
-          {}
+          { mensajeTrim }
         );
       }
 
