@@ -822,7 +822,7 @@ Si el usuario pide crear una obra con un cliente que no existe en el sistema: (1
 SDD (crear presupuesto, factura, albarán o generar_presupuesto_por_dictado): solo tras resumen al usuario + confirmación explícita ("sí", "adelante", "genéralo"); nunca partidas a 0€. Usa memoria/tarifas del perfil para precios cuando falten.
 CREACIÓN DE PRESUPUESTOS: Al usar generar_presupuesto_por_dictado: primera llamada siempre con solo_vista_previa: true para mostrar borrador. Solo llamar de nuevo con solo_vista_previa: false tras confirmación explícita del usuario.
 Solo consultas: listar_* u obtener_*_pendientes; no crees documentos nuevos si no los piden. Estados: pendiente, aceptado, rechazado, facturado, pagado.
-Extras: registrar_extra (confirmar antes de notificar al cliente). Gastos con imagen: registrar_gasto_ticket tras confirmación en un mensaje siguiente; si mencionan obra, obra_nombre u obra_id. En registrar_gasto_ticket incluye categoria cuando puedas inferirla del texto (material, herramienta, vertido, subcontrata, transporte, otros); si no está claro, omite el campo o usa material. vincular_gasto si indica documento. gestionar_tarifas. Emails: criterios de urgencia habituales; usa tools de lectura.
+Extras: registrar_extra (confirmar antes de notificar al cliente). Gastos con imagen: registrar_gasto_ticket tras confirmación en un mensaje siguiente; si mencionan obra, obra_nombre u obra_id. En registrar_gasto_ticket incluye categoria cuando puedas inferirla del texto (material, herramienta, vertido, subcontrata, transporte, otros); si no está claro, omite el campo o usa material. Si el OCR o el texto sugiere devolución/descuento/abono/nota de crédito/negativo, registra base, IVA y total en negativo; si ya viene negativo, respétalo. vincular_gasto si indica documento. gestionar_tarifas. Emails: criterios de urgencia habituales; usa tools de lectura.
 Ofrece convertir_presupuesto_a_albaran / convertir_albaran_a_factura cuando aplique. Diario: crear_entrada_diario y generar_pdf_diario según petición. Menciona mensajes de clientes pendientes de aprobar al inicio si encaja. Aplica el bloque "## Lo que sé de este negocio" al final sin pedir repetición.
 
 Fecha y hora: ${ahora}. Negocio: ${nombre} (${sector}).
@@ -1541,7 +1541,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
         function: {
           name: 'registrar_gasto_ticket',
           description:
-            'Registra un gasto (ticket, voz, OCR). SDD obligatorio como en generar_presupuesto_por_dictado: primero muestra resumen y espera confirmación explícita del usuario; solo entonces guarda. Usa solo_vista_previa true en la primera llamada (sin insertar en BD). Usa solo_vista_previa false u omítelo solo cuando el usuario haya confirmado (sí, adelante, correcto). Infiere o pregunta la categoría del gasto según el concepto (ladrillos, cemento → material; alquiler contenedor → vertido; furgoneta/transporte → transporte; subcontratista → subcontrata; herramienta → herramienta). Si no está claro, usa material.',
+            'Registra un gasto (ticket, voz, OCR). SDD obligatorio como en generar_presupuesto_por_dictado: primero muestra resumen y espera confirmación explícita del usuario; solo entonces guarda. Usa solo_vista_previa true en la primera llamada (sin insertar en BD). Usa solo_vista_previa false u omítelo solo cuando el usuario haya confirmado (sí, adelante, correcto). Infiere o pregunta la categoría del gasto según el concepto (ladrillos, cemento → material; alquiler contenedor → vertido; furgoneta/transporte → transporte; subcontratista → subcontrata; herramienta → herramienta). Si no está claro, usa material. Si detectas devolución/descuento/abono/nota de crédito, usa importes negativos.',
           parameters: {
             type: 'object',
             properties: {
@@ -4659,11 +4659,44 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
           }
 
           const categoria = normalizeGastoCategoria(toolArgs.categoria);
+          const textoDeteccionDev = [
+            mensajeTrim,
+            proveedor,
+            descripcion,
+            String(toolArgs.texto_ocr ?? ''),
+            String(toolArgs.concepto ?? ''),
+            String(toolArgs.detalle ?? ''),
+          ]
+            .filter(Boolean)
+            .join(' ')
+            .normalize('NFD')
+            .replace(/\p{M}/gu, '')
+            .toLowerCase();
+          const hayPalabrasDevolucion =
+            /\b(devolucion(?: de material)?|descuento|abono|nota de credito|negativo)\b/.test(
+              textoDeteccionDev
+            );
+          const importeYaNegativo = importe < 0 || iva < 0 || importeTotal < 0;
+          const esDevolucion = hayPalabrasDevolucion || importeYaNegativo;
+          const imponerSigno = (n: number) => (esDevolucion ? -Math.abs(n) : n);
+          const importeFinal = imponerSigno(importe);
+          const ivaFinal = imponerSigno(iva);
+          const importeTotalFinal = imponerSigno(importeTotal);
+          const descripcionFinal = (() => {
+            if (!esDevolucion) return descripcion;
+            if (!descripcion) return '[DEVOLUCIÓN]';
+            const normDesc = descripcion
+              .normalize('NFD')
+              .replace(/\p{M}/gu, '')
+              .toUpperCase();
+            if (normDesc.startsWith('[DEVOLUCION]')) return descripcion;
+            return `[DEVOLUCIÓN] ${descripcion}`;
+          })();
 
           const r2Gasto = (n: number) => Math.round(n * 100) / 100;
-          const importeR = r2Gasto(importe);
-          const ivaR = r2Gasto(iva);
-          const importeTotalR = r2Gasto(importeTotal);
+          const importeR = r2Gasto(importeFinal);
+          const ivaR = r2Gasto(ivaFinal);
+          const importeTotalR = r2Gasto(importeTotalFinal);
 
           const soloVistaGasto = toolArgs.solo_vista_previa === true;
           if (soloVistaGasto) {
@@ -4674,7 +4707,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
               `• Fecha: ${fecha}`,
               `• Categoría: ${categoria}`,
             ];
-            if (descripcion.length > 0) lineas.push(`• Concepto: ${descripcion}`);
+            if (descripcionFinal.length > 0) lineas.push(`• Concepto: ${descripcionFinal}`);
             if (obraIdFinal) lineas.push('• Obra: vinculada (resuelta en servidor).');
             return {
               mensaje: lineas.join('\n'),
@@ -4708,12 +4741,12 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
             .insert({
               business_id: businessIdGasto,
               proveedor,
-              importe,
-              iva,
-              importe_total: importeTotal,
+              importe: importeFinal,
+              iva: ivaFinal,
+              importe_total: importeTotalFinal,
               fecha,
               categoria,
-              descripcion: descripcion.length > 0 ? descripcion : null,
+              descripcion: descripcionFinal.length > 0 ? descripcionFinal : null,
               ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
               ...(clienteIdGasto ? { cliente_id: clienteIdGasto } : {}),
             })
@@ -4722,6 +4755,13 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
 
           if (error || !row?.id) {
             return { error: error?.message ?? 'No se pudo registrar el gasto' };
+          }
+          if (esDevolucion) {
+            return {
+              ok: true,
+              id: row.id as string,
+              mensaje: `Devolución registrada: -${Math.abs(importeTotalR).toFixed(2)}€ de ${proveedor}. ¿Algo más?`,
+            };
           }
           return { ok: true, id: row.id as string };
         }
