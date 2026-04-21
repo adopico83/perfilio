@@ -35,6 +35,7 @@ import {
 } from '@/lib/memoria-negocio';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
+  OPERARIOS_AGENT_SYSTEM_PROMPT,
   OPERARIOS_AGENT_TOOLS,
   ejecutarConsultarHorasObra,
   ejecutarConsultarHorasOperario,
@@ -681,6 +682,15 @@ export async function POST(request: NextRequest) {
     }
 
     const nombre = profile.nombre ?? 'el negocio';
+    const nombreUsuario = (() => {
+      const md = (authUser?.user_metadata ?? {}) as Record<string, unknown>;
+      const candidatos = [md.nombre, md.name, md.full_name, md.first_name, authUser?.email];
+      for (const c of candidatos) {
+        const s = String(c ?? '').trim();
+        if (s) return s;
+      }
+      return 'compa';
+    })();
     const sector = profile.sector ?? 'no especificado';
     const descripcion = profile.descripcion ?? '';
     const servicios = profile.servicios ?? '';
@@ -742,7 +752,7 @@ export async function POST(request: NextRequest) {
 PRIMER MENSAJE — Eventos en agenda (solo hoy y mañana; fechas en calendario local del negocio):
 ${lineas.join('\n')}
 
-Al inicio de tu respuesta, antes de atender lo que pide el usuario, menciona de forma breve y natural (una o dos frases, tono coloquial) lo relevante de estos eventos; no hagas una lista numerada ni viñetas. Puedes usar fórmulas del estilo "Por cierto, ..." y luego enlazar con "Dicho esto," o similar antes de seguir con su petición.`;
+Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con este formato: "Aupa ${nombreUsuario}, soy Bicho. [resumen breve y natural de lo relevante de hoy/mañana]". No hagas una lista numerada ni viñetas en ese saludo; después continúa con la petición del usuario.`;
       }
     }
 
@@ -807,7 +817,9 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, menciona de 
             .join('\n')}`
         : '\nNo hay clientes registrados.';
 
-    const systemPrompt = `Para cualquier acción que cree, edite o consulte datos en el sistema: DEBES invocar la herramienta (tool) correspondiente en este mismo turno.
+    const systemPrompt = `Tu nombre es Bicho. Si el usuario te llama por tu nombre al inicio de una petición ('Oye Bicho...', 'Bicho escucha...', 'Bicho añade...', 'Eh Bicho...' o similar), ignora el nombre y ejecuta directamente lo que pide a continuación. No respondas al nombre, no lo confirmes, simplemente actúa.
+
+Para cualquier acción que cree, edite o consulte datos en el sistema: DEBES invocar la herramienta (tool) correspondiente en este mismo turno.
 PROHIBIDO decir "voy a hacerlo", "procederé a...", "un momento" u otras promesas sin haber llamado ya a la tool.
 Responder solo en texto cuando debías llamar a una tool = error crítico.
 Si faltan datos: pregunta al usuario o usa listar_* / buscar_* según corresponda.
@@ -2069,6 +2081,8 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
           ? `${DIARIO_AGENT_SYSTEM_PROMPT}\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlock}`
           : intentCategory === 'agenda'
             ? `${AGENDA_AGENT_SYSTEM_PROMPT}\n\nFecha actual: ${fechaActual}. Fecha hoy en formato ISO: ${hoyYmd}. Mañana en formato ISO: ${mananaYmd}.\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlock}`
+            : intentCategory === 'operarios'
+              ? `${OPERARIOS_AGENT_SYSTEM_PROMPT}\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlock}`
             : systemPrompt;
 
     const historialLimitado = historialValido.slice(-10);
