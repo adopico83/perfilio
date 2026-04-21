@@ -138,33 +138,12 @@ export async function handleAgenda(
       const titulo = String(toolArgs.titulo ?? '').trim();
       const fechaRaw = String(toolArgs.fecha ?? '').trim();
       const horaOpt = toolArgs.hora != null ? String(toolArgs.hora).trim() : '';
-      const soloVistaPrevia = toolArgs.solo_vista_previa === true;
 
       if (!titulo) {
         return { error: 'El título del recordatorio es obligatorio' };
       }
       if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaRaw)) {
         return { error: 'La fecha debe tener formato YYYY-MM-DD' };
-      }
-
-      if (soloVistaPrevia) {
-        const lineas = [
-          'Resumen del evento (no guardado aún):',
-          `• Título: ${titulo}`,
-          `• Fecha: ${fechaRaw}`,
-        ];
-        if (horaOpt) {
-          const horaMostrar = normalizeHora(horaOpt) ?? horaOpt;
-          lineas.push(`• Hora: ${horaMostrar}`);
-        }
-        lineas.push(
-          '',
-          'Si el usuario confirma, vuelve a llamar a crear_recordatorio con los mismos titulo, fecha y hora, y solo_vista_previa false (u omítelo) para guardar en la agenda.'
-        );
-        return {
-          mensaje: lineas.join('\n'),
-          pendiente_confirmacion: true,
-        };
       }
 
       const tituloNorm = normTituloAgenda(titulo);
@@ -237,7 +216,12 @@ export async function handleAgenda(
       if (error || !row?.id) {
         return { error: error?.message ?? 'No se pudo crear el recordatorio' };
       }
-      return { ok: true, id: row.id as string };
+      const horaConfirmacion = insertPayload.hora ?? (horaOpt || '—');
+      return {
+        ok: true,
+        id: row.id as string,
+        mensaje: `Recordatorio creado: ${titulo} para ${fechaRaw} a las ${horaConfirmacion}. ¿Algo más?`,
+      };
     }
     case 'editar_recordatorio': {
       const id = String(toolArgs.id ?? '').trim();

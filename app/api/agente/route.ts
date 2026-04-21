@@ -712,12 +712,11 @@ export async function POST(request: NextRequest) {
     let agendaContextoPrimerMensaje = '';
     const esPrimerMensajeConversacion =
       historialValido.length === 0 || historialValido.length === 1;
+    const tzAgenda = 'Europe/Madrid';
+    const hoyYmd = formatYmdInTimeZone(new Date(), tzAgenda);
+    const mananaYmd = addDaysToYmd(hoyYmd, 1);
 
     if (esPrimerMensajeConversacion) {
-      const tzAgenda = 'Europe/Madrid';
-      const hoyYmd = formatYmdInTimeZone(new Date(), tzAgenda);
-      const mananaYmd = addDaysToYmd(hoyYmd, 1);
-
       const { data: agendaRows, error: agendaError } = await supabase
         .from('agenda')
         .select('titulo, fecha, hora')
@@ -2069,7 +2068,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
         : intentCategory === 'diario'
           ? `${DIARIO_AGENT_SYSTEM_PROMPT}\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlock}`
           : intentCategory === 'agenda'
-            ? `${AGENDA_AGENT_SYSTEM_PROMPT}\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlock}`
+            ? `${AGENDA_AGENT_SYSTEM_PROMPT}\n\nFecha actual: ${fechaActual}. Fecha hoy en formato ISO: ${hoyYmd}. Mañana en formato ISO: ${mananaYmd}.\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlock}`
             : systemPrompt;
 
     const historialLimitado = historialValido.slice(-10);
