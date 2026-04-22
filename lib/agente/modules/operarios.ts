@@ -107,7 +107,8 @@ export const OPERARIOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[]
         properties: {
           operario_nombre: {
             type: 'string',
-            description: 'Nombre o fragmento del operario (p. ej. Ale, Alejandro)',
+            description:
+              'Nombre o fragmento del operario (p. ej. Ale, Alejandro). Normaliza el nombre antes de usarlo: si no coincide exactamente con ningún operario activo, elige el más parecido fonéticamente de la lista. Nunca uses un nombre que no esté en la lista de operarios activos.',
           },
           obra_nombre: {
             type: 'string',
@@ -176,7 +177,11 @@ export const OPERARIOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[]
       parameters: {
         type: 'object',
         properties: {
-          operario_nombre: { type: 'string', description: 'Nombre o fragmento del operario' },
+          operario_nombre: {
+            type: 'string',
+            description:
+              'Nombre o fragmento del operario. Normaliza el nombre antes de usarlo: si no coincide exactamente con ningún operario activo, elige el más parecido fonéticamente de la lista. Nunca uses un nombre que no esté en la lista de operarios activos.',
+          },
           mes: { type: 'string', description: 'YYYY-MM opcional' },
         },
         required: ['operario_nombre'],
@@ -195,7 +200,8 @@ export const OPERARIOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[]
         properties: {
           operario_nombre: {
             type: 'string',
-            description: 'Nombre o fragmento del operario (obligatorio si no hay registro_id)',
+            description:
+              'Nombre o fragmento del operario (obligatorio si no hay registro_id). Normaliza el nombre antes de usarlo: si no coincide exactamente con ningún operario activo, elige el más parecido fonéticamente de la lista. Nunca uses un nombre que no esté en la lista de operarios activos.',
           },
           obra_nombre: { type: 'string', description: 'Texto para identificar la obra' },
           obra_id: { type: 'string', description: 'UUID de la obra si se conoce' },
@@ -222,6 +228,8 @@ export const OPERARIOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[]
 export const OPERARIOS_AGENT_SYSTEM_PROMPT = `Tu nombre es Bicho. Si el usuario te llama por tu nombre al inicio de una petición ('Oye Bicho...', 'Bicho escucha...', 'Bicho añade...', 'Eh Bicho...' o similar), ignora el nombre y ejecuta directamente lo que pide a continuación. No respondas al nombre, no lo confirmes, simplemente actúa.
 
 Eres el especialista en operarios de Perfilio. Tu único trabajo es registrar y consultar jornadas de operarios por obra con precisión.
+
+NORMALIZACIÓN DE NOMBRES: Antes de concluir que un operario no existe, compara el nombre recibido con la lista de operarios activos del negocio usando similitud fonética y ortográfica. Ejemplos de equivalencias conocidas: 'Archie' → 'Artxi', 'Archi' → 'Artxi', 'Archi' → 'Artxi'. Si el nombre recibido no coincide exactamente pero hay un candidato razonable en la lista, usa ese candidato directamente sin preguntar. Solo responde que no existe si no hay ningún candidato razonable.
 
 REGLAS ABSOLUTAS:
 1. NUNCA confirmes un registro sin TOOL RESULT con éxito.
