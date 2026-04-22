@@ -52,6 +52,29 @@ function normalizeHora(raw: string): string | null {
   return null;
 }
 
+function parseHmToMinutes(hm: string): number {
+  const [a, b] = hm.split(':').map((x) => Number(x));
+  return a * 60 + b;
+}
+
+function formatMinutesToHm(totalMinutes: number): string {
+  const minsInDay = 24 * 60;
+  const wrapped = ((totalMinutes % minsInDay) + minsInDay) % minsInDay;
+  const h = Math.floor(wrapped / 60);
+  const m = wrapped % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+function parseMinutosAntelacion(raw: unknown): { value: number; error?: string } {
+  if (raw === undefined || raw === null || raw === '') return { value: 0 };
+  const parsed =
+    typeof raw === 'number' && Number.isInteger(raw) ? raw : Number.parseInt(String(raw), 10);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 0) {
+    return { value: 0, error: 'minutos_antelacion debe ser un entero mayor o igual que 0' };
+  }
+  return { value: parsed };
+}
+
 function normTituloAgenda(s: string): string {
   return s
     .trim()
@@ -97,6 +120,52 @@ export const AGENDA_HANDLED_TOOLS = new Set([
   'modificar_evento_agenda',
 ]);
 
+export const AGENDA_AGENT_TOOLS = [
+  {
+    type: 'function' as const,
+    function: {
+      name: 'crear_recordatorio',
+      description: 'Crear un recordatorio en agenda',
+      parameters: {
+        type: 'object',
+        properties: {
+          titulo: { type: 'string' },
+          fecha: { type: 'string', description: 'Formato YYYY-MM-DD' },
+          hora: { type: 'string', description: 'Formato HH:MM (opcional)' },
+          minutos_antelacion: {
+            type: 'integer',
+            description:
+              'Minutos de antelación con los que avisar antes de la hora del evento. Usa 0 si es un recordatorio simple (llevar algo, hacer una llamada). Usa 30 si es una cita, reunión o visita con otra persona. Usa 60 si el usuario lo pide explícitamente o si implica desplazamiento largo.',
+            default: 0,
+          },
+        },
+        required: ['titulo', 'fecha'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'editar_recordatorio',
+      description: 'Editar un recordatorio existente',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          titulo: { type: 'string' },
+          fecha: { type: 'string', description: 'Formato YYYY-MM-DD' },
+          hora: { type: 'string', description: 'Formato HH:MM (o vacío para quitarla)' },
+          minutos_antelacion: {
+            type: 'integer',
+            description: 'Minutos de antelación para el aviso (entero mayor o igual que 0).',
+          },
+        },
+        required: ['id'],
+      },
+    },
+  },
+] as const;
+
 export const AGENDA_AGENT_SYSTEM_PROMPT = `Tu nombre es Bicho. Si el usuario te llama por tu nombre al inicio de una petición ('Oye Bicho...', 'Bicho escucha...', 'Bicho añade...', 'Eh Bicho...' o similar), ignora el nombre y ejecuta directamente lo que pide a continuación. No respondas al nombre, no lo confirmes, simplemente actúa.
 
 Eres el especialista en agenda y recordatorios de Perfilio.
@@ -140,12 +209,18 @@ export async function handleAgenda(
       const titulo = String(toolArgs.titulo ?? '').trim();
       const fechaRaw = String(toolArgs.fecha ?? '').trim();
       const horaOpt = toolArgs.hora != null ? String(toolArgs.hora).trim() : '';
+      const { value: minutosAntelacion, error: errMinAnt } = parseMinutosAntelacion(
+        toolArgs.minutos_antelacion
+      );
 
       if (!titulo) {
         return { error: 'El título del recordatorio es obligatorio' };
       }
       if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaRaw)) {
         return { error: 'La fecha debe tener formato YYYY-MM-DD' };
+      }
+      if (errMinAnt) {
+        return { error: errMinAnt };
       }
 
       const tituloNorm = normTituloAgenda(titulo);
@@ -199,10 +274,12 @@ export async function handleAgenda(
         titulo: string;
         fecha: string;
         hora?: string;
+        minutos_antelacion: number;
       } = {
         business_id: bid,
         titulo,
         fecha: fechaRaw,
+        minutos_antelacion: minutosAntelacion,
       };
       if (horaOpt) {
         const normalized = normalizeHora(horaOpt);
@@ -219,10 +296,16 @@ export async function handleAgenda(
         return { error: error?.message ?? 'No se pudo crear el recordatorio' };
       }
       const horaConfirmacion = insertPayload.hora ?? (horaOpt || '—');
+      const avisoNatural =
+        minutosAntelacion > 0
+          ? insertPayload.hora
+            ? ` Perfecto, te aviso a las ${formatMinutesToHm(parseHmToMinutes(insertPayload.hora) - minutosAntelacion)} para que llegues a tiempo a las ${insertPayload.hora}.`
+            : ` Perfecto, te aviso con ${minutosAntelacion} minutos de antelación.`
+          : '';
       return {
         ok: true,
         id: row.id as string,
-        mensaje: `Recordatorio creado: ${titulo} para ${fechaRaw} a las ${horaConfirmacion}. ¿Algo más?`,
+        mensaje: `Recordatorio creado: ${titulo} para ${fechaRaw} a las ${horaConfirmacion}.${avisoNatural} ¿Algo más?`,
       };
     }
     case 'editar_recordatorio': {
@@ -231,7 +314,12 @@ export async function handleAgenda(
         return { error: 'id es obligatorio' };
       }
 
-      const updates: { titulo?: string; fecha?: string; hora?: string | null } = {};
+      const updates: {
+        titulo?: string;
+        fecha?: string;
+        hora?: string | null;
+        minutos_antelacion?: number;
+      } = {};
       if (toolArgs.titulo !== undefined) {
         const t = String(toolArgs.titulo ?? '').trim();
         if (!t) {
@@ -255,9 +343,19 @@ export async function handleAgenda(
           updates.hora = norm ?? h;
         }
       }
+      if (toolArgs.minutos_antelacion !== undefined) {
+        const { value, error: err } = parseMinutosAntelacion(toolArgs.minutos_antelacion);
+        if (err) {
+          return { error: err };
+        }
+        updates.minutos_antelacion = value;
+      }
 
       if (Object.keys(updates).length === 0) {
-        return { error: 'Indica al menos un campo a actualizar (titulo, fecha u hora)' };
+        return {
+          error:
+            'Indica al menos un campo a actualizar (titulo, fecha, hora o minutos_antelacion)',
+        };
       }
 
       const { data: row, error } = await supabase

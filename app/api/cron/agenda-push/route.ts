@@ -138,6 +138,7 @@ type AgendaRow = {
   titulo: string | null;
   fecha: string | null;
   hora: string | null;
+  minutos_antelacion: number | null;
 };
 
 export async function GET(request: NextRequest) {
@@ -166,7 +167,7 @@ export async function GET(request: NextRequest) {
     const supabase = createServiceClient();
     const { data: agendaRows, error: agendaErr } = await supabase
       .from('agenda')
-      .select('id, business_id, titulo, fecha, hora')
+      .select('id, business_id, titulo, fecha, hora, minutos_antelacion')
       .eq('fecha', hoyYmd)
       .eq('completado', false);
 
@@ -196,12 +197,18 @@ export async function GET(request: NextRequest) {
       const normalized = normalizeHora(horaRaw);
       if (!normalized) continue;
       const eventMinutes = parseHmToMinutes(normalized);
-      if (eventMinutes >= nowMinutes - 60 && eventMinutes < nowMinutes + 15) {
+      const minutosAntelacion = Math.max(0, Number(row.minutos_antelacion ?? 0));
+      const avisoMinutes = eventMinutes - minutosAntelacion;
+      if (avisoMinutes > nowMinutes - 10 && avisoMinutes <= nowMinutes) {
         const titulo = String(row.titulo ?? '').trim() || 'Recordatorio';
+        const body =
+          minutosAntelacion > 0
+            ? `Recuerda: tienes ${titulo} en ${minutosAntelacion} minutos (a las ${normalized}).`
+            : titulo;
         const r = await sendPushToBusiness(
           row.business_id,
           'Perfilio — Recordatorio',
-          titulo
+          body
         );
         punctualSent += r.sent;
         punctualErrors.push(...r.errors);
