@@ -271,6 +271,7 @@ export default function DashboardPage() {
   });
   const [ultimosPresupuestos, setUltimosPresupuestos] = useState<PresupuestoResumen[]>([]);
   const [agendaEventos, setAgendaEventos] = useState<AgendaItem[]>([]);
+  const [agendaEventosMes, setAgendaEventosMes] = useState<AgendaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -358,7 +359,7 @@ export default function DashboardPage() {
 
   const eventosPorFecha = useMemo(() => {
     const map = new Map<string, AgendaItem[]>();
-    for (const ev of agendaEventos) {
+    for (const ev of agendaEventosMes) {
       const key = (ev.fecha ?? '').slice(0, 10);
       if (!key) continue;
       const list = map.get(key) ?? [];
@@ -369,7 +370,7 @@ export default function DashboardPage() {
       list.sort((a, b) => (a.hora ?? '').localeCompare(b.hora ?? ''));
     }
     return map;
-  }, [agendaEventos]);
+  }, [agendaEventosMes]);
 
   const abrirModalAgenda = () => {
     setMesCalendario(new Date());
@@ -424,6 +425,13 @@ export default function DashboardPage() {
             : e
         )
       );
+      setAgendaEventosMes((prev) =>
+        prev.map((e) =>
+          e.id === agendaEditandoId
+            ? { ...e, titulo, hora: horaVal.length > 0 ? horaVal : null }
+            : e
+        )
+      );
       cancelarEdicionAgenda();
     } finally {
       setAgendaAccionLoading(false);
@@ -439,7 +447,8 @@ export default function DashboardPage() {
       if (error) return;
 
       const fechaKey = (ev.fecha ?? '').slice(0, 10);
-      setAgendaEventos((prev) => {
+      setAgendaEventos((prev) => prev.filter((e) => e.id !== ev.id));
+      setAgendaEventosMes((prev) => {
         const next = prev.filter((e) => e.id !== ev.id);
         if (diaDetalleFecha === fechaKey) {
           const quedanEseDia = next.filter((e) => (e.fecha ?? '').slice(0, 10) === fechaKey);
@@ -543,10 +552,68 @@ export default function DashboardPage() {
     }
   }, [supabase]);
 
+  const loadAgendaMesCompleto = useCallback(
+    async (anio: number, mes: number) => {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        const userId = user?.id;
+        if (!userId) {
+          setAgendaEventosMes([]);
+          return [];
+        }
+
+        const bizRes = await supabase
+          .from('business_profiles')
+          .select('id')
+          .eq('user_id', userId)
+          .limit(1)
+          .single();
+        const bid = bizRes.data?.id;
+        if (!bid) {
+          setAgendaEventosMes([]);
+          return [];
+        }
+
+        const primerDia = `${anio}-${String(mes + 1).padStart(2, '0')}-01`;
+        const ultimoDiaNum = new Date(anio, mes + 1, 0).getDate();
+        const ultimoDia = `${anio}-${String(mes + 1).padStart(2, '0')}-${String(ultimoDiaNum).padStart(2, '0')}`;
+
+        const { data, error } = await supabase
+          .from('agenda')
+          .select('id, titulo, fecha, hora')
+          .eq('business_id', bid)
+          .gte('fecha', primerDia)
+          .lte('fecha', ultimoDia)
+          .order('fecha', { ascending: true });
+
+        if (error || !data) {
+          setAgendaEventosMes([]);
+          return [];
+        }
+
+        const rows = data as AgendaItem[];
+        console.log('[loadAgendaMesCompleto] eventos del mes:', rows.length);
+        setAgendaEventosMes(rows);
+        return rows;
+      } catch {
+        setAgendaEventosMes([]);
+        return [];
+      }
+    },
+    [supabase]
+  );
+
   useEffect(() => {
     window.addEventListener('agenda-actualizada', loadAgenda);
     return () => window.removeEventListener('agenda-actualizada', loadAgenda);
   }, [loadAgenda]);
+
+  useEffect(() => {
+    if (!modalAgendaAbierto || !mesCalendario) return;
+    void loadAgendaMesCompleto(mesCalendario.getFullYear(), mesCalendario.getMonth());
+  }, [modalAgendaAbierto, mesCalendario, loadAgendaMesCompleto]);
 
   const loadDashboard = useCallback(async () => {
     try {
@@ -1793,6 +1860,7 @@ export default function DashboardPage() {
                     const eventosDia = eventosPorFecha.get(fechaStr) ?? [];
                     const tieneEventos = eventosDia.length > 0;
                     const esHoy = fechaStr === fechaHoyIso;
+                    const esPasado = !!fechaHoyIso && fechaStr < fechaHoyIso;
                     const primero = eventosDia[0];
 
                     return (
@@ -1806,6 +1874,7 @@ export default function DashboardPage() {
                           esHoy
                             ? 'border-[#ed8936] bg-[#0f172a]/80'
                             : 'border-white/10 bg-[#0f172a]/40',
+                          esPasado ? 'opacity-50' : '',
                           tieneEventos
                             ? 'hover:bg-[#0f172a] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#ed8936]/50'
                             : 'opacity-90 cursor-default',

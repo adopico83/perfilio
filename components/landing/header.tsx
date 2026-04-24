@@ -3,6 +3,9 @@
 import { useState } from 'react';
 import Image from 'next/image';
 
+const WHATSAPP_HREF =
+  'https://wa.me/34697613884?text=Hola%2C%20he%20visto%20Perfilio%20en%20vuestra%20web%20y%20me%20gustar%C3%ADa%20ver%20c%C3%B3mo%20funciona';
+
 interface HeaderProps {
   onOpenListaEspera?: () => void;
 }
@@ -50,11 +53,9 @@ export function Header({ onOpenListaEspera }: HeaderProps) {
               Precios
             </a>
             <a
-              href="#contacto"
-              onClick={(e) => {
-                e.preventDefault();
-                onOpenListaEspera?.();
-              }}
+              href={WHATSAPP_HREF}
+              target="_blank"
+              rel="noopener noreferrer"
               className="text-[#4a5568] dark:text-gray-300 hover:text-[#1a365d] dark:hover:text-white font-medium transition-colors"
             >
               Contacto
@@ -62,28 +63,11 @@ export function Header({ onOpenListaEspera }: HeaderProps) {
 
             <a
               href="/login"
-              className="inline-flex items-center justify-center px-5 py-2.5 bg-[#1a365d] hover:bg-[#2c5282] text-white font-medium rounded-lg transition-all duration-200 border border-[#1a365d]"
+              className="inline-flex items-center justify-center px-5 py-2.5 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-medium rounded-lg transition-all duration-200 border border-[#ed8936]"
             >
               Acceder
             </a>
 
-            {/* CTA Button */}
-            {onOpenListaEspera ? (
-              <button
-                type="button"
-                onClick={onOpenListaEspera}
-                className="inline-flex items-center justify-center px-6 py-2.5 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-bold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
-              >
-                Probar gratis
-              </button>
-            ) : (
-              <a
-                href="#probar"
-                className="inline-flex items-center justify-center px-6 py-2.5 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-bold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
-              >
-                Probar gratis
-              </a>
-            )}
           </div>
 
           {/* Mobile menu button */}
@@ -154,13 +138,11 @@ export function Header({ onOpenListaEspera }: HeaderProps) {
                 Precios
               </a>
               <a
-                href="#contacto"
+                href={WHATSAPP_HREF}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="text-[#4a5568] dark:text-gray-300 hover:text-[#1a365d] dark:hover:text-white font-medium transition-colors"
-                onClick={(e) => {
-                  e.preventDefault();
-                  onOpenListaEspera?.();
-                  setMobileMenuOpen(false);
-                }}
+                onClick={() => setMobileMenuOpen(false)}
               >
                 Contacto
               </a>
@@ -176,31 +158,11 @@ export function Header({ onOpenListaEspera }: HeaderProps) {
               </button>
               <a
                 href="/login"
-                className="inline-flex items-center justify-center px-5 py-2.5 bg-[#1a365d] hover:bg-[#2c5282] text-white font-medium rounded-lg transition-all duration-200 border border-[#1a365d]"
+                className="inline-flex items-center justify-center px-5 py-2.5 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-medium rounded-lg transition-all duration-200 border border-[#ed8936]"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Acceder
               </a>
-              {onOpenListaEspera ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onOpenListaEspera();
-                    setMobileMenuOpen(false);
-                  }}
-                  className="inline-flex items-center justify-center px-6 py-2.5 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-bold rounded-lg transition-all duration-200 shadow-md"
-                >
-                  Probar gratis
-                </button>
-              ) : (
-                <a
-                  href="#probar"
-                  className="inline-flex items-center justify-center px-6 py-2.5 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-bold rounded-lg transition-all duration-200 shadow-md"
-                  onClick={() => setMobileMenuOpen(false)}
-                >
-                  Probar gratis
-                </a>
-              )}
             </div>
           </div>
         )}
@@ -233,7 +195,7 @@ export function Header({ onOpenListaEspera }: HeaderProps) {
               <div className="flex flex-col sm:flex-row gap-3">
                 <a
                   href="/login"
-                  className="flex-1 inline-flex items-center justify-center px-4 py-2.5 rounded-lg bg-[#1a365d] hover:bg-[#2c5282] text-white text-sm font-semibold transition-colors"
+                  className="flex-1 inline-flex items-center justify-center px-4 py-2.5 rounded-lg bg-[#ed8936] hover:bg-[#dd6b20] text-white text-sm font-semibold transition-colors"
                 >
                   Acceder
                 </a>

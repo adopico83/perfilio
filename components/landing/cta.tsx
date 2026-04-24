@@ -2,19 +2,22 @@ interface CtaProps {
   onOpenListaEspera?: () => void;
 }
 
-export function Cta({ onOpenListaEspera }: CtaProps) {
+const WHATSAPP_HREF =
+  'https://wa.me/34697613884?text=Hola%2C%20he%20visto%20Perfilio%20en%20vuestra%20web%20y%20me%20gustar%C3%ADa%20ver%20c%C3%B3mo%20funciona';
+
+export function Cta(_: CtaProps) {
   const benefits = [
     {
       icon: '✅',
-      text: 'Sin permanencia',
+      text: 'Hecho en Euskadi',
     },
     {
       icon: '✅',
-      text: 'Soporte en español',
+      text: 'Pensado para gremios',
     },
     {
       icon: '✅',
-      text: 'Datos seguros en Europa',
+      text: 'Datos siempre seguros',
     },
   ];
 
@@ -30,59 +33,37 @@ export function Cta({ onOpenListaEspera }: CtaProps) {
         <div className="text-center">
           {/* Title */}
           <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-6">
-            ¿Listo para trabajar con{' '}
-            <span className="text-[#ed8936]">IA</span>?
+            ¿Cuántas horas pierdes cada semana con el papeleo?
           </h2>
 
           {/* Subtitle */}
           <p className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
-            14 días gratis. Sin tarjeta de crédito. Cancela cuando quieras.
+            Tu agente se encarga. Tu a lo tuyo.
           </p>
 
           {/* CTA Button */}
           <div className="mb-10">
-            {onOpenListaEspera ? (
-              <button
-                type="button"
-                onClick={onOpenListaEspera}
-                className="inline-flex items-center justify-center px-10 py-5 bg-[#ed8936] hover:bg-[#dd6b20] text-white text-lg font-bold rounded-lg transition-all duration-200 shadow-2xl hover:shadow-[0_20px_60px_rgba(237,137,54,0.4)] transform hover:scale-105"
+            <a
+              href={WHATSAPP_HREF}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center px-10 py-5 bg-[#ed8936] hover:bg-[#dd6b20] text-white text-lg font-bold rounded-lg transition-all duration-200 shadow-2xl hover:shadow-[0_20px_60px_rgba(237,137,54,0.4)]"
+            >
+              Pedir demo gratis
+              <svg
+                className="ml-3 h-6 w-6"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
               >
-                Empezar ahora gratis
-                <svg
-                  className="ml-3 h-6 w-6"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M13 7l5 5m0 0l-5 5m5-5H6"
-                  />
-                </svg>
-              </button>
-            ) : (
-              <a
-                href="#registro"
-                className="inline-flex items-center justify-center px-10 py-5 bg-[#ed8936] hover:bg-[#dd6b20] text-white text-lg font-bold rounded-lg transition-all duration-200 shadow-2xl hover:shadow-[0_20px_60px_rgba(237,137,54,0.4)] transform hover:scale-105"
-              >
-                Empezar ahora gratis
-                <svg
-                  className="ml-3 h-6 w-6"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M13 7l5 5m0 0l-5 5m5-5H6"
-                  />
-                </svg>
-              </a>
-            )}
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M13 7l5 5m0 0l-5 5m5-5H6"
+                />
+              </svg>
+            </a>
           </div>
 
           {/* Benefits badges */}
@@ -101,7 +82,7 @@ export function Cta({ onOpenListaEspera }: CtaProps) {
           {/* Additional info */}
           <div className="mt-10 pt-10 border-t border-white/20">
             <p className="text-gray-400 text-sm">
-              Sé de los primeros en transformar tu negocio con IA
+              Beta activa con gremios reales
             </p>
           </div>
         </div>

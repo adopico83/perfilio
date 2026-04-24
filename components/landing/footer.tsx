@@ -15,8 +15,6 @@ export function Footer() {
   ];
 
   const companyLinks = [
-    { name: 'Sobre nosotros', href: '#nosotros' },
-    { name: 'Blog', href: '#blog' },
     { name: 'Contacto', href: '#contacto' },
     { name: 'Ayuda', href: '#ayuda' },
   ];
@@ -40,6 +38,9 @@ export function Footer() {
             </a>
             <p className="text-gray-300 text-sm leading-relaxed mb-6">
               Software de gestión empresarial con asistente IA para PYMEs españolas.
+            </p>
+            <p className="text-gray-200 text-sm font-semibold mb-4">
+              WhatsApp: 697 613 884
             </p>
             <div className="flex items-center space-x-2 text-sm">
               <span>Hecho en España</span>

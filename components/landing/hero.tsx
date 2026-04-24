@@ -1,204 +1,151 @@
 'use client';
 
-import Image from 'next/image';
+const WHATSAPP_HREF =
+  'https://wa.me/34697613884?text=Hola%2C%20he%20visto%20Perfilio%20en%20vuestra%20web%20y%20me%20gustar%C3%ADa%20ver%20c%C3%B3mo%20funciona';
 
-interface HeroProps {
-  onOpenListaEspera?: () => void;
-}
+export function Hero() {
+  const checks = [
+    'Hecho en Euskadi',
+    'Para gremios y autónomos',
+    'Sin instalaciones raras',
+    'Tus datos seguros',
+  ];
 
-export function Hero({ onOpenListaEspera }: HeroProps) {
   return (
-    <section className="relative overflow-hidden">
-  {/* Imagen de fondo */}
-  <div 
-    className="absolute inset-0 bg-cover bg-center opacity-50"
-    style={{
-      backgroundImage: "url('https://images.unsplash.com/photo-1511818966892-d7d671e672a2?w=1920&q=80')",
-    }}
-  ></div>
-  <div className="absolute inset-0 bg-gradient-to-b from-[#0f172a]/70 via-[#0f172a]/85 to-[#0f172a]"></div>
-  
-  {/* Contenido del hero */}
-  <div className="relative">
+    <section suppressHydrationWarning className="relative overflow-hidden py-16 sm:py-20 lg:py-24">
+      <div className="absolute inset-0 bg-[#0d1b2e]"></div>
+      <div className="absolute inset-0 opacity-100 bg-[linear-gradient(to_right,rgba(237,137,54,0.06)_1px,transparent_1px),linear-gradient(to_bottom,rgba(237,137,54,0.06)_1px,transparent_1px)] bg-[length:48px_48px]"></div>
+      <div className="absolute -top-28 -right-20 h-80 w-80 blur-3xl bg-[radial-gradient(circle,rgba(237,137,54,0.18),transparent_70%)]"></div>
+      <div className="absolute -bottom-32 -left-16 h-96 w-96 blur-3xl bg-[radial-gradient(circle,rgba(26,54,93,0.8),transparent_70%)]"></div>
 
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 gap-12 lg:grid-cols-2 lg:gap-8 items-center">
-          {/* Contenido izquierdo */}
-          <div className="space-y-8">
-            {/* Badge */}
-            <div className="inline-flex items-center space-x-2 bg-[#ed8936]/10 border border-[#ed8936]/20 rounded-full px-4 py-2">
-              <span className="inline-flex h-2 w-2 rounded-full bg-[#ed8936] animate-pulse"></span>
-              <span className="text-sm font-semibold text-[#ed8936]">
-                Nuevo: Agente IA integrado
-              </span>
-            </div>
+      <div className="relative">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-1 gap-12 lg:grid-cols-2 lg:gap-10 items-center">
+            <div className="space-y-8">
+              <div className="inline-flex items-center gap-2 rounded-full px-4 py-2 bg-[rgba(237,137,54,0.12)] border border-[rgba(237,137,54,0.35)]">
+                <span className="inline-flex h-2 w-2 rounded-full bg-[#ed8936] animate-pulse"></span>
+                <span className="text-[11px] sm:text-xs font-semibold tracking-[0.12em] uppercase text-[#ed8936]">
+                  Gremios del País Vasco
+                </span>
+              </div>
 
-            {/* Headline */}
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-[#1a365d] dark:text-white leading-tight">
-              Tu negocio en{' '}
-              <span className="text-[#ed8936]">piloto automático</span>
-            </h1>
+              <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold text-white leading-[1.03] tracking-tight">
+                El encargado que no <span className="text-[#ed8936]">duerme</span>
+              </h1>
 
-            {/* Subheadline */}
-            <p className="text-lg sm:text-xl text-[#4a5568] dark:text-gray-300 leading-relaxed">
-              Perfilio gestiona tus <strong>emails, WhatsApps y llamadas con IA</strong> mientras tú te enfocas en lo que importa
-            </p>
+              <p className="text-lg sm:text-xl text-[rgba(255,255,255,0.6)] leading-relaxed max-w-xl">
+                Tu agente gestiona presupuestos, obras, gastos y operarios mientras tú estás en faena.
+              </p>
 
-            {/* CTAs */}
-            <div className="flex flex-col sm:flex-row gap-4">
-              <a
-                href="#como-funciona"
-                className="inline-flex items-center justify-center px-8 py-4 text-[#1a365d] dark:text-white font-bold border-2 border-[#1a365d] dark:border-white rounded-lg hover:bg-[#1a365d] hover:text-white dark:hover:bg-white dark:hover:text-[#1a365d] transition-all duration-200"
-              >
-                Ver cómo funciona
-              </a>
-              {onOpenListaEspera ? (
-                <button
-                  type="button"
-                  onClick={onOpenListaEspera}
-                  className="inline-flex items-center justify-center px-8 py-4 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-bold rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
-                >
-                  Probar 14 días gratis
-                </button>
-              ) : (
+              <div className="flex flex-col sm:flex-row gap-4">
                 <a
-                  href="#probar"
-                  className="inline-flex items-center justify-center px-8 py-4 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-bold rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
+                  href={WHATSAPP_HREF}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center gap-2 px-10 py-5 bg-[#ed8936] hover:bg-[#dd6b20] text-white text-lg font-bold rounded-[10px] transition-all duration-200 shadow-lg hover:shadow-xl hover:-translate-y-[1px]"
                 >
-                  Probar 14 días gratis
+                  <svg viewBox="0 0 32 32" className="h-5 w-5 fill-current" aria-hidden="true">
+                    <path d="M19.11 17.2c-.28-.14-1.64-.81-1.89-.9-.25-.09-.43-.14-.61.14-.18.28-.71.9-.87 1.08-.16.18-.32.21-.6.07-.28-.14-1.17-.43-2.23-1.37-.82-.73-1.37-1.63-1.53-1.91-.16-.28-.02-.43.12-.57.12-.12.28-.32.43-.48.14-.16.18-.28.28-.46.09-.18.05-.35-.02-.49-.07-.14-.61-1.47-.84-2.02-.22-.53-.44-.46-.61-.47h-.52c-.18 0-.46.07-.7.35-.24.28-.92.9-.92 2.2 0 1.3.94 2.56 1.08 2.74.14.18 1.86 2.84 4.51 3.98.63.27 1.12.43 1.5.55.63.2 1.2.17 1.65.1.5-.07 1.64-.67 1.87-1.31.23-.64.23-1.19.16-1.31-.07-.11-.25-.18-.53-.32zM16 3.2A12.75 12.75 0 0 0 4.95 22.3L3.2 28.8l6.66-1.71A12.78 12.78 0 1 0 16 3.2zm0 23.22c-1.95 0-3.86-.53-5.52-1.54l-.4-.24-3.95 1.01 1.05-3.85-.26-.4a10.68 10.68 0 1 1 9.08 5.02z" />
+                  </svg>
+                  Pedir demo
                 </a>
-              )}
-            </div>
-
-            {/* Trust indicators */}
-            <div className="flex flex-wrap items-center gap-6 pt-4 text-sm text-[#4a5568] dark:text-gray-400">
-              <div className="flex items-center space-x-2">
-                <svg className="h-5 w-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
-                  <path
-                    fillRule="evenodd"
-                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-                <span className="font-medium">Sin tarjeta de crédito</span>
               </div>
-              <div className="flex items-center space-x-2">
-                <svg className="h-5 w-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
-                  <path
-                    fillRule="evenodd"
-                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-                <span className="font-medium">Cancela cuando quieras</span>
+
+              <div className="pt-1 flex flex-wrap gap-x-5 gap-y-2 text-sm text-[#c7d0de]">
+                {checks.map((item) => (
+                  <div key={item} className="inline-flex items-center gap-2">
+                    <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-[#ed8936] text-[10px] font-bold text-white">
+                      ✓
+                    </span>
+                    <span>{item}</span>
+                  </div>
+                ))}
               </div>
             </div>
-          </div>
 
-          {/* Mockup del asistente IA - Lado derecho */}
-          <div className="relative">
-            {/* Glow effect */}
-            <div className="absolute inset-0 bg-[#ed8936]/20 blur-3xl rounded-full"></div>
-            
-            {/* Mockup container */}
-            <div className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden transform hover:scale-105 transition-transform duration-300">
-              {/* Header del asistente */}
-              <div className="bg-gradient-to-r from-[#1a365d] to-[#2d4a7c] p-5 border-b border-gray-700">
-                <div className="flex items-center space-x-3">
-                  <div className="text-3xl">🤖</div>
-                  <div className="flex-1">
-                    <h3 className="text-white font-bold text-lg">Asistente Perfilio</h3>
-                    <div className="flex items-center space-x-2 mt-1">
-                      <span className="inline-flex h-2 w-2 rounded-full bg-green-400 animate-pulse"></span>
-                      <span className="inline-flex h-2 w-2 rounded-full bg-green-400 animate-pulse delay-75"></span>
-                      <span className="inline-flex h-2 w-2 rounded-full bg-green-400 animate-pulse delay-150"></span>
-                      <span className="text-green-400 text-sm font-medium ml-1">En línea</span>
+            <div className="relative">
+              <div className="absolute inset-0 bg-[#ed8936]/10 blur-3xl rounded-full"></div>
+              <div className="relative bg-[#111c2d] rounded-2xl border border-[rgba(255,255,255,0.1)] overflow-hidden shadow-2xl">
+                <div className="bg-[#1a365d] p-5 border-b border-[rgba(255,255,255,0.08)]">
+                  <div className="flex items-center space-x-3">
+                    <div className="text-3xl">🔨</div>
+                    <div className="flex-1">
+                      <h3 className="text-white font-bold text-lg">En obra</h3>
+                      <div className="flex items-center space-x-2 mt-1">
+                        <span className="inline-flex h-2 w-2 rounded-full bg-green-400 animate-pulse"></span>
+                        <span className="text-green-300 text-sm font-medium ml-1">Operativo</span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Contenido del asistente */}
-              <div className="p-4 space-y-4 bg-gray-50 dark:bg-gray-900">
-                {/* Alerta urgente */}
-                <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border-l-4 border-red-500 shadow-md hover:shadow-lg transition-shadow">
-                  <div className="flex items-start space-x-3">
-                    <div className="flex-shrink-0">
-                      <span className="inline-flex items-center px-2.5 py-1 rounded text-xs font-bold bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
-                        🔴 URGENTE
-                      </span>
+                <div className="p-4 space-y-4 bg-[#111c2d]">
+                  <div
+                    className="bg-[#162032] rounded-[10px] p-4 border border-[rgba(255,255,255,0.08)] opacity-0 translate-y-3"
+                    style={{ animation: 'fadeUp 560ms ease-out 0.2s forwards' }}
+                  >
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <span className="inline-flex h-[6px] w-[6px] rounded-full bg-[#ed8936]"></span>
+                      <p className="uppercase text-[11px] tracking-[0.08em] text-[rgba(255,255,255,0.5)]">
+                        Dictado recibido
+                      </p>
                     </div>
-                  </div>
-                  <div className="mt-3">
-                    <p className="font-bold text-[#1a365d] dark:text-white text-base">
-                      📞 Pedro llamó 3 veces
-                    </p>
-                    <p className="text-[#4a5568] dark:text-gray-400 text-sm mt-1">
-                      "Presupuesto ventanas urgente"
+                    <p className="text-white font-medium">
+                      Alicatado baño 18 m², mano de obra y material.
                     </p>
                   </div>
-                  <div className="flex space-x-2 mt-3">
-                    <button className="flex-1 bg-[#ed8936] hover:bg-[#dd6b20] text-white text-sm font-bold py-2 px-3 rounded-lg transition-colors">
-                      Llamar ahora
-                    </button>
-                    <button className="flex-1 border border-[#1a365d] dark:border-gray-600 text-[#1a365d] dark:text-white text-sm font-medium py-2 px-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
-                      Ver detalle
-                    </button>
-                  </div>
-                </div>
 
-                {/* Emails */}
-                <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-md hover:shadow-lg transition-shadow border border-gray-200 dark:border-gray-700">
-                  <div className="space-y-2">
-                    <p className="font-bold text-[#1a365d] dark:text-white">
-                      📧 5 emails nuevos
-                    </p>
-                    <div className="flex items-center space-x-2 text-sm">
-                      <span className="text-green-600 dark:text-green-400 font-medium">
-                        ✅ 3 respondidos automáticamente
-                      </span>
+                  <div
+                    className="bg-[#162032] rounded-[10px] p-4 border border-[rgba(255,255,255,0.08)] opacity-0 translate-y-3"
+                    style={{ animation: 'fadeUp 560ms ease-out 0.7s forwards' }}
+                  >
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <span className="inline-flex h-[6px] w-[6px] rounded-full bg-[#667eea]"></span>
+                      <p className="uppercase text-[11px] tracking-[0.08em] text-[rgba(255,255,255,0.5)]">
+                        Presupuesto generado
+                      </p>
                     </div>
-                    <div className="flex items-center space-x-2 text-sm">
-                      <span className="text-yellow-600 dark:text-yellow-400 font-medium">
-                        ⚠️ 2 necesitan tu revisión
-                      </span>
-                    </div>
+                    <p className="text-white font-medium">Base 1.260,00 € · IVA 21%</p>
+                    <p className="text-[rgba(255,255,255,0.45)] text-xs mt-1">Total 1.524,60 €</p>
                   </div>
-                  <button className="w-full mt-3 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-[#1a365d] dark:text-white text-sm font-medium py-2 px-3 rounded-lg transition-colors">
-                    Ver borradores
-                  </button>
-                </div>
 
-                {/* WhatsApp */}
-                <div className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-gray-800 dark:to-gray-800 rounded-lg p-4 shadow-md hover:shadow-lg transition-shadow border border-green-200 dark:border-green-900/30">
-                  <div className="space-y-2">
-                    <p className="font-bold text-[#1a365d] dark:text-white">
-                      💬 WhatsApp - Cliente García
-                    </p>
-                    <p className="text-[#4a5568] dark:text-gray-400 text-sm italic">
-                      "¿Para cuándo la instalación?"
-                    </p>
-                    <div className="flex items-center space-x-2 mt-2">
-                      <span className="text-green-600 dark:text-green-400 text-sm font-medium">
-                        Borrador listo ✓
-                      </span>
+                  <div
+                    className="bg-[#162032] rounded-[10px] p-4 border border-[rgba(255,255,255,0.08)] opacity-0 translate-y-3"
+                    style={{ animation: 'fadeUp 560ms ease-out 1.2s forwards' }}
+                  >
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <span className="inline-flex h-[6px] w-[6px] rounded-full bg-[#48bb78]"></span>
+                      <p className="uppercase text-[11px] tracking-[0.08em] text-[rgba(255,255,255,0.5)]">
+                        PDF listo para enviar
+                      </p>
                     </div>
+                    <p className="text-white font-medium">
+                      Documento con partidas, mediciones y logo
+                    </p>
                   </div>
-                  <div className="flex space-x-2 mt-3">
-                    <button className="flex-1 bg-[#ed8936] hover:bg-[#dd6b20] text-white text-sm font-bold py-2 px-3 rounded-lg transition-colors">
-                      Enviar
-                    </button>
-                    <button className="flex-1 border border-green-600 dark:border-green-700 text-green-700 dark:text-green-400 text-sm font-medium py-2 px-3 rounded-lg hover:bg-green-50 dark:hover:bg-gray-700 transition-colors">
-                      Editar
-                    </button>
-                  </div>
+
+                  <div
+                    className="h-[2px] w-24 rounded-full bg-[#ed8936] opacity-0 translate-y-3"
+                    style={{ animation: 'fadeUp 560ms ease-out 1.6s forwards' }}
+                  ></div>
                 </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-      </div> {/* cierra el div relative */}
+      <style jsx>{`
+        @keyframes fadeUp {
+          from {
+            opacity: 0;
+            transform: translateY(12px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+      `}</style>
     </section>
   );
 }

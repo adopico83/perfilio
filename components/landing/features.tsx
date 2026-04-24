@@ -1,53 +1,56 @@
-import { Bot, LayoutDashboard, FileText, Package, Receipt, MessageCircle } from 'lucide-react';
+import { Mic, Camera, Receipt, Users, CalendarClock, FolderKanban } from 'lucide-react';
+
+const WHATSAPP_HREF =
+  'https://wa.me/34697613884?text=Hola%2C%20he%20visto%20Perfilio%20en%20vuestra%20web%20y%20me%20gustar%C3%ADa%20ver%20c%C3%B3mo%20funciona';
 
 export function Features() {
   const features = [
     {
       number: '01',
-      icon: Bot,
-      title: 'Asistente IA 24/7',
+      icon: Mic,
+      title: 'Presupuestos por voz',
       description:
-        'Gestiona emails y WhatsApps automáticamente. Responde como tú, aprende de tu negocio.',
+        'Dicta partidas y tu agente genera el presupuesto completo con PDF.',
       color: '#60a5fa',
     },
     {
       number: '02',
-      icon: LayoutDashboard,
-      title: 'Dashboard Inteligente',
+      icon: Camera,
+      title: 'Diario de obra',
       description:
-        'Vista centralizada de todo tu negocio. Priorización automática de tareas urgentes.',
+        'Foto + audio y queda registrado con fecha y obra automaticamente.',
       color: '#c084fc',
     },
     {
       number: '03',
-      icon: FileText,
-      title: 'Presupuestos Automáticos',
+      icon: Receipt,
+      title: 'Control de gastos',
       description:
-        'Genera presupuestos profesionales en minutos. PDF y envío directo al cliente.',
+        'OCR de tickets y albaranes directo desde el movil.',
       color: '#fb923c',
     },
     {
       number: '04',
-      icon: Package,
-      title: 'Control de Stock',
+      icon: Users,
+      title: 'Gestion de operarios',
       description:
-        'Alertas cuando falta material. Nunca pares una obra por falta de stock.',
+        'Registra jornadas y horas por obra sin llamadas ni Excel.',
       color: '#4ade80',
     },
     {
       number: '05',
-      icon: Receipt,
-      title: 'Facturación Legal',
+      icon: CalendarClock,
+      title: 'Agenda inteligente',
       description:
-        'De presupuesto a factura en un clic. IVA, numeración y envío automático.',
+        'Recordatorios con antelacion automatica para citas y visitas.',
       color: '#818cf8',
     },
     {
       number: '06',
-      icon: MessageCircle,
-      title: 'WhatsApp Business',
+      icon: FolderKanban,
+      title: 'Obras y clientes',
       description:
-        'Envía presupuestos directos al móvil del cliente. Seguimiento automático.',
+        'Toda la documentacion agrupada por obra en un solo lugar.',
       color: '#2dd4bf',
     },
   ];
@@ -76,7 +79,7 @@ export function Features() {
             <span className="text-[#ed8936]">con IA que trabaja por ti</span>
           </h2>
           <p className="text-lg text-gray-300">
-            Gestión empresarial completa con inteligencia artificial integrada
+            Herramienta de trabajo real para el dia a dia en obra
           </p>
         </div>
 
@@ -132,10 +135,12 @@ export function Features() {
         {/* Bottom CTA */}
         <div className="mt-20 text-center">
           <a
-            href="#probar"
-            className="inline-flex items-center justify-center px-8 py-4 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-bold rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
+            href={WHATSAPP_HREF}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center px-10 py-5 bg-[#ed8936] hover:bg-[#dd6b20] text-white text-lg font-bold rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
           >
-            Ver todas las funcionalidades
+            Pedir demo
             <svg className="ml-2 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
             </svg>

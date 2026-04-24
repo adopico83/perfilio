@@ -7,28 +7,29 @@ export default function FAQ() {
 
   const faqs = [
     {
-      question: '¿Cómo funciona el asistente IA?',
-      answer: 'El asistente analiza automáticamente los emails y WhatsApps que recibes, genera respuestas profesionales adaptadas a tu negocio, y te las presenta en el dashboard para que las revises y apruebes antes de enviar.',
+      question: '¿Que es tu agente?',
+      answer:
+        'Tu agente es el agente de Perfilio. Gestiona tus presupuestos, gastos, obras y operarios por voz. No es un chat, es un operador de negocio que ejecuta trabajo real.',
     },
     {
-      question: '¿Necesito conocimientos técnicos?',
-      answer: 'No. Perfilio está diseñado para ser simple. Solo necesitas conectar tu email/WhatsApp y el sistema empieza a funcionar. La interfaz es intuitiva y fácil de usar.',
+      question: '¿Necesito instalar algo?',
+      answer:
+        'Solo anadir Perfilio a la pantalla de inicio de tu movil. Funciona como una app sin pasar por ninguna tienda.',
     },
     {
-      question: '¿Puedo cancelar cuando quiera?',
-      answer: 'Sí, sin permanencia. Puedes cancelar tu suscripción en cualquier momento desde tu panel de control. No hay costes ocultos ni penalizaciones.',
+      question: '¿Funciona con TicketBAI?',
+      answer:
+        'Perfilio genera tus facturas listas para TicketBAI. La integracion completa esta en el roadmap.',
     },
     {
-      question: '¿Qué pasa si la IA genera una respuesta incorrecta?',
-      answer: 'Todas las respuestas pasan por tu aprobación. Puedes editarlas, rechazarlas o aprobarlas. Tú tienes el control final antes de que se envíe cualquier mensaje.',
+      question: '¿Para que sectores es?',
+      answer:
+        'Para cualquier gremio o autonomo de construccion y reformas: albaniles, pintores, electricistas, fontaneros, decoradores.',
     },
     {
-      question: '¿Funciona para mi sector?',
-      answer: 'Perfilio funciona para cualquier pequeña empresa que reciba consultas de clientes. Tenemos módulos específicos para talleres, fontanería, electricistas, peluquerías y más.',
-    },
-    {
-      question: '¿Incluye soporte técnico?',
-      answer: 'Sí. Todos los planes incluyen soporte por email. El plan con módulos incluye soporte prioritario con respuesta en menos de 24h.',
+      question: '¿Cuanto cuesta?',
+      answer:
+        'Estamos en fase beta. Escribenos por WhatsApp y te explicamos las condiciones.',
     },
   ];
 
