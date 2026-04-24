@@ -1035,20 +1035,29 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
         function: {
           name: 'gestionar_tarifas',
           description:
-            'Añade, edita o lista las tarifas del negocio para generar presupuestos automáticos.',
+            'Añade, edita, elimina o lista las tarifas del negocio para generar presupuestos automáticos.',
           parameters: {
             type: 'object',
             properties: {
               accion: {
                 type: 'string',
-                enum: ['listar', 'añadir', 'editar'],
+                enum: ['listar', 'añadir', 'editar', 'eliminar'],
                 description: 'Operación a realizar',
               },
               nombre: { type: 'string' },
               unidad: { type: 'string' },
               precio: { type: 'number' },
               categoria: { type: 'string' },
-              tarifa_id: { type: 'string', description: 'UUID de la tarifa (editar)' },
+              tarifa_id: { type: 'string', description: 'UUID de la tarifa (editar/eliminar)' },
+              nombre_tarifa: {
+                type: 'string',
+                description: 'Nombre o fragmento para buscar la tarifa a eliminar si no se tiene tarifa_id',
+              },
+              confirmar_eliminacion: {
+                type: 'boolean',
+                description:
+                  'Confirmación explícita para ejecutar el borrado. Si no es true, solo devuelve vista previa.',
+              },
             },
             required: ['accion'],
             additionalProperties: false,
@@ -3949,8 +3958,8 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
         }
         case 'gestionar_tarifas': {
           const accion = String(toolArgs.accion ?? '').trim().toLowerCase();
-          if (!['listar', 'añadir', 'editar'].includes(accion)) {
-            return { error: 'accion debe ser listar, añadir o editar' };
+          if (!['listar', 'añadir', 'editar', 'eliminar'].includes(accion)) {
+            return { error: 'accion debe ser listar, añadir, editar o eliminar' };
           }
 
           if (accion === 'listar') {
@@ -4047,6 +4056,97 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
             if (error) return { error: error.message };
             if (!row?.id) return { error: 'Tarifa no encontrada' };
             return { ok: true, id: row.id as string, mensaje: 'Tarifa actualizada.' };
+          }
+
+          if (accion === 'eliminar') {
+            const tarifaId = String(toolArgs.tarifa_id ?? '').trim();
+            const nombreTarifa = String(toolArgs.nombre_tarifa ?? '').trim();
+            const confirmarEliminacion = toolArgs.confirmar_eliminacion === true;
+
+            type TarifaDeleteRow = {
+              id: string;
+              nombre: string;
+              unidad: string;
+              precio: number | string;
+            };
+
+            let candidatas: TarifaDeleteRow[] = [];
+
+            if (tarifaId) {
+              const { data, error } = await supabase
+                .from('tarifas')
+                .select('id, nombre, unidad, precio')
+                .eq('id', tarifaId)
+                .eq('business_id', business_id)
+                .limit(1);
+              if (error) return { error: error.message };
+              candidatas = (data ?? []) as TarifaDeleteRow[];
+            } else {
+              if (!nombreTarifa) {
+                return { error: 'Para eliminar, indica tarifa_id o nombre_tarifa.' };
+              }
+              const safeNombre = nombreTarifa.replace(/[%_]/g, '').trim();
+              if (!safeNombre) return { error: 'nombre_tarifa no válido.' };
+              const { data, error } = await supabase
+                .from('tarifas')
+                .select('id, nombre, unidad, precio')
+                .eq('business_id', business_id)
+                .ilike('nombre', `%${safeNombre}%`)
+                .order('nombre', { ascending: true })
+                .limit(10);
+              if (error) return { error: error.message };
+              candidatas = (data ?? []) as TarifaDeleteRow[];
+            }
+
+            if (candidatas.length === 0) {
+              return { error: 'No se encontró ninguna tarifa que coincida para eliminar.' };
+            }
+
+            if (candidatas.length > 1) {
+              return {
+                requiere_confirmacion: true,
+                multiple_candidatas: true,
+                mensaje:
+                  'He encontrado varias tarifas. Indica tarifa_id (o un nombre más específico) y confirma explícitamente para eliminar.',
+                candidatas: candidatas.map((r) => ({
+                  id: r.id,
+                  nombre: r.nombre,
+                  unidad: r.unidad,
+                  precio: r.precio != null ? Number(r.precio) : null,
+                })),
+              };
+            }
+
+            const candidata = candidatas[0]!;
+            if (!confirmarEliminacion) {
+              return {
+                requiere_confirmacion: true,
+                mensaje:
+                  'Vista previa de eliminación. Si quieres borrarla, vuelve a llamar con confirmar_eliminacion=true.',
+                tarifa: {
+                  id: candidata.id,
+                  nombre: candidata.nombre,
+                  unidad: candidata.unidad,
+                  precio: candidata.precio != null ? Number(candidata.precio) : null,
+                },
+              };
+            }
+
+            const { data: deletedRows, error: delErr } = await supabase
+              .from('tarifas')
+              .delete()
+              .eq('id', candidata.id)
+              .eq('business_id', business_id)
+              .select('id, nombre, precio')
+              .limit(1);
+            if (delErr) return { error: delErr.message };
+            const deleted = (deletedRows ?? [])[0] as { id: string; nombre: string; precio: number | string } | undefined;
+            if (!deleted?.id) return { error: 'Tarifa no encontrada o sin permisos para eliminar.' };
+            return {
+              ok: true,
+              id: deleted.id,
+              mensaje: `Tarifa eliminada: "${deleted.nombre}" (${Number(deleted.precio)} €).`,
+            };
           }
 
           return { error: 'accion no reconocida' };
