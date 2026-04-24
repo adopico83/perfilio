@@ -25,8 +25,16 @@ export function DemoSection() {
   ];
 
   return (
-    <section className="py-24 bg-gradient-to-b from-[#1a365d] to-[#0f2744] dark:from-gray-900 dark:to-gray-950">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+    <section className="relative py-24 bg-gradient-to-b from-[#1a365d] to-[#0f2744] dark:from-gray-900 dark:to-gray-950 overflow-hidden">
+      <div
+        className="absolute inset-0 bg-cover bg-center opacity-35"
+        style={{
+          backgroundImage:
+            "url('https://images.unsplash.com/photo-1511818966892-d7d671e672a2?w=1600&q=80')",
+        }}
+      ></div>
+      <div className="absolute inset-0 bg-[rgba(13,27,46,0.85)]"></div>
+      <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="text-center max-w-3xl mx-auto mb-12">
           <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-6">
