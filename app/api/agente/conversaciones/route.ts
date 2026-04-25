@@ -18,7 +18,6 @@ export async function GET(request: NextRequest) {
   try {
     const url = new URL(request.url);
     const businessId = (url.searchParams.get('business_id') ?? '').trim();
-    const userIdQuery = (url.searchParams.get('user_id') ?? '').trim();
 
     if (!businessId) {
       return NextResponse.json({ error: 'business_id es obligatorio' }, { status: 400 });
@@ -32,17 +31,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
-    const userId = userIdQuery || user.id;
-    if (userId !== user.id) {
-      return NextResponse.json({ error: 'No autorizado para ese user_id' }, { status: 403 });
-    }
-
     const supabase = createServiceClient();
     const { data, error } = await supabase
       .from('conversation_history')
       .select('conversation_id, role, content, created_at')
       .eq('business_id', businessId)
-      .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(500);
 

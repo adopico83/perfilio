@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { getBusinessIdClient } from '@/lib/supabase/get-business-id';
 
 function urlBase64ToUint8Array(base64String: string): BufferSource {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -72,14 +73,7 @@ export async function subscribeToPush(): Promise<void> {
       throw new Error('no hay usuario autenticado');
     }
 
-    const { data: profile } = await supabase
-      .from('business_profiles')
-      .select('id')
-      .eq('user_id', user.id)
-      .limit(1)
-      .maybeSingle();
-
-    const businessId = profile?.id;
+    const businessId = await getBusinessIdClient(supabase);
     if (!businessId) {
       throw new Error('no hay negocio asociado');
     }

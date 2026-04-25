@@ -8,6 +8,7 @@ import { ChevronDown } from 'lucide-react';
 import LogoutButton from '@/app/dashboard/logout-button';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
+import { getBusinessIdClient } from '@/lib/supabase/get-business-id';
 
 type OperarioResumenPorObra = {
   obra_id: string;
@@ -107,21 +108,20 @@ export default function OperariosPage() {
       }
       setAuthChecking(false);
 
-      const { data: bp } = await supabase
-        .from('business_profiles')
-        .select('id, nombre')
-        .eq('user_id', session.user.id)
-        .limit(1)
-        .maybeSingle();
-
-      if (!bp?.id) {
+      const businessId = await getBusinessIdClient(supabase);
+      if (!businessId) {
         setBusinessId(null);
         setLoading(false);
         return;
       }
 
-      setBusinessId(bp.id);
-      if (bp.nombre) setBusinessName(bp.nombre);
+      setBusinessId(businessId);
+      const { data: bp } = await supabase
+        .from('business_profiles')
+        .select('nombre')
+        .eq('id', businessId)
+        .maybeSingle();
+      if (bp?.nombre) setBusinessName(bp.nombre);
     };
     void run();
   }, [router, supabase]);

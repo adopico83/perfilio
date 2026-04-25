@@ -9,6 +9,7 @@ import LogoutButton from '@/app/dashboard/logout-button';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
 import { useObraModal } from '@/contexts/obra-modal-context';
+import { getBusinessIdClient } from '@/lib/supabase/get-business-id';
 
 type ObraRow = {
   id: string;
@@ -96,27 +97,26 @@ export default function ObrasPage() {
         return;
       }
 
-      const { data: bp } = await supabase
-        .from('business_profiles')
-        .select('id, nombre')
-        .eq('user_id', session.user.id)
-        .limit(1)
-        .maybeSingle();
-
-      if (!bp?.id) {
+      const businessId = await getBusinessIdClient(supabase);
+      if (!businessId) {
         setBusinessId(null);
         setLoading(false);
         setAuthChecking(false);
         return;
       }
 
-      setBusinessId(bp.id);
-      if (bp.nombre) setBusinessName(bp.nombre);
+      setBusinessId(businessId);
+      const { data: bp } = await supabase
+        .from('business_profiles')
+        .select('nombre')
+        .eq('id', businessId)
+        .maybeSingle();
+      if (bp?.nombre) setBusinessName(bp.nombre);
 
       const { data: cliList } = await supabase
         .from('clientes')
         .select('id, nombre')
-        .eq('business_id', bp.id)
+        .eq('business_id', businessId)
         .order('nombre', { ascending: true });
       setClientesOpciones((cliList ?? []) as Array<{ id: string; nombre: string }>);
 

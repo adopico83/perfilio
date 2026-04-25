@@ -19,6 +19,7 @@ import { isDiarioPdfDownloadLink } from '@/lib/diario-pdf-link';
 import { useCanvas } from '@/contexts/canvas-context';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import { PresupuestoBorradorCanvas } from '@/components/presupuesto-borrador-canvas';
+import { getBusinessIdClient } from '@/lib/supabase/get-business-id';
 
 interface BusinessProfile {
   id: string;
@@ -709,15 +710,10 @@ export default function AgentSidebar() {
         return;
       }
 
-      const { data, error: e } = await supabase
-        .from('business_profiles')
-        .select('id')
-        .eq('user_id', user.id)
-        .limit(1)
-        .single();
+      const businessId = await getBusinessIdClient(supabase);
 
-      if (!e && data?.id) {
-        setSelectedId(data.id);
+      if (businessId) {
+        setSelectedId(businessId);
       } else {
         setSelectedId('');
       }
@@ -733,7 +729,6 @@ export default function AgentSidebar() {
         .from('conversation_history')
         .select('role, content, business_id, user_id, conversation_id, created_at')
         .eq('business_id', selectedId)
-        .eq('user_id', currentUserId)
         .eq('conversation_id', targetConversationId)
         .order('created_at', { ascending: false })
         .limit(200);
@@ -766,7 +761,7 @@ export default function AgentSidebar() {
     setConversacionesLoading(true);
     try {
       const res = await fetch(
-        `/api/agente/conversaciones?business_id=${encodeURIComponent(selectedId)}&user_id=${encodeURIComponent(currentUserId)}`
+        `/api/agente/conversaciones?business_id=${encodeURIComponent(selectedId)}`
       );
       const data = (await res.json()) as { conversaciones?: ConversationSummaryItem[]; error?: string };
       if (!res.ok) {

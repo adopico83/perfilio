@@ -21,6 +21,7 @@ import { useEmailModal } from '@/contexts/email-modal-context';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
 import NotificationButton from '@/components/pwa/notification-button';
+import { getBusinessIdClient } from '@/lib/supabase/get-business-id';
 
 interface ResumenCounts {
   urgentes: number;
@@ -506,21 +507,7 @@ export default function DashboardPage() {
       let bid: string | undefined =
         typeof businessIdOrEvent === 'string' ? businessIdOrEvent : undefined;
       if (!bid) {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        const userId = user?.id;
-        if (!userId) {
-          setAgendaEventos([]);
-          return;
-        }
-        const bizRes = await supabase
-          .from('business_profiles')
-          .select('id')
-          .eq('user_id', userId)
-          .limit(1)
-          .single();
-        bid = bizRes.data?.id;
+        bid = await getBusinessIdClient(supabase);
       }
       if (!bid) {
         setAgendaEventos([]);
@@ -555,22 +542,7 @@ export default function DashboardPage() {
   const loadAgendaMesCompleto = useCallback(
     async (anio: number, mes: number) => {
       try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        const userId = user?.id;
-        if (!userId) {
-          setAgendaEventosMes([]);
-          return [];
-        }
-
-        const bizRes = await supabase
-          .from('business_profiles')
-          .select('id')
-          .eq('user_id', userId)
-          .limit(1)
-          .single();
-        const bid = bizRes.data?.id;
+        const bid = await getBusinessIdClient(supabase);
         if (!bid) {
           setAgendaEventosMes([]);
           return [];
@@ -627,17 +599,16 @@ export default function DashboardPage() {
         return;
       }
 
-      const bizRes = await supabase
-        .from('business_profiles')
-        .select('id, nombre')
-        .eq('user_id', userId)
-        .limit(1)
-        .single();
-
-      const businessId = bizRes.data?.id;
-
-      if (!bizRes.error && bizRes.data?.nombre) {
-        setBusinessName(bizRes.data.nombre);
+      const businessId = await getBusinessIdClient(supabase);
+      if (businessId) {
+        const bizRes = await supabase
+          .from('business_profiles')
+          .select('nombre')
+          .eq('id', businessId)
+          .maybeSingle();
+        if (!bizRes.error && bizRes.data?.nombre) {
+          setBusinessName(bizRes.data.nombre);
+        }
       }
 
       if (!businessId) {
