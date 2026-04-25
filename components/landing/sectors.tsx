@@ -5,20 +5,20 @@ export function Sectors() {
     {
       icon: 'hammer',
       iconComponent: Hammer,
-      title: 'Albanileria',
+      title: 'Albañilería',
       description: 'Presupuestos, albaranes y seguimiento de obra',
       image: 'https://images.unsplash.com/photo-1504917595217-d4dc5ebe6122?w=600&q=80',
     },
     {
       icon: '🎨',
-      title: 'Pintura y decoracion',
+      title: 'Pintura y decoración',
       description: 'Partidas por voz, materiales y control de tiempos',
       image: 'https://images.unsplash.com/photo-1585704032915-c3400ca199e7?w=600&q=80',
     },
     {
       icon: '🛋️',
       title: 'Interiorismo',
-      description: 'Presupuestos detallados y documentacion por proyecto',
+      description: 'Presupuestos detallados y documentación por proyecto',
       image: 'https://images.unsplash.com/photo-1621905251189-08b45d6a269e?w=600&q=80',
     },
     {
@@ -91,7 +91,7 @@ export function Sectors() {
         {/* Bottom text */}
         <div className="mt-16 text-center">
           <p className="text-lg text-[#4a5568] dark:text-gray-300 mb-6">
-            ¿Tu gremio no aparece aqui? Te ensenamos como adaptamos Perfilio a tu trabajo.
+            ¿Tu gremio no aparece aquí? Te enseñamos cómo adaptamos Perfilio a tu trabajo.
           </p>
           <a
             href="https://wa.me/34697613884?text=Hola%2C%20he%20visto%20Perfilio%20en%20vuestra%20web%20y%20me%20gustar%C3%ADa%20ver%20c%C3%B3mo%20funciona"

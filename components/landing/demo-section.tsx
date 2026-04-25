@@ -10,7 +10,7 @@ export function DemoSection() {
     {
       icon: Mic,
       titulo: 'Hablas',
-      texto: 'Dictas las partidas como se las contarias a un companero',
+      texto: 'Dictas las partidas como se las contarías a un compañero',
     },
     {
       icon: Cog,

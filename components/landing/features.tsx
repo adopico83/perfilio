@@ -18,7 +18,7 @@ export function Features() {
       icon: Camera,
       title: 'Diario de obra',
       description:
-        'Foto + audio y queda registrado con fecha y obra automaticamente.',
+        'Foto + audio y queda registrado con fecha y obra automáticamente.',
       color: '#c084fc',
     },
     {
@@ -26,13 +26,13 @@ export function Features() {
       icon: Receipt,
       title: 'Control de gastos',
       description:
-        'OCR de tickets y albaranes directo desde el movil.',
+        'OCR de tickets y albaranes directo desde el móvil.',
       color: '#fb923c',
     },
     {
       number: '04',
       icon: Users,
-      title: 'Gestion de operarios',
+      title: 'Gestión de operarios',
       description:
         'Registra jornadas y horas por obra sin llamadas ni Excel.',
       color: '#4ade80',
@@ -42,7 +42,7 @@ export function Features() {
       icon: CalendarClock,
       title: 'Agenda inteligente',
       description:
-        'Recordatorios con antelacion automatica para citas y visitas.',
+        'Recordatorios con antelación automática para citas y visitas.',
       color: '#818cf8',
     },
     {
@@ -50,7 +50,7 @@ export function Features() {
       icon: FolderKanban,
       title: 'Obras y clientes',
       description:
-        'Toda la documentacion agrupada por obra en un solo lugar.',
+        'Toda la documentación agrupada por obra en un solo lugar.',
       color: '#2dd4bf',
     },
   ];
@@ -79,7 +79,7 @@ export function Features() {
             <span className="text-[#ed8936]">con IA que trabaja por ti</span>
           </h2>
           <p className="text-lg text-gray-300">
-            Herramienta de trabajo real para el dia a dia en obra
+            Herramienta de trabajo real para el día a día en obra
           </p>
         </div>
 

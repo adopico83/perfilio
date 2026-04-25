@@ -7,29 +7,29 @@ export default function FAQ() {
 
   const faqs = [
     {
-      question: '¿Que es tu agente?',
+      question: '¿Qué es tu agente?',
       answer:
         'Tu agente es el agente de Perfilio. Gestiona tus presupuestos, gastos, obras y operarios por voz. No es un chat, es un operador de negocio que ejecuta trabajo real.',
     },
     {
       question: '¿Necesito instalar algo?',
       answer:
-        'Solo anadir Perfilio a la pantalla de inicio de tu movil. Funciona como una app sin pasar por ninguna tienda.',
+        'Solo añadir Perfilio a la pantalla de inicio de tu móvil. Funciona como una app sin pasar por ninguna tienda.',
     },
     {
       question: '¿Funciona con TicketBAI?',
       answer:
-        'Perfilio genera tus facturas listas para TicketBAI. La integracion completa esta en el roadmap.',
+        'Perfilio genera tus facturas listas para TicketBAI. La integración completa está en el roadmap.',
     },
     {
-      question: '¿Para que sectores es?',
+      question: '¿Para qué sectores es?',
       answer:
-        'Para cualquier gremio o autonomo de construccion y reformas: albaniles, pintores, electricistas, fontaneros, decoradores.',
+        'Para cualquier gremio o autónomo de construcción y reformas: albañiles, pintores, electricistas, fontaneros, decoradores.',
     },
     {
-      question: '¿Cuanto cuesta?',
+      question: '¿Cuánto cuesta?',
       answer:
-        'Estamos en fase beta. Escribenos por WhatsApp y te explicamos las condiciones.',
+        'Estamos en fase beta. Escríbenos por WhatsApp y te explicamos las condiciones.',
     },
   ];
 

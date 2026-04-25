@@ -11,11 +11,11 @@ export default function Pricing(_: PricingProps) {
         <div className="container mx-auto px-4">
           <div className="text-center mb-10 max-w-3xl mx-auto">
             <h2 className="text-4xl font-bold text-gray-900 mb-4">
-              Precios pensados para autonomos
+              Precios pensados para autónomos
             </h2>
             <p className="text-xl text-gray-600">
-              Perfilio esta en fase beta. Los primeros gremios que entren tendran condiciones
-              especiales. Escribenos y te lo contamos.
+              Perfilio está en fase beta. Los primeros gremios que entren tendrán condiciones
+              especiales. Escríbenos y te lo contamos.
             </p>
           </div>
           <div className="text-center">

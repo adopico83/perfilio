@@ -38,7 +38,7 @@ export function Cta(_: CtaProps) {
 
           {/* Subtitle */}
           <p className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
-            Tu agente se encarga. Tu a lo tuyo.
+            Tu agente se encarga. Tú a lo tuyo.
           </p>
 
           {/* CTA Button */}
