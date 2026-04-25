@@ -121,7 +121,7 @@ export default function ObrasPage() {
       setClientesOpciones((cliList ?? []) as Array<{ id: string; nombre: string }>);
 
       try {
-        const res = await fetch(`/api/obras?business_id=${encodeURIComponent(bp.id)}`, {
+        const res = await fetch(`/api/obras?business_id=${encodeURIComponent(businessId)}`, {
           credentials: 'include',
         });
         const json = (await res.json()) as { obras?: ObraRow[]; error?: string };

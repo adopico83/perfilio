@@ -1,22 +1,4 @@
-type SupabaseLike = {
-  auth: {
-    getUser: () => Promise<{ data: { user: { id?: string | null } | null } }>;
-  };
-  from: (table: string) => {
-    select: (columns: string) => {
-      eq: (column: string, value: string) => {
-        limit: (count: number) => {
-          maybeSingle: () => Promise<{
-            data: { business_id?: string | null } | null;
-            error: unknown;
-          }>;
-        };
-      };
-    };
-  };
-};
-
-async function getBusinessId(supabase: SupabaseLike): Promise<string | null> {
+async function getBusinessId(supabase: any): Promise<string | null> {
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -33,10 +15,10 @@ async function getBusinessId(supabase: SupabaseLike): Promise<string | null> {
   return data?.business_id ?? null;
 }
 
-export async function getBusinessIdClient(supabase: SupabaseLike): Promise<string | null> {
+export async function getBusinessIdClient(supabase: any): Promise<string | null> {
   return getBusinessId(supabase);
 }
 
-export async function getBusinessIdServer(supabase: SupabaseLike): Promise<string | null> {
+export async function getBusinessIdServer(supabase: any): Promise<string | null> {
   return getBusinessId(supabase);
 }

@@ -507,7 +507,7 @@ export default function DashboardPage() {
       let bid: string | undefined =
         typeof businessIdOrEvent === 'string' ? businessIdOrEvent : undefined;
       if (!bid) {
-        bid = await getBusinessIdClient(supabase);
+        bid = (await getBusinessIdClient(supabase)) ?? undefined;
       }
       if (!bid) {
         setAgendaEventos([]);
