@@ -13,16 +13,8 @@ async function assertUserOwnsBusiness(
   userId: string,
   businessId: string
 ): Promise<boolean> {
-  const businessUsersQuery = supabaseAuth.from('business_users') as {
-    select?: (columns: string) => {
-      eq: (column: string, value: string) => {
-        eq: (column: string, value: string) => {
-          maybeSingle: () => Promise<{ data: { business_id?: string | null } | null }>;
-        };
-      };
-    };
-  };
-  if (typeof businessUsersQuery.select === 'function') {
+  const businessUsersQuery = supabaseAuth.from('business_users');
+  if ('select' in businessUsersQuery && typeof businessUsersQuery.select === 'function') {
     const { data } = await businessUsersQuery
       .select('business_id')
       .eq('business_id', businessId)
