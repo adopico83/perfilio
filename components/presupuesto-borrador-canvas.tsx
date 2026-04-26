@@ -65,6 +65,7 @@ export function PresupuestoBorradorCanvas({
   onSendAgentMessage,
   agentLoading,
   enableRealtime = true,
+  enableBackground = false,
 }: {
   businessId: string;
   userId: string;
@@ -73,6 +74,8 @@ export function PresupuestoBorradorCanvas({
   agentLoading: boolean;
   /** Evita canales Realtime duplicados cuando el panel de escritorio está montado pero oculto (viewport móvil). */
   enableRealtime?: boolean;
+  /** Mantiene carga y suscripciones activas aunque el canvas no se renderice. */
+  enableBackground?: boolean;
 }) {
   const [borrador, setBorrador] = useState<BorradorResumen | null>(null);
   const [items, setItems] = useState<ItemRow[]>([]);
@@ -144,28 +147,29 @@ export function PresupuestoBorradorCanvas({
 
   const mergeRef = useRef(mergeItemFromPayload);
   mergeRef.current = mergeItemFromPayload;
+  const realtimeActivo = enableRealtime || enableBackground;
 
   useEffect(() => {
     borradorIdRef.current = borrador?.id ?? null;
   }, [borrador?.id]);
 
   useEffect(() => {
-    if (!enableRealtime) return;
+    if (!realtimeActivo) return;
     void loadRef.current();
-  }, [enableRealtime, businessId, userId]);
+  }, [realtimeActivo, businessId, userId]);
 
   const prevAgentLoading = useRef(agentLoading);
   useEffect(() => {
-    if (!enableRealtime) return;
+    if (!realtimeActivo) return;
     if (prevAgentLoading.current && !agentLoading) {
       void loadRef.current();
       setAccionEnCurso(null);
     }
     prevAgentLoading.current = agentLoading;
-  }, [agentLoading, enableRealtime]);
+  }, [agentLoading, realtimeActivo]);
 
   useEffect(() => {
-    if (!enableRealtime) return;
+    if (!realtimeActivo) return;
     if (!businessId || !userId) return;
 
     const channelItems = supabase
@@ -232,7 +236,7 @@ export function PresupuestoBorradorCanvas({
       void supabase.removeChannel(channelItems);
       void supabase.removeChannel(channelBorrador);
     };
-  }, [businessId, userId, supabase, enableRealtime]);
+  }, [businessId, userId, supabase, realtimeActivo]);
 
   const ivaPct = num(borrador?.iva_porcentaje ?? 21);
   const { base, ivaImporte, total } = useMemo(() => {

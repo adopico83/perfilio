@@ -545,6 +545,7 @@ export default function AgentSidebar() {
   const [emailSendLoadingId, setEmailSendLoadingId] = useState<string | null>(null);
   const [imagenesPendientes, setImagenesPendientes] = useState<string[]>([]);
   const [subiendoVideo, setSubiendoVideo] = useState(false);
+  const [canvasActivo, setCanvasActivo] = useState(false);
   const [confirmDeleteConversationId, setConfirmDeleteConversationId] = useState<string | null>(
     null
   );
@@ -1028,6 +1029,12 @@ export default function AgentSidebar() {
           datosCanvas = [c.datos];
         }
         if (tipoCanvas && tituloCanvas) {
+          if (
+            tipoCanvas === 'presupuesto_borrador' ||
+            tituloCanvas.toLowerCase().includes('borrador')
+          ) {
+            setCanvasActivo(true);
+          }
           queueMicrotask(() => {
             abrirCanvas(tipoCanvas, datosCanvas, tituloCanvas);
           });
@@ -1560,6 +1567,7 @@ export default function AgentSidebar() {
               onSendAgentMessage={(t) => handleEnviarTexto(t)}
               agentLoading={loading}
               enableRealtime={viewportLg}
+              enableBackground={!viewportLg && canvasActivo}
             />
           ) : null}
           <div ref={listRef} className="flex-1 overflow-y-auto p-3 space-y-3">
@@ -1879,7 +1887,8 @@ export default function AgentSidebar() {
                     supabase={supabase}
                     onSendAgentMessage={(t) => handleEnviarTexto(t)}
                     agentLoading={loading}
-                    enableRealtime={!viewportLg && mobileOpen}
+                    enableRealtime={!viewportLg && (mobileOpen || canvasActivo)}
+                    enableBackground={!viewportLg && canvasActivo}
                   />
                 ) : null}
 
