@@ -26,7 +26,6 @@ export default function NotificationButton() {
       try {
         await subscribeToPush();
       } catch (error: any) {
-        alert('ERROR PUSH: ' + (error.message || 'Error desconocido'));
         console.error('Fallo en suscripción:', error);
       }
     })();
