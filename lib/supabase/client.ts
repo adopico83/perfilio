@@ -1,5 +1,7 @@
 import { createBrowserClient } from '@supabase/ssr';
 
+let _client: ReturnType<typeof createBrowserClient> | undefined;
+
 /**
  * Cliente de Supabase para el navegador (login, PWA, etc.).
  *
@@ -14,12 +16,12 @@ import { createBrowserClient } from '@supabase/ssr';
  * que se unifique en todos los puntos de creación del cliente.
  */
 export function createClient() {
-  return createBrowserClient(
+  if (_client) return _client;
+  _client = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
-      /** Evita reutilizar un singleton creado antes sin estas `cookieOptions`. */
-      isSingleton: false,
+      isSingleton: true,
       auth: {
         persistSession: true,
       },
@@ -31,4 +33,5 @@ export function createClient() {
       },
     }
   );
+  return _client;
 }
