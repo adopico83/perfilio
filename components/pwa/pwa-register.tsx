@@ -20,6 +20,19 @@ function urlBase64ToUint8Array(base64String: string): BufferSource {
  * Debe llamarse desde un gesto de usuario (p. ej. click) para cumplir con iOS Safari.
  */
 export async function subscribeToPush(): Promise<void> {
+  const supabase = createClient();
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+  if (userError || !user) {
+    throw new Error('No hay sesión de usuario activa');
+  }
+  const businessId = await getBusinessIdClient(supabase);
+  if (!businessId) {
+    throw new Error(`No se encontró negocio para el usuario ${user.email}`);
+  }
+
   if (typeof window === 'undefined') return;
   if (!('serviceWorker' in navigator)) return;
 
@@ -65,19 +78,6 @@ export async function subscribeToPush(): Promise<void> {
   }
 
   try {
-    const supabase = createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user?.id) {
-      throw new Error('no hay usuario autenticado');
-    }
-
-    const businessId = await getBusinessIdClient(supabase);
-    if (!businessId) {
-      throw new Error('no hay negocio asociado');
-    }
-
     const res = await fetch('/api/push/subscribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

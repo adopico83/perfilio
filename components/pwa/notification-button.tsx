@@ -25,8 +25,9 @@ export default function NotificationButton() {
     void (async () => {
       try {
         await subscribeToPush();
-      } catch {
-        /* re-registro silencioso */
+      } catch (error: any) {
+        alert('ERROR PUSH: ' + (error.message || 'Error desconocido'));
+        console.error('Fallo en suscripción:', error);
       }
     })();
   }, [perm]);
