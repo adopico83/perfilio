@@ -19,7 +19,7 @@ import { isDiarioPdfDownloadLink } from '@/lib/diario-pdf-link';
 import { useCanvas } from '@/contexts/canvas-context';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import { PresupuestoBorradorCanvas } from '@/components/presupuesto-borrador-canvas';
-import { getBusinessIdClient } from '@/lib/supabase/get-business-id';
+import { useSession } from '@/components/providers/session-provider';
 
 interface BusinessProfile {
   id: string;
@@ -500,6 +500,7 @@ function ConversacionListRow({
 
 export default function AgentSidebar() {
   const { abrirCanvas } = useCanvas();
+  const { businessId, user } = useSession();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   /** null hasta hidratar: evita doble Realtime entre panel escritorio (oculto en móvil) y drawer. */
@@ -528,7 +529,7 @@ export default function AgentSidebar() {
     setFechaRelativaAnchorMs(Date.now());
   }, []);
 
-  const [selectedId, setSelectedId] = useState('');
+  const [selectedId, setSelectedId] = useState(businessId ?? '');
   const [mensaje, setMensaje] = useState('');
   const [historial, setHistorial] = useState<ChatMessage[]>([]);
   const [conversationId, setConversationId] = useState('');
@@ -699,42 +700,13 @@ export default function AgentSidebar() {
   }, [collapsed]);
 
   useEffect(() => {
-    const loadInitialData = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      setCurrentUserId(user?.id ?? null);
-      setCurrentUserEmail(user?.email ?? null);
+    setCurrentUserId(user?.id ?? null);
+    setCurrentUserEmail(user?.email ?? null);
+  }, [user]);
 
-      if (!user?.id) {
-        setSelectedId('');
-        return;
-      }
-
-      const businessId = await getBusinessIdClient(supabase);
-
-      if (businessId) {
-        setSelectedId(businessId);
-      } else {
-        setSelectedId('');
-      }
-    };
-
-    void loadInitialData();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        const bId = await getBusinessIdClient(supabase);
-        if (bId) setSelectedId(bId);
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [supabase]);
+  useEffect(() => {
+    setSelectedId(businessId ?? '');
+  }, [businessId]);
 
   const cargarMensajesDeConversacion = useCallback(
     async (targetConversationId: string) => {

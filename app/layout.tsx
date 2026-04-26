@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from 'next/font/google';
 import { ThemeProvider } from '@/components/ui/theme-provider';
 import DashboardShellProvider from '@/components/dashboard/dashboard-shell-provider';
 import AppShellClient from '@/components/providers/app-shell-client';
+import SessionProvider from '@/components/providers/session-provider';
 import './globals.css';
 import PwaRegister from '@/components/pwa/pwa-register';
 
@@ -39,9 +40,11 @@ export default function RootLayout({
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <PwaRegister />
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          <AppShellClient>
-            <DashboardShellProvider>{children}</DashboardShellProvider>
-          </AppShellClient>
+          <SessionProvider>
+            <AppShellClient>
+              <DashboardShellProvider>{children}</DashboardShellProvider>
+            </AppShellClient>
+          </SessionProvider>
         </ThemeProvider>
       </body>
     </html>
