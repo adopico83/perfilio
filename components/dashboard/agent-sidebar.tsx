@@ -720,6 +720,19 @@ export default function AgentSidebar() {
     };
 
     void loadInitialData();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        const bId = await getBusinessIdClient(supabase);
+        if (bId) setSelectedId(bId);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, [supabase]);
 
   const cargarMensajesDeConversacion = useCallback(
