@@ -705,10 +705,10 @@ export default function AgentSidebar() {
   }, [user]);
 
   useEffect(() => {
-    if (!sessionLoading && businessId) {
+    if (businessId) {
       setSelectedId(businessId);
     }
-  }, [sessionLoading, businessId]);
+  }, [businessId]);
 
   const cargarMensajesDeConversacion = useCallback(
     async (targetConversationId: string) => {
@@ -1482,7 +1482,7 @@ export default function AgentSidebar() {
     Boolean(selectedId) &&
     (mensaje.trim().length > 0 || imagenesPendientes.length > 0);
 
-  const shouldHideSidebarContent = sessionLoading && !selectedId;
+  const shouldHideSidebarContent = sessionLoading && !selectedId && !businessId;
 
   const Panel = (
     <aside
