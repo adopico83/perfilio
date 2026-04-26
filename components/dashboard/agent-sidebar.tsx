@@ -500,7 +500,7 @@ function ConversacionListRow({
 
 export default function AgentSidebar() {
   const { abrirCanvas } = useCanvas();
-  const { businessId, user } = useSession();
+  const { businessId, user, loading: sessionLoading } = useSession();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   /** null hasta hidratar: evita doble Realtime entre panel escritorio (oculto en móvil) y drawer. */
@@ -705,8 +705,10 @@ export default function AgentSidebar() {
   }, [user]);
 
   useEffect(() => {
-    setSelectedId(businessId ?? '');
-  }, [businessId]);
+    if (!sessionLoading && businessId) {
+      setSelectedId(businessId);
+    }
+  }, [sessionLoading, businessId]);
 
   const cargarMensajesDeConversacion = useCallback(
     async (targetConversationId: string) => {
@@ -1480,6 +1482,8 @@ export default function AgentSidebar() {
     Boolean(selectedId) &&
     (mensaje.trim().length > 0 || imagenesPendientes.length > 0);
 
+  const shouldHideSidebarContent = sessionLoading && !selectedId;
+
   const Panel = (
     <aside
       className={[
@@ -1781,303 +1785,307 @@ export default function AgentSidebar() {
           stopTts();
         }}
       />
-      {/* Desktop */}
-      <div className="hidden lg:block h-[calc(100vh-0px)]">{Panel}</div>
+      {shouldHideSidebarContent ? null : (
+        <>
+          {/* Desktop */}
+          <div className="hidden lg:block h-[calc(100vh-0px)]">{Panel}</div>
 
-      {/* Mobile: botón flotante + drawer */}
-      <button
-        type="button"
-        onClick={() => setMobileOpen(true)}
-        {...touchActivate(() => setMobileOpen(true))}
-        className="lg:hidden fixed bottom-5 right-5 z-40 px-4 py-3 rounded-full bg-[#ed8936] text-white font-semibold shadow-lg hover:bg-[#dd6b20] transition-colors touch-manipulation"
-      >
-        ✨ Agente
-      </button>
+          {/* Mobile: botón flotante + drawer */}
+          <button
+            type="button"
+            onClick={() => setMobileOpen(true)}
+            {...touchActivate(() => setMobileOpen(true))}
+            className="lg:hidden fixed bottom-5 right-5 z-40 px-4 py-3 rounded-full bg-[#ed8936] text-white font-semibold shadow-lg hover:bg-[#dd6b20] transition-colors touch-manipulation"
+          >
+            ✨ Agente
+          </button>
 
-      {mobileOpen && (
-        <div className="lg:hidden fixed inset-0 z-50">
-          <div
-            className="absolute inset-0 z-0 bg-black/70"
-            onClick={() => setMobileOpen(false)}
-            onTouchEnd={(e) => {
-              e.preventDefault();
-              setMobileOpen(false);
-            }}
-            aria-hidden
-          />
-          <div className="absolute right-0 top-0 bottom-0 z-10 w-[92vw] max-w-[420px] pointer-events-auto touch-manipulation">
-            <div className="h-full">
-              {/* Forzamos expandido en móvil */}
+          {mobileOpen && (
+            <div className="lg:hidden fixed inset-0 z-50">
               <div
-                className="h-full bg-[#0f172a] text-white border-l border-[#1a365d] flex flex-col w-full min-w-[320px]"
-                onClick={(e) => e.stopPropagation()}
-                onTouchEnd={(e) => e.stopPropagation()}
-              >
-                <div className="h-14 px-3 flex items-center justify-between border-b border-white/10">
-                  <div className="flex flex-col leading-tight">
-                    <span className="font-semibold">Agente IA ✨</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={nuevaConversacion}
-                      {...touchActivate(nuevaConversacion)}
-                      className="inline-flex items-center justify-center gap-1 min-h-9 px-2 shrink-0 rounded-md bg-white/10 border border-white/10 hover:bg-white/15 touch-manipulation text-xs font-medium"
-                      aria-label="Nueva conversación"
-                      title="Nueva conversación"
-                    >
-                      <Pencil className="size-5 shrink-0" aria-hidden />
-                      Nuevo
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPanelConversacionesAbierto((v) => !v)}
-                      {...touchActivate(() => setPanelConversacionesAbierto((v) => !v))}
-                      className="flex items-center justify-center w-9 h-9 shrink-0 rounded-md bg-white/10 border border-white/10 hover:bg-white/15 touch-manipulation"
-                      aria-label="Mostrar conversaciones"
-                      title="Conversaciones"
-                    >
-                      <History className="size-5" aria-hidden />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setMobileOpen(false)}
-                      {...touchActivate(() => setMobileOpen(false))}
-                      className="flex items-center justify-center w-9 h-9 shrink-0 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 touch-manipulation"
-                      aria-label="Cerrar panel"
-                      title="Cerrar"
-                    >
-                      <X className="size-5" aria-hidden />
-                    </button>
-                  </div>
-                </div>
-
-                {selectedId && currentUserId && viewportLg !== null ? (
-                  <PresupuestoBorradorCanvas
-                    businessId={selectedId}
-                    userId={currentUserId}
-                    supabase={supabase}
-                    onSendAgentMessage={(t) => handleEnviarTexto(t)}
-                    agentLoading={loading}
-                    enableRealtime={!viewportLg && (mobileOpen || canvasActivo)}
-                    enableBackground={!viewportLg && canvasActivo}
-                  />
-                ) : null}
-
-                <div ref={listRef} className="flex-1 overflow-y-auto p-3 space-y-3">
-                  {panelConversacionesAbierto ? (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs uppercase tracking-wide text-white/60">Conversaciones</p>
+                className="absolute inset-0 z-0 bg-black/70"
+                onClick={() => setMobileOpen(false)}
+                onTouchEnd={(e) => {
+                  e.preventDefault();
+                  setMobileOpen(false);
+                }}
+                aria-hidden
+              />
+              <div className="absolute right-0 top-0 bottom-0 z-10 w-[92vw] max-w-[420px] pointer-events-auto touch-manipulation">
+                <div className="h-full">
+                  {/* Forzamos expandido en móvil */}
+                  <div
+                    className="h-full bg-[#0f172a] text-white border-l border-[#1a365d] flex flex-col w-full min-w-[320px]"
+                    onClick={(e) => e.stopPropagation()}
+                    onTouchEnd={(e) => e.stopPropagation()}
+                  >
+                    <div className="h-14 px-3 flex items-center justify-between border-b border-white/10">
+                      <div className="flex flex-col leading-tight">
+                        <span className="font-semibold">Agente IA ✨</span>
+                      </div>
+                      <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => setPanelConversacionesAbierto(false)}
-                          className="px-2 py-1 text-xs rounded-md bg-white/10 border border-white/10 hover:bg-white/15"
+                          onClick={nuevaConversacion}
+                          {...touchActivate(nuevaConversacion)}
+                          className="inline-flex items-center justify-center gap-1 min-h-9 px-2 shrink-0 rounded-md bg-white/10 border border-white/10 hover:bg-white/15 touch-manipulation text-xs font-medium"
+                          aria-label="Nueva conversación"
+                          title="Nueva conversación"
                         >
-                          Cerrar
+                          <Pencil className="size-5 shrink-0" aria-hidden />
+                          Nuevo
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPanelConversacionesAbierto((v) => !v)}
+                          {...touchActivate(() => setPanelConversacionesAbierto((v) => !v))}
+                          className="flex items-center justify-center w-9 h-9 shrink-0 rounded-md bg-white/10 border border-white/10 hover:bg-white/15 touch-manipulation"
+                          aria-label="Mostrar conversaciones"
+                          title="Conversaciones"
+                        >
+                          <History className="size-5" aria-hidden />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMobileOpen(false)}
+                          {...touchActivate(() => setMobileOpen(false))}
+                          className="flex items-center justify-center w-9 h-9 shrink-0 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 touch-manipulation"
+                          aria-label="Cerrar panel"
+                          title="Cerrar"
+                        >
+                          <X className="size-5" aria-hidden />
                         </button>
                       </div>
-                      {conversacionesLoading ? (
-                        <p className="text-xs text-white/60">Cargando conversaciones...</p>
-                      ) : conversaciones.length === 0 ? (
-                        <p className="text-xs text-white/60">No hay conversaciones anteriores.</p>
-                      ) : (
-                        <ul className="space-y-1.5">
-                          {conversaciones.map((conv) => (
-                            <ConversacionListRow
-                              key={conv.conversation_id}
-                              conv={conv}
-                              isActive={conv.conversation_id === conversationId}
-                              isConfirming={confirmDeleteConversationId === conv.conversation_id}
-                              isDeleting={deletingConversationId === conv.conversation_id}
-                              fechaRelativaAnchorMs={fechaRelativaAnchorMs}
-                              onSelect={() => seleccionarConversacion(conv.conversation_id)}
-                              onRequestDelete={() =>
-                                setConfirmDeleteConversationId(conv.conversation_id)
-                              }
-                              onCancelDelete={() => setConfirmDeleteConversationId(null)}
-                              onConfirmDelete={() =>
-                                void confirmarEliminarConversacion(conv.conversation_id)
-                              }
-                            />
-                          ))}
-                        </ul>
-                      )}
                     </div>
-                  ) : historial.length === 0 && !transcribiendoAudio ? (
-                    <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/70">
-                      Escribe un mensaje para empezar.
-                    </div>
-                  ) : (
-                    <>
-                      {historial.map((msg) =>
-                        msg.role === 'user' ? (
-                          <div key={msg.id} className="flex justify-end">
-                            <div className="max-w-[90%] px-3 py-2 rounded-xl rounded-br-md bg-[#ed8936] text-white">
-                              {(msg.imagenPreviews ?? []).length > 0 ? (
-                                <div className="mb-2 flex flex-wrap gap-1.5 justify-end">
-                                  {(msg.imagenPreviews ?? []).map((src, idx) => (
-                                    <img
-                                      key={`${msg.id}-img-${idx}`}
-                                      src={src}
-                                      alt=""
-                                      className="max-h-28 w-auto max-w-[45%] sm:max-w-[32%] rounded-md border border-white/25 object-cover"
-                                    />
-                                  ))}
-                                </div>
-                              ) : null}
-                              <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
-                            </div>
-                          </div>
-                        ) : (
-                          <div key={msg.id} className="flex justify-start w-full">
-                            <div className="max-w-[min(90%,100%)] flex flex-col gap-0">
-                              <div className="flex gap-1.5 items-start">
-                                <div className="min-w-0 max-w-[min(90%,calc(100%-2.5rem))] px-3 py-2 rounded-xl rounded-bl-md bg-[#0f2744] text-white border border-white/10">
-                                  <div className="text-sm leading-relaxed [&>*+*]:mt-2">
-                                    <ReactMarkdown components={agentAssistantMarkdownComponents}>
-                                      {textoAsistenteVisible(msg.content)}
-                                    </ReactMarkdown>
-                                  </div>
-                                </div>
-                                <AssistantTtsButton
-                                  content={textoAsistenteVisible(msg.content)}
-                                  isLoading={ttsLoadingId === msg.id}
-                                  isActive={ttsPlaybackMessageId === msg.id}
-                                  isPaused={ttsPlaybackPaused}
-                                  onToggle={() =>
-                                    void toggleAssistantTts(msg.id, textoAsistenteVisible(msg.content))
-                                  }
-                                />
-                              </div>
-                              {msg.emailPendiente && (
-                                <EmailAprobacionCard
-                                  email={msg.emailPendiente}
-                                  sending={emailSendLoadingId === msg.id}
-                                  onEnviar={() =>
-                                    void handleEnviarEmailAprobado(msg.id, {
-                                      para: msg.emailPendiente!.para,
-                                      asunto: msg.emailPendiente!.asunto,
-                                      cuerpo: msg.emailPendiente!.cuerpo,
-                                    })
-                                  }
-                                  onCancelar={() => handleCancelarEmailAprobacion(msg.id)}
-                                />
-                              )}
-                            </div>
-                          </div>
-                        )
-                      )}
-                      {transcribiendoAudio && <AgentTranscribingIndicator />}
-                      {mostrarIndicadorEscribiendo && <AgentTypingIndicator />}
-                    </>
-                  )}
-                </div>
 
-                <div className="p-3 border-t border-white/10 space-y-2">
-                  {error && (
-                    <div className="rounded-lg bg-red-500/15 border border-red-400/30 text-red-200 px-3 py-2 text-xs">
-                      {error}
-                    </div>
-                  )}
-                  {imagenesPendientes.length > 0 ? (
-                    <div className="rounded-lg border border-white/10 bg-white/5 p-2 space-y-2">
-                      <div className="flex flex-wrap gap-2">
-                        {imagenesPendientes.map((src, idx) => (
-                          <div
-                            key={`pend-m-${idx}-${src.slice(0, 24)}`}
-                            className="relative shrink-0"
-                          >
-                            <img
-                              src={src}
-                              alt=""
-                              className="h-16 w-16 rounded-md border border-white/10 object-cover"
-                            />
+                    {selectedId && currentUserId && viewportLg !== null ? (
+                      <PresupuestoBorradorCanvas
+                        businessId={selectedId}
+                        userId={currentUserId}
+                        supabase={supabase}
+                        onSendAgentMessage={(t) => handleEnviarTexto(t)}
+                        agentLoading={loading}
+                        enableRealtime={!viewportLg && (mobileOpen || canvasActivo)}
+                        enableBackground={!viewportLg && canvasActivo}
+                      />
+                    ) : null}
+
+                    <div ref={listRef} className="flex-1 overflow-y-auto p-3 space-y-3">
+                      {panelConversacionesAbierto ? (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs uppercase tracking-wide text-white/60">Conversaciones</p>
                             <button
                               type="button"
-                              onClick={() =>
-                                setImagenesPendientes((prev) => prev.filter((_, i) => i !== idx))
-                              }
-                              className="absolute -top-1 -right-1 p-1 rounded-full bg-black/70 border border-white/20 text-white hover:bg-red-600/90 touch-manipulation"
-                              aria-label={`Quitar imagen ${idx + 1}`}
+                              onClick={() => setPanelConversacionesAbierto(false)}
+                              className="px-2 py-1 text-xs rounded-md bg-white/10 border border-white/10 hover:bg-white/15"
                             >
-                              <X className="size-3" aria-hidden />
+                              Cerrar
                             </button>
                           </div>
-                        ))}
-                      </div>
-                      <p className="text-xs text-white/70">
-                        {imagenesPendientes.length === 1
-                          ? 'Vista previa — se enviará con el próximo mensaje'
-                          : `${imagenesPendientes.length} fotos — se enviarán juntas en el próximo mensaje`}
-                      </p>
+                          {conversacionesLoading ? (
+                            <p className="text-xs text-white/60">Cargando conversaciones...</p>
+                          ) : conversaciones.length === 0 ? (
+                            <p className="text-xs text-white/60">No hay conversaciones anteriores.</p>
+                          ) : (
+                            <ul className="space-y-1.5">
+                              {conversaciones.map((conv) => (
+                                <ConversacionListRow
+                                  key={conv.conversation_id}
+                                  conv={conv}
+                                  isActive={conv.conversation_id === conversationId}
+                                  isConfirming={confirmDeleteConversationId === conv.conversation_id}
+                                  isDeleting={deletingConversationId === conv.conversation_id}
+                                  fechaRelativaAnchorMs={fechaRelativaAnchorMs}
+                                  onSelect={() => seleccionarConversacion(conv.conversation_id)}
+                                  onRequestDelete={() =>
+                                    setConfirmDeleteConversationId(conv.conversation_id)
+                                  }
+                                  onCancelDelete={() => setConfirmDeleteConversationId(null)}
+                                  onConfirmDelete={() =>
+                                    void confirmarEliminarConversacion(conv.conversation_id)
+                                  }
+                                />
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      ) : historial.length === 0 && !transcribiendoAudio ? (
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/70">
+                          Escribe un mensaje para empezar.
+                        </div>
+                      ) : (
+                        <>
+                          {historial.map((msg) =>
+                            msg.role === 'user' ? (
+                              <div key={msg.id} className="flex justify-end">
+                                <div className="max-w-[90%] px-3 py-2 rounded-xl rounded-br-md bg-[#ed8936] text-white">
+                                  {(msg.imagenPreviews ?? []).length > 0 ? (
+                                    <div className="mb-2 flex flex-wrap gap-1.5 justify-end">
+                                      {(msg.imagenPreviews ?? []).map((src, idx) => (
+                                        <img
+                                          key={`${msg.id}-img-${idx}`}
+                                          src={src}
+                                          alt=""
+                                          className="max-h-28 w-auto max-w-[45%] sm:max-w-[32%] rounded-md border border-white/25 object-cover"
+                                        />
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                  <p className="whitespace-pre-wrap text-sm">{msg.content}</p>
+                                </div>
+                              </div>
+                            ) : (
+                              <div key={msg.id} className="flex justify-start w-full">
+                                <div className="max-w-[min(90%,100%)] flex flex-col gap-0">
+                                  <div className="flex gap-1.5 items-start">
+                                    <div className="min-w-0 max-w-[min(90%,calc(100%-2.5rem))] px-3 py-2 rounded-xl rounded-bl-md bg-[#0f2744] text-white border border-white/10">
+                                      <div className="text-sm leading-relaxed [&>*+*]:mt-2">
+                                        <ReactMarkdown components={agentAssistantMarkdownComponents}>
+                                          {textoAsistenteVisible(msg.content)}
+                                        </ReactMarkdown>
+                                      </div>
+                                    </div>
+                                    <AssistantTtsButton
+                                      content={textoAsistenteVisible(msg.content)}
+                                      isLoading={ttsLoadingId === msg.id}
+                                      isActive={ttsPlaybackMessageId === msg.id}
+                                      isPaused={ttsPlaybackPaused}
+                                      onToggle={() =>
+                                        void toggleAssistantTts(msg.id, textoAsistenteVisible(msg.content))
+                                      }
+                                    />
+                                  </div>
+                                  {msg.emailPendiente && (
+                                    <EmailAprobacionCard
+                                      email={msg.emailPendiente}
+                                      sending={emailSendLoadingId === msg.id}
+                                      onEnviar={() =>
+                                        void handleEnviarEmailAprobado(msg.id, {
+                                          para: msg.emailPendiente!.para,
+                                          asunto: msg.emailPendiente!.asunto,
+                                          cuerpo: msg.emailPendiente!.cuerpo,
+                                        })
+                                      }
+                                      onCancelar={() => handleCancelarEmailAprobacion(msg.id)}
+                                    />
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          )}
+                          {transcribiendoAudio && <AgentTranscribingIndicator />}
+                          {mostrarIndicadorEscribiendo && <AgentTypingIndicator />}
+                        </>
+                      )}
                     </div>
-                  ) : null}
-                  <textarea
-                    value={mensaje}
-                    onChange={(e) => setMensaje(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleEnviar();
-                      }
-                    }}
-                    placeholder="Escribe tu mensaje…"
-                    rows={3}
-                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/40 focus:ring-2 focus:ring-[#ed8936] focus:border-[#ed8936] outline-none resize-none"
-                    disabled={loading}
-                  />
-                  <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
-                    <button
-                      type="button"
-                      aria-label="Adjuntar imagen"
-                      disabled={loading || grabando || !selectedId || subiendoVideo}
-                      onClick={() => fileInputImagenRef.current?.click()}
-                      className="py-2 rounded-lg border border-white/10 bg-white/10 hover:bg-white/15 text-white transition-colors disabled:opacity-50 touch-manipulation flex items-center justify-center"
-                    >
-                      <Paperclip className="size-5" aria-hidden />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Adjuntar vídeo para el diario de obra"
-                      disabled={loading || grabando || !selectedId || subiendoVideo}
-                      onClick={() => fileInputVideoRef.current?.click()}
-                      className="py-2 rounded-lg border border-white/10 bg-white/10 hover:bg-white/15 text-white transition-colors disabled:opacity-50 touch-manipulation flex items-center justify-center"
-                    >
-                      <Video className="size-5" aria-hidden />
-                    </button>
 
-                    <button
-                      type="button"
-                      aria-label={grabando ? 'Detener grabación' : 'Grabar audio'}
-                      disabled={loading || !selectedId}
-                      onPointerDown={handleMicPointerDown(loading || !selectedId)}
-                      onClick={handleMicClick(loading || !selectedId)}
-                      className={[
-                        'py-2 rounded-lg border transition-colors touch-manipulation',
-                        grabando
-                          ? 'bg-red-600 hover:bg-red-700 border-red-400/60 text-white animate-pulse shadow-[0_0_0_3px_rgba(248,113,113,0.2)]'
-                          : 'bg-white/10 hover:bg-white/15 border-white/10 text-white',
-                      ].join(' ')}
-                    >
-                      🎤
-                    </button>
+                    <div className="p-3 border-t border-white/10 space-y-2">
+                      {error && (
+                        <div className="rounded-lg bg-red-500/15 border border-red-400/30 text-red-200 px-3 py-2 text-xs">
+                          {error}
+                        </div>
+                      )}
+                      {imagenesPendientes.length > 0 ? (
+                        <div className="rounded-lg border border-white/10 bg-white/5 p-2 space-y-2">
+                          <div className="flex flex-wrap gap-2">
+                            {imagenesPendientes.map((src, idx) => (
+                              <div
+                                key={`pend-m-${idx}-${src.slice(0, 24)}`}
+                                className="relative shrink-0"
+                              >
+                                <img
+                                  src={src}
+                                  alt=""
+                                  className="h-16 w-16 rounded-md border border-white/10 object-cover"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setImagenesPendientes((prev) => prev.filter((_, i) => i !== idx))
+                                  }
+                                  className="absolute -top-1 -right-1 p-1 rounded-full bg-black/70 border border-white/20 text-white hover:bg-red-600/90 touch-manipulation"
+                                  aria-label={`Quitar imagen ${idx + 1}`}
+                                >
+                                  <X className="size-3" aria-hidden />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="text-xs text-white/70">
+                            {imagenesPendientes.length === 1
+                              ? 'Vista previa — se enviará con el próximo mensaje'
+                              : `${imagenesPendientes.length} fotos — se enviarán juntas en el próximo mensaje`}
+                          </p>
+                        </div>
+                      ) : null}
+                      <textarea
+                        value={mensaje}
+                        onChange={(e) => setMensaje(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleEnviar();
+                          }
+                        }}
+                        placeholder="Escribe tu mensaje…"
+                        rows={3}
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/40 focus:ring-2 focus:ring-[#ed8936] focus:border-[#ed8936] outline-none resize-none"
+                        disabled={loading}
+                      />
+                      <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
+                        <button
+                          type="button"
+                          aria-label="Adjuntar imagen"
+                          disabled={loading || grabando || !selectedId || subiendoVideo}
+                          onClick={() => fileInputImagenRef.current?.click()}
+                          className="py-2 rounded-lg border border-white/10 bg-white/10 hover:bg-white/15 text-white transition-colors disabled:opacity-50 touch-manipulation flex items-center justify-center"
+                        >
+                          <Paperclip className="size-5" aria-hidden />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="Adjuntar vídeo para el diario de obra"
+                          disabled={loading || grabando || !selectedId || subiendoVideo}
+                          onClick={() => fileInputVideoRef.current?.click()}
+                          className="py-2 rounded-lg border border-white/10 bg-white/10 hover:bg-white/15 text-white transition-colors disabled:opacity-50 touch-manipulation flex items-center justify-center"
+                        >
+                          <Video className="size-5" aria-hidden />
+                        </button>
 
-                    <button
-                      type="button"
-                      onClick={handleEnviar}
-                      {...touchActivate(handleEnviar, loading || grabando || !puedeEnviarMensaje)}
-                      disabled={loading || grabando || !puedeEnviarMensaje}
-                      className="py-2 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation text-sm"
-                    >
-                      {loading ? '…' : 'Enviar'}
-                    </button>
+                        <button
+                          type="button"
+                          aria-label={grabando ? 'Detener grabación' : 'Grabar audio'}
+                          disabled={loading || !selectedId}
+                          onPointerDown={handleMicPointerDown(loading || !selectedId)}
+                          onClick={handleMicClick(loading || !selectedId)}
+                          className={[
+                            'py-2 rounded-lg border transition-colors touch-manipulation',
+                            grabando
+                              ? 'bg-red-600 hover:bg-red-700 border-red-400/60 text-white animate-pulse shadow-[0_0_0_3px_rgba(248,113,113,0.2)]'
+                              : 'bg-white/10 hover:bg-white/15 border-white/10 text-white',
+                          ].join(' ')}
+                        >
+                          🎤
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleEnviar}
+                          {...touchActivate(handleEnviar, loading || grabando || !puedeEnviarMensaje)}
+                          disabled={loading || grabando || !puedeEnviarMensaje}
+                          className="py-2 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation text-sm"
+                        >
+                          {loading ? '…' : 'Enviar'}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
+          )}
+        </>
       )}
     </>
   );
