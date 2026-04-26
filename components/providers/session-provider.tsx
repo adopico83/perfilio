@@ -16,12 +16,7 @@ const SessionContext = createContext<SessionContextValue | undefined>(undefined)
 export default function SessionProvider({ children }: { children: ReactNode }) {
   const supabase = useMemo(() => createClient(), []);
   const [user, setUser] = useState<User | null>(null);
-  const [businessId, setBusinessId] = useState<string | null>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('perfilio_last_business_id');
-    }
-    return null;
-  });
+  const [businessId, setBusinessId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -39,9 +34,6 @@ export default function SessionProvider({ children }: { children: ReactNode }) {
         const bId = await getBusinessIdClient(supabase);
         if (!mounted) return;
         setBusinessId(bId);
-        if (bId) {
-          localStorage.setItem('perfilio_last_business_id', bId);
-        }
       } else {
         setBusinessId(null);
       }
@@ -54,7 +46,7 @@ export default function SessionProvider({ children }: { children: ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(
-      async (event: AuthChangeEvent, session: Session | null) => {
+      async (_event: AuthChangeEvent, session: Session | null) => {
       if (!mounted) return;
       const nextUser = session?.user ?? null;
       setUser(nextUser);
@@ -63,14 +55,8 @@ export default function SessionProvider({ children }: { children: ReactNode }) {
         const bId = await getBusinessIdClient(supabase);
         if (!mounted) return;
         setBusinessId(bId);
-        if (bId) {
-          localStorage.setItem('perfilio_last_business_id', bId);
-        }
       } else {
         setBusinessId(null);
-        if (event === 'SIGNED_OUT') {
-          localStorage.removeItem('perfilio_last_business_id');
-        }
       }
       }
     );
