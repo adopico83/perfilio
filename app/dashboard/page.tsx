@@ -21,7 +21,7 @@ import { useEmailModal } from '@/contexts/email-modal-context';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
 import NotificationButton from '@/components/pwa/notification-button';
-import { getBusinessIdClient } from '@/lib/supabase/get-business-id';
+import { useSession } from '@/components/providers/session-provider';
 
 interface ResumenCounts {
   urgentes: number;
@@ -250,10 +250,46 @@ function construirCeldasMes(year: number, month: number) {
   return celdas;
 }
 
-export default function DashboardPage() {
+function BusinessNameSkeleton({ className }: { className?: string }) {
+  return (
+    <div
+      className={`h-8 sm:h-9 w-44 sm:w-52 max-w-[min(100vw-8rem,28rem)] rounded-md bg-white/20 animate-pulse ${className ?? ''}`}
+      role="presentation"
+      aria-hidden
+    />
+  );
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="min-h-screen bg-[#0f172a] text-white" aria-busy="true" aria-live="polite">
+      <span className="sr-only">Cargando panel…</span>
+      <div className="border-b border-white/10 px-6 py-4 flex items-center gap-4">
+        <div className="h-9 w-40 rounded-md bg-white/15 animate-pulse" />
+        <div className="ml-auto h-9 w-24 rounded-lg bg-white/10 animate-pulse" />
+      </div>
+      <main className="max-w-7xl mx-auto px-6 py-6 space-y-4">
+        <div className="h-10 w-2/3 max-w-md rounded-md bg-white/15 animate-pulse" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="h-28 rounded-xl bg-white/10 animate-pulse" />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="h-32 rounded-xl bg-white/10 animate-pulse" />
+          ))}
+        </div>
+      </main>
+    </div>
+  );
+}
+
+function DashboardPageContent() {
   const { abrirEmail, abrirUrgentes } = useEmailModal();
   const { abrirObra } = useObraModal();
   const router = useRouter();
+  const { businessId, user, loading } = useSession();
   const supabase = useMemo(
     () =>
       createBrowserClient(
@@ -263,7 +299,7 @@ export default function DashboardPage() {
     []
   );
 
-  const [businessName, setBusinessName] = useState('tu negocio');
+  const [businessName, setBusinessName] = useState<string | null>(null);
   const [counts, setCounts] = useState<ResumenCounts>({
     urgentes: 0,
     presupuestos: 0,
@@ -273,13 +309,13 @@ export default function DashboardPage() {
   const [ultimosPresupuestos, setUltimosPresupuestos] = useState<PresupuestoResumen[]>([]);
   const [agendaEventos, setAgendaEventos] = useState<AgendaItem[]>([]);
   const [agendaEventosMes, setAgendaEventosMes] = useState<AgendaItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [dashboardLoading, setDashboardLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const [importePendienteCobro, setImportePendienteCobro] = useState(0);
-  const [importeTotalPresupuestado, setImporteTotalPresupuestado] = useState(0);
-  const [importeTotalConIva, setImporteTotalConIva] = useState(0);
-  const [totalMateriales, setTotalMateriales] = useState(0);
+  const [importePendienteCobro, setImportePendienteCobro] = useState<number | null>(null);
+  const [importeTotalPresupuestado, setImporteTotalPresupuestado] = useState<number | null>(null);
+  const [importeTotalConIva, setImporteTotalConIva] = useState<number | null>(null);
+  const [totalMateriales, setTotalMateriales] = useState<number | null>(null);
   const [desglosePendiente, setDesglosePendiente] = useState<FacturaPendienteItem[]>([]);
   const [desglosePresupuestado, setDesglosePresupuestado] = useState<PresupuestoMetricaItem[]>([]);
   const [desgloseMateriales, setDesgloseMateriales] = useState<PresupuestoMetricaItem[]>([]);
@@ -319,6 +355,31 @@ export default function DashboardPage() {
     setFechaHoyIso(d.toISOString().slice(0, 10));
     setSaludoBanner(getSaludoDesdeHoraLocal(d.getHours()));
   }, []);
+
+  useEffect(() => {
+    if (!businessId) {
+      if (!loading) setBusinessName('');
+      return;
+    }
+    let cancelled = false;
+    setBusinessName(null);
+    void (async () => {
+      const bizRes = await supabase
+        .from('business_profiles')
+        .select('nombre')
+        .eq('id', businessId)
+        .maybeSingle();
+      if (cancelled) return;
+      if (!bizRes.error && bizRes.data?.nombre) {
+        setBusinessName(bizRes.data.nombre);
+      } else {
+        setBusinessName('');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [businessId, loading, supabase]);
 
   useEffect(() => {
     setSecResumenOpen(readDashboardSeccionAbierta(LS_DASH_SEC_RESUMEN));
@@ -507,7 +568,7 @@ export default function DashboardPage() {
       let bid: string | undefined =
         typeof businessIdOrEvent === 'string' ? businessIdOrEvent : undefined;
       if (!bid) {
-        bid = (await getBusinessIdClient(supabase)) ?? undefined;
+        bid = businessId ?? undefined;
       }
       if (!bid) {
         setAgendaEventos([]);
@@ -537,12 +598,12 @@ export default function DashboardPage() {
     } catch {
       // Silencioso: la agenda es opcional en refresco parcial.
     }
-  }, [supabase]);
+  }, [supabase, businessId]);
 
   const loadAgendaMesCompleto = useCallback(
     async (anio: number, mes: number) => {
       try {
-        const bid = await getBusinessIdClient(supabase);
+        const bid = businessId;
         if (!bid) {
           setAgendaEventosMes([]);
           return [];
@@ -574,7 +635,7 @@ export default function DashboardPage() {
         return [];
       }
     },
-    [supabase]
+    [supabase, businessId]
   );
 
   useEffect(() => {
@@ -589,26 +650,11 @@ export default function DashboardPage() {
 
   const loadDashboard = useCallback(async () => {
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
       const userId = user?.id;
 
       if (!userId) {
         setGmailConectado(false);
         return;
-      }
-
-      const businessId = await getBusinessIdClient(supabase);
-      if (businessId) {
-        const bizRes = await supabase
-          .from('business_profiles')
-          .select('nombre')
-          .eq('id', businessId)
-          .maybeSingle();
-        if (!bizRes.error && bizRes.data?.nombre) {
-          setBusinessName(bizRes.data.nombre);
-        }
       }
 
       if (!businessId) {
@@ -641,6 +687,8 @@ export default function DashboardPage() {
         return;
       }
 
+      const bid = businessId;
+
       const [
         presupuestosRes,
         albaranesRes,
@@ -654,39 +702,39 @@ export default function DashboardPage() {
         supabase
           .from('presupuestos')
           .select('id', { count: 'exact', head: true })
-          .eq('business_id', businessId),
+          .eq('business_id', bid),
         supabase
           .from('albaranes')
           .select('id', { count: 'exact', head: true })
-          .eq('business_id', businessId)
+          .eq('business_id', bid)
           .eq('estado', 'pendiente'),
         supabase
           .from('facturas')
           .select('id', { count: 'exact', head: true })
-          .eq('business_id', businessId)
+          .eq('business_id', bid)
           .eq('estado', 'pendiente'),
         supabase
           .from('presupuestos')
           .select(
             'id, fecha, estado, created_at, obra_id, cliente_nombre, obras ( nombre ), clientes ( nombre )'
           )
-          .eq('business_id', businessId)
+          .eq('business_id', bid)
           .order('created_at', { ascending: false })
           .limit(5),
-        loadAgenda(businessId),
+        loadAgenda(bid),
         supabase
           .from('facturas')
           .select('id, cliente_nombre, total')
-          .eq('business_id', businessId)
+          .eq('business_id', bid)
           .eq('estado', 'pendiente'),
         supabase
           .from('presupuestos')
           .select('id, cliente_nombre, fecha, importe_total, presupuesto_generado')
-          .eq('business_id', businessId),
+          .eq('business_id', bid),
         supabase
           .from('presupuestos')
           .select('id, cliente_nombre, fecha, importe_total')
-          .eq('business_id', businessId)
+          .eq('business_id', bid)
           .ilike('presupuesto_generado', '%material%'),
       ]);
 
@@ -730,6 +778,9 @@ export default function DashboardPage() {
         const list = facturasPendientesDataRes.data as { id: string; cliente_nombre: string | null; total: number }[];
         setDesglosePendiente(list);
         setImportePendienteCobro(list.reduce((s, f) => s + (Number(f.total) || 0), 0));
+      } else {
+        setDesglosePendiente([]);
+        setImportePendienteCobro(0);
       }
       if (!presupuestosMetricasRes.error && presupuestosMetricasRes.data) {
         const list = presupuestosMetricasRes.data as {
@@ -748,16 +799,23 @@ export default function DashboardPage() {
             return s + base * (1 + ivaPct / 100);
           }, 0)
         );
+      } else {
+        setDesglosePresupuestado([]);
+        setImporteTotalPresupuestado(0);
+        setImporteTotalConIva(0);
       }
       if (!presupuestosMaterialesRes.error && presupuestosMaterialesRes.data) {
         const list = presupuestosMaterialesRes.data as { id: string; cliente_nombre: string | null; fecha: string | null; importe_total: number | null }[];
         setDesgloseMateriales(list);
         setTotalMateriales(list.reduce((s, p) => s + (Number(p.importe_total) || 0), 0));
+      } else {
+        setDesgloseMateriales([]);
+        setTotalMateriales(0);
       }
 
       try {
         const diarioRes = await fetch(
-          `/api/diario?business_id=${encodeURIComponent(businessId)}`,
+          `/api/diario?business_id=${encodeURIComponent(bid)}`,
           { credentials: 'include' }
         );
         if (diarioRes.ok) {
@@ -779,7 +837,7 @@ export default function DashboardPage() {
 
       try {
         const obrasRes = await fetch(
-          `/api/obras?business_id=${encodeURIComponent(businessId)}`,
+          `/api/obras?business_id=${encodeURIComponent(bid)}`,
           { credentials: 'include' }
         );
         if (!obrasRes.ok) {
@@ -830,7 +888,7 @@ export default function DashboardPage() {
         const { data: ucRows } = await supabase
           .from('clientes')
           .select('id, nombre, created_at')
-          .eq('business_id', businessId)
+          .eq('business_id', bid)
           .order('created_at', { ascending: false })
           .limit(3);
         const uc = (ucRows ?? []) as { id: string; nombre: string }[];
@@ -842,27 +900,27 @@ export default function DashboardPage() {
             supabase
               .from('presupuestos')
               .select('cliente_id')
-              .eq('business_id', businessId)
+              .eq('business_id', bid)
               .in('cliente_id', uids),
             supabase
               .from('facturas')
               .select('cliente_id')
-              .eq('business_id', businessId)
+              .eq('business_id', bid)
               .in('cliente_id', uids),
             supabase
               .from('albaranes')
               .select('cliente_id')
-              .eq('business_id', businessId)
+              .eq('business_id', bid)
               .in('cliente_id', uids),
             supabase
               .from('gastos')
               .select('cliente_id')
-              .eq('business_id', businessId)
+              .eq('business_id', bid)
               .in('cliente_id', uids),
             supabase
               .from('diario_obra')
               .select('cliente_id')
-              .eq('business_id', businessId)
+              .eq('business_id', bid)
               .in('cliente_id', uids),
           ]);
           const bump = (rows: { cliente_id: string | null }[] | null) => {
@@ -904,13 +962,17 @@ export default function DashboardPage() {
         .maybeSingle();
       setGmailConectado(!!gmailToken);
     } finally {
-      setLoading(false);
+      setDashboardLoading(false);
     }
-  }, [loadAgenda, supabase]);
+  }, [loadAgenda, supabase, businessId, user?.id]);
 
   useEffect(() => {
+    if (loading) {
+      setDashboardLoading(true);
+      return;
+    }
     void loadDashboard();
-  }, [loadDashboard]);
+  }, [loadDashboard, loading, businessId, user?.id]);
 
   useEffect(() => {
     const handler = () => {
@@ -928,7 +990,7 @@ export default function DashboardPage() {
   }, [loadDashboard]);
 
   useEffect(() => {
-    if (loading) return;
+    if (dashboardLoading) return;
     if (!gmailConectado) {
       setEmailsRecientes([]);
       setEmailsUrgentes([]);
@@ -1040,7 +1102,9 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [loading, gmailConectado]);
+  }, [dashboardLoading, gmailConectado]);
+
+  const showBusinessNameSkeleton = loading || businessName === null;
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-white">
@@ -1063,7 +1127,9 @@ export default function DashboardPage() {
             href="/dashboard"
             className="flex items-center gap-3 min-w-0 shrink-0 max-w-[min(220px,46vw)] sm:max-w-[min(260px,40vw)]"
           >
-            {businessName === 'Pino Albañilería' ? (
+            {showBusinessNameSkeleton ? (
+              <BusinessNameSkeleton />
+            ) : businessName === 'Pino Albañilería' ? (
               <div style={{ display: 'inline-flex', flexDirection: 'column' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <div
@@ -1187,7 +1253,11 @@ export default function DashboardPage() {
         <section className="flex flex-col gap-0.5">
           <h1 className="text-2xl sm:text-3xl font-bold">
             {saludoBanner ? `${saludoBanner}, ` : ''}
-            <span className="text-[#ed8936]">{businessName}</span>
+            {showBusinessNameSkeleton ? (
+              <BusinessNameSkeleton className="inline-block align-middle h-8 sm:h-10 w-40 sm:w-48" />
+            ) : (
+              <span className="text-[#ed8936]">{businessName}</span>
+            )}
           </h1>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
             <p className="text-sm text-white/70">Aquí tienes el resumen de tu negocio</p>
@@ -1324,7 +1394,9 @@ export default function DashboardPage() {
                 </span>
               </div>
               <div className="text-2xl font-bold text-[#ed8936]">
-                {loading ? '—' : `${importePendienteCobro.toFixed(2)} €`}
+                {dashboardLoading || importePendienteCobro === null
+                  ? '—'
+                  : `${importePendienteCobro.toFixed(2)} €`}
               </div>
               <span className="text-xs text-white/60">Clic para ver desglose por factura</span>
             </button>
@@ -1340,11 +1412,13 @@ export default function DashboardPage() {
               </div>
               <div className="text-xs text-white/80">TOTAL PRESUPUESTADO (base):</div>
               <div className="text-lg sm:text-xl font-bold text-[#f6ad55]">
-                {loading ? '—' : fmtEurosEs(importeTotalPresupuestado)}
+                {dashboardLoading || importeTotalPresupuestado === null
+                  ? '—'
+                  : fmtEurosEs(importeTotalPresupuestado)}
               </div>
               <div className="text-xs text-white/90 mt-1">TOTAL CON IVA:</div>
               <div className="text-2xl sm:text-3xl font-bold text-[#ed8936] leading-tight">
-                {loading ? '—' : fmtEurosEs(importeTotalConIva)}
+                {dashboardLoading || importeTotalConIva === null ? '—' : fmtEurosEs(importeTotalConIva)}
               </div>
               <span className="text-xs text-white/60">Clic para ver desglose por presupuesto</span>
             </button>
@@ -1359,7 +1433,7 @@ export default function DashboardPage() {
                 </span>
               </div>
               <div className="text-xl sm:text-2xl font-bold text-[#ed8936]">
-                {loading ? '—' : `${totalMateriales.toFixed(2)} €`}
+                {dashboardLoading || totalMateriales === null ? '—' : `${totalMateriales.toFixed(2)} €`}
               </div>
               <span className="text-xs text-white/60">Clic para ver desglose</span>
             </button>
@@ -1399,7 +1473,7 @@ export default function DashboardPage() {
                 </h3>
               </div>
               <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
-                {loading ? (
+                {dashboardLoading ? (
                   <p className="text-white/60 text-xs">Cargando...</p>
                 ) : ultimosPresupuestos.length === 0 ? (
                   <p className="text-white/60 text-xs">Aún no hay presupuestos generados.</p>
@@ -1455,7 +1529,7 @@ export default function DashboardPage() {
                 </span>
               </div>
               <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
-                {loading ? (
+                {dashboardLoading ? (
                   <p className="text-white/60 text-xs">Cargando...</p>
                 ) : agendaEventos.length === 0 ? (
                   <p className="text-white/60 text-xs">Sin eventos próximos</p>
@@ -1580,7 +1654,7 @@ export default function DashboardPage() {
                 </h3>
               </div>
               <div className="min-h-0 max-h-40 overflow-y-auto overscroll-contain">
-                {loading ? (
+                {dashboardLoading ? (
                   <p className="text-white/60 text-xs">Cargando...</p>
                 ) : ultimasEntradasDiario.length === 0 ? (
                   <p className="text-white/60 text-xs">Sin entradas en el diario todavía</p>
@@ -1630,7 +1704,7 @@ export default function DashboardPage() {
                 </h3>
               </div>
               <div className="min-h-0 max-h-40 overflow-y-auto overscroll-contain">
-                {loading ? (
+                {dashboardLoading ? (
                   <p className="text-white/60 text-xs">Cargando...</p>
                 ) : obrasActivas.length === 0 ? (
                   <p className="text-white/60 text-xs leading-snug">
@@ -1701,7 +1775,7 @@ export default function DashboardPage() {
                 </h3>
               </div>
               <div className="min-h-0 max-h-40 overflow-y-auto overscroll-contain">
-                {loading ? (
+                {dashboardLoading ? (
                   <p className="text-white/60 text-xs">Cargando...</p>
                 ) : ultimosClientes.length === 0 ? (
                   <p className="text-white/60 text-xs">Aún no hay clientes registrados</p>
@@ -2082,4 +2156,10 @@ export default function DashboardPage() {
       </main>
     </div>
   );
+}
+
+export default function DashboardPage() {
+  const { businessId, loading } = useSession();
+  if (loading || !businessId) return <DashboardSkeleton />;
+  return <DashboardPageContent />;
 }
