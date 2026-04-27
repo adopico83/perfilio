@@ -3,7 +3,7 @@ import { Geist, Geist_Mono } from 'next/font/google';
 import { ThemeProvider } from '@/components/ui/theme-provider';
 import DashboardShellProvider from '@/components/dashboard/dashboard-shell-provider';
 import AppShellClient from '@/components/providers/app-shell-client';
-import SessionProvider, { SessionGate } from '@/components/providers/session-provider';
+import SessionProvider from '@/components/providers/session-provider';
 import './globals.css';
 import PwaRegister from '@/components/pwa/pwa-register';
 
@@ -41,11 +41,9 @@ export default function RootLayout({
         <PwaRegister />
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <SessionProvider>
-            <SessionGate>
-              <AppShellClient>
-                <DashboardShellProvider>{children}</DashboardShellProvider>
-              </AppShellClient>
-            </SessionGate>
+            <AppShellClient>
+              <DashboardShellProvider>{children}</DashboardShellProvider>
+            </AppShellClient>
           </SessionProvider>
         </ThemeProvider>
       </body>
