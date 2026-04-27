@@ -6,13 +6,13 @@ async function getBusinessId(supabase: any): Promise<string | null> {
   if (!userId) return null;
 
   const { data } = await supabase
-    .from('business_users')
-    .select('business_id')
+    .from('business_profiles')
+    .select('id')
     .eq('user_id', userId)
     .limit(1)
     .maybeSingle();
 
-  return data?.business_id ?? null;
+  return data?.id ?? null;
 }
 
 export async function getBusinessIdClient(supabase: any): Promise<string | null> {
