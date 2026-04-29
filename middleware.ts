@@ -4,6 +4,12 @@ import { updateSession } from '@/lib/supabase/middleware';
 
 export async function middleware(request: NextRequest) {
   const { supabaseResponse, user } = await updateSession(request);
+  const withSupabaseCookies = (response: NextResponse) => {
+    supabaseResponse.cookies.getAll().forEach((cookie) => {
+      response.cookies.set(cookie);
+    });
+    return response;
+  };
 
   const { pathname } = request.nextUrl;
 
@@ -19,19 +25,19 @@ export async function middleware(request: NextRequest) {
   if (pathname.startsWith('/dashboard') && !user) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
-    return Response.redirect(url);
+    return withSupabaseCookies(NextResponse.redirect(url));
   }
 
   // Si el usuario intenta acceder a APIs sin estar autenticado
   if (pathname.startsWith('/api/') && !user) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    return withSupabaseCookies(NextResponse.json({ error: 'No autorizado' }, { status: 401 }));
   }
 
   // Si el usuario está autenticado y intenta ir al login, redirigir al dashboard
   if (pathname === '/login' && user) {
     const url = request.nextUrl.clone();
     url.pathname = '/dashboard';
-    return Response.redirect(url);
+    return withSupabaseCookies(NextResponse.redirect(url));
   }
 
   return supabaseResponse;

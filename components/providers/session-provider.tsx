@@ -10,6 +10,7 @@ type SessionContextValue = {
   businessId: string | null;
   businessName: string | null;
   loading: boolean;
+  isAuthenticated: boolean;
 };
 
 const SessionContext = createContext<SessionContextValue | undefined>(undefined);
@@ -120,7 +121,7 @@ export default function SessionProvider({ children }: { children: ReactNode }) {
   }, [supabase]);
 
   const value = useMemo(
-    () => ({ user, businessId, businessName, loading }),
+    () => ({ user, businessId, businessName, loading, isAuthenticated: !loading && user !== null }),
     [user, businessId, businessName, loading]
   );
 

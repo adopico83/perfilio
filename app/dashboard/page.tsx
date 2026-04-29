@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { redirect, useRouter } from 'next/navigation';
 import LogoutButton from './logout-button';
 import {
   AlertTriangle,
@@ -2095,7 +2095,15 @@ function DashboardContent() {
 }
 
 export default function DashboardPage() {
-  const { businessId, loading } = useSession();
-  if (loading || !businessId) return <DashboardSkeleton />;
+  const { businessId, loading, isAuthenticated } = useSession();
+  if (loading) return <DashboardSkeleton />;
+  if (!isAuthenticated) redirect('/login');
+  if (!businessId) {
+    return (
+      <div className="flex items-center justify-center h-screen text-white">
+        No se encontró tu perfil de negocio. Contacta con soporte.
+      </div>
+    );
+  }
   return <DashboardContent />;
 }
