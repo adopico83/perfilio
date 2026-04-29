@@ -1,5 +1,5 @@
 /* eslint-disable no-restricted-globals */
-const STATIC_CACHE = 'perfilio-static-v1';
+const STATIC_CACHE = 'perfilio-static-1777490149541';
 
 const PRECACHE_URLS = [
   '/manifest.json',
