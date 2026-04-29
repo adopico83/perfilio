@@ -21,6 +21,7 @@ import { useEmailModal } from '@/contexts/email-modal-context';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
 import NotificationButton from '@/components/pwa/notification-button';
+import { useSession } from '@/components/providers/session-provider';
 import { getBusinessIdClient } from '@/lib/supabase/get-business-id';
 
 interface ResumenCounts {
@@ -250,7 +251,17 @@ function construirCeldasMes(year: number, month: number) {
   return celdas;
 }
 
+function DashboardSkeleton() {
+  return (
+    <div className="min-h-screen bg-[#0f172a] text-white" aria-busy="true" aria-live="polite">
+      <span className="sr-only">Cargando panel…</span>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
+  const { businessId, loading } = useSession();
+  if (loading || !businessId) return <DashboardSkeleton />;
   const { abrirEmail, abrirUrgentes } = useEmailModal();
   const { abrirObra } = useObraModal();
   const router = useRouter();
@@ -263,7 +274,7 @@ export default function DashboardPage() {
     []
   );
 
-  const [businessName, setBusinessName] = useState('tu negocio');
+  const [businessName, setBusinessName] = useState<string | null>(null);
   const [counts, setCounts] = useState<ResumenCounts>({
     urgentes: 0,
     presupuestos: 0,
@@ -273,7 +284,7 @@ export default function DashboardPage() {
   const [ultimosPresupuestos, setUltimosPresupuestos] = useState<PresupuestoResumen[]>([]);
   const [agendaEventos, setAgendaEventos] = useState<AgendaItem[]>([]);
   const [agendaEventosMes, setAgendaEventosMes] = useState<AgendaItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [dashboardLoading, setDashboardLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const [importePendienteCobro, setImportePendienteCobro] = useState(0);
@@ -904,7 +915,7 @@ export default function DashboardPage() {
         .maybeSingle();
       setGmailConectado(!!gmailToken);
     } finally {
-      setLoading(false);
+      setDashboardLoading(false);
     }
   }, [loadAgenda, supabase]);
 
@@ -928,7 +939,7 @@ export default function DashboardPage() {
   }, [loadDashboard]);
 
   useEffect(() => {
-    if (loading) return;
+    if (dashboardLoading) return;
     if (!gmailConectado) {
       setEmailsRecientes([]);
       setEmailsUrgentes([]);
@@ -1040,7 +1051,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [loading, gmailConectado]);
+  }, [dashboardLoading, gmailConectado]);
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-white">
@@ -1324,7 +1335,7 @@ export default function DashboardPage() {
                 </span>
               </div>
               <div className="text-2xl font-bold text-[#ed8936]">
-                {loading ? '—' : `${importePendienteCobro.toFixed(2)} €`}
+                {dashboardLoading ? '—' : `${importePendienteCobro.toFixed(2)} €`}
               </div>
               <span className="text-xs text-white/60">Clic para ver desglose por factura</span>
             </button>
@@ -1340,11 +1351,11 @@ export default function DashboardPage() {
               </div>
               <div className="text-xs text-white/80">TOTAL PRESUPUESTADO (base):</div>
               <div className="text-lg sm:text-xl font-bold text-[#f6ad55]">
-                {loading ? '—' : fmtEurosEs(importeTotalPresupuestado)}
+                {dashboardLoading ? '—' : fmtEurosEs(importeTotalPresupuestado)}
               </div>
               <div className="text-xs text-white/90 mt-1">TOTAL CON IVA:</div>
               <div className="text-2xl sm:text-3xl font-bold text-[#ed8936] leading-tight">
-                {loading ? '—' : fmtEurosEs(importeTotalConIva)}
+                {dashboardLoading ? '—' : fmtEurosEs(importeTotalConIva)}
               </div>
               <span className="text-xs text-white/60">Clic para ver desglose por presupuesto</span>
             </button>
@@ -1359,7 +1370,7 @@ export default function DashboardPage() {
                 </span>
               </div>
               <div className="text-xl sm:text-2xl font-bold text-[#ed8936]">
-                {loading ? '—' : `${totalMateriales.toFixed(2)} €`}
+                {dashboardLoading ? '—' : `${totalMateriales.toFixed(2)} €`}
               </div>
               <span className="text-xs text-white/60">Clic para ver desglose</span>
             </button>
@@ -1399,7 +1410,7 @@ export default function DashboardPage() {
                 </h3>
               </div>
               <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
-                {loading ? (
+                {dashboardLoading ? (
                   <p className="text-white/60 text-xs">Cargando...</p>
                 ) : ultimosPresupuestos.length === 0 ? (
                   <p className="text-white/60 text-xs">Aún no hay presupuestos generados.</p>
@@ -1455,7 +1466,7 @@ export default function DashboardPage() {
                 </span>
               </div>
               <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
-                {loading ? (
+                {dashboardLoading ? (
                   <p className="text-white/60 text-xs">Cargando...</p>
                 ) : agendaEventos.length === 0 ? (
                   <p className="text-white/60 text-xs">Sin eventos próximos</p>
@@ -1580,7 +1591,7 @@ export default function DashboardPage() {
                 </h3>
               </div>
               <div className="min-h-0 max-h-40 overflow-y-auto overscroll-contain">
-                {loading ? (
+                {dashboardLoading ? (
                   <p className="text-white/60 text-xs">Cargando...</p>
                 ) : ultimasEntradasDiario.length === 0 ? (
                   <p className="text-white/60 text-xs">Sin entradas en el diario todavía</p>
@@ -1630,7 +1641,7 @@ export default function DashboardPage() {
                 </h3>
               </div>
               <div className="min-h-0 max-h-40 overflow-y-auto overscroll-contain">
-                {loading ? (
+                {dashboardLoading ? (
                   <p className="text-white/60 text-xs">Cargando...</p>
                 ) : obrasActivas.length === 0 ? (
                   <p className="text-white/60 text-xs leading-snug">
@@ -1701,7 +1712,7 @@ export default function DashboardPage() {
                 </h3>
               </div>
               <div className="min-h-0 max-h-40 overflow-y-auto overscroll-contain">
-                {loading ? (
+                {dashboardLoading ? (
                   <p className="text-white/60 text-xs">Cargando...</p>
                 ) : ultimosClientes.length === 0 ? (
                   <p className="text-white/60 text-xs">Aún no hay clientes registrados</p>
