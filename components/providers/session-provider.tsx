@@ -41,8 +41,9 @@ export default function SessionProvider({ children }: { children: ReactNode }) {
     const loadSession = async () => {
       try {
         const {
-          data: { user: currentUser },
-        } = await supabase.auth.getUser();
+          data: { session },
+        } = await supabase.auth.getSession();
+        const currentUser = session?.user ?? null;
 
         if (!mounted) return;
         setUser(currentUser ?? null);
