@@ -10,7 +10,7 @@ function estadoBadgeClass(estado: string | null | undefined): { label: string; c
     borrador: { label: 'Borrador', className: 'bg-gray-500/80 text-white' },
     pendiente: { label: 'Pendiente', className: 'bg-amber-400/95 text-gray-900' },
     aceptado: { label: 'Aceptado', className: 'bg-green-600/80 text-white' },
-    aprobado: { label: 'Aprobado', className: 'bg-green-600/80 text-white' },
+    aprobado: { label: 'Aceptado', className: 'bg-green-600/80 text-white' },
     rechazado: { label: 'Rechazado', className: 'bg-red-600/80 text-white' },
     facturado: { label: 'Facturado', className: 'bg-blue-600/80 text-white' },
     pagado: { label: 'Pagado', className: 'bg-green-800/95 text-white' },

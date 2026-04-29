@@ -112,7 +112,7 @@ function PresupuestosPageContent() {
         className: 'bg-green-600/80 text-white',
       },
       aprobado: {
-        label: 'Aprobado',
+        label: 'Aceptado',
         className: 'bg-green-600/80 text-white',
       },
       rechazado: {
@@ -241,7 +241,7 @@ function PresupuestosPageContent() {
                   </button>
                   {(p.estado ?? 'borrador') === 'borrador' && (
                     <>
-                      <button type="button" onClick={() => setEstado(p.id, 'aprobado')} className="px-3 py-1.5 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors">Aprobar</button>
+                      <button type="button" onClick={() => setEstado(p.id, 'aprobado')} className="px-3 py-1.5 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors">Aceptar</button>
                       <button type="button" onClick={() => setEstado(p.id, 'rechazado')} className="px-3 py-1.5 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors">Rechazar</button>
                     </>
                   )}
@@ -295,7 +295,7 @@ function PresupuestosPageContent() {
             <div className="p-4 border-t border-white/10 flex gap-2">
               {(modalItem.estado ?? 'borrador') === 'borrador' && (
                 <>
-                  <button type="button" onClick={() => setEstado(modalItem.id, 'aprobado')} className="px-4 py-2 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg">Aprobar</button>
+                  <button type="button" onClick={() => setEstado(modalItem.id, 'aprobado')} className="px-4 py-2 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg">Aceptar</button>
                   <button type="button" onClick={() => setEstado(modalItem.id, 'rechazado')} className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg">Rechazar</button>
                 </>
               )}
