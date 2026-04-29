@@ -88,6 +88,7 @@ export const PRESUPUESTOS_HANDLED_TOOLS = new Set([
   'cambiar_estado_presupuesto',
   'editar_presupuesto',
   'convertir_presupuesto_a_albaran',
+  'convertir_presupuesto_a_factura',
   'iniciar_borrador_presupuesto',
   'agregar_partida_borrador',
   'modificar_partida_borrador',
@@ -197,6 +198,21 @@ export const PRESUPUESTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
         properties: {
           presupuesto_id: { type: 'string' },
           observaciones: { type: 'string' },
+        },
+        required: ['presupuesto_id'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'convertir_presupuesto_a_factura',
+      description: 'Genera una factura desde un presupuesto aceptado usando sus líneas de borrador vinculadas.',
+      parameters: {
+        type: 'object',
+        properties: {
+          presupuesto_id: { type: 'string' },
         },
         required: ['presupuesto_id'],
         additionalProperties: false,
@@ -688,6 +704,119 @@ export async function handlePresupuestos(
           'El presupuesto ha sido marcado como aceptado.',
       };
     }
+    case 'convertir_presupuesto_a_factura': {
+      const presupuestoId = String(toolArgs.presupuesto_id ?? '').trim();
+      if (!presupuestoId) return { error: 'presupuesto_id es obligatorio' };
+
+      const { data: pRow, error: pErr } = await supabase
+        .from('presupuestos')
+        .select('id, estado, cliente_nombre, cliente_id, obra_id')
+        .eq('id', presupuestoId)
+        .eq('business_id', businessId)
+        .maybeSingle();
+      if (pErr) return { error: pErr.message };
+      if (!pRow) return { error: 'Presupuesto no encontrado' };
+
+      if ((pRow.estado ?? '').toLowerCase() === 'facturado') {
+        return { error: 'Este presupuesto ya tiene una factura generada.' };
+      }
+      if ((pRow.estado ?? '').toLowerCase() !== 'aceptado') {
+        return { error: 'Solo se puede convertir a factura un presupuesto en estado aceptado.' };
+      }
+
+      const { data: borRow, error: borErr } = await supabase
+        .from('presupuesto_borrador')
+        .select('id, iva_porcentaje')
+        .eq('presupuesto_id', presupuestoId)
+        .eq('business_id', businessId)
+        .maybeSingle();
+      if (borErr) return { error: borErr.message };
+      if (!borRow?.id) {
+        return { error: 'No se encontraron las líneas del presupuesto para generar la factura.' };
+      }
+
+      const { data: items, error: itemsErr } = await supabase
+        .from('presupuesto_borrador_items')
+        .select('id, orden, capitulo, descripcion, cantidad, unidad, precio_unitario, importe')
+        .eq('borrador_id', borRow.id)
+        .order('orden', { ascending: true });
+      if (itemsErr) return { error: itemsErr.message };
+      const lineItems = (items ?? []) as Array<{ importe?: number | string | null }>;
+      if (lineItems.length === 0) {
+        return { error: 'No se encontraron las líneas del presupuesto para generar la factura.' };
+      }
+
+      const clienteId = (pRow as { cliente_id?: string | null }).cliente_id ?? null;
+      if (!clienteId) {
+        return { error: 'No puedo generar la factura: el cliente no tiene NIF o dirección configurados.' };
+      }
+      const { data: cli, error: cliErr } = await supabase
+        .from('clientes')
+        .select('id, nif, direccion')
+        .eq('id', clienteId)
+        .eq('business_id', businessId)
+        .maybeSingle();
+      if (cliErr) return { error: cliErr.message };
+      const nif = String((cli as { nif?: string | null } | null)?.nif ?? '').trim();
+      const direccion = String((cli as { direccion?: string | null } | null)?.direccion ?? '').trim();
+      if (!nif || !direccion) {
+        return { error: 'No puedo generar la factura: el cliente no tiene NIF o dirección configurados.' };
+      }
+
+      const { data: lastFactura, error: lastFacturaErr } = await supabase
+        .from('facturas')
+        .select('numero_factura')
+        .eq('business_id', businessId)
+        .order('numero_factura', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (lastFacturaErr) return { error: lastFacturaErr.message };
+      const numeroFactura = (Number((lastFactura as { numero_factura?: number | null } | null)?.numero_factura) || 0) + 1;
+
+      const sumaImportes = lineItems.reduce((acc, item) => acc + (Number(item.importe) || 0), 0);
+      const baseImponible = Math.round(sumaImportes * 100) / 100;
+      const ivaPorcentaje = Number((borRow as { iva_porcentaje?: number | null }).iva_porcentaje ?? 21);
+      const ivaPct = Number.isFinite(ivaPorcentaje) ? ivaPorcentaje : 21;
+      const iva = Math.round(baseImponible * (ivaPct / 100) * 100) / 100;
+      const total = Math.round((baseImponible + iva) * 100) / 100;
+
+      const { error: insFacErr } = await supabase.from('facturas').insert({
+        business_id: businessId,
+        numero_factura: numeroFactura,
+        cliente_nombre: (pRow as { cliente_nombre?: string | null }).cliente_nombre ?? null,
+        cliente_direccion: direccion,
+        cliente_nif: nif,
+        lineas: JSON.stringify(items ?? []),
+        base_imponible: baseImponible,
+        iva,
+        total,
+        fecha: new Date().toISOString().split('T')[0],
+        estado: 'pendiente',
+        albaran_id: null,
+        obra_id: (pRow as { obra_id?: string | null }).obra_id ?? null,
+        cliente_id: clienteId,
+      });
+      if (insFacErr) {
+        if (insFacErr.code === '23505') {
+          return { error: 'Colisión al generar número de factura. Inténtalo de nuevo.' };
+        }
+        return { error: insFacErr.message };
+      }
+
+      const { error: updPresErr } = await supabase
+        .from('presupuestos')
+        .update({ estado: 'facturado' })
+        .eq('id', presupuestoId)
+        .eq('business_id', businessId);
+      if (updPresErr) return { error: updPresErr.message };
+
+      return {
+        ok: true,
+        numero_factura: numeroFactura,
+        total,
+        cliente_nombre: (pRow as { cliente_nombre?: string | null }).cliente_nombre ?? null,
+      };
+    }
     case 'iniciar_borrador_presupuesto': {
       if (!userId) return { error: 'Usuario no autenticado.' };
       const clienteNombre = String(toolArgs.cliente_nombre ?? '').trim().slice(0, 255);
@@ -1104,7 +1233,7 @@ export async function handlePresupuestos(
       const presId = (pres as { id: string }).id;
       const { error: upB } = await supabase
         .from('presupuesto_borrador')
-        .update({ estado: 'confirmado', updated_at: new Date().toISOString() })
+        .update({ estado: 'confirmado', presupuesto_id: presId, updated_at: new Date().toISOString() })
         .eq('id', borradorId);
       if (upB) return { error: upB.message };
       return {

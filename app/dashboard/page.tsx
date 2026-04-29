@@ -259,9 +259,8 @@ function DashboardSkeleton() {
   );
 }
 
-export default function DashboardPage() {
-  const { businessId, loading } = useSession();
-  if (loading || !businessId) return <DashboardSkeleton />;
+function DashboardContent() {
+  const { businessId } = useSession();
   const { abrirEmail, abrirUrgentes } = useEmailModal();
   const { abrirObra } = useObraModal();
   const router = useRouter();
@@ -2093,4 +2092,10 @@ export default function DashboardPage() {
       </main>
     </div>
   );
+}
+
+export default function DashboardPage() {
+  const { businessId, loading } = useSession();
+  if (loading || !businessId) return <DashboardSkeleton />;
+  return <DashboardContent />;
 }
