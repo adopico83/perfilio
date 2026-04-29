@@ -108,7 +108,23 @@ export default function SessionProvider({ children }: { children: ReactNode }) {
     [user, businessId, businessName, loading, isInitialized, hasTimeoutError]
   );
 
-  if (!isInitialized) return <div className="fixed inset-0 bg-[#0d1117]" />;
+  if (!isInitialized) {
+    return (
+      <div className="fixed inset-0 bg-[#0d1117] flex flex-col items-center justify-center gap-6">
+        <div className="flex flex-col items-center gap-2">
+          <span className="text-[#ed8936] text-4xl font-bold tracking-tight animate-pulse">
+            Perfilio
+          </span>
+          <span className="text-gray-400 text-sm">Cargando tu oficina...</span>
+        </div>
+        <div className="flex gap-2">
+          <div className="w-2 h-2 bg-[#ed8936] rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+          <div className="w-2 h-2 bg-[#ed8936] rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+          <div className="w-2 h-2 bg-[#ed8936] rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+        </div>
+      </div>
+    );
+  }
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
