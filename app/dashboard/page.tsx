@@ -2095,8 +2095,22 @@ function DashboardContent() {
 }
 
 export default function DashboardPage() {
-  const { businessId, loading, isAuthenticated } = useSession();
+  const { businessId, loading, isAuthenticated, hasTimeoutError } = useSession();
   if (loading) return <DashboardSkeleton />;
+  if (hasTimeoutError && !businessId) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen gap-4 text-white">
+        <p>Estamos teniendo problemas para conectar con tu perfil...</p>
+        <p className="text-sm text-gray-400">Esto está tardando más de lo habitual.</p>
+        <button
+          onClick={() => window.location.reload()}
+          className="px-4 py-2 bg-[#ed8936] text-white rounded-lg hover:bg-[#dd7926]"
+        >
+          Reintentar
+        </button>
+      </div>
+    );
+  }
   if (!isAuthenticated) redirect('/login');
   if (!businessId) {
     return (

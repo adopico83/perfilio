@@ -11,6 +11,8 @@ type SessionContextValue = {
   businessName: string | null;
   loading: boolean;
   isAuthenticated: boolean;
+  isInitialized: boolean;
+  hasTimeoutError: boolean;
 };
 
 const SessionContext = createContext<SessionContextValue | undefined>(undefined);
@@ -21,7 +23,9 @@ export default function SessionProvider({ children }: { children: ReactNode }) {
   const [businessId, setBusinessId] = useState<string | null>(null);
   const [businessName, setBusinessName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const businessIdRef = useRef<string | null>(businessId);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [hasTimeoutError, setHasTimeoutError] = useState(false);
+  const businessIdRef = useRef<string | null>(null);
   businessIdRef.current = businessId;
 
   const loadBusinessName = async (bId: string | null): Promise<string> => {
@@ -37,38 +41,12 @@ export default function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
-
-    const loadSession = async () => {
-      try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        const currentUser = session?.user ?? null;
-
-        if (!mounted) return;
-        setUser(currentUser ?? null);
-
-        if (currentUser) {
-          const bId = await getBusinessIdClient(supabase);
-          const bName = await loadBusinessName(bId);
-          if (!mounted) return;
-          setBusinessId(bId);
-          setBusinessName(bName);
-        } else {
-          setBusinessId(null);
-          setBusinessName(null);
-        }
-      } catch {
-        if (!mounted) return;
-        setUser(null);
-        setBusinessId(null);
-        setBusinessName('');
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
-
-    void loadSession();
+    const initTimeout = setTimeout(() => {
+      if (!mounted) return;
+      setIsInitialized(true);
+      setLoading(false);
+      if (businessIdRef.current === null) setHasTimeoutError(true);
+    }, 4000);
 
     const {
       data: { subscription },
@@ -79,52 +57,58 @@ export default function SessionProvider({ children }: { children: ReactNode }) {
           const nextUser = session?.user ?? null;
           setUser(nextUser);
 
-          if (event === 'SIGNED_OUT') {
+          if (event === 'SIGNED_OUT' || !nextUser) {
             setBusinessId(null);
+            businessIdRef.current = null;
             setBusinessName(null);
+            setHasTimeoutError(false);
             return;
           }
 
-          if (event === 'TOKEN_REFRESHED') {
-            if (businessIdRef.current !== null) {
-              return;
-            }
-            if (nextUser) {
-              const bId = await getBusinessIdClient(supabase);
-              const bName = await loadBusinessName(bId);
-              if (!mounted) return;
-              setBusinessId(bId);
-              setBusinessName(bName);
-            }
-            return;
-          }
-
-          if (event === 'SIGNED_IN' && nextUser && businessIdRef.current === null) {
-            const bId = await getBusinessIdClient(supabase);
-            const bName = await loadBusinessName(bId);
+          let bId = businessIdRef.current;
+          if (bId === null) {
+            bId = await getBusinessIdClient(supabase, nextUser.id);
             if (!mounted) return;
             setBusinessId(bId);
-            setBusinessName(bName);
+            businessIdRef.current = bId;
           }
+          const bName = await loadBusinessName(bId);
+          if (!mounted) return;
+          setBusinessName(bName);
+          setHasTimeoutError(false);
         } catch {
           if (!mounted) return;
           setBusinessName('');
         } finally {
-          if (mounted) setLoading(false);
+          if (mounted) {
+            setLoading(false);
+            setIsInitialized(true);
+          }
         }
       }
     );
 
     return () => {
       mounted = false;
+      clearTimeout(initTimeout);
       subscription.unsubscribe();
     };
   }, [supabase]);
 
   const value = useMemo(
-    () => ({ user, businessId, businessName, loading, isAuthenticated: !loading && user !== null }),
-    [user, businessId, businessName, loading]
+    () => ({
+      user,
+      businessId,
+      businessName,
+      loading,
+      isAuthenticated: !loading && user !== null,
+      isInitialized,
+      hasTimeoutError,
+    }),
+    [user, businessId, businessName, loading, isInitialized, hasTimeoutError]
   );
+
+  if (!isInitialized) return <div className="fixed inset-0 bg-[#0d1117]" />;
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

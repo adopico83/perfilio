@@ -1,24 +1,38 @@
-async function getBusinessId(supabase: any): Promise<string | null> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const userId = user?.id ?? null;
+async function getBusinessIdByUserId(supabase: any, userId: string): Promise<string | null> {
   if (!userId) return null;
 
-  const { data } = await supabase
+  const timeoutPromise = new Promise<null>((resolve) =>
+    setTimeout(() => {
+      console.warn('Timeout recuperando businessId');
+      resolve(null);
+    }, 5000)
+  );
+
+  const queryPromise = supabase
     .from('business_profiles')
     .select('id')
     .eq('user_id', userId)
     .limit(1)
     .maybeSingle();
 
-  return data?.id ?? null;
+  const result = await Promise.race([queryPromise, timeoutPromise]);
+  return result?.data?.id ?? null;
 }
 
-export async function getBusinessIdClient(supabase: any): Promise<string | null> {
-  return getBusinessId(supabase);
+export async function getBusinessIdClient(supabase: any, userId?: string): Promise<string | null> {
+  const resolvedUserId =
+    userId ??
+    (await supabase.auth.getSession())?.data?.session?.user?.id ??
+    null;
+  if (!resolvedUserId) return null;
+  return getBusinessIdByUserId(supabase, resolvedUserId);
 }
 
 export async function getBusinessIdServer(supabase: any): Promise<string | null> {
-  return getBusinessId(supabase);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const userId = user?.id ?? null;
+  if (!userId) return null;
+  return getBusinessIdByUserId(supabase, userId);
 }
