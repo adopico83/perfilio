@@ -21,7 +21,7 @@ import { useEmailModal } from '@/contexts/email-modal-context';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
 import NotificationButton from '@/components/pwa/notification-button';
-import { useSession } from '@/components/providers/session-provider';
+import { getBusinessIdClient } from '@/lib/supabase/get-business-id';
 
 interface ResumenCounts {
   urgentes: number;
@@ -250,46 +250,10 @@ function construirCeldasMes(year: number, month: number) {
   return celdas;
 }
 
-function BusinessNameSkeleton({ className }: { className?: string }) {
-  return (
-    <div
-      className={`h-8 sm:h-9 w-44 sm:w-52 max-w-[min(100vw-8rem,28rem)] rounded-md bg-white/20 animate-pulse ${className ?? ''}`}
-      role="presentation"
-      aria-hidden
-    />
-  );
-}
-
-function DashboardSkeleton() {
-  return (
-    <div className="min-h-screen bg-[#0f172a] text-white" aria-busy="true" aria-live="polite">
-      <span className="sr-only">Cargando panel…</span>
-      <div className="border-b border-white/10 px-6 py-4 flex items-center gap-4">
-        <div className="h-9 w-40 rounded-md bg-white/15 animate-pulse" />
-        <div className="ml-auto h-9 w-24 rounded-lg bg-white/10 animate-pulse" />
-      </div>
-      <main className="max-w-7xl mx-auto px-6 py-6 space-y-4">
-        <div className="h-10 w-2/3 max-w-md rounded-md bg-white/15 animate-pulse" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-28 rounded-xl bg-white/10 animate-pulse" />
-          ))}
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-32 rounded-xl bg-white/10 animate-pulse" />
-          ))}
-        </div>
-      </main>
-    </div>
-  );
-}
-
-function DashboardPageContent() {
+export default function DashboardPage() {
   const { abrirEmail, abrirUrgentes } = useEmailModal();
   const { abrirObra } = useObraModal();
   const router = useRouter();
-  const { businessId, user, loading } = useSession();
   const supabase = useMemo(
     () =>
       createBrowserClient(
@@ -299,7 +263,7 @@ function DashboardPageContent() {
     []
   );
 
-  const [businessName, setBusinessName] = useState<string | null>(null);
+  const [businessName, setBusinessName] = useState('tu negocio');
   const [counts, setCounts] = useState<ResumenCounts>({
     urgentes: 0,
     presupuestos: 0,
@@ -309,13 +273,13 @@ function DashboardPageContent() {
   const [ultimosPresupuestos, setUltimosPresupuestos] = useState<PresupuestoResumen[]>([]);
   const [agendaEventos, setAgendaEventos] = useState<AgendaItem[]>([]);
   const [agendaEventosMes, setAgendaEventosMes] = useState<AgendaItem[]>([]);
-  const [dashboardLoading, setDashboardLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const [importePendienteCobro, setImportePendienteCobro] = useState<number | null>(null);
-  const [importeTotalPresupuestado, setImporteTotalPresupuestado] = useState<number | null>(null);
-  const [importeTotalConIva, setImporteTotalConIva] = useState<number | null>(null);
-  const [totalMateriales, setTotalMateriales] = useState<number | null>(null);
+  const [importePendienteCobro, setImportePendienteCobro] = useState(0);
+  const [importeTotalPresupuestado, setImporteTotalPresupuestado] = useState(0);
+  const [importeTotalConIva, setImporteTotalConIva] = useState(0);
+  const [totalMateriales, setTotalMateriales] = useState(0);
   const [desglosePendiente, setDesglosePendiente] = useState<FacturaPendienteItem[]>([]);
   const [desglosePresupuestado, setDesglosePresupuestado] = useState<PresupuestoMetricaItem[]>([]);
   const [desgloseMateriales, setDesgloseMateriales] = useState<PresupuestoMetricaItem[]>([]);
@@ -355,31 +319,6 @@ function DashboardPageContent() {
     setFechaHoyIso(d.toISOString().slice(0, 10));
     setSaludoBanner(getSaludoDesdeHoraLocal(d.getHours()));
   }, []);
-
-  useEffect(() => {
-    if (!businessId) {
-      if (!loading) setBusinessName('');
-      return;
-    }
-    let cancelled = false;
-    setBusinessName(null);
-    void (async () => {
-      const bizRes = await supabase
-        .from('business_profiles')
-        .select('nombre')
-        .eq('id', businessId)
-        .maybeSingle();
-      if (cancelled) return;
-      if (!bizRes.error && bizRes.data?.nombre) {
-        setBusinessName(bizRes.data.nombre);
-      } else {
-        setBusinessName('');
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [businessId, loading, supabase]);
 
   useEffect(() => {
     setSecResumenOpen(readDashboardSeccionAbierta(LS_DASH_SEC_RESUMEN));
@@ -568,7 +507,7 @@ function DashboardPageContent() {
       let bid: string | undefined =
         typeof businessIdOrEvent === 'string' ? businessIdOrEvent : undefined;
       if (!bid) {
-        bid = businessId ?? undefined;
+        bid = (await getBusinessIdClient(supabase)) ?? undefined;
       }
       if (!bid) {
         setAgendaEventos([]);
@@ -598,12 +537,12 @@ function DashboardPageContent() {
     } catch {
       // Silencioso: la agenda es opcional en refresco parcial.
     }
-  }, [supabase, businessId]);
+  }, [supabase]);
 
   const loadAgendaMesCompleto = useCallback(
     async (anio: number, mes: number) => {
       try {
-        const bid = businessId;
+        const bid = await getBusinessIdClient(supabase);
         if (!bid) {
           setAgendaEventosMes([]);
           return [];
@@ -635,7 +574,7 @@ function DashboardPageContent() {
         return [];
       }
     },
-    [supabase, businessId]
+    [supabase]
   );
 
   useEffect(() => {
@@ -650,11 +589,26 @@ function DashboardPageContent() {
 
   const loadDashboard = useCallback(async () => {
     try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       const userId = user?.id;
 
       if (!userId) {
         setGmailConectado(false);
         return;
+      }
+
+      const businessId = await getBusinessIdClient(supabase);
+      if (businessId) {
+        const bizRes = await supabase
+          .from('business_profiles')
+          .select('nombre')
+          .eq('id', businessId)
+          .maybeSingle();
+        if (!bizRes.error && bizRes.data?.nombre) {
+          setBusinessName(bizRes.data.nombre);
+        }
       }
 
       if (!businessId) {
@@ -687,8 +641,6 @@ function DashboardPageContent() {
         return;
       }
 
-      const bid = businessId;
-
       const [
         presupuestosRes,
         albaranesRes,
@@ -702,39 +654,39 @@ function DashboardPageContent() {
         supabase
           .from('presupuestos')
           .select('id', { count: 'exact', head: true })
-          .eq('business_id', bid),
+          .eq('business_id', businessId),
         supabase
           .from('albaranes')
           .select('id', { count: 'exact', head: true })
-          .eq('business_id', bid)
+          .eq('business_id', businessId)
           .eq('estado', 'pendiente'),
         supabase
           .from('facturas')
           .select('id', { count: 'exact', head: true })
-          .eq('business_id', bid)
+          .eq('business_id', businessId)
           .eq('estado', 'pendiente'),
         supabase
           .from('presupuestos')
           .select(
             'id, fecha, estado, created_at, obra_id, cliente_nombre, obras ( nombre ), clientes ( nombre )'
           )
-          .eq('business_id', bid)
+          .eq('business_id', businessId)
           .order('created_at', { ascending: false })
           .limit(5),
-        loadAgenda(bid),
+        loadAgenda(businessId),
         supabase
           .from('facturas')
           .select('id, cliente_nombre, total')
-          .eq('business_id', bid)
+          .eq('business_id', businessId)
           .eq('estado', 'pendiente'),
         supabase
           .from('presupuestos')
           .select('id, cliente_nombre, fecha, importe_total, presupuesto_generado')
-          .eq('business_id', bid),
+          .eq('business_id', businessId),
         supabase
           .from('presupuestos')
           .select('id, cliente_nombre, fecha, importe_total')
-          .eq('business_id', bid)
+          .eq('business_id', businessId)
           .ilike('presupuesto_generado', '%material%'),
       ]);
 
@@ -778,9 +730,6 @@ function DashboardPageContent() {
         const list = facturasPendientesDataRes.data as { id: string; cliente_nombre: string | null; total: number }[];
         setDesglosePendiente(list);
         setImportePendienteCobro(list.reduce((s, f) => s + (Number(f.total) || 0), 0));
-      } else {
-        setDesglosePendiente([]);
-        setImportePendienteCobro(0);
       }
       if (!presupuestosMetricasRes.error && presupuestosMetricasRes.data) {
         const list = presupuestosMetricasRes.data as {
@@ -799,23 +748,16 @@ function DashboardPageContent() {
             return s + base * (1 + ivaPct / 100);
           }, 0)
         );
-      } else {
-        setDesglosePresupuestado([]);
-        setImporteTotalPresupuestado(0);
-        setImporteTotalConIva(0);
       }
       if (!presupuestosMaterialesRes.error && presupuestosMaterialesRes.data) {
         const list = presupuestosMaterialesRes.data as { id: string; cliente_nombre: string | null; fecha: string | null; importe_total: number | null }[];
         setDesgloseMateriales(list);
         setTotalMateriales(list.reduce((s, p) => s + (Number(p.importe_total) || 0), 0));
-      } else {
-        setDesgloseMateriales([]);
-        setTotalMateriales(0);
       }
 
       try {
         const diarioRes = await fetch(
-          `/api/diario?business_id=${encodeURIComponent(bid)}`,
+          `/api/diario?business_id=${encodeURIComponent(businessId)}`,
           { credentials: 'include' }
         );
         if (diarioRes.ok) {
@@ -837,7 +779,7 @@ function DashboardPageContent() {
 
       try {
         const obrasRes = await fetch(
-          `/api/obras?business_id=${encodeURIComponent(bid)}`,
+          `/api/obras?business_id=${encodeURIComponent(businessId)}`,
           { credentials: 'include' }
         );
         if (!obrasRes.ok) {
@@ -888,7 +830,7 @@ function DashboardPageContent() {
         const { data: ucRows } = await supabase
           .from('clientes')
           .select('id, nombre, created_at')
-          .eq('business_id', bid)
+          .eq('business_id', businessId)
           .order('created_at', { ascending: false })
           .limit(3);
         const uc = (ucRows ?? []) as { id: string; nombre: string }[];
@@ -900,27 +842,27 @@ function DashboardPageContent() {
             supabase
               .from('presupuestos')
               .select('cliente_id')
-              .eq('business_id', bid)
+              .eq('business_id', businessId)
               .in('cliente_id', uids),
             supabase
               .from('facturas')
               .select('cliente_id')
-              .eq('business_id', bid)
+              .eq('business_id', businessId)
               .in('cliente_id', uids),
             supabase
               .from('albaranes')
               .select('cliente_id')
-              .eq('business_id', bid)
+              .eq('business_id', businessId)
               .in('cliente_id', uids),
             supabase
               .from('gastos')
               .select('cliente_id')
-              .eq('business_id', bid)
+              .eq('business_id', businessId)
               .in('cliente_id', uids),
             supabase
               .from('diario_obra')
               .select('cliente_id')
-              .eq('business_id', bid)
+              .eq('business_id', businessId)
               .in('cliente_id', uids),
           ]);
           const bump = (rows: { cliente_id: string | null }[] | null) => {
@@ -962,17 +904,13 @@ function DashboardPageContent() {
         .maybeSingle();
       setGmailConectado(!!gmailToken);
     } finally {
-      setDashboardLoading(false);
+      setLoading(false);
     }
-  }, [loadAgenda, supabase, businessId, user?.id]);
+  }, [loadAgenda, supabase]);
 
   useEffect(() => {
-    if (loading) {
-      setDashboardLoading(true);
-      return;
-    }
     void loadDashboard();
-  }, [loadDashboard, loading, businessId, user?.id]);
+  }, [loadDashboard]);
 
   useEffect(() => {
     const handler = () => {
@@ -990,7 +928,7 @@ function DashboardPageContent() {
   }, [loadDashboard]);
 
   useEffect(() => {
-    if (dashboardLoading) return;
+    if (loading) return;
     if (!gmailConectado) {
       setEmailsRecientes([]);
       setEmailsUrgentes([]);
@@ -1102,9 +1040,7 @@ function DashboardPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [dashboardLoading, gmailConectado]);
-
-  const showBusinessNameSkeleton = loading || businessName === null;
+  }, [loading, gmailConectado]);
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-white">
@@ -1127,9 +1063,7 @@ function DashboardPageContent() {
             href="/dashboard"
             className="flex items-center gap-3 min-w-0 shrink-0 max-w-[min(220px,46vw)] sm:max-w-[min(260px,40vw)]"
           >
-            {showBusinessNameSkeleton ? (
-              <BusinessNameSkeleton />
-            ) : businessName === 'Pino Albañilería' ? (
+            {businessName === 'Pino Albañilería' ? (
               <div style={{ display: 'inline-flex', flexDirection: 'column' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <div
@@ -1253,11 +1187,7 @@ function DashboardPageContent() {
         <section className="flex flex-col gap-0.5">
           <h1 className="text-2xl sm:text-3xl font-bold">
             {saludoBanner ? `${saludoBanner}, ` : ''}
-            {showBusinessNameSkeleton ? (
-              <BusinessNameSkeleton className="inline-block align-middle h-8 sm:h-10 w-40 sm:w-48" />
-            ) : (
-              <span className="text-[#ed8936]">{businessName}</span>
-            )}
+            <span className="text-[#ed8936]">{businessName}</span>
           </h1>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
             <p className="text-sm text-white/70">Aquí tienes el resumen de tu negocio</p>
@@ -1394,9 +1324,7 @@ function DashboardPageContent() {
                 </span>
               </div>
               <div className="text-2xl font-bold text-[#ed8936]">
-                {dashboardLoading || importePendienteCobro === null
-                  ? '—'
-                  : `${importePendienteCobro.toFixed(2)} €`}
+                {loading ? '—' : `${importePendienteCobro.toFixed(2)} €`}
               </div>
               <span className="text-xs text-white/60">Clic para ver desglose por factura</span>
             </button>
@@ -1412,13 +1340,11 @@ function DashboardPageContent() {
               </div>
               <div className="text-xs text-white/80">TOTAL PRESUPUESTADO (base):</div>
               <div className="text-lg sm:text-xl font-bold text-[#f6ad55]">
-                {dashboardLoading || importeTotalPresupuestado === null
-                  ? '—'
-                  : fmtEurosEs(importeTotalPresupuestado)}
+                {loading ? '—' : fmtEurosEs(importeTotalPresupuestado)}
               </div>
               <div className="text-xs text-white/90 mt-1">TOTAL CON IVA:</div>
               <div className="text-2xl sm:text-3xl font-bold text-[#ed8936] leading-tight">
-                {dashboardLoading || importeTotalConIva === null ? '—' : fmtEurosEs(importeTotalConIva)}
+                {loading ? '—' : fmtEurosEs(importeTotalConIva)}
               </div>
               <span className="text-xs text-white/60">Clic para ver desglose por presupuesto</span>
             </button>
@@ -1433,7 +1359,7 @@ function DashboardPageContent() {
                 </span>
               </div>
               <div className="text-xl sm:text-2xl font-bold text-[#ed8936]">
-                {dashboardLoading || totalMateriales === null ? '—' : `${totalMateriales.toFixed(2)} €`}
+                {loading ? '—' : `${totalMateriales.toFixed(2)} €`}
               </div>
               <span className="text-xs text-white/60">Clic para ver desglose</span>
             </button>
@@ -1473,7 +1399,7 @@ function DashboardPageContent() {
                 </h3>
               </div>
               <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
-                {dashboardLoading ? (
+                {loading ? (
                   <p className="text-white/60 text-xs">Cargando...</p>
                 ) : ultimosPresupuestos.length === 0 ? (
                   <p className="text-white/60 text-xs">Aún no hay presupuestos generados.</p>
@@ -1529,7 +1455,7 @@ function DashboardPageContent() {
                 </span>
               </div>
               <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
-                {dashboardLoading ? (
+                {loading ? (
                   <p className="text-white/60 text-xs">Cargando...</p>
                 ) : agendaEventos.length === 0 ? (
                   <p className="text-white/60 text-xs">Sin eventos próximos</p>
@@ -1654,7 +1580,7 @@ function DashboardPageContent() {
                 </h3>
               </div>
               <div className="min-h-0 max-h-40 overflow-y-auto overscroll-contain">
-                {dashboardLoading ? (
+                {loading ? (
                   <p className="text-white/60 text-xs">Cargando...</p>
                 ) : ultimasEntradasDiario.length === 0 ? (
                   <p className="text-white/60 text-xs">Sin entradas en el diario todavía</p>
@@ -1704,7 +1630,7 @@ function DashboardPageContent() {
                 </h3>
               </div>
               <div className="min-h-0 max-h-40 overflow-y-auto overscroll-contain">
-                {dashboardLoading ? (
+                {loading ? (
                   <p className="text-white/60 text-xs">Cargando...</p>
                 ) : obrasActivas.length === 0 ? (
                   <p className="text-white/60 text-xs leading-snug">
@@ -1775,7 +1701,7 @@ function DashboardPageContent() {
                 </h3>
               </div>
               <div className="min-h-0 max-h-40 overflow-y-auto overscroll-contain">
-                {dashboardLoading ? (
+                {loading ? (
                   <p className="text-white/60 text-xs">Cargando...</p>
                 ) : ultimosClientes.length === 0 ? (
                   <p className="text-white/60 text-xs">Aún no hay clientes registrados</p>
@@ -2156,10 +2082,4 @@ function DashboardPageContent() {
       </main>
     </div>
   );
-}
-
-export default function DashboardPage() {
-  const { businessId, loading } = useSession();
-  if (loading || !businessId) return <DashboardSkeleton />;
-  return <DashboardPageContent />;
 }

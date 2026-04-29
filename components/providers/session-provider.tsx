@@ -1,14 +1,6 @@
 'use client';
 
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
 import { getBusinessIdClient } from '@/lib/supabase/get-business-id';
@@ -26,36 +18,27 @@ export default function SessionProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [businessId, setBusinessId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const businessIdRef = useRef<string | null>(businessId);
-  businessIdRef.current = businessId;
 
   useEffect(() => {
     let mounted = true;
 
     const loadSession = async () => {
-      try {
-        const {
-          data: { user: currentUser },
-        } = await supabase.auth.getUser();
+      const {
+        data: { user: currentUser },
+      } = await supabase.auth.getUser();
 
+      if (!mounted) return;
+      setUser(currentUser ?? null);
+
+      if (currentUser) {
+        const bId = await getBusinessIdClient(supabase);
         if (!mounted) return;
-        setUser(currentUser ?? null);
-
-        if (currentUser) {
-          const bId = await getBusinessIdClient(supabase);
-          if (!mounted) return;
-          setBusinessId(bId);
-        } else {
-          setBusinessId(null);
-        }
-      } catch {
-        if (mounted) {
-          setUser(null);
-          setBusinessId(null);
-        }
-      } finally {
-        setLoading(false);
+        setBusinessId(bId);
+      } else {
+        setBusinessId(null);
       }
+
+      setLoading(false);
     };
 
     void loadSession();
@@ -64,30 +47,17 @@ export default function SessionProvider({ children }: { children: ReactNode }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(
       async (_event: AuthChangeEvent, session: Session | null) => {
-        try {
-          if (!mounted) return;
-          const nextUser = session?.user ?? null;
-          setUser(nextUser);
+      if (!mounted) return;
+      const nextUser = session?.user ?? null;
+      setUser(nextUser);
 
-          if (nextUser) {
-            if (businessIdRef.current !== null) {
-              // Conservar businessId ya resuelto (p. ej. TOKEN_REFRESHED al volver el foco).
-            } else {
-              const bId = await getBusinessIdClient(supabase);
-              if (!mounted) return;
-              setBusinessId(bId);
-            }
-          } else {
-            setBusinessId(null);
-          }
-        } catch {
-          if (mounted) {
-            setUser(null);
-            setBusinessId(null);
-          }
-        } finally {
-          setLoading(false);
-        }
+      if (nextUser) {
+        const bId = await getBusinessIdClient(supabase);
+        if (!mounted) return;
+        setBusinessId(bId);
+      } else {
+        setBusinessId(null);
+      }
       }
     );
 
