@@ -27,6 +27,17 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/api/')) return;
 
+  const appRoutes = [
+    '/dashboard', '/presupuestos', '/facturas', '/albaranes',
+    '/clientes', '/obras', '/diario', '/gastos',
+    '/operarios', '/mensajes'
+  ];
+  const isAppNavigation = event.request.mode === 'navigate' ||
+                          appRoutes.some(route => url.pathname.startsWith(route));
+  if (isAppNavigation) {
+    return event.respondWith(fetch(event.request));
+  }
+
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;

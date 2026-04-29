@@ -24,6 +24,7 @@ export function createClient() {
       isSingleton: true,
       auth: {
         persistSession: true,
+        detectSessionInUrl: false,
       },
       cookieOptions: {
         maxAge: 400 * 24 * 60 * 60,
