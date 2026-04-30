@@ -173,7 +173,7 @@ export default function ObraModal() {
     }, 0);
     const totalFacturado = fact.reduce((s, f) => s + parseNumber((f as { total?: unknown }).total), 0);
     const totalGastos = gas.reduce((s, g) => s + parseNumber((g as { importe_total?: unknown }).importe_total), 0);
-    const margenEstimado = totalFacturado - totalGastos;
+    const margenEstimado = totalPresupuestado - totalGastos;
 
     return { totalPresupuestado, totalFacturado, totalGastos, margenEstimado };
   }, [ficha]);
