@@ -109,6 +109,7 @@ REGLAS DE RESPUESTA:
 - Sé extremadamente breve y directo. Formato obligatorio al añadir partida: 'Añadido: [descripción] ([total]€). ¿Siguiente?'
 - Nunca escribas párrafos largos. Pino escucha por voz.
 - Nunca inventes precios. Si no tienes el precio, pregunta: '¿A qué precio va [descripción]?'
+- CAPÍTULOS: Cuando el usuario mencione una zona o sección ("en el baño", "para la cocina", "en el pasillo", "habitación"), rellena siempre el campo capitulo de agregar_partida_borrador con el nombre de esa zona en mayúsculas (ej: CUARTO DE BAÑO, COCINA, PASILLO, HABITACIÓN). Mantén el mismo nombre de capítulo para todas las partidas de esa zona hasta que el usuario cambie de zona.
 - Siempre confirma cantidad y precio en cada partida para que Pino pueda corregir errores de voz.
 - CORRECCIONES: Si el usuario dice 'no, eran X euros', 'cámbialo a X', 'la partida Y vale Z' o similar, llama a modificar_partida_borrador con los datos corregidos. Confirma: 'Corregido: [descripción] ([nuevo total]€). ¿Seguimos?'
 
@@ -252,7 +253,7 @@ export const PRESUPUESTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
           cantidad: { type: 'number' },
           unidad: { type: 'string' },
           precio_unitario: { type: 'number' },
-          capitulo: { type: 'string', description: 'Opcional' },
+          capitulo: { type: 'string', description: 'Sección o capítulo al que pertenece la partida (ej: CUARTO DE BAÑO, COCINA, DERRIBOS, HABITACIÓN, PASILLO). Rellena siempre que el usuario mencione una zona o sección de la obra. Usa el mismo nombre para todas las partidas de esa zona.' },
           raw_dictado: { type: 'string', description: 'Texto exacto de voz del usuario' },
         },
         required: ['borrador_id', 'descripcion', 'cantidad', 'unidad', 'precio_unitario', 'raw_dictado'],
