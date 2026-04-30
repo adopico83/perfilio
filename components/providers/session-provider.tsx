@@ -26,6 +26,8 @@ export default function SessionProvider({ children }: { children: ReactNode }) {
   const [isInitialized, setIsInitialized] = useState(false);
   const [hasTimeoutError, setHasTimeoutError] = useState(false);
   const businessIdRef = useRef<string | null>(null);
+  const currentUserRef = useRef<string | null>(null);
+  const hasInitiallyLoaded = useRef(false);
   businessIdRef.current = businessId;
 
   const loadBusinessName = async (bId: string | null): Promise<string> => {
@@ -43,6 +45,7 @@ export default function SessionProvider({ children }: { children: ReactNode }) {
     let mounted = true;
     const initTimeout = setTimeout(() => {
       if (!mounted) return;
+      hasInitiallyLoaded.current = true;
       setIsInitialized(true);
       setLoading(false);
       if (businessIdRef.current === null) setHasTimeoutError(true);
@@ -56,12 +59,24 @@ export default function SessionProvider({ children }: { children: ReactNode }) {
           if (!mounted) return;
           const nextUser = session?.user ?? null;
           setUser(nextUser);
+          currentUserRef.current = nextUser?.id ?? null;
 
           if (event === 'SIGNED_OUT' || !nextUser) {
             setBusinessId(null);
             businessIdRef.current = null;
+            currentUserRef.current = null;
+            hasInitiallyLoaded.current = false;
             setBusinessName(null);
             setHasTimeoutError(false);
+            return;
+          }
+
+          const isSameUser = session?.user?.id === currentUserRef.current;
+          if (
+            hasInitiallyLoaded.current &&
+            isSameUser &&
+            (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN')
+          ) {
             return;
           }
 
@@ -72,6 +87,7 @@ export default function SessionProvider({ children }: { children: ReactNode }) {
             setBusinessId(bId);
             businessIdRef.current = bId;
           }
+          hasInitiallyLoaded.current = true;
           const bName = await loadBusinessName(bId);
           if (!mounted) return;
           setBusinessName(bName);
