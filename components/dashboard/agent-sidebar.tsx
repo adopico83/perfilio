@@ -1017,10 +1017,9 @@ export default function AgentSidebar() {
           datosCanvas = [c.datos];
         }
         if (tipoCanvas && tituloCanvas) {
-          if (
-            tipoCanvas === 'presupuesto_borrador' ||
-            tituloCanvas.toLowerCase().includes('borrador')
-          ) {
+          if (tipoCanvas === 'presupuesto_borrador') {
+            setCanvasActivo(true);
+          } else if (tipoCanvas && tituloCanvas) {
             setCanvasActivo(true);
           }
           queueMicrotask(() => {
