@@ -1028,6 +1028,20 @@ export default function AgentSidebar() {
         }
       }
 
+      if (!canvasActivo) {
+        const { data: borradorCheck } = await supabase
+          .from('presupuesto_borrador')
+          .select('id')
+          .eq('business_id', selectedId)
+          .eq('user_id', currentUserId)
+          .eq('estado', 'en_construccion')
+          .maybeSingle();
+
+        if (borradorCheck?.id) {
+          setCanvasActivo(true);
+        }
+      }
+
       const obraModalRaw = (data as any).obra_modal;
       if (
         obraModalRaw &&
