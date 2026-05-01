@@ -1966,11 +1966,23 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
 
     const maxTokensAgente = imagenesNormalizadas.length > 0 ? 1600 : 800;
 
+    const mensajeLower = mensajeTrim.toLowerCase();
+    const esConfirmacion = hasBorradorActivo && (
+      mensajeLower.includes('confirma') ||
+      mensajeLower.includes('finaliza') ||
+      mensajeLower.includes('guarda') ||
+      mensajeLower.includes('listo') ||
+      mensajeLower.includes('ya está') ||
+      mensajeLower.includes('cierra')
+    );
+
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages,
       tools,
-      tool_choice: 'auto',
+      tool_choice: esConfirmacion
+        ? { type: 'function', function: { name: 'confirmar_borrador' } }
+        : 'auto',
       ...(intentCategory === 'presupuesto' || intentCategory === 'diario' || intentCategory === 'agenda' || intentCategory === 'gastos'
         ? { parallel_tool_calls: false }
         : {}),
