@@ -241,6 +241,30 @@ function PresupuestosPageContent() {
                   </button>
                   {(p.estado ?? 'borrador') === 'borrador' && (
                     <>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const res = await fetch('/api/presupuestos/reabrir-borrador', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ presupuesto_id: p.id }),
+                            });
+                            const data = (await res.json().catch(() => ({}))) as { error?: string };
+                            if (!res.ok) {
+                              alert(data.error ?? 'No se pudo reabrir el borrador');
+                              return;
+                            }
+                            sessionStorage.setItem('perfilio:intent_editar', p.id);
+                            router.push('/dashboard');
+                          } catch (e) {
+                            alert(e instanceof Error ? e.message : 'No se pudo reabrir el borrador');
+                          }
+                        }}
+                        className="px-3 py-1.5 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
+                      >
+                        Editar borrador
+                      </button>
                       <button type="button" onClick={() => setEstado(p.id, 'aprobado')} className="px-3 py-1.5 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors">Aprobar</button>
                       <button type="button" onClick={() => setEstado(p.id, 'rechazado')} className="px-3 py-1.5 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors">Rechazar</button>
                     </>

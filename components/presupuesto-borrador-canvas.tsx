@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { Loader2 } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
 
 type BorradorResumen = {
   id: string;
@@ -64,6 +64,7 @@ export function PresupuestoBorradorCanvas({
   supabase,
   onSendAgentMessage,
   agentLoading,
+  onClose,
   enableRealtime = true,
   enableBackground = false,
 }: {
@@ -72,6 +73,7 @@ export function PresupuestoBorradorCanvas({
   supabase: SupabaseClient;
   onSendAgentMessage: (texto: string) => Promise<void>;
   agentLoading: boolean;
+  onClose?: () => void;
   /** Evita canales Realtime duplicados cuando el panel de escritorio está montado pero oculto (viewport móvil). */
   enableRealtime?: boolean;
   /** Mantiene carga y suscripciones activas aunque el canvas no se renderice. */
@@ -267,15 +269,44 @@ export function PresupuestoBorradorCanvas({
     );
   };
 
+  const handleClose = () => {
+    const activeId = borrador?.id ?? borradorIdRef.current;
+    setBorrador(null);
+    setItems([]);
+    if (activeId) {
+      void supabase
+        .from('presupuesto_borrador')
+        .update({ estado: 'confirmado', updated_at: new Date().toISOString() })
+        .eq('id', activeId)
+        .eq('business_id', businessId)
+        .eq('user_id', userId)
+        .eq('estado', 'en_construccion');
+    }
+    onClose?.();
+  };
+
   return (
     <div className="border-b border-white/10 bg-[#0f2744]/80 px-3 py-2.5 shrink-0">
       <div className="flex items-center justify-between gap-2 mb-2">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[#ed8936]/95">
           Presupuesto en borrador
         </p>
-        {fetching ? (
-          <Loader2 className="size-3.5 animate-spin text-white/50 shrink-0" aria-hidden />
-        ) : null}
+        <div className="flex items-center gap-1.5">
+          {fetching ? (
+            <Loader2 className="size-3.5 animate-spin text-white/50 shrink-0" aria-hidden />
+          ) : null}
+          {onClose ? (
+            <button
+              type="button"
+              onClick={handleClose}
+              className="inline-flex items-center justify-center rounded-md border border-white/20 bg-white/5 p-1 text-white/90 hover:bg-white/15"
+              aria-label="Cerrar borrador"
+              title="Cerrar borrador"
+            >
+              <X className="size-3.5" aria-hidden />
+            </button>
+          ) : null}
+        </div>
       </div>
       <p className="text-xs text-white/80 mb-2 truncate" title={borrador.cliente_nombre ?? ''}>
         Cliente: <span className="text-white">{borrador.cliente_nombre ?? '—'}</span>

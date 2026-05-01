@@ -1214,24 +1214,49 @@ export async function handlePresupuestos(
       if (observaciones) {
         textoFinal += `\n\nObservaciones: ${observaciones}`;
       }
-      const clienteNombre = String(br.row.cliente_nombre ?? '').trim();
-      const { data: pres, error: pInsErr } = await supabase
-        .from('presupuestos')
-        .insert({
-          business_id: businessId,
-          presupuesto_generado: textoFinal,
-          importe_total: total,
-          fecha: new Date().toISOString().split('T')[0],
-          estado: 'borrador',
-          mensaje_cliente: 'Presupuesto generado desde borrador conversacional',
-          ...(clienteNombre.length > 0 ? { cliente_nombre: clienteNombre } : {}),
-          ...(br.row.cliente_id ? { cliente_id: br.row.cliente_id as string } : {}),
-          ...(br.row.obra_id ? { obra_id: br.row.obra_id as string } : {}),
-        })
-        .select('id')
-        .single();
-      if (pInsErr) return { error: pInsErr.message };
-      const presId = (pres as { id: string }).id;
+      const textoGenerado = textoFinal;
+      const baseImponible = total;
+      const presupuestoIdExistente = br.row.presupuesto_id ?? null;
+      let presId = '';
+
+      if (presupuestoIdExistente) {
+        const { data: presUpd, error: pUpdErr } = await supabase
+          .from('presupuestos')
+          .update({
+            presupuesto_generado: textoGenerado,
+            importe_total: baseImponible,
+            estado: 'borrador',
+            cliente_nombre: br.row.cliente_nombre ?? null,
+            cliente_id: br.row.cliente_id ?? null,
+            obra_id: br.row.obra_id ?? null,
+          })
+          .eq('id', String(presupuestoIdExistente))
+          .eq('business_id', businessId)
+          .select('id')
+          .maybeSingle();
+        if (pUpdErr) return { error: pUpdErr.message };
+        if (!presUpd?.id) return { error: 'No se encontró el presupuesto vinculado para actualizar.' };
+        presId = String(presupuestoIdExistente);
+      } else {
+        const clienteNombre = String(br.row.cliente_nombre ?? '').trim();
+        const { data: pres, error: pInsErr } = await supabase
+          .from('presupuestos')
+          .insert({
+            business_id: businessId,
+            presupuesto_generado: textoGenerado,
+            importe_total: baseImponible,
+            fecha: new Date().toISOString().split('T')[0],
+            estado: 'borrador',
+            mensaje_cliente: 'Presupuesto generado desde borrador conversacional',
+            ...(clienteNombre.length > 0 ? { cliente_nombre: clienteNombre } : {}),
+            ...(br.row.cliente_id ? { cliente_id: br.row.cliente_id as string } : {}),
+            ...(br.row.obra_id ? { obra_id: br.row.obra_id as string } : {}),
+          })
+          .select('id')
+          .single();
+        if (pInsErr) return { error: pInsErr.message };
+        presId = (pres as { id: string }).id;
+      }
       const { error: upB } = await supabase
         .from('presupuesto_borrador')
         .update({ estado: 'confirmado', presupuesto_id: presId, updated_at: new Date().toISOString() })
@@ -1241,6 +1266,8 @@ export async function handlePresupuestos(
         mensaje: `Presupuesto guardado. Base: ${fmtImporteLinea(base)}€, IVA ${ivaNum}%: ${fmtImporteLinea(ivaImporte)}€, Total: ${fmtImporteLinea(total)}€.`,
         presupuesto_id: presId,
         importe_total: total,
+        agente_accion_finalizada: true,
+        borrador_finalizado: true,
       };
     }
     case 'cancelar_borrador': {
@@ -1254,7 +1281,7 @@ export async function handlePresupuestos(
         .update({ estado: 'cancelado', updated_at: new Date().toISOString() })
         .eq('id', borradorId);
       if (error) return { error: error.message };
-      return { ok: true };
+      return { ok: true, agente_accion_finalizada: true, borrador_finalizado: true };
     }
     case 'obtener_borrador_activo': {
       if (!userId) return { error: 'Usuario no autenticado.' };

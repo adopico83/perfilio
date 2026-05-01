@@ -19,6 +19,7 @@ import { isDiarioPdfDownloadLink } from '@/lib/diario-pdf-link';
 import { useCanvas } from '@/contexts/canvas-context';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import { PresupuestoBorradorCanvas } from '@/components/presupuesto-borrador-canvas';
+import { usePathname } from 'next/navigation';
 import { useSession } from '@/components/providers/session-provider';
 
 interface BusinessProfile {
@@ -500,6 +501,7 @@ function ConversacionListRow({
 
 export default function AgentSidebar() {
   const { abrirCanvas } = useCanvas();
+  const pathname = usePathname();
   const { businessId, user, loading: sessionLoading } = useSession();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -530,6 +532,7 @@ export default function AgentSidebar() {
   }, []);
 
   const [selectedId, setSelectedId] = useState(businessId ?? '');
+
   const [mensaje, setMensaje] = useState('');
   const [historial, setHistorial] = useState<ChatMessage[]>([]);
   const [conversationId, setConversationId] = useState('');
@@ -703,6 +706,17 @@ export default function AgentSidebar() {
     setCurrentUserId(user?.id ?? null);
     setCurrentUserEmail(user?.email ?? null);
   }, [user]);
+
+  useEffect(() => {
+    if (!businessId || !currentUserId) return;
+    if (pathname !== '/dashboard') return;
+
+    const intent = sessionStorage.getItem('perfilio:intent_editar');
+    if (!intent) return;
+
+    sessionStorage.removeItem('perfilio:intent_editar');
+    setCanvasActivo(true);
+  }, [pathname, businessId, currentUserId]);
 
   useEffect(() => {
     if (!sessionLoading && businessId) {
@@ -1535,13 +1549,14 @@ export default function AgentSidebar() {
 
       {!collapsed && (
         <>
-          {selectedId && currentUserId && viewportLg !== null ? (
+          {canvasActivo && selectedId && currentUserId && viewportLg !== null ? (
             <PresupuestoBorradorCanvas
               businessId={selectedId}
               userId={currentUserId}
               supabase={supabase}
               onSendAgentMessage={(t) => handleEnviarTexto(t)}
               agentLoading={loading}
+              onClose={() => setCanvasActivo(false)}
               enableRealtime={viewportLg}
               enableBackground={!viewportLg && canvasActivo}
             />
@@ -1858,13 +1873,14 @@ export default function AgentSidebar() {
                       </div>
                     </div>
 
-                    {selectedId && currentUserId && viewportLg !== null ? (
+                    {canvasActivo && selectedId && currentUserId && viewportLg !== null ? (
                       <PresupuestoBorradorCanvas
                         businessId={selectedId}
                         userId={currentUserId}
                         supabase={supabase}
                         onSendAgentMessage={(t) => handleEnviarTexto(t)}
                         agentLoading={loading}
+                        onClose={() => setCanvasActivo(false)}
                         enableRealtime={!viewportLg && (mobileOpen || canvasActivo)}
                         enableBackground={!viewportLg && canvasActivo}
                       />
