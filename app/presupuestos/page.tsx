@@ -142,6 +142,54 @@ function PresupuestosPageContent() {
     );
   };
 
+  const errorRequiereEstadoAceptado = (msg: string) =>
+    msg.includes('Solo se puede convertir') || msg.includes('estado aceptado');
+
+  const generarFactura = async (p: Presupuesto) => {
+    const intentar = async () => {
+      const res = await fetch('/api/presupuestos/generar-factura', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ presupuesto_id: p.id }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        numero_factura?: number;
+      };
+      if (!res.ok || !data.ok) {
+        return { ok: false as const, error: data.error ?? 'No se pudo generar la factura' };
+      }
+      return {
+        ok: true as const,
+        numero_factura: data.numero_factura as number,
+      };
+    };
+
+    let r = await intentar();
+    if (
+      !r.ok &&
+      (p.estado ?? '').toLowerCase() === 'aprobado' &&
+      errorRequiereEstadoAceptado(r.error)
+    ) {
+      await supabase.from('presupuestos').update({ estado: 'aceptado' }).eq('id', p.id);
+      r = await intentar();
+    }
+
+    if (r.ok) {
+      alert(`Factura #${r.numero_factura} generada correctamente`);
+      await loadPresupuestos();
+    } else {
+      alert(r.error);
+    }
+  };
+
+  const puedeGenerarFactura = (estado: string | null) => {
+    const e = (estado ?? '').toLowerCase();
+    return e === 'aceptado' || e === 'aprobado';
+  };
+
   const descargarPDF = async (p: Presupuesto) => {
     const res = await fetch(`/api/pdf/presupuesto/${encodeURIComponent(p.id)}`, {
       credentials: 'include',
@@ -245,6 +293,15 @@ function PresupuestosPageContent() {
                   >
                     Descargar PDF
                   </button>
+                  {puedeGenerarFactura(p.estado) && (
+                    <button
+                      type="button"
+                      onClick={() => void generarFactura(p)}
+                      className="px-3 py-1.5 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+                    >
+                      Generar factura
+                    </button>
+                  )}
                   {(p.estado ?? 'borrador') === 'borrador' && (
                     <>
                       <button
@@ -322,12 +379,21 @@ function PresupuestosPageContent() {
                 {modalItem.presupuesto_generado ?? ''}
               </ReactMarkdown>
             </div>
-            <div className="p-4 border-t border-white/10 flex gap-2">
+            <div className="p-4 border-t border-white/10 flex flex-wrap gap-2">
               {(modalItem.estado ?? 'borrador') === 'borrador' && (
                 <>
                   <button type="button" onClick={() => setEstado(modalItem.id, 'aprobado')} className="px-4 py-2 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg">Aprobar</button>
                   <button type="button" onClick={() => setEstado(modalItem.id, 'rechazado')} className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg">Rechazar</button>
                 </>
+              )}
+              {puedeGenerarFactura(modalItem.estado) && (
+                <button
+                  type="button"
+                  onClick={() => void generarFactura(modalItem)}
+                  className="px-4 py-2 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg"
+                >
+                  Generar factura
+                </button>
               )}
               <button type="button" onClick={cerrarModal} className="px-4 py-2 text-sm font-medium bg-white/10 hover:bg-white/20 text-white rounded-lg">Cerrar</button>
             </div>
