@@ -45,7 +45,6 @@ export default function SessionProvider({ children }: { children: ReactNode }) {
     let mounted = true;
     const initTimeout = setTimeout(() => {
       if (!mounted) return;
-      hasInitiallyLoaded.current = true;
       setIsInitialized(true);
       setLoading(false);
       if (businessIdRef.current === null) setHasTimeoutError(true);
@@ -95,10 +94,12 @@ export default function SessionProvider({ children }: { children: ReactNode }) {
         } catch {
           if (!mounted) return;
           setBusinessName('');
+          if (businessIdRef.current !== null) setHasTimeoutError(false);
         } finally {
           if (mounted) {
             setLoading(false);
             setIsInitialized(true);
+            if (businessIdRef.current !== null) setHasTimeoutError(false);
           }
         }
       }
