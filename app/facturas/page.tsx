@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import { useRouter } from 'next/navigation';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
-import { jsPDF } from 'jspdf';
 import { X } from 'lucide-react';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import { type ObrasNombreJoin, nombreObraDesdeJoin } from '@/lib/obras-nombre-join';
@@ -104,91 +103,30 @@ export default function FacturasPage() {
   };
 
   const descargarPDF = async (f: Factura) => {
-    const { data: biz } = await supabase
-      .from('business_profiles')
-      .select('nombre')
-      .eq('id', f.business_id)
-      .single();
-    const nombreNegocio = (biz as { nombre?: string } | null)?.nombre ?? 'Negocio';
+    const res = await fetch(`/api/pdf/factura/${encodeURIComponent(f.id)}`, {
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      let msg = 'Error al generar el PDF';
+      try {
+        const j = (await res.json()) as { error?: string };
+        if (j?.error) msg = j.error;
+      } catch {
+        /* ignore */
+      }
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
     const fechaStr = f.fecha ?? new Date(f.created_at).toISOString().split('T')[0];
-
-    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-    const margin = 20;
-    const pageW = 210;
-    const pageH = 297;
-    let y = margin;
-
-    doc.setFontSize(18);
-    doc.setTextColor(26, 54, 93);
-    doc.text('FACTURA', margin, y);
-    y += 10;
-
-    doc.setFontSize(10);
-    doc.setTextColor(0, 0, 0);
-    doc.text(`Fecha: ${fechaStr}`, margin, y);
-    y += 6;
-    doc.text(`Vencimiento: ${f.fecha_vencimiento ?? ''}`, margin, y);
-    y += 6;
-    doc.text(`Número: ${f.numero_factura ?? ''}`, margin, y);
-    y += 6;
-    doc.text(`Cliente: ${f.cliente_nombre ?? ''}`, margin, y);
-    y += 6;
-    doc.text(`Dirección: ${f.cliente_direccion ?? ''}`, margin, y);
-    y += 6;
-    doc.text(`NIF: ${f.cliente_nif ?? ''}`, margin, y);
-    y += 10;
-
-    const base = Number(f.base_imponible ?? 0);
-    const iva = Number(f.iva ?? base * 0.21);
-    const total = Number(f.total ?? base + iva);
-
-    doc.text(`Base imponible: ${base.toFixed(2)} €`, margin, y);
-    y += 6;
-    doc.text(`IVA (21%): ${iva.toFixed(2)} €`, margin, y);
-    y += 6;
-    doc.text(`Total: ${total.toFixed(2)} €`, margin, y);
-    y += 10;
-
-    const descripcion = f.descripcion_trabajos ?? '';
-    const maxW = pageW - margin * 2;
-    const lineHeight = 6;
-    if (descripcion) {
-      doc.setFontSize(11);
-      const lines = doc.splitTextToSize(descripcion, maxW);
-      for (const line of lines) {
-        if (y > pageH - margin - 15) {
-          doc.addPage();
-          y = margin;
-        }
-        doc.text(line, margin, y);
-        y += lineHeight;
-      }
-      y += 4;
-    }
-
-    if (f.lineas != null) {
-      const lineasTxt = JSON.stringify(f.lineas, null, 2);
-      const lines = doc.splitTextToSize(lineasTxt, maxW);
-      doc.setFontSize(9);
-      for (const line of lines) {
-        if (y > pageH - margin - 15) {
-          doc.addPage();
-          y = margin;
-        }
-        doc.text(line, margin, y);
-        y += lineHeight;
-      }
-    }
-
-    const totalPages = doc.getNumberOfPages();
-    for (let i = 1; i <= totalPages; i++) {
-      doc.setPage(i);
-      doc.setFontSize(8);
-      doc.setTextColor(100, 100, 100);
-      doc.text('Generado por Perfilio', margin, pageH - 10);
-    }
-
-    doc.save(`factura-${fechaStr}.pdf`);
+    const num = f.numero_factura != null ? String(f.numero_factura) : f.id.slice(0, 8);
+    a.download = `factura-${fechaStr}-${num}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   };
 
   if (authChecking) {
@@ -264,7 +202,14 @@ export default function FacturasPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => descargarPDF(f)}
+                    onClick={async () => {
+                      try {
+                        await descargarPDF(f);
+                      } catch (e) {
+                        console.error(e);
+                        alert(e instanceof Error ? e.message : 'Error al descargar el PDF');
+                      }
+                    }}
                     className="px-3 py-1.5 text-sm font-medium bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-lg transition-colors"
                   >
                     Descargar PDF
@@ -384,7 +329,21 @@ export default function FacturasPage() {
                 </p>
               )}
             </div>
-            <div className="p-4 border-t border-white/10 flex gap-2">
+            <div className="p-4 border-t border-white/10 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await descargarPDF(detalleItem);
+                  } catch (e) {
+                    console.error(e);
+                    alert(e instanceof Error ? e.message : 'Error al descargar el PDF');
+                  }
+                }}
+                className="px-4 py-2 text-sm font-medium bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-lg"
+              >
+                Descargar PDF
+              </button>
               {(detalleItem.estado ?? 'pendiente').toLowerCase() === 'pendiente' && (
                 <>
                   <button
