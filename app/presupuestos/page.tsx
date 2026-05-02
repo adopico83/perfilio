@@ -18,6 +18,7 @@ interface Presupuesto {
   created_at: string;
   obra_id: string | null;
   cliente_nombre: string | null;
+  numero_presupuesto: number | null;
   obras?: ObrasNombreJoin;
 }
 
@@ -65,7 +66,7 @@ function PresupuestosPageContent() {
     const { data } = await supabase
       .from('presupuestos')
       .select(
-        'id, business_id, presupuesto_generado, fecha, estado, created_at, obra_id, cliente_nombre, obras(nombre)'
+        'id, business_id, presupuesto_generado, fecha, estado, created_at, obra_id, cliente_nombre, numero_presupuesto, obras(nombre)'
       )
       .order('created_at', { ascending: false });
     setPresupuestos((data ?? []) as unknown as Presupuesto[]);
@@ -196,7 +197,12 @@ function PresupuestosPageContent() {
               return (
               <li key={p.id} className="bg-white/5 border border-white/10 rounded-lg p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                  <span className="text-white/70 text-sm">{p.fecha ?? new Date(p.created_at).toLocaleDateString('es-ES')}</span>
+                  <span className="text-white/70 text-sm">
+                    {p.fecha ?? new Date(p.created_at).toLocaleDateString('es-ES')}
+                    {p.numero_presupuesto != null && Number.isFinite(Number(p.numero_presupuesto))
+                      ? ` · Presupuesto #${p.numero_presupuesto}`
+                      : ''}
+                  </span>
                   <div className="flex flex-wrap items-center gap-2">
                     {p.obra_id && obraNombre ? (
                       <button

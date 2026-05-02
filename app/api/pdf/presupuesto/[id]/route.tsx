@@ -63,7 +63,7 @@ export async function GET(
     const { data: pres, error: presErr } = await supabase
       .from('presupuestos')
       .select(
-        'id, business_id, presupuesto_generado, fecha, cliente_nombre, mensaje_cliente, obra_id, created_at, obras(nombre)'
+        'id, business_id, presupuesto_generado, fecha, cliente_nombre, mensaje_cliente, obra_id, created_at, numero_presupuesto, obras(nombre)'
       )
       .eq('id', id)
       .maybeSingle();
@@ -114,7 +114,11 @@ export async function GET(
       fechaRaw && fechaRaw.trim().length > 0 ? fechaRaw.trim() : fechaFallback;
 
     const mensaje = (pres as { mensaje_cliente?: string | null }).mensaje_cliente;
-    const numero = numeroPresupuestoDesdeMensaje(mensaje, pres.id as string);
+    const nCorr = (pres as { numero_presupuesto?: number | null }).numero_presupuesto;
+    const numero =
+      nCorr != null && Number.isFinite(Number(nCorr))
+        ? String(Number(nCorr))
+        : numeroPresupuestoDesdeMensaje(mensaje, pres.id as string);
 
     const obraJoin = (pres as { obras?: { nombre?: string } | { nombre?: string }[] | null }).obras;
     const obraNombre = Array.isArray(obraJoin) ? obraJoin[0]?.nombre : obraJoin?.nombre;
