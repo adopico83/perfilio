@@ -104,7 +104,7 @@ async function sendPushToBusiness(
   const supabase = createServiceClient();
   const { data: rows, error } = await supabase
     .from('push_subscriptions')
-    .select('subscription')
+    .select('subscription, endpoint')
     .eq('business_id', businessId);
 
   if (error) {
@@ -126,6 +126,22 @@ async function sendPushToBusiness(
       await webpush.sendNotification(sub, payload, { TTL: 60 * 60 });
       sent += 1;
     } catch (e) {
+      const statusCode =
+        typeof e === 'object' &&
+        e !== null &&
+        'statusCode' in e &&
+        typeof (e as { statusCode?: unknown }).statusCode === 'number'
+          ? (e as { statusCode: number }).statusCode
+          : null;
+      if ((statusCode === 404 || statusCode === 410) && sub.endpoint) {
+        const { error: deleteErr } = await supabase
+          .from('push_subscriptions')
+          .delete()
+          .eq('endpoint', sub.endpoint);
+        if (deleteErr) {
+          errors.push(`cleanup ${sub.endpoint}: ${deleteErr.message}`);
+        }
+      }
       errors.push(e instanceof Error ? e.message : 'send failed');
     }
   }

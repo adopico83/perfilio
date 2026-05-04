@@ -317,6 +317,7 @@ function DashboardContent() {
   const [secResumenOpen, setSecResumenOpen] = useState(true);
   const [secMetricasOpen, setSecMetricasOpen] = useState(true);
   const [secActividadOpen, setSecActividadOpen] = useState(true);
+  const [showPushRecoveryCta, setShowPushRecoveryCta] = useState(false);
 
   /** Cadena vacía hasta montar: el saludo depende de la hora local (no SSR). */
   const [saludoBanner, setSaludoBanner] = useState('');
@@ -328,6 +329,36 @@ function DashboardContent() {
     setMesCalendario((prev) => prev ?? d);
     setFechaHoyIso(d.toISOString().slice(0, 10));
     setSaludoBanner(getSaludoDesdeHoraLocal(d.getHours()));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const checkLocalPushSubscription = async () => {
+      if (typeof window === 'undefined') return;
+      if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+        setShowPushRecoveryCta(false);
+        return;
+      }
+      if (Notification.permission !== 'granted') {
+        setShowPushRecoveryCta(false);
+        return;
+      }
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (!cancelled) {
+          setShowPushRecoveryCta(sub === null);
+        }
+      } catch {
+        if (!cancelled) {
+          setShowPushRecoveryCta(false);
+        }
+      }
+    };
+    void checkLocalPushSubscription();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -1194,6 +1225,16 @@ function DashboardContent() {
       />
 
       <main className="max-w-7xl mx-auto px-6 py-3 lg:py-4 space-y-3 lg:space-y-3">
+        {showPushRecoveryCta ? (
+          <section className="rounded-xl border border-amber-400/60 bg-amber-500/10 px-4 py-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-amber-100">
+                Las notificaciones estaban permitidas en este navegador, pero la suscripción push local se perdió. Actívalas de nuevo en este dispositivo.
+              </p>
+              <NotificationButton />
+            </div>
+          </section>
+        ) : null}
         <section className="flex flex-col gap-0.5">
           <h1 className="text-2xl sm:text-3xl font-bold">
             {saludoBanner ? `${saludoBanner}, ` : ''}
@@ -1201,7 +1242,7 @@ function DashboardContent() {
           </h1>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
             <p className="text-sm text-white/70">Aquí tienes el resumen de tu negocio</p>
-            <NotificationButton />
+            {!showPushRecoveryCta ? <NotificationButton /> : null}
           </div>
         </section>
 
