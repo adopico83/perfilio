@@ -58,6 +58,13 @@ function parseHoras(raw: unknown): number | null {
   return null;
 }
 
+/** Tarifa fija de referencia para estimación de coste sobre horas reales (sin persistir en BD). */
+const COSTE_HORA_REFERENCIA_EUR = 32;
+
+function costeDesdeHorasReales(horasReales: number): number {
+  return Math.round(horasReales * COSTE_HORA_REFERENCIA_EUR * 100) / 100;
+}
+
 async function buscarOperariosPorNombre(
   supabase: SupabaseClient,
   businessId: string,
@@ -481,7 +488,14 @@ export async function ejecutarConsultarHorasObra(
     }
   }
 
-  const items = [...byOp.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  const items = [...byOp.values()]
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+    .map((row) => ({
+      ...row,
+      coste_total: costeDesdeHorasReales(row.horas_reales),
+    }));
+  const coste_total_obra = items.reduce((acc, it) => acc + it.coste_total, 0);
+
   const nombreObra =
     obraRes.obra_nombre?.trim() ||
     (await (async () => {
@@ -494,7 +508,12 @@ export async function ejecutarConsultarHorasObra(
       return String((r as { nombre?: string | null } | null)?.nombre ?? '').trim() || 'Obra';
     })());
 
-  return { obra_id: obraRes.obra_id, obra_nombre: nombreObra, items };
+  return {
+    obra_id: obraRes.obra_id,
+    obra_nombre: nombreObra,
+    items,
+    coste_total_obra: Math.round(coste_total_obra * 100) / 100,
+  };
 }
 
 export async function ejecutarConsultarHorasOperario(
@@ -565,6 +584,7 @@ export async function ejecutarConsultarHorasOperario(
     mes,
     horas_reales_total: totalReales,
     horas_convenio_total: totalConvenio,
+    coste_total: costeDesdeHorasReales(totalReales),
     detalle_por_dia: porDia,
   };
 }
