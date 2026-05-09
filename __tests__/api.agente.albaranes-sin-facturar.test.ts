@@ -117,10 +117,31 @@ describe('POST /api/agente — albaranes_sin_facturar', () => {
     };
   }
 
+  function toolPayloadFromFinalCompletion(toolName: string): unknown {
+    const req = createMock.mock.calls[3]?.[0] as {
+      messages: Array<{ role: string; content?: string | null }>;
+    };
+    const lastUser = [...(req?.messages ?? [])].reverse().find((m) => m.role === 'user');
+    const line = String(lastUser?.content ?? '')
+      .split('\n')
+      .find((l) => l.startsWith(`${toolName}: `));
+    if (!line) throw new Error(`missing tool line ${toolName}`);
+    return JSON.parse(line.slice(toolName.length + 2));
+  }
+
   it('albaranes_sin_facturar devuelve mensaje cuando no hay pendientes', async () => {
     createMock
       .mockResolvedValueOnce(mockRouterGeneral())
       .mockResolvedValueOnce(toolCallMessage('albaranes_sin_facturar', '{}'))
+      .mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify([{ tool: 'albaranes_sin_facturar', args: {} }]),
+            },
+          },
+        ],
+      })
       .mockResolvedValueOnce({
         choices: [{ message: { content: 'Respuesta final del agente.' } }],
       });
@@ -143,11 +164,7 @@ describe('POST /api/agente — albaranes_sin_facturar', () => {
 
     const res = await POST(req);
     expect(res.status).toBe(200);
-    const secondCall = createMock.mock.calls[2]?.[0] as {
-      messages: Array<{ role: string; content?: string }>;
-    };
-    const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-    const parsed = JSON.parse(toolMsg!.content as string) as { mensaje?: string };
+    const parsed = toolPayloadFromFinalCompletion('albaranes_sin_facturar') as { mensaje?: string };
     expect(parsed.mensaje).toBe('No hay albaranes pendientes de facturar.');
     expect(listarAlbaranesSinFacturar).toHaveBeenCalled();
   });

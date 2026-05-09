@@ -199,6 +199,11 @@ describe('POST /api/agente', () => {
   });
 
   it('responde con datos válidos y guarda un presupuesto con importe_total y cliente_nombre', async () => {
+    const crearPresupuestoArgs = {
+      texto_presupuesto: 'Presupuesto para Juan Pérez. Total 123,45 €',
+      cliente_nombre: 'Juan Pérez',
+      importe_total: 123.45,
+    };
     createMock
       .mockResolvedValueOnce({
         choices: [{ message: { content: 'documentos' } }],
@@ -214,14 +219,19 @@ describe('POST /api/agente', () => {
                   id: 'call_1',
                   function: {
                     name: 'crear_presupuesto',
-                    arguments: JSON.stringify({
-                      texto_presupuesto: 'Presupuesto para Juan Pérez. Total 123,45 €',
-                      cliente_nombre: 'Juan Pérez',
-                      importe_total: 123.45,
-                    }),
+                    arguments: JSON.stringify(crearPresupuestoArgs),
                   },
                 },
               ],
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify([{ tool: 'crear_presupuesto', args: crearPresupuestoArgs }]),
             },
           },
         ],

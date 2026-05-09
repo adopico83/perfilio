@@ -122,12 +122,34 @@ describe('POST /api/agente — consultar_tiempo', () => {
     };
   }
 
+  function toolPayloadFromFinalCompletion(toolName: string): unknown {
+    const req = createMock.mock.calls[3]?.[0] as {
+      messages: Array<{ role: string; content?: string | null }>;
+    };
+    const lastUser = [...(req?.messages ?? [])].reverse().find((m) => m.role === 'user');
+    const line = String(lastUser?.content ?? '')
+      .split('\n')
+      .find((l) => l.startsWith(`${toolName}: `));
+    if (!line) throw new Error(`missing tool line ${toolName}`);
+    return JSON.parse(line.slice(toolName.length + 2));
+  }
+
   it('consultar_tiempo devuelve mensaje con emoji y temperatura', async () => {
+    const tiempoArgs = JSON.stringify({ ubicacion: 'Madrid', dias: 1 });
     createMock
       .mockResolvedValueOnce(mockRouterGeneral())
-      .mockResolvedValueOnce(
-        toolCallMessage('consultar_tiempo', JSON.stringify({ ubicacion: 'Madrid', dias: 1 }))
-      )
+      .mockResolvedValueOnce(toolCallMessage('consultar_tiempo', tiempoArgs))
+      .mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify([
+                { tool: 'consultar_tiempo', args: JSON.parse(tiempoArgs) as Record<string, unknown> },
+              ]),
+            },
+          },
+        ],
+      })
       .mockResolvedValueOnce({
         choices: [{ message: { content: 'Listo.' } }],
       });
@@ -151,11 +173,7 @@ describe('POST /api/agente — consultar_tiempo', () => {
 
     const res = await POST(req);
     expect(res.status).toBe(200);
-    const secondCall = createMock.mock.calls[2]?.[0] as {
-      messages: Array<{ role: string; content?: string }>;
-    };
-    const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-    const parsed = JSON.parse(toolMsg!.content as string) as { mensaje?: string };
+    const parsed = toolPayloadFromFinalCompletion('consultar_tiempo') as { mensaje?: string };
     expect(parsed.mensaje).toContain('☀️');
     expect(parsed.mensaje).toMatch(/°C/);
     expect(parsed.mensaje).toContain('12');

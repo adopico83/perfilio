@@ -101,24 +101,41 @@ describe('POST /api/agente — extras', () => {
     };
   }
 
+  function toolPayloadFromFinalCompletion(toolName: string): unknown {
+    const req = createMock.mock.calls[3]?.[0] as {
+      messages: Array<{ role: string; content?: string | null }>;
+    };
+    const lastUser = [...(req?.messages ?? [])].reverse().find((m) => m.role === 'user');
+    const line = String(lastUser?.content ?? '')
+      .split('\n')
+      .find((l) => l.startsWith(`${toolName}: `));
+    if (!line) throw new Error(`missing tool line ${toolName}`);
+    return JSON.parse(line.slice(toolName.length + 2));
+  }
+
   it('registrar_extra devuelve mensaje con descripción e importe', async () => {
     const insertMock = jest.fn().mockReturnValue({
       then: (onOk: (v: unknown) => unknown) =>
         Promise.resolve({ data: null, error: null }).then(onOk),
     });
 
+    const extraArgs = {
+      descripcion: 'Toma adicional de luz',
+      importe: 350.5,
+      presupuesto_parent_id: 'parent-uuid-1',
+    };
     createMock
       .mockResolvedValueOnce(mockRouterGeneral())
-      .mockResolvedValueOnce(
-        toolCallMessage(
-          'registrar_extra',
-          JSON.stringify({
-            descripcion: 'Toma adicional de luz',
-            importe: 350.5,
-            presupuesto_parent_id: 'parent-uuid-1',
-          })
-        )
-      )
+      .mockResolvedValueOnce(toolCallMessage('registrar_extra', JSON.stringify(extraArgs)))
+      .mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify([{ tool: 'registrar_extra', args: extraArgs }]),
+            },
+          },
+        ],
+      })
       .mockResolvedValueOnce({
         choices: [{ message: { content: 'Listo.' } }],
       });
@@ -185,11 +202,7 @@ describe('POST /api/agente — extras', () => {
     const res = await POST(req);
     expect(res.status).toBe(200);
 
-    const secondCall = createMock.mock.calls[2]?.[0] as {
-      messages: Array<{ role: string; content?: string }>;
-    };
-    const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-    const parsed = JSON.parse(toolMsg!.content as string) as { mensaje?: string };
+    const parsed = toolPayloadFromFinalCompletion('registrar_extra') as { mensaje?: string };
     expect(parsed.mensaje).toContain('Toma adicional de luz');
     expect(parsed.mensaje).toContain('350.50');
     expect(parsed.mensaje).toContain('Obra Norte');
@@ -204,6 +217,15 @@ describe('POST /api/agente — extras', () => {
     createMock
       .mockResolvedValueOnce(mockRouterGeneral())
       .mockResolvedValueOnce(toolCallMessage('listar_extras', '{}'))
+      .mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify([{ tool: 'listar_extras', args: {} }]),
+            },
+          },
+        ],
+      })
       .mockResolvedValueOnce({
         choices: [{ message: { content: 'Aquí tienes los extras.' } }],
       });
@@ -243,11 +265,7 @@ describe('POST /api/agente — extras', () => {
     const res = await POST(req);
     expect(res.status).toBe(200);
 
-    const secondCall = createMock.mock.calls[2]?.[0] as {
-      messages: Array<{ role: string; content?: string }>;
-    };
-    const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-    const parsed = JSON.parse(toolMsg!.content as string) as {
+    const parsed = toolPayloadFromFinalCompletion('listar_extras') as {
       items?: Array<{ descripcion?: string | null; importe?: number | null }>;
     };
     expect(parsed.items).toHaveLength(1);

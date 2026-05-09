@@ -109,6 +109,54 @@ describe('POST /api/agente — tools', () => {
     };
   }
 
+  function planningResponseForTool(toolName: string, toolArgs: string | Record<string, unknown>) {
+    let args: Record<string, unknown>;
+    if (typeof toolArgs === 'string') {
+      try {
+        args = toolArgs && toolArgs.trim() ? JSON.parse(toolArgs) : {};
+      } catch {
+        args = {};
+      }
+    } else {
+      args = toolArgs;
+    }
+    return {
+      choices: [{ message: { content: JSON.stringify([{ tool: toolName, args }]) } }],
+    };
+  }
+
+  /** Índice de la llamada OpenAI final (tras router, agente con tools, planning). */
+  const FINAL_OPENAI_CALL_INDEX = 3;
+
+  function toolResultsMapFromFinalCompletion(): Map<string, unknown> {
+    const req = createMock.mock.calls[FINAL_OPENAI_CALL_INDEX]?.[0] as {
+      messages: Array<{ role: string; content?: string | null }>;
+    };
+    const lastUser = req?.messages ? [...req.messages].reverse().find((m) => m.role === 'user') : undefined;
+    const content = String(lastUser?.content ?? '');
+    const m = new Map<string, unknown>();
+    for (const line of content.split('\n')) {
+      const idx = line.indexOf(': ');
+      if (idx <= 0) continue;
+      const name = line.slice(0, idx).trim();
+      if (!/^[a-z0-9_]+$/.test(name)) continue;
+      try {
+        m.set(name, JSON.parse(line.slice(idx + 2)));
+      } catch {
+        /* línea no es JSON de tool */
+      }
+    }
+    return m;
+  }
+
+  function singleToolResultFromFinalCompletion(): unknown {
+    const tr = toolResultsMapFromFinalCompletion();
+    if (tr.size !== 1) {
+      throw new Error(`Expected 1 tool result, got ${tr.size}: ${[...tr.keys()].join(', ')}`);
+    }
+    return [...tr.values()][0];
+  }
+
   /** Primera llamada OpenAI en /api/agente: clasificador de intención (todas las tools). */
   function mockRouterGeneral() {
     return {
@@ -124,6 +172,7 @@ describe('POST /api/agente — tools', () => {
     createMock
       .mockResolvedValueOnce(mockRouterGeneral())
       .mockResolvedValueOnce(toolCallMessage(toolName, toolArgs))
+      .mockResolvedValueOnce(planningResponseForTool(toolName, toolArgs))
       .mockResolvedValueOnce({
         choices: [{ message: { content: 'Respuesta final del agente.' } }],
       });
@@ -157,12 +206,7 @@ describe('POST /api/agente — tools', () => {
       });
       expect(res.status).toBe(200);
 
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      expect(toolMsg?.content).toBeDefined();
-      expect(JSON.parse(toolMsg!.content as string)).toEqual({ items: [] });
+      expect(singleToolResultFromFinalCompletion()).toEqual({ items: [] });
     });
 
     it('devuelve mensajes correctamente cuando existen', async () => {
@@ -191,11 +235,7 @@ describe('POST /api/agente — tools', () => {
       });
       expect(res.status).toBe(200);
 
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as {
+      const parsed = singleToolResultFromFinalCompletion() as {
         items: Array<{ respuesta_ia: string | null }>;
       };
       expect(parsed.items).toHaveLength(1);
@@ -213,11 +253,7 @@ describe('POST /api/agente — tools', () => {
       });
       expect(res.status).toBe(200);
 
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      expect(JSON.parse(toolMsg!.content as string)).toEqual({ error: 'fallo red' });
+      expect(singleToolResultFromFinalCompletion()).toEqual({ error: 'fallo red' });
     });
   });
 
@@ -226,11 +262,7 @@ describe('POST /api/agente — tools', () => {
       const pres = makeThenableResult({ data: [], error: null });
       const res = await postWithTool('obtener_presupuestos_pendientes', { presupuestos: pres });
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      expect(JSON.parse(toolMsg!.content as string)).toEqual({ items: [] });
+      expect(singleToolResultFromFinalCompletion()).toEqual({ items: [] });
     });
 
     it('devuelve presupuestos con cliente, importe y fecha', async () => {
@@ -246,11 +278,7 @@ describe('POST /api/agente — tools', () => {
       });
       const res = await postWithTool('obtener_presupuestos_pendientes', { presupuestos: pres });
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as { items: unknown[] };
+      const parsed = singleToolResultFromFinalCompletion() as { items: unknown[] };
       expect(parsed.items).toEqual([
         { cliente: 'Ana', importe: 99.5, fecha: '2025-03-01' },
       ]);
@@ -263,11 +291,7 @@ describe('POST /api/agente — tools', () => {
       });
       const res = await postWithTool('obtener_presupuestos_pendientes', { presupuestos: pres });
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      expect(JSON.parse(toolMsg!.content as string)).toEqual({ error: 'error presupuestos' });
+      expect(singleToolResultFromFinalCompletion()).toEqual({ error: 'error presupuestos' });
     });
   });
 
@@ -276,11 +300,7 @@ describe('POST /api/agente — tools', () => {
       const fac = makeThenableResult({ data: [], error: null });
       const res = await postWithTool('obtener_facturas_pendientes', { facturas: fac });
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      expect(JSON.parse(toolMsg!.content as string)).toEqual({ items: [] });
+      expect(singleToolResultFromFinalCompletion()).toEqual({ items: [] });
     });
 
     it('devuelve facturas con cliente, importe y fecha', async () => {
@@ -290,11 +310,7 @@ describe('POST /api/agente — tools', () => {
       });
       const res = await postWithTool('obtener_facturas_pendientes', { facturas: fac });
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as { items: unknown[] };
+      const parsed = singleToolResultFromFinalCompletion() as { items: unknown[] };
       expect(parsed.items).toEqual([{ cliente: 'Luis', importe: 200, fecha: '2025-02-01' }]);
     });
 
@@ -305,11 +321,7 @@ describe('POST /api/agente — tools', () => {
       });
       const res = await postWithTool('obtener_facturas_pendientes', { facturas: fac });
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      expect(JSON.parse(toolMsg!.content as string)).toEqual({ error: 'error facturas' });
+      expect(singleToolResultFromFinalCompletion()).toEqual({ error: 'error facturas' });
     });
   });
 
@@ -318,11 +330,7 @@ describe('POST /api/agente — tools', () => {
       const alb = makeThenableResult({ data: [], error: null });
       const res = await postWithTool('obtener_albaranes_pendientes', { albaranes: alb });
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      expect(JSON.parse(toolMsg!.content as string)).toEqual({ items: [] });
+      expect(singleToolResultFromFinalCompletion()).toEqual({ items: [] });
     });
 
     it('devuelve albaranes con cliente y fecha', async () => {
@@ -332,11 +340,7 @@ describe('POST /api/agente — tools', () => {
       });
       const res = await postWithTool('obtener_albaranes_pendientes', { albaranes: alb });
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as { items: unknown[] };
+      const parsed = singleToolResultFromFinalCompletion() as { items: unknown[] };
       expect(parsed.items).toEqual([{ cliente: 'Pepe', fecha: '2025-01-15' }]);
     });
 
@@ -347,11 +351,7 @@ describe('POST /api/agente — tools', () => {
       });
       const res = await postWithTool('obtener_albaranes_pendientes', { albaranes: alb });
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      expect(JSON.parse(toolMsg!.content as string)).toEqual({ error: 'error albaranes' });
+      expect(singleToolResultFromFinalCompletion()).toEqual({ error: 'error albaranes' });
     });
   });
 
@@ -370,11 +370,7 @@ describe('POST /api/agente — tools', () => {
         gmail_tokens: gmailTokens as unknown as ReturnType<typeof makeThenableResult>,
       });
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as { error?: string };
+      const parsed = singleToolResultFromFinalCompletion() as { error?: string };
       expect(parsed.error).toBe('Gmail no conectado para este usuario');
     });
 
@@ -415,11 +411,7 @@ describe('POST /api/agente — tools', () => {
         gmail_tokens: gmailTokens as unknown as ReturnType<typeof makeThenableResult>,
       });
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as {
+      const parsed = singleToolResultFromFinalCompletion() as {
         items: Array<{ remitente: string | null; asunto: string | null }>;
       };
       expect(parsed.items).toHaveLength(1);
@@ -438,11 +430,7 @@ describe('POST /api/agente — tools', () => {
     it('devuelve borrador pendiente de aprobación (sin Gmail)', async () => {
       const res = await postWithTool('enviar_email', {}, args);
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      expect(JSON.parse(toolMsg!.content as string)).toEqual({
+      expect(singleToolResultFromFinalCompletion()).toEqual({
         tipo: 'email_pendiente_aprobacion',
         para: 'x@y.com',
         asunto: 'Hola',
@@ -457,11 +445,7 @@ describe('POST /api/agente — tools', () => {
         JSON.stringify({ destinatario: '', asunto: 'x', cuerpo: 'y' })
       );
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as { error?: string };
+      const parsed = singleToolResultFromFinalCompletion() as { error?: string };
       expect(parsed.error).toContain('Faltan parámetros');
     });
   });
@@ -477,11 +461,7 @@ describe('POST /api/agente — tools', () => {
       });
       const res = await postWithTool('calcular_medicion', {}, args);
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as {
+      const parsed = singleToolResultFromFinalCompletion() as {
         total: number;
         unidad: string;
         descripcion?: string;
@@ -501,11 +481,7 @@ describe('POST /api/agente — tools', () => {
       });
       const res = await postWithTool('calcular_medicion', {}, args);
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as { total: number; unidad: string };
+      const parsed = singleToolResultFromFinalCompletion() as { total: number; unidad: string };
       expect(parsed.unidad).toBe('m²');
       expect(parsed.total).toBeCloseTo(1, 5);
     });
@@ -521,11 +497,7 @@ describe('POST /api/agente — tools', () => {
         })
       );
       expect(resVol.status).toBe(200);
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as { total: number; unidad: string };
+      const parsed = singleToolResultFromFinalCompletion() as { total: number; unidad: string };
       expect(parsed.unidad).toBe('m³');
       expect(parsed.total).toBeCloseTo(6, 5);
     });
@@ -541,11 +513,7 @@ describe('POST /api/agente — tools', () => {
         })
       );
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as { total: number; unidad: string };
+      const parsed = singleToolResultFromFinalCompletion() as { total: number; unidad: string };
       expect(parsed.unidad).toBe('ml');
       expect(parsed.total).toBeCloseTo(10, 5);
     });
@@ -564,11 +532,7 @@ describe('POST /api/agente — tools', () => {
         })
       );
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as { total: number; unidad: string };
+      const parsed = singleToolResultFromFinalCompletion() as { total: number; unidad: string };
       expect(parsed.unidad).toBe('ml');
       expect(parsed.total).toBeCloseTo(5, 5);
     });
@@ -584,11 +548,7 @@ describe('POST /api/agente — tools', () => {
         })
       );
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as { error?: string };
+      const parsed = singleToolResultFromFinalCompletion() as { error?: string };
       expect(parsed.error).toContain('alto');
     });
   });
@@ -604,11 +564,7 @@ describe('POST /api/agente — tools', () => {
         })
       );
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as { mensaje?: string };
+      const parsed = singleToolResultFromFinalCompletion() as { mensaje?: string };
       expect(parsed.mensaje).toMatch(/^📍 \[/);
       expect(parsed.mensaje).toContain('Obra centro');
       expect(parsed.mensaje).toContain('https://maps.google.com/?q=');
@@ -645,11 +601,7 @@ describe('POST /api/agente — tools', () => {
           email: 't@x.es',
         })
       );
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as {
+      const parsed = singleToolResultFromFinalCompletion() as {
         mensaje?: string;
         id?: string;
       };
@@ -676,11 +628,7 @@ describe('POST /api/agente — tools', () => {
       );
       expect(res.status).toBe(200);
       expect(insertCliente).not.toHaveBeenCalled();
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as {
+      const parsed = singleToolResultFromFinalCompletion() as {
         mensaje?: string;
         id?: string;
         existente?: boolean;
@@ -710,11 +658,7 @@ describe('POST /api/agente — tools', () => {
       expect(res.status).toBe(200);
       expect(insertObra).toHaveBeenCalled();
 
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as { mensaje?: string };
+      const parsed = singleToolResultFromFinalCompletion() as { mensaje?: string };
       expect(parsed.mensaje).toBe(
         `Obra '${nombreObra}' creada para sin cliente en sin dirección. Estado: Abierta.`
       );
@@ -740,11 +684,7 @@ describe('POST /api/agente — tools', () => {
       );
       expect(res.status).toBe(200);
       expect(insertObra).not.toHaveBeenCalled();
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as {
+      const parsed = singleToolResultFromFinalCompletion() as {
         mensaje?: string;
         id?: string;
         existente?: boolean;
@@ -789,11 +729,7 @@ describe('POST /api/agente — tools', () => {
 
       expect(res.status).toBe(200);
 
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as { mensaje?: string };
+      const parsed = singleToolResultFromFinalCompletion() as { mensaje?: string };
 
       expect(parsed.mensaje).toBe(
         `Asociados ${nPres} presupuestos, ${nFac} facturas, ${nAlb} albaranes a la obra '${obraNombre}'.`
@@ -842,11 +778,7 @@ describe('POST /api/agente — tools', () => {
 
       expect(res.status).toBe(200);
 
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as { mensaje?: string };
+      const parsed = singleToolResultFromFinalCompletion() as { mensaje?: string };
       expect(parsed.mensaje).toContain('Albarán creado correctamente a partir del presupuesto de Juan Pérez');
       expect(parsed.mensaje).toContain('marcado como aceptado');
       expect(insertMockAlb).toHaveBeenCalled();
@@ -898,11 +830,7 @@ describe('POST /api/agente — tools', () => {
 
       expect(res.status).toBe(200);
 
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as { mensaje?: string };
+      const parsed = singleToolResultFromFinalCompletion() as { mensaje?: string };
       expect(parsed.mensaje).toContain('Factura creada correctamente a partir del albarán de Cliente X');
       expect(parsed.mensaje).toContain(`Total: ${Number(total).toFixed(2)}€`);
       expect(parsed.mensaje).toContain('marcado como facturado');
@@ -951,6 +879,15 @@ describe('POST /api/agente — tools', () => {
             })
           )
         )
+        .mockResolvedValueOnce(
+          planningResponseForTool('vincular_gasto', {
+            gasto_id: gastoUuid,
+            documentos: [
+              { tipo: 'factura', id: facturaUuid },
+              { tipo: 'albaran', id: albaranUuid },
+            ],
+          })
+        )
         .mockResolvedValueOnce({
           choices: [{ message: { content: 'Respuesta final del agente.' } }],
         });
@@ -995,11 +932,7 @@ describe('POST /api/agente — tools', () => {
         },
       ]);
 
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as { mensaje?: string };
+      const parsed = singleToolResultFromFinalCompletion() as { mensaje?: string };
       expect(parsed.mensaje).toBe('Gasto vinculado correctamente a 2 documento(s).');
     });
 
@@ -1026,6 +959,12 @@ describe('POST /api/agente — tools', () => {
               documentos: [{ tipo: 'factura', id: facturaUuid }],
             })
           )
+        )
+        .mockResolvedValueOnce(
+          planningResponseForTool('vincular_gasto', {
+            gasto_id: gastoUuid,
+            documentos: [{ tipo: 'factura', id: facturaUuid }],
+          })
         )
         .mockResolvedValueOnce({
           choices: [{ message: { content: 'Listo.' } }],
@@ -1054,11 +993,7 @@ describe('POST /api/agente — tools', () => {
 
       const res = await POST(req);
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as { mensaje?: string };
+      const parsed = singleToolResultFromFinalCompletion() as { mensaje?: string };
       expect(parsed.mensaje).toMatch(/Gasto vinculado correctamente a 1 documento/);
     });
   });
@@ -1075,6 +1010,12 @@ describe('POST /api/agente — tools', () => {
               texto: 'Instalación eléctrica',
             })
           )
+        )
+        .mockResolvedValueOnce(
+          planningResponseForTool('crear_entrada_diario', {
+            obra_nombre: 'Reforma Norte',
+            texto: 'Instalación eléctrica',
+          })
         )
         .mockResolvedValueOnce({
           choices: [{ message: { content: 'Respuesta final del agente.' } }],
@@ -1118,11 +1059,7 @@ describe('POST /api/agente — tools', () => {
 
       const res = await POST(req);
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as { mensaje?: string; id?: string };
+      const parsed = singleToolResultFromFinalCompletion() as { mensaje?: string; id?: string };
       expect(parsed.id).toBe('diario-uuid-1');
       expect(parsed.mensaje).toContain('Reforma Norte');
       expect(parsed.mensaje).toMatch(/para el/);
@@ -1148,6 +1085,7 @@ describe('POST /api/agente — tools', () => {
       createMock
         .mockResolvedValueOnce(mockRouterGeneral())
         .mockResolvedValueOnce(toolCallMessage('mostrar_vista_visual', args))
+        .mockResolvedValueOnce(planningResponseForTool('mostrar_vista_visual', args))
         .mockResolvedValueOnce({
           choices: [
             {
@@ -1176,11 +1114,7 @@ describe('POST /api/agente — tools', () => {
 
       const res = await POST(req);
       expect(res.status).toBe(200);
-      const secondCall = createMock.mock.calls[2]?.[0] as {
-        messages: Array<{ role: string; content?: string }>;
-      };
-      const toolMsg = secondCall.messages.find((m) => m.role === 'tool');
-      const parsed = JSON.parse(toolMsg!.content as string) as {
+      const parsed = singleToolResultFromFinalCompletion() as {
         accion: string;
         tipo: string;
         titulo: string;
