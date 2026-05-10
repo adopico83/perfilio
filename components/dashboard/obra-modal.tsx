@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Trash2, X } from 'lucide-react';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import { etiquetaGastoCategoria } from '@/lib/gastos-categoria';
+import { createClient } from '@/lib/supabase/client';
 import DiarioEntradaDeleteDialog from '@/components/dashboard/diario-entrada-delete-dialog';
 
 type FichaObraResponse = {
@@ -67,15 +68,8 @@ function fmtFecha(iso: unknown): string {
   return d.toLocaleDateString('es-ES', { dateStyle: 'medium' });
 }
 
-function fmtDiaCorto(iso: unknown): string {
-  if (!iso) return '—';
-  const s = String(iso).slice(0, 10);
-  const d = new Date(`${s}T12:00:00`);
-  if (Number.isNaN(d.getTime())) return s;
-  return d
-    .toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })
-    .replace('.', '')
-    .toLowerCase();
+function costeHorasRealesEUR(horasReales: number): number {
+  return Math.round(horasReales * 32 * 100) / 100;
 }
 
 export default function ObraModal() {
@@ -89,6 +83,12 @@ export default function ObraModal() {
   const [estadoUpdating, setEstadoUpdating] = useState(false);
   const [pendingDeleteDiarioId, setPendingDeleteDiarioId] = useState<string | null>(null);
   const [deletingDiarioId, setDeletingDiarioId] = useState<string | null>(null);
+  const [horasJornada, setHorasJornada] = useState<Array<Record<string, unknown>>>([]);
+  const [horasLoading, setHorasLoading] = useState(false);
+  const [horasError, setHorasError] = useState<string | null>(null);
+  const [operarioNombrePorId, setOperarioNombrePorId] = useState<Map<string, string>>(
+    () => new Map()
+  );
 
   const recargarFicha = useCallback(async () => {
     if (!obraId) return;
@@ -121,9 +121,80 @@ export default function ObraModal() {
     setError(null);
     setFicha(null);
     setTab('resumen');
+    setHorasJornada([]);
+    setHorasError(null);
+    setHorasLoading(false);
+    setOperarioNombrePorId(new Map());
 
     void recargarFicha();
   }, [isOpen, obraId]);
+
+  useEffect(() => {
+    if (tab !== 'horas' || !obraId) return;
+    const businessId = ficha?.obra?.business_id;
+    if (!businessId) return;
+
+    let cancelled = false;
+    setHorasLoading(true);
+    setHorasError(null);
+
+    void (async () => {
+      try {
+        const supabase = createClient();
+        const { data, error: supaErr } = await supabase
+          .from('registros_jornada')
+          .select('id, fecha, horas_reales, horas_convenio, notas, operario_id')
+          .eq('business_id', businessId)
+          .eq('obra_id', obraId)
+          .order('fecha', { ascending: false });
+
+        if (cancelled) return;
+        if (supaErr) {
+          setHorasError(supaErr.message);
+          setHorasJornada([]);
+          setOperarioNombrePorId(new Map());
+        } else {
+          const rows = (data as Array<Record<string, unknown>> | null) ?? [];
+          const operarioIds = [
+            ...new Set(
+              rows
+                .map((r) => r.operario_id)
+                .filter((id): id is NonNullable<typeof id> => Boolean(id))
+                .map((id) => String(id))
+            ),
+          ];
+
+          const nombrePorId = new Map<string, string>();
+          if (operarioIds.length > 0) {
+            const { data: operariosData } = await supabase
+              .from('operarios')
+              .select('id, nombre')
+              .in('id', operarioIds);
+            if (cancelled) return;
+            for (const o of (operariosData ?? []) as Array<{ id: string; nombre?: string | null }>) {
+              const nom = String(o.nombre ?? '').trim();
+              if (nom) nombrePorId.set(String(o.id), nom);
+            }
+          }
+          if (cancelled) return;
+          setOperarioNombrePorId(nombrePorId);
+          setHorasJornada(rows);
+        }
+      } catch {
+        if (!cancelled) {
+          setHorasError('Error de conexión al cargar las horas');
+          setHorasJornada([]);
+          setOperarioNombrePorId(new Map());
+        }
+      } finally {
+        if (!cancelled) setHorasLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, obraId, ficha?.obra?.business_id]);
 
   const confirmarEliminarDiario = useCallback(async () => {
     if (!pendingDeleteDiarioId || !ficha?.obra?.business_id) return;
@@ -656,135 +727,99 @@ export default function ObraModal() {
 
               {tab === 'horas' ? (
                 (() => {
-                  const filas = ficha.registros_jornada ?? [];
-                  const porOperario = new Map<
-                    string,
-                    {
-                      operario: string;
-                      dias: Array<{ fecha: string; horasReales: number; horasConvenio: number }>;
-                      totalReales: number;
-                      totalConvenio: number;
-                    }
-                  >();
-
-                  for (const raw of filas) {
-                    const row = raw as {
-                      fecha?: string | null;
-                      horas_reales?: unknown;
-                      horas_convenio?: unknown;
-                      operario_id?: string | null;
-                      operarios?: { nombre?: string | null } | null;
-                    };
-                    const operarioNombre =
-                      row.operarios && typeof row.operarios === 'object'
-                        ? String(row.operarios.nombre ?? '').trim() || '—'
-                        : '—';
-                    const key = String(row.operario_id ?? '').trim() || operarioNombre;
-                    const fecha = String(row.fecha ?? '').slice(0, 10);
-                    const horasReales = parseNumber(row.horas_reales);
-                    const horasConvenio = parseNumber(row.horas_convenio);
-
-                    const prev = porOperario.get(key);
-                    if (prev) {
-                      prev.totalReales += horasReales;
-                      prev.totalConvenio += horasConvenio;
-                      const diaPrev = prev.dias.find((d) => d.fecha === fecha);
-                      if (diaPrev) {
-                        diaPrev.horasReales += horasReales;
-                        diaPrev.horasConvenio += horasConvenio;
-                      } else {
-                        prev.dias.push({ fecha, horasReales, horasConvenio });
-                      }
-                    } else {
-                      porOperario.set(key, {
-                        operario: operarioNombre,
-                        dias: [{ fecha, horasReales, horasConvenio }],
-                        totalReales: horasReales,
-                        totalConvenio: horasConvenio,
-                      });
-                    }
+                  if (horasLoading) {
+                    return <p className="text-white/70 text-sm">Cargando horas…</p>;
+                  }
+                  if (horasError) {
+                    return <p className="text-red-200/95 text-sm">{horasError}</p>;
                   }
 
-                  const bloques = [...porOperario.values()]
-                    .map((b) => ({
-                      ...b,
-                      dias: [...b.dias].sort((a, b2) => a.fecha.localeCompare(b2.fecha)),
-                    }))
-                    .sort((a, b) => a.operario.localeCompare(b.operario, 'es'));
+                  let totalReales = 0;
+                  let totalConvenio = 0;
+                  let totalCoste = 0;
 
-                  const totalReales = bloques.reduce((s, b) => s + b.totalReales, 0);
-                  const totalConvenio = bloques.reduce((s, b) => s + b.totalConvenio, 0);
+                  const filasUi = horasJornada.map((raw, idx) => {
+                    const row = raw as {
+                      id?: unknown;
+                      fecha?: unknown;
+                      horas_reales?: unknown;
+                      horas_convenio?: unknown;
+                      notas?: unknown;
+                      operario_id?: unknown;
+                    };
+                    const idKey =
+                      row.operario_id != null && String(row.operario_id).trim()
+                        ? String(row.operario_id)
+                        : '';
+                    const operarioNombre = idKey ? (operarioNombrePorId.get(idKey) ?? '—') : '—';
+                    const horasReales = parseNumber(row.horas_reales);
+                    const horasConvenio = parseNumber(row.horas_convenio);
+                    const coste = costeHorasRealesEUR(horasReales);
+                    totalReales += horasReales;
+                    totalConvenio += horasConvenio;
+                    totalCoste += coste;
+                    const notasStr = row.notas != null && String(row.notas).trim() ? String(row.notas) : '—';
+                    return {
+                      key: String(row.id ?? idx),
+                      operarioNombre,
+                      fechaLabel: fmtFecha(row.fecha),
+                      horasReales,
+                      horasConvenio,
+                      coste,
+                      notasStr,
+                    };
+                  });
+
                   return (
                     <div className="overflow-x-auto rounded-lg border border-white/10">
-                      <table className="w-full text-sm text-left min-w-[280px]">
+                      <table className="w-full text-sm text-left min-w-[720px]">
                         <thead>
                           <tr className="border-b border-white/10 bg-[#0f2744]/90 text-white/80">
-                            <th className="px-3 py-2 font-medium">Detalle</th>
+                            <th className="px-3 py-2 font-medium">Operario</th>
+                            <th className="px-3 py-2 font-medium">Fecha</th>
                             <th className="px-3 py-2 font-medium">Horas reales</th>
                             <th className="px-3 py-2 font-medium">Horas convenio</th>
+                            <th className="px-3 py-2 font-medium">Coste</th>
+                            <th className="px-3 py-2 font-medium">Notas</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {bloques.length === 0 ? (
+                          {filasUi.length === 0 ? (
                             <tr>
-                              <td className="px-3 py-4 text-sm text-white/60" colSpan={3}>
-                                Sin horas registradas en esta obra
+                              <td className="px-3 py-4 text-sm text-white/60" colSpan={6}>
+                                No hay horas registradas para esta obra todavía.
                               </td>
                             </tr>
                           ) : (
                             <>
-                              {bloques.map((bloque) => {
-                                return (
-                                  <tr key={`horas-${bloque.operario}`} className="border-b border-white/5">
-                                    <td colSpan={3} className="px-0 py-0">
-                                      <table className="w-full text-sm text-left">
-                                        <tbody>
-                                          <tr className="bg-white/[0.03]">
-                                            <td className="px-3 py-2 text-white font-medium">{bloque.operario}</td>
-                                            <td className="px-3 py-2 tabular-nums text-white/70">—</td>
-                                            <td className="px-3 py-2 tabular-nums text-white/70">—</td>
-                                          </tr>
-                                          {bloque.dias.map((dia) => (
-                                            <tr
-                                              key={`${bloque.operario}-${dia.fecha}`}
-                                              className="border-t border-white/5"
-                                            >
-                                              <td className="px-3 py-2 text-white/80">{fmtDiaCorto(dia.fecha)}</td>
-                                              <td className="px-3 py-2 tabular-nums">
-                                                {dia.horasReales.toFixed(2)}
-                                              </td>
-                                              <td className="px-3 py-2 tabular-nums">
-                                                {dia.horasConvenio.toFixed(2)}
-                                              </td>
-                                            </tr>
-                                          ))}
-                                          <tr className="border-t border-white/10 bg-[#ed8936]/10">
-                                            <td className="px-3 py-2 text-[#f6ad55] font-semibold">
-                                              Total {bloque.operario}
-                                            </td>
-                                            <td className="px-3 py-2 tabular-nums font-semibold text-[#f6ad55]">
-                                              {bloque.totalReales.toFixed(2)}
-                                            </td>
-                                            <td className="px-3 py-2 tabular-nums font-semibold text-[#f6ad55]">
-                                              {bloque.totalConvenio.toFixed(2)}
-                                            </td>
-                                          </tr>
-                                        </tbody>
-                                      </table>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                              <tr className="border-t border-[#ed8936]/40 bg-[#ed8936]/10 font-semibold">
-                                <td className="px-3 py-2 text-[#f6ad55]">
-                                  Total obra
+                              {filasUi.map((fila) => (
+                                <tr key={fila.key} className="border-b border-white/5 hover:bg-white/5">
+                                  <td className="px-3 py-2 text-sm font-medium text-white/90">{fila.operarioNombre}</td>
+                                  <td className="px-3 py-2 text-xs text-white/70 whitespace-nowrap">{fila.fechaLabel}</td>
+                                  <td className="px-3 py-2 tabular-nums font-semibold">{fila.horasReales.toFixed(2)}</td>
+                                  <td className="px-3 py-2 tabular-nums font-semibold">{fila.horasConvenio.toFixed(2)}</td>
+                                  <td className="px-3 py-2 tabular-nums font-semibold text-[#f6ad55]">
+                                    {fila.coste.toFixed(2)} €
+                                  </td>
+                                  <td className="px-3 py-2 text-xs text-white/65 max-w-[14rem] break-words">
+                                    {fila.notasStr}
+                                  </td>
+                                </tr>
+                              ))}
+                              <tr className="border-t border-[#ed8936]/40 bg-[#ed8936]/10">
+                                <td className="px-3 py-2.5 text-sm font-semibold text-[#f6ad55]" colSpan={2}>
+                                  Totales
                                 </td>
-                                <td className="px-3 py-2 tabular-nums text-[#f6ad55]">
+                                <td className="px-3 py-2.5 text-sm font-semibold text-[#f6ad55] tabular-nums">
                                   {totalReales.toFixed(2)}
                                 </td>
-                                <td className="px-3 py-2 tabular-nums text-[#f6ad55]">
+                                <td className="px-3 py-2.5 text-sm font-semibold text-[#f6ad55] tabular-nums">
                                   {totalConvenio.toFixed(2)}
                                 </td>
+                                <td className="px-3 py-2.5 text-sm font-semibold text-[#f6ad55] tabular-nums">
+                                  {totalCoste.toFixed(2)} €
+                                </td>
+                                <td className="px-3 py-2.5" />
                               </tr>
                             </>
                           )}
