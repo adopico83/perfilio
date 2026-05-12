@@ -8,6 +8,7 @@ import { AlertTriangle, FileText, PauseCircle } from 'lucide-react';
 type InsightRow = {
   id?: string;
   slug?: string | null;
+  obra_id?: string | null;
   created_at?: string | null;
   type?: string | null;
   kind?: string | null;
@@ -65,8 +66,14 @@ function kindLabel(kind: InsightKind): string {
   return 'Aviso operativo';
 }
 
-function insightHref(kind: InsightKind): string {
-  return kind === 'facturacion' ? '/facturas' : '/obras';
+function insightHref(insight: InsightRow, kind: InsightKind): string {
+  const obraId = insight.obra_id?.trim();
+  if (!obraId) return '/obras';
+  if (kind === 'facturacion') return `/facturas?obra_id=${encodeURIComponent(obraId)}`;
+  if (kind === 'inactividad' || kind === 'margen') {
+    return `/obras?id=${encodeURIComponent(obraId)}`;
+  }
+  return '/obras';
 }
 
 function insightText(insight: InsightRow): string {
@@ -132,7 +139,9 @@ export default function BichoLivePulse() {
         setLoading(true);
         const { data, error } = await supabase
           .from('perfilio_insights')
-          .select('*')
+          .select(
+            'id, slug, obra_id, created_at, type, kind, category, insight_type, title, headline, summary, message, description, insight_text, value, metric_value, amount, total, count'
+          )
           .eq('status', 'pendiente')
           .order('created_at', { ascending: false })
           .limit(5);
@@ -198,7 +207,7 @@ export default function BichoLivePulse() {
             return (
               <Link
                 key={key}
-                href={insightHref(kind)}
+                href={insightHref(insight, kind)}
                 className="flex min-w-[8.25rem] flex-1 cursor-pointer flex-col rounded-lg border border-white/10 bg-white/[0.04] p-2 transition hover:border-[#ed8936]/40 hover:bg-white/[0.06] hover:brightness-110"
               >
                 <div className="mb-1 flex min-w-0 items-center gap-1 text-xs font-semibold text-white/80">

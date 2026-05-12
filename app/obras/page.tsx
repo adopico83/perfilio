@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Pencil } from 'lucide-react';
 import LogoutButton from '@/app/dashboard/logout-button';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
@@ -44,6 +44,7 @@ function estadoBadgeClass(estado: string | null | undefined): { label: string; c
 
 export default function ObrasPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = useMemo(
     () =>
       createBrowserClient(
@@ -54,6 +55,7 @@ export default function ObrasPage() {
   );
 
   const { abrirObra } = useObraModal();
+  const autoOpenedObraIdRef = useRef<string | null>(null);
 
   const [authChecking, setAuthChecking] = useState(true);
   const [businessName, setBusinessName] = useState('tu negocio');
@@ -142,6 +144,18 @@ export default function ObrasPage() {
 
     void run();
   }, [router, supabase]);
+
+  useEffect(() => {
+    if (authChecking || loading) return;
+    const obraId = searchParams.get('id')?.trim();
+    if (!obraId) {
+      autoOpenedObraIdRef.current = null;
+      return;
+    }
+    if (autoOpenedObraIdRef.current === obraId) return;
+    autoOpenedObraIdRef.current = obraId;
+    abrirObra(obraId);
+  }, [abrirObra, authChecking, loading, searchParams]);
 
   const filtradas = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
