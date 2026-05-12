@@ -196,9 +196,10 @@ export default function BichoLivePulse() {
             const key = insight.slug ?? insight.id ?? `${kind}-${idx}-${insight.created_at ?? 'sin-fecha'}`;
 
             return (
-              <article
+              <Link
                 key={key}
-                className="flex min-w-[8.25rem] flex-1 flex-col rounded-lg border border-white/10 bg-white/[0.04] p-2 transition-colors hover:border-[#ed8936]/40 hover:bg-white/[0.06]"
+                href={insightHref(kind)}
+                className="flex min-w-[8.25rem] flex-1 cursor-pointer flex-col rounded-lg border border-white/10 bg-white/[0.04] p-2 transition hover:border-[#ed8936]/40 hover:bg-white/[0.06] hover:brightness-110"
               >
                 <div className="mb-1 flex min-w-0 items-center gap-1 text-xs font-semibold text-white/80">
                   <InsightIcon kind={kind} />
@@ -206,16 +207,7 @@ export default function BichoLivePulse() {
                 </div>
 
                 <p className="line-clamp-2 text-xs leading-snug text-white/70">{text}</p>
-
-                <div className="mt-auto flex items-center justify-end pt-1">
-                  <Link
-                    href={insightHref(kind)}
-                    className="truncate text-xs font-semibold text-[#ed8936] transition-colors hover:text-[#f6ad55]"
-                  >
-                    Gestionar ahora →
-                  </Link>
-                </div>
-              </article>
+              </Link>
             );
           })}
         </div>
