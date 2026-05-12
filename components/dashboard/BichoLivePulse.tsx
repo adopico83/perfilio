@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { createBrowserClient } from '@supabase/ssr';
+import { createClient } from '@/lib/supabase/client';
 import { AlertTriangle, FileText, PauseCircle } from 'lucide-react';
 
 type InsightRow = {
@@ -122,14 +122,7 @@ export default function BichoLivePulse() {
   const [insights, setInsights] = useState<InsightRow[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const supabase = useMemo(
-    () =>
-      createBrowserClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      ),
-    []
-  );
+  const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -146,10 +139,15 @@ export default function BichoLivePulse() {
           .order('created_at', { ascending: false })
           .limit(5);
 
+        if (error) {
+          console.error('No se pudieron cargar los insights pendientes', error);
+        }
+
         if (!cancelled) {
           setInsights(error || !data ? [] : (data as InsightRow[]));
         }
-      } catch {
+      } catch (error) {
+        console.error('Error inesperado cargando insights pendientes', error);
         if (!cancelled) setInsights([]);
       } finally {
         if (!cancelled) setLoading(false);
