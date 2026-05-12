@@ -29,6 +29,7 @@ describe('/api/obras', () => {
   let POST: (req: NextRequest) => Promise<Response>;
   let GET: (req: NextRequest) => Promise<Response>;
   let PATCH: (req: NextRequest) => Promise<Response>;
+  type RouteContext = { params: Promise<{ id: string }> };
 
   beforeAll(async () => {
     const listMod = await import('@/app/api/obras/route');
@@ -37,7 +38,7 @@ describe('/api/obras', () => {
 
     const fichaMod = await import('@/app/api/obras/[id]/route');
     GET = (req: NextRequest) =>
-      fichaMod.GET(req, { params: Promise.resolve({ id: 'obra-1' }) } as any);
+      fichaMod.GET(req, { params: Promise.resolve({ id: 'obra-1' }) } satisfies RouteContext);
   });
 
   beforeEach(() => {
@@ -142,7 +143,16 @@ describe('/api/obras', () => {
     const req = new NextRequest('http://localhost/api/obras/obra-1');
     const res = await GET(req);
     expect(res.status).toBe(200);
-    const json = (await res.json()) as any;
+    const json = (await res.json()) as {
+      obra: { nombre: string };
+      cliente: { nombre: string };
+      presupuestos: unknown[];
+      facturas: unknown[];
+      albaranes: unknown[];
+      entradas_diario_obra: unknown[];
+      gastos: unknown[];
+      registros_jornada: unknown[];
+    };
     expect(json.obra.nombre).toBe('Reforma Baño García');
     expect(json.cliente.nombre).toBe('Cliente Test');
     expect(json.presupuestos).toHaveLength(1);

@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 export function Footer() {
   const productLinks = [
     { name: 'Asistente IA', href: '#asistente' },
@@ -32,10 +34,10 @@ export function Footer() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 pb-12 border-b border-white/10">
           {/* Logo and description */}
           <div className="lg:col-span-1">
-            <a href="/" className="inline-flex items-center space-x-1 text-2xl font-bold mb-4">
+            <Link href="/" className="inline-flex items-center space-x-1 text-2xl font-bold mb-4">
               <span className="text-white">PERFILIO</span>
               <span className="text-[#ed8936] text-3xl leading-none">.</span>
-            </a>
+            </Link>
             <p className="text-gray-300 text-sm leading-relaxed mb-6">
               Software de gestión empresarial con asistente IA para PYMEs españolas.
             </p>

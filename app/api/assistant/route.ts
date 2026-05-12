@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
       response: aiResponse,
       tokens: completion.usage?.total_tokens,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error en assistant API:', error);
     return NextResponse.json(
       { error: 'Error al generar respuesta' },

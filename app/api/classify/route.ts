@@ -76,7 +76,7 @@ Responde SOLO con una palabra: urgent, normal o low`,
       priority: finalPriority,
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error clasificando mensaje:', error);
     return NextResponse.json(
       { error: 'Error al clasificar mensaje' },

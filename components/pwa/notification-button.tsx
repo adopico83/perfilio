@@ -25,7 +25,7 @@ export default function NotificationButton() {
     void (async () => {
       try {
         await subscribeToPush();
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('Fallo en suscripción:', error);
       }
     })();

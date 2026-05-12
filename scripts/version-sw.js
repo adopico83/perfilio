@@ -1,7 +1,8 @@
-const fs = require('node:fs/promises');
-const path = require('node:path');
-
 async function main() {
+  const [{ default: fs }, { default: path }] = await Promise.all([
+    import('node:fs/promises'),
+    import('node:path'),
+  ]);
   const swPath = path.join(process.cwd(), 'public', 'sw.js');
   const swContent = await fs.readFile(swPath, 'utf8');
   const version = process.env.VERCEL_GIT_COMMIT_SHA ?? Date.now().toString();

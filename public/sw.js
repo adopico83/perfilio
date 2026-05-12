@@ -1,4 +1,4 @@
-/* eslint-disable no-restricted-globals */
+ 
 const STATIC_CACHE = 'perfilio-static-1777490149541';
 
 const PRECACHE_URLS = [

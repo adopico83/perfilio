@@ -872,13 +872,13 @@ export default function AgentSidebar() {
           return;
         }
 
-        const obraModalRaw = (data as any).obra_modal;
-        if (
-          obraModalRaw &&
-          typeof obraModalRaw === 'object' &&
-          typeof (obraModalRaw as any).obra_id === 'string'
-        ) {
-          const oid = String((obraModalRaw as any).obra_id).trim();
+        const obraModalRaw = data.obra_modal;
+        const obraModal =
+          obraModalRaw && typeof obraModalRaw === 'object'
+            ? (obraModalRaw as { obra_id?: unknown })
+            : null;
+        if (typeof obraModal?.obra_id === 'string') {
+          const oid = obraModal.obra_id.trim();
           if (oid) queueMicrotask(() => abrirObra(oid));
         }
 
@@ -1042,13 +1042,13 @@ export default function AgentSidebar() {
         }
       }
 
-      const obraModalRaw = (data as any).obra_modal;
-      if (
-        obraModalRaw &&
-        typeof obraModalRaw === 'object' &&
-        typeof (obraModalRaw as any).obra_id === 'string'
-      ) {
-        const oid = String((obraModalRaw as any).obra_id).trim();
+      const obraModalRaw = data.obra_modal;
+      const obraModal =
+        obraModalRaw && typeof obraModalRaw === 'object'
+          ? (obraModalRaw as { obra_id?: unknown })
+          : null;
+      if (typeof obraModal?.obra_id === 'string') {
+        const oid = obraModal.obra_id.trim();
         if (oid) queueMicrotask(() => abrirObra(oid));
       }
 

@@ -109,7 +109,7 @@ export default function FacturasPage() {
   }, [supabase]);
 
   useEffect(() => {
-    if (!authChecking) loadFacturas();
+    if (!authChecking) queueMicrotask(() => void loadFacturas());
   }, [authChecking, loadFacturas]);
 
   const setEstado = async (id: string, estado: string) => {

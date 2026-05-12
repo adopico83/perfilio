@@ -452,7 +452,7 @@ export default function ObraModal() {
                         </tr>
                       ) : (
                         ficha.presupuestos.map((p) => {
-                          const row = p as any;
+                          const row = p as Record<string, unknown>;
                           const estado = String(row.estado ?? 'borrador');
                           const importe = parseNumber(row.importe_total);
                           return (
@@ -502,7 +502,7 @@ export default function ObraModal() {
                         </tr>
                       ) : (
                         ficha.albaranes.map((a) => {
-                          const row = a as any;
+                          const row = a as Record<string, unknown>;
                           return (
                             <tr key={String(row.id)} className="border-b border-white/5 hover:bg-white/5">
                               <td className="px-3 py-2 text-xs text-white/85">{String(row.estado ?? 'pendiente')}</td>
@@ -548,7 +548,7 @@ export default function ObraModal() {
                         </tr>
                       ) : (
                         ficha.facturas.map((f) => {
-                          const row = f as any;
+                          const row = f as Record<string, unknown>;
                           return (
                             <tr key={String(row.id)} className="border-b border-white/5 hover:bg-white/5">
                               <td className="px-3 py-2 text-xs text-white/85">{String(row.estado ?? 'pendiente')}</td>
@@ -580,7 +580,7 @@ export default function ObraModal() {
                     <p className="text-white/60 text-sm">Sin entradas en el diario para esta obra</p>
                   ) : (
                     ficha.entradas_diario_obra.map((e) => {
-                      const row = e as any;
+                      const row = e as Record<string, unknown>;
                       const fotos = Array.isArray(row.fotos) ? (row.fotos as unknown[]).filter((x) => typeof x === 'string' && x.trim()) : [];
                       const rowId = String(row.id ?? '');
                       return (
