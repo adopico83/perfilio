@@ -988,6 +988,7 @@ export async function handlePresupuestos(
         cantidad,
         unidad,
         precio_unitario: precioUnitario,
+        importe,
         raw_dictado: rawDictado,
       });
       if (insErr) return fin({ error: insErr.message });
