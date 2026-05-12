@@ -67,6 +67,88 @@ import {
 } from '@/lib/agente/modules/gastos';
 import { applyPerfilioGuardrails, type PlannedTool } from '@/lib/agente/guardrails';
 
+async function assertUserCanAccessBusiness(
+  supabase: SupabaseClient,
+  userId: string,
+  businessId: string
+): Promise<boolean> {
+  const businessUsersQuery = supabase.from('business_users');
+  if ('select' in businessUsersQuery && typeof businessUsersQuery.select === 'function') {
+    const { data } = await businessUsersQuery
+      .select('business_id')
+      .eq('business_id', businessId)
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (data?.business_id) return true;
+  }
+
+  const { data } = await supabase
+    .from('business_profiles')
+    .select('id')
+    .eq('id', businessId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  return Boolean(data?.id);
+}
+
+async function editar_factura(
+  supabase: SupabaseClient,
+  businessId: string,
+  toolArgs: Record<string, unknown>
+): Promise<{ ok: true; id: string } | { error: string }> {
+  const id = String(toolArgs.id ?? '').trim();
+  if (!id) return { error: 'id es obligatorio' };
+  const updates: {
+    cliente_nombre?: string;
+    total?: number;
+    base_imponible?: number;
+    iva?: number;
+    descripcion_trabajos?: string;
+  } = {};
+  if (toolArgs.cliente_nombre !== undefined) {
+    const c = String(toolArgs.cliente_nombre ?? '').trim().slice(0, 255);
+    if (!c) return { error: 'cliente_nombre no puede estar vacío' };
+    updates.cliente_nombre = c;
+  }
+  if (toolArgs.importe_total !== undefined) {
+    const totalNum = Number(toolArgs.importe_total);
+    if (!Number.isFinite(totalNum)) {
+      return { error: 'importe_total debe ser un número válido' };
+    }
+    const baseImponible = totalNum ? totalNum / 1.21 : 0;
+    const iva = totalNum ? totalNum - baseImponible : 0;
+    updates.total = totalNum;
+    updates.base_imponible = Number.isFinite(baseImponible) ? baseImponible : 0;
+    updates.iva = Number.isFinite(iva) ? iva : 0;
+  }
+
+  const descripcionRaw =
+    toolArgs.descripcion !== undefined ? toolArgs.descripcion : toolArgs.descripcion_trabajos;
+  if (descripcionRaw !== undefined) {
+    const d = String(descripcionRaw ?? '').trim();
+    if (!d) return { error: 'descripcion_trabajos no puede estar vacía' };
+    updates.descripcion_trabajos = d;
+  }
+  if (Object.keys(updates).length === 0) {
+    return {
+      error:
+        'Indica al menos un campo a actualizar (cliente_nombre, importe_total o descripcion_trabajos)',
+    };
+  }
+  const { data: row, error } = await supabase
+    .from('facturas')
+    .update(updates)
+    .eq('id', id)
+    .eq('business_id', businessId)
+    .select('id')
+    .maybeSingle();
+  if (error) return { error: error.message };
+  if (!row?.id) {
+    return { error: 'No se encontró la factura o no pertenece a este negocio' };
+  }
+  return { ok: true, id: row.id as string };
+}
+
 /** Cliente de la obra (JOIN clientes) para heredar en documentos cuando no hay cliente_id explícito. */
 async function clienteDesdeObraSiAplica(
   supabase: SupabaseClient,
@@ -622,6 +704,16 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { mensaje, business_id, historial, imagen, imagen_mime, imagenes } = body;
+    const directToolName =
+      typeof body?.tool_name === 'string'
+        ? body.tool_name.trim()
+        : typeof body?.tool === 'string'
+          ? body.tool.trim()
+          : '';
+    const directToolArgs =
+      body?.args && typeof body.args === 'object' && !Array.isArray(body.args)
+        ? (body.args as Record<string, unknown>)
+        : {};
 
     const mensajeTrim = typeof mensaje === 'string' ? mensaje.trim() : '';
     const imagenesNormalizadas: string[] = [];
@@ -636,7 +728,7 @@ export async function POST(request: NextRequest) {
       if (single) imagenesNormalizadas.push(single);
     }
 
-    if (!mensajeTrim && imagenesNormalizadas.length === 0) {
+    if (!mensajeTrim && imagenesNormalizadas.length === 0 && !directToolName) {
       return NextResponse.json(
         {
           error:
@@ -685,6 +777,28 @@ export async function POST(request: NextRequest) {
         { error: 'No se encontró el perfil del negocio' },
         { status: 404 }
       );
+    }
+
+    if (directToolName) {
+      if (directToolName !== 'editar_factura') {
+        return NextResponse.json({ error: 'tool no permitida' }, { status: 400 });
+      }
+      if (!authUser?.id) {
+        return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+      }
+      const businessIdStr = String(business_id ?? '').trim();
+      const canAccess = await assertUserCanAccessBusiness(supabase, authUser.id, businessIdStr);
+      if (!canAccess) {
+        return NextResponse.json(
+          { error: 'No tienes acceso a este negocio' },
+          { status: 403 }
+        );
+      }
+      const result = await editar_factura(supabase, businessIdStr, directToolArgs);
+      if ('error' in result) {
+        return NextResponse.json(result, { status: 400 });
+      }
+      return NextResponse.json(result);
     }
 
     const nombre = profile.nombre ?? 'el negocio';
@@ -2251,51 +2365,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
           return { ok: true, id: row.id as string };
         }
         case 'editar_factura': {
-          const id = String(toolArgs.id ?? '').trim();
-          if (!id) return { error: 'id es obligatorio' };
-          const updates: {
-            cliente_nombre?: string;
-            total?: number;
-            base_imponible?: number;
-            iva?: number;
-            descripcion_trabajos?: string;
-          } = {};
-          if (toolArgs.cliente_nombre !== undefined) {
-            const c = String(toolArgs.cliente_nombre ?? '').trim().slice(0, 255);
-            if (!c) return { error: 'cliente_nombre no puede estar vacío' };
-            updates.cliente_nombre = c;
-          }
-          if (toolArgs.importe_total !== undefined) {
-            const totalNum = Number(toolArgs.importe_total);
-            if (!Number.isFinite(totalNum)) {
-              return { error: 'importe_total debe ser un número válido' };
-            }
-            const baseImponible = totalNum ? totalNum / 1.21 : 0;
-            const iva = totalNum ? totalNum - baseImponible : 0;
-            updates.total = totalNum;
-            updates.base_imponible = Number.isFinite(baseImponible) ? baseImponible : 0;
-            updates.iva = Number.isFinite(iva) ? iva : 0;
-          }
-          if (toolArgs.descripcion !== undefined) {
-            const d = String(toolArgs.descripcion ?? '').trim();
-            if (!d) return { error: 'descripcion no puede estar vacía' };
-            updates.descripcion_trabajos = d;
-          }
-          if (Object.keys(updates).length === 0) {
-            return { error: 'Indica al menos un campo a actualizar (cliente_nombre, importe_total o descripcion)' };
-          }
-          const { data: row, error } = await supabase
-            .from('facturas')
-            .update(updates)
-            .eq('id', id)
-            .eq('business_id', business_id)
-            .select('id')
-            .maybeSingle();
-          if (error) return { error: error.message };
-          if (!row?.id) {
-            return { error: 'No se encontró la factura o no pertenece a este negocio' };
-          }
-          return { ok: true, id: row.id as string };
+          return editar_factura(supabase, String(business_id ?? ''), toolArgs);
         }
         case 'editar_albaran': {
           const id = String(toolArgs.id ?? '').trim();

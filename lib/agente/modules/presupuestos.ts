@@ -249,14 +249,14 @@ export const PRESUPUESTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
         type: 'object',
         properties: {
           borrador_id: { type: 'string' },
-          descripcion: { type: 'string' },
-          cantidad: { type: 'number' },
-          unidad: { type: 'string' },
-          precio_unitario: { type: 'number' },
+          descripcion: { type: 'string', description: 'Texto claro de la partida o trabajo a presupuestar.' },
+          cantidad: { type: 'number', description: 'Cantidad numérica de la partida, por ejemplo 1, 12 o 2.5.' },
+          unidad: { type: 'string', description: 'Unidad de medición de la partida, por ejemplo ud, m2, ml, h o jornal.' },
+          precio_unitario: { type: 'number', description: 'Precio por unidad sin IVA. Si el usuario ya dio un precio, úsalo aquí.' },
           capitulo: { type: 'string', description: 'Sección o capítulo al que pertenece la partida (ej: CUARTO DE BAÑO, COCINA, DERRIBOS, HABITACIÓN, PASILLO). Rellena siempre que el usuario mencione una zona o sección de la obra. Usa el mismo nombre para todas las partidas de esa zona.' },
           raw_dictado: { type: 'string', description: 'Texto exacto de voz del usuario' },
         },
-        required: ['borrador_id', 'descripcion', 'cantidad', 'unidad', 'precio_unitario', 'raw_dictado'],
+        required: ['descripcion', 'cantidad', 'unidad', 'precio_unitario', 'raw_dictado'],
         additionalProperties: false,
       },
     },
@@ -281,7 +281,6 @@ export const PRESUPUESTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
           unidad: { type: 'string', description: 'Nueva unidad (opcional)' },
           precio_unitario: { type: 'number', description: 'Nuevo precio unitario (opcional)' },
         },
-        required: ['borrador_id'],
         additionalProperties: false,
       },
     },
@@ -294,7 +293,6 @@ export const PRESUPUESTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
       parameters: {
         type: 'object',
         properties: { borrador_id: { type: 'string' } },
-        required: ['borrador_id'],
         additionalProperties: false,
       },
     },
@@ -324,7 +322,6 @@ export const PRESUPUESTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
           borrador_id: { type: 'string' },
           observaciones: { type: 'string' },
         },
-        required: ['borrador_id'],
         additionalProperties: false,
       },
     },
@@ -337,7 +334,6 @@ export const PRESUPUESTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
       parameters: {
         type: 'object',
         properties: { borrador_id: { type: 'string' } },
-        required: ['borrador_id'],
         additionalProperties: false,
       },
     },
@@ -391,6 +387,21 @@ async function obtenerBorradorActivoRow(
     .maybeSingle();
   if (be || !bor) return null;
   return bor as Record<string, unknown>;
+}
+
+async function resolverBorradorIdActivo(
+  supabase: SupabaseClient,
+  businessId: string,
+  userId: string | null,
+  rawBorradorId: unknown
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  if (!userId) return { ok: false, error: 'Usuario no autenticado.' };
+  const explicitId = String(rawBorradorId ?? '').trim();
+  if (explicitId) return { ok: true, id: explicitId };
+  const rowActivo = await obtenerBorradorActivoRow(supabase, businessId, userId);
+  const activeId = rowActivo && String(rowActivo.id ?? '').trim();
+  if (activeId) return { ok: true, id: activeId };
+  return { ok: false, error: 'No encuentro ningún presupuesto a medio hacer, Pino' };
 }
 
 async function buscarTarifasCandidatas(
@@ -527,22 +538,23 @@ export async function handlePresupuestos(
 ): Promise<Record<string, unknown>> {
   void ctx.mensajeTrim;
 
-  if (toolName === 'agregar_partida_borrador') {
-    const bidRaw = toolArgs.borrador_id;
-    const borradorIdEmpty =
-      bidRaw == null || (typeof bidRaw === 'string' && !String(bidRaw).trim());
-    if (borradorIdEmpty && userId) {
-      const row = await obtenerBorradorActivoRow(supabase, businessId, userId);
-      const id = row && String(row.id ?? '').trim();
-      if (id) toolArgs.borrador_id = id;
-    }
-    const bidFinal = String(toolArgs.borrador_id ?? '').trim();
-    if (!bidFinal && userId) {
-      return {
-        error:
-          'No se encontró un borrador activo. Por favor, inicia uno nuevo diciendo: presupuesto para [cliente]',
-      };
-    }
+  if (
+    [
+      'agregar_partida_borrador',
+      'modificar_partida_borrador',
+      'listar_partidas_borrador',
+      'confirmar_borrador',
+      'cancelar_borrador',
+    ].includes(toolName)
+  ) {
+    const borradorRes = await resolverBorradorIdActivo(
+      supabase,
+      businessId,
+      userId,
+      toolArgs.borrador_id
+    );
+    if (!borradorRes.ok) return { error: borradorRes.error };
+    toolArgs.borrador_id = borradorRes.id;
   }
 
   switch (toolName) {
@@ -914,6 +926,7 @@ export async function handlePresupuestos(
       const borradorId = String(toolArgs.borrador_id ?? '').trim();
       const descripcion = String(toolArgs.descripcion ?? '').trim();
       const rawDictado = String(toolArgs.raw_dictado ?? '').trim();
+      const textoFinal = rawDictado || descripcion;
       const capitulo =
         toolArgs.capitulo != null && String(toolArgs.capitulo).trim()
           ? String(toolArgs.capitulo).trim().slice(0, 200)
@@ -923,7 +936,6 @@ export async function handlePresupuestos(
       let precioUnitario = Number(toolArgs.precio_unitario);
       if (!borradorId) return fin({ error: 'borrador_id es obligatorio' });
       if (!descripcion) return fin({ error: 'descripcion es obligatoria' });
-      if (!rawDictado) return fin({ error: 'raw_dictado es obligatorio' });
       if (!Number.isFinite(cantidad) || cantidad < 0) return fin({ error: 'cantidad inválida' });
       if (!Number.isFinite(precioUnitario) || precioUnitario < 0) {
         return fin({ error: 'precio_unitario inválido' });
@@ -957,7 +969,7 @@ export async function handlePresupuestos(
             pendiente_precio: true,
           });
         }
-        const idx = await elegirTarifaConGpt(openai, descripcion, rawDictado, candidatas);
+        const idx = await elegirTarifaConGpt(openai, descripcion, textoFinal, candidatas);
         if (idx == null) {
           return fin({
             mensaje:
@@ -979,7 +991,7 @@ export async function handlePresupuestos(
         .eq('borrador_id', borradorEfectivoId);
       const orden = (count ?? 0) + 1;
 
-      const { error: insErr } = await supabase.from('presupuesto_borrador_items').insert({
+      const insertPayload = {
         borrador_id: borradorEfectivoId,
         business_id: businessId,
         orden,
@@ -988,9 +1000,15 @@ export async function handlePresupuestos(
         cantidad,
         unidad,
         precio_unitario: precioUnitario,
-        raw_dictado: rawDictado,
-      });
-      if (insErr) return fin({ error: insErr.message });
+        raw_dictado: textoFinal,
+      };
+      console.log('ID BORRADOR USADO:', borradorEfectivoId);
+      console.log('DATOS A INSERTAR:', { descripcion, cantidad, importe });
+      const { error: insErr } = await supabase.from('presupuesto_borrador_items').insert(insertPayload);
+      if (insErr) {
+        console.error('ERROR CRÍTICO SUPABASE:', insErr);
+        throw new Error(`ERROR CRÍTICO SUPABASE: ${insErr.message}`);
+      }
 
       await supabase
         .from('presupuesto_borrador')
