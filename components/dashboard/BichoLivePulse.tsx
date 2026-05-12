@@ -8,11 +8,15 @@ import { AlertTriangle, FileText, PauseCircle } from 'lucide-react';
 type InsightRow = {
   id?: string;
   slug?: string | null;
+  business_id?: string | null;
   obra_id?: string | null;
   created_at?: string | null;
+  status?: string | null;
   type?: string | null;
   kind?: string | null;
   category?: string | null;
+  severity?: string | null;
+  urgency?: string | null;
   insight_type?: string | null;
   title?: string | null;
   headline?: string | null;
@@ -25,6 +29,8 @@ type InsightRow = {
   amount?: string | number | null;
   total?: string | number | null;
   count?: string | number | null;
+  metadata?: Record<string, unknown> | null;
+  content_hash?: string | null;
 };
 
 type InsightKind = 'margen' | 'inactividad' | 'facturacion' | 'otro';
@@ -133,7 +139,7 @@ export default function BichoLivePulse() {
         const { data, error } = await supabase
           .from('perfilio_insights')
           .select(
-            'id, slug, obra_id, created_at, type, kind, category, insight_type, title, headline, summary, message, description, insight_text, value, metric_value, amount, total, count'
+            'id, created_at, category, severity, insight_text, status, metadata, slug, business_id, content_hash, message, obra_id, type, urgency'
           )
           .eq('status', 'pendiente')
           .order('created_at', { ascending: false })
