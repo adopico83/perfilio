@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import { useRouter } from 'next/navigation';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
@@ -47,7 +47,7 @@ export default function HistorialPage() {
     checkAuth();
   }, [router, supabase]);
 
-  const loadHistorial = async () => {
+  const loadHistorial = useCallback(async () => {
     const { data: approvedData } = await supabase
       .from('ai_responses')
       .select('id, conversation_id, created_at, ai_response, edited_response, approved_at, rejected_at')
@@ -63,11 +63,11 @@ export default function HistorialPage() {
     setApproved((approvedData ?? []) as HistorialItem[]);
     setRejected((rejectedData ?? []) as HistorialItem[]);
     setLoading(false);
-  };
+  }, [supabase]);
 
   useEffect(() => {
-    if (!authChecking) loadHistorial();
-  }, [authChecking]);
+    if (!authChecking) queueMicrotask(() => void loadHistorial());
+  }, [authChecking, loadHistorial]);
 
   const displayText = (item: HistorialItem) =>
     item.edited_response?.trim() ? item.edited_response : (item.ai_response ?? '');

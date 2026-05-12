@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 
 export type DiarioObraEntry = {
@@ -20,7 +20,14 @@ type DiarioEntradaModalProps = {
 
 export default function DiarioEntradaModal({ entrada, onClose }: DiarioEntradaModalProps) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
-  const [fechaLarga, setFechaLarga] = useState('');
+  const fechaLarga = useMemo(
+    () =>
+      new Date(entrada.fecha).toLocaleString('es-ES', {
+        dateStyle: 'full',
+        timeStyle: 'short',
+      }),
+    [entrada.fecha]
+  );
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -36,15 +43,6 @@ export default function DiarioEntradaModal({ entrada, onClose }: DiarioEntradaMo
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
-
-  useEffect(() => {
-    setFechaLarga(
-      new Date(entrada.fecha).toLocaleString('es-ES', {
-        dateStyle: 'full',
-        timeStyle: 'short',
-      })
-    );
-  }, [entrada.fecha]);
 
   const fotos = entrada.fotos?.filter((u) => typeof u === 'string' && u.trim()) ?? [];
   const videos = entrada.videos?.filter((u) => typeof u === 'string' && u.trim()) ?? [];

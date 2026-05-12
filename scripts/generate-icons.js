@@ -2,13 +2,6 @@
  * Genera iconos PWA (192 y 512): logo.png centrado sobre fondo navy con esquinas redondeadas.
  * Requiere `sharp` resoluble desde Node (p. ej. dependencia transitiva de Next).
  */
-const path = require('path');
-const sharp = require('sharp');
-
-const root = path.join(__dirname, '..');
-const logoPath = path.join(root, 'public', 'logo.png');
-const iconsDir = path.join(root, 'public', 'icons');
-
 function cornerRadius(size) {
   return Math.round(size * 0.22);
 }
@@ -20,7 +13,7 @@ function roundedNavySvg(size) {
 </svg>`;
 }
 
-async function writePng(size, outPath) {
+async function writePng(sharp, logoPath, size, outPath) {
   const maxLogo = Math.round(size * 0.75);
   const bg = await sharp(Buffer.from(roundedNavySvg(size))).png().toBuffer();
 
@@ -39,8 +32,16 @@ async function writePng(size, outPath) {
 }
 
 async function main() {
-  await writePng(192, path.join(iconsDir, 'icon-192x192.png'));
-  await writePng(512, path.join(iconsDir, 'icon-512x512.png'));
+  const [{ default: path }, { default: sharp }] = await Promise.all([
+    import('node:path'),
+    import('sharp'),
+  ]);
+  const root = path.join(process.cwd());
+  const logoPath = path.join(root, 'public', 'logo.png');
+  const iconsDir = path.join(root, 'public', 'icons');
+
+  await writePng(sharp, logoPath, 192, path.join(iconsDir, 'icon-192x192.png'));
+  await writePng(sharp, logoPath, 512, path.join(iconsDir, 'icon-512x512.png'));
 }
 
 main().catch((err) => {

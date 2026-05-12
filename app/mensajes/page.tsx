@@ -1,9 +1,26 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import LogoutButton from '../dashboard/logout-button';
+
+interface AiResponse {
+  id: string;
+  ai_response?: string | null;
+  edited_response?: string | null;
+}
+
+interface Conversation {
+  id: string;
+  customer_name?: string | null;
+  customer_contact?: string | null;
+  channel?: string | null;
+  priority?: string | null;
+  created_at: string;
+  message?: string | null;
+  ai_responses?: AiResponse[] | null;
+}
 
 export default function MensajesPage() {
   const supabase = useMemo(
@@ -15,12 +32,12 @@ export default function MensajesPage() {
     []
   );
 
-  const [conversations, setConversations] = useState<any[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editedText, setEditedText] = useState('');
 
-  const loadConversations = async () => {
+  const loadConversations = useCallback(async () => {
     const { data, error } = await supabase
       .from('conversations')
       .select(`
@@ -32,7 +49,7 @@ export default function MensajesPage() {
 
     if (!error && data) {
       const priorityOrder = { urgent: 0, normal: 1, low: 2 };
-      const sorted = data.sort((a, b) => {
+      const sorted = (data as Conversation[]).sort((a, b) => {
         const aPriority = priorityOrder[a.priority as keyof typeof priorityOrder] ?? 1;
         const bPriority = priorityOrder[b.priority as keyof typeof priorityOrder] ?? 1;
         return aPriority - bPriority;
@@ -40,11 +57,11 @@ export default function MensajesPage() {
       setConversations(sorted);
     }
     setLoading(false);
-  };
+  }, [supabase]);
 
   useEffect(() => {
-    loadConversations();
-  }, []);
+    queueMicrotask(() => void loadConversations());
+  }, [loadConversations]);
 
   const classifyMessage = async (message: string): Promise<string> => {
     try {
@@ -64,7 +81,7 @@ export default function MensajesPage() {
   const generateAIResponse = async (conversationId: string, message: string) => {
     try {
       const conversation = conversations.find((c) => c.id === conversationId);
-      if (!conversation.priority || conversation.priority === 'normal') {
+      if (!conversation?.priority || conversation.priority === 'normal') {
         const priority = await classifyMessage(message);
         await supabase.from('conversations').update({ priority }).eq('id', conversationId);
       }
@@ -163,7 +180,7 @@ export default function MensajesPage() {
         </div>
 
         <div className="space-y-4">
-          {conversations?.map((conv: any) => {
+          {conversations?.map((conv) => {
             const aiResponse = conv.ai_responses?.[0];
             const isEditing = editingId === aiResponse?.id;
             const displayText = aiResponse?.edited_response || aiResponse?.ai_response;
@@ -181,7 +198,7 @@ export default function MensajesPage() {
                       <span className="inline-block px-3 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
                         {conv.channel}
                       </span>
-                      {getPriorityBadge(conv.priority)}
+                      {getPriorityBadge(conv.priority ?? 'normal')}
                     </div>
                   </div>
                   <span className="text-sm text-gray-300">
@@ -236,7 +253,7 @@ export default function MensajesPage() {
                   </div>
                 ) : (
                   <button
-                    onClick={() => generateAIResponse(conv.id, conv.message)}
+                    onClick={() => generateAIResponse(conv.id, conv.message ?? '')}
                     className="mb-4 px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700"
                   >
                     🤖 Generar Respuesta IA
@@ -252,7 +269,7 @@ export default function MensajesPage() {
                       ✓ Aprobar y Enviar
                     </button>
                     <button
-                      onClick={() => startEditing(aiResponse.id, displayText)}
+                      onClick={() => startEditing(aiResponse.id, displayText ?? '')}
                       className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
                     >
                       ✎ Editar Respuesta

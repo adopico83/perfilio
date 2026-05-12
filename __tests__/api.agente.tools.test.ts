@@ -768,10 +768,10 @@ describe('POST /api/agente — tools', () => {
       const res = await postWithTool(
         'convertir_presupuesto_a_albaran',
         {
-          presupuestos: presupuestoChain as any,
+          presupuestos: presupuestoChain as unknown as ReturnType<typeof makeThenableResult>,
           albaranes: {
             insert: insertMockAlb,
-          } as any,
+          } as unknown as ReturnType<typeof makeThenableResult>,
         },
         JSON.stringify({ presupuesto_id: presupuestoId })
       );
@@ -819,10 +819,10 @@ describe('POST /api/agente — tools', () => {
       const res = await postWithTool(
         'convertir_albaran_a_factura',
         {
-          albaranes: albaranesChain as any,
+          albaranes: albaranesChain as unknown as ReturnType<typeof makeThenableResult>,
           facturas: {
             insert: insertMockFactura,
-          } as any,
+          } as unknown as ReturnType<typeof makeThenableResult>,
           presupuestos: makeThenableResult({ data: [], error: null }),
         },
         JSON.stringify({ albaran_id: albaranId, iva: 21 })

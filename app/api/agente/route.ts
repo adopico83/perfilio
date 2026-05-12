@@ -315,7 +315,7 @@ function calcularMedicionObra(toolArgs: Record<string, unknown>):
     dimensiones.push({ largo, ancho, alto });
   }
 
-  let huecos: Array<{ cantidad: number; largo: number; ancho: number }> = [];
+  const huecos: Array<{ cantidad: number; largo: number; ancho: number }> = [];
   if (toolArgs.huecos !== undefined && toolArgs.huecos !== null) {
     if (!Array.isArray(toolArgs.huecos)) {
       return { error: 'huecos debe ser un array de objetos' };
@@ -1959,7 +1959,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
 
     const historialLimitado = historialValido.slice(-10);
 
-    let messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPromptEfectivo },
       ...historialLimitado.map((m) => ({ role: m.role, content: m.content })),
       { role: 'user', content: userContent },
@@ -2078,7 +2078,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
             .limit(50);
           if (error) return { error: error.message };
           return {
-            items: (data ?? []).map((r: any) => ({
+            items: ((data ?? []) as Array<{ cliente_nombre: string | null; total: number | null; fecha: string | null }>).map((r) => ({
               cliente: r.cliente_nombre ?? null,
               importe: r.total ?? null,
               fecha: r.fecha ?? null,
@@ -2095,7 +2095,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
             .limit(50);
           if (error) return { error: error.message };
           return {
-            items: (data ?? []).map((r: any) => ({
+            items: ((data ?? []) as Array<{ cliente_nombre: string | null; fecha: string | null }>).map((r) => ({
               cliente: r.cliente_nombre ?? null,
               fecha: r.fecha ?? null,
             })),
@@ -2825,7 +2825,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
           const clienteIds = (obras as Array<{ cliente_id: string | null }>).map((o) => o.cliente_id).filter((id0): id0 is string => Boolean(id0));
           if (clienteIds.length === 0) {
             return {
-              items: (obras as any[]).map((o) => ({
+              items: (obras as Array<{ id: string; nombre: string; direccion: string | null; estado: string | null; fecha_inicio: string | null }>).map((o) => ({
                 id: o.id,
                 nombre: o.nombre,
                 cliente_nombre: null,
@@ -2848,7 +2848,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
           }
 
           return {
-            items: (obras as any[]).map((o) => ({
+            items: (obras as Array<{ id: string; nombre: string; cliente_id: string | null; direccion: string | null; estado: string | null; fecha_inicio: string | null }>).map((o) => ({
               id: o.id,
               nombre: o.nombre,
               cliente_nombre: o.cliente_id ? clienteMap.get(o.cliente_id) ?? null : null,
@@ -2963,11 +2963,14 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
           const clienteNombreRaw = String(toolArgs.cliente_nombre ?? '').trim();
 
           const tiposPermitidos = ['presupuestos', 'facturas', 'albaranes', 'gastos', 'diario'] as const;
+          type TipoPermitido = typeof tiposPermitidos[number];
+          const esTipoPermitido = (t: string): t is TipoPermitido =>
+            (tiposPermitidos as readonly string[]).includes(t);
           const tiposFinal =
             Array.isArray(toolArgs.tipos) && toolArgs.tipos.length > 0
               ? (toolArgs.tipos as unknown[])
                   .map((t) => String(t).trim().toLowerCase())
-                  .filter((t) => (tiposPermitidos as readonly string[]).includes(t as any))
+                  .filter(esTipoPermitido)
               : [...tiposPermitidos];
 
           if (tiposFinal.length === 0) {
@@ -3026,12 +3029,12 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
           }
 
           const necesitaCliente =
-            tiposFinal.some((t) => (['presupuestos', 'facturas', 'albaranes', 'gastos'] as const).includes(t as any));
+            tiposFinal.some((t) => (['presupuestos', 'facturas', 'albaranes', 'gastos'] as readonly TipoPermitido[]).includes(t));
           if (necesitaCliente && !clienteId) {
             return { error: 'cliente_id o cliente_nombre es obligatorio para asociar presupuestos/facturas/albaranes/gastos' };
           }
 
-          if (tiposFinal.includes('diario' as any) && !clienteId && !(obraNombre || obraNombreRaw)) {
+          if (tiposFinal.includes('diario') && !clienteId && !(obraNombre || obraNombreRaw)) {
             return { error: 'obra_nombre o cliente_id es obligatorio para asociar entradas de diario' };
           }
 
@@ -3067,12 +3070,12 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
             return (data ?? []).length;
           };
 
-          const [nPres, nFac, nAlb, nGast, nDio] = await Promise.all([
-            tiposFinal.includes('presupuestos' as any) ? updateNoDiario('presupuestos') : Promise.resolve(0),
-            tiposFinal.includes('facturas' as any) ? updateNoDiario('facturas') : Promise.resolve(0),
-            tiposFinal.includes('albaranes' as any) ? updateNoDiario('albaranes') : Promise.resolve(0),
-            tiposFinal.includes('gastos' as any) ? updateNoDiario('gastos') : Promise.resolve(0),
-            tiposFinal.includes('diario' as any) ? updateDiario() : Promise.resolve(0),
+          const [nPres, nFac, nAlb] = await Promise.all([
+            tiposFinal.includes('presupuestos') ? updateNoDiario('presupuestos') : Promise.resolve(0),
+            tiposFinal.includes('facturas') ? updateNoDiario('facturas') : Promise.resolve(0),
+            tiposFinal.includes('albaranes') ? updateNoDiario('albaranes') : Promise.resolve(0),
+            tiposFinal.includes('gastos') ? updateNoDiario('gastos') : Promise.resolve(0),
+            tiposFinal.includes('diario') ? updateDiario() : Promise.resolve(0),
           ]);
 
           const mensaje = `Asociados ${nPres} presupuestos, ${nFac} facturas, ${nAlb} albaranes a la obra '${obraNombre}'.`;
@@ -3729,7 +3732,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
 
           if (insErr) return { error: insErr.message };
 
-          let baseMsg =
+          const baseMsg =
             `Extra registrado correctamente: '${descripcion}' por ${impFmt}€, vinculado al presupuesto de ${clienteNombreFinal}.`;
 
           if (!notificar) {

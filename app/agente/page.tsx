@@ -19,9 +19,26 @@ interface ChatMessage {
   content: string;
 }
 
+interface PendingAiResponse {
+  id: string;
+  ai_response?: string | null;
+  edited_response?: string | null;
+}
+
+interface PendingConversation {
+  id: string;
+  customer_name?: string | null;
+  customer_contact?: string | null;
+  channel?: string | null;
+  priority?: string | null;
+  created_at: string;
+  message?: string | null;
+  ai_responses?: PendingAiResponse[] | null;
+}
+
 interface PendingMessage {
-  conv: any;
-  aiResponse: any | null;
+  conv: PendingConversation;
+  aiResponse: PendingAiResponse | null;
 }
 
 function AgentePageContent() {
@@ -98,7 +115,7 @@ function AgentePageContent() {
         .order('created_at', { ascending: false });
 
       if (data) {
-        const mapped = (data as any[]).map((conv) => ({
+        const mapped = (data as PendingConversation[]).map((conv) => ({
           conv,
           aiResponse: conv.ai_responses?.[0] ?? null,
         }));
@@ -178,7 +195,7 @@ function AgentePageContent() {
       .order('created_at', { ascending: false });
 
     if (data) {
-      const mapped = (data as any[]).map((conv) => ({
+      const mapped = (data as PendingConversation[]).map((conv) => ({
         conv,
         aiResponse: conv.ai_responses?.[0] ?? null,
       }));
@@ -393,7 +410,7 @@ function AgentePageContent() {
                               <span className="inline-block px-3 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
                                 {conv.channel}
                               </span>
-                              {getPriorityBadge(conv.priority)}
+                              {getPriorityBadge(conv.priority ?? 'normal')}
                             </div>
                           </div>
                           <span className="text-sm text-white/60">
@@ -457,14 +474,14 @@ function AgentePageContent() {
                         )}
 
                         <div className="flex flex-wrap gap-2 pt-2">
-                          {pendingMessages[currentPendingIndex].aiResponse && !pendingEditingId && (
+                          {ai && !pendingEditingId && (
                             <>
                               <button
                                 type="button"
                                 onClick={() =>
                                   aprobarPendiente(
-                                    pendingMessages[currentPendingIndex].conv.id,
-                                    pendingMessages[currentPendingIndex].aiResponse.id
+                                    conv.id,
+                                    ai.id
                                   )
                                 }
                                 className="px-3 py-1.5 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg"
@@ -474,15 +491,9 @@ function AgentePageContent() {
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setPendingEditingId(
-                                    pendingMessages[currentPendingIndex].aiResponse.id
-                                  );
+                                  setPendingEditingId(ai.id);
                                   setPendingEditedText(
-                                    pendingMessages[currentPendingIndex].aiResponse
-                                      .edited_response ||
-                                      pendingMessages[currentPendingIndex].aiResponse
-                                        .ai_response ||
-                                      ''
+                                    ai.edited_response || ai.ai_response || ''
                                   );
                                 }}
                                 className="px-3 py-1.5 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
@@ -493,8 +504,8 @@ function AgentePageContent() {
                                 type="button"
                                 onClick={() =>
                                   rechazarPendiente(
-                                    pendingMessages[currentPendingIndex].conv.id,
-                                    pendingMessages[currentPendingIndex].aiResponse.id
+                                    conv.id,
+                                    ai.id
                                   )
                                 }
                                 className="px-3 py-1.5 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg"

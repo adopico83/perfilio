@@ -1,4 +1,6 @@
-async function getBusinessIdByUserId(supabase: any, userId: string): Promise<string | null> {
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+async function getBusinessIdByUserId(supabase: SupabaseClient, userId: string): Promise<string | null> {
   if (!userId) return null;
 
   const timeoutPromise = new Promise<null>((resolve) =>
@@ -19,7 +21,7 @@ async function getBusinessIdByUserId(supabase: any, userId: string): Promise<str
   return result?.data?.id ?? null;
 }
 
-export async function getBusinessIdClient(supabase: any, userId?: string): Promise<string | null> {
+export async function getBusinessIdClient(supabase: SupabaseClient, userId?: string): Promise<string | null> {
   const resolvedUserId =
     userId ??
     (await supabase.auth.getSession())?.data?.session?.user?.id ??
@@ -28,7 +30,7 @@ export async function getBusinessIdClient(supabase: any, userId?: string): Promi
   return getBusinessIdByUserId(supabase, resolvedUserId);
 }
 
-export async function getBusinessIdServer(supabase: any): Promise<string | null> {
+export async function getBusinessIdServer(supabase: SupabaseClient): Promise<string | null> {
   const {
     data: { user },
   } = await supabase.auth.getUser();

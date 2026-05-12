@@ -1,9 +1,3 @@
-const nextJest = require('next/jest');
-
-const createJestConfig = nextJest({
-  dir: './',
-});
-
 const customJestConfig = {
   testEnvironment: 'node',
   moduleNameMapper: {
@@ -11,5 +5,12 @@ const customJestConfig = {
   },
 };
 
-module.exports = createJestConfig(customJestConfig);
+module.exports = async () => {
+  const { default: nextJest } = await import('next/jest.js');
+  const createJestConfig = nextJest({
+    dir: './',
+  });
+
+  return createJestConfig(customJestConfig)();
+};
 

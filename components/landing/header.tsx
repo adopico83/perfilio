@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 
 const WHATSAPP_HREF =
   'https://wa.me/34697613884?text=Hola%2C%20he%20visto%20Perfilio%20en%20vuestra%20web%20y%20me%20gustar%C3%ADa%20ver%20c%C3%B3mo%20funciona';
@@ -20,7 +21,7 @@ export function Header({ onOpenListaEspera }: HeaderProps) {
         <div className="flex h-20 items-center justify-between">
           {/* Logo */}
           <div className="flex items-center">
-            <a href="/" className="flex items-center gap-3 hover:opacity-90 transition-opacity">
+            <Link href="/" className="flex items-center gap-3 hover:opacity-90 transition-opacity">
               <Image 
                 src="/logo.png" 
                 alt="Perfilio" 
@@ -29,7 +30,7 @@ export function Header({ onOpenListaEspera }: HeaderProps) {
                 className="h-16 w-auto"
                 priority
               />
-            </a>
+            </Link>
           </div>
 
           {/* Desktop Navigation */}

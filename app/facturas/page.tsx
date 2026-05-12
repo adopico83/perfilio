@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import { useRouter } from 'next/navigation';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
@@ -58,7 +58,7 @@ export default function FacturasPage() {
     checkAuth();
   }, [router, supabase]);
 
-  const loadFacturas = async () => {
+  const loadFacturas = useCallback(async () => {
     const { data } = await supabase
       .from('facturas')
       .select(
@@ -67,11 +67,11 @@ export default function FacturasPage() {
       .order('created_at', { ascending: false });
     setFacturas((data ?? []) as unknown as Factura[]);
     setLoading(false);
-  };
+  }, [supabase]);
 
   useEffect(() => {
-    if (!authChecking) loadFacturas();
-  }, [authChecking]);
+    if (!authChecking) queueMicrotask(() => void loadFacturas());
+  }, [authChecking, loadFacturas]);
 
   const setEstado = async (id: string, estado: string) => {
     await supabase.from('facturas').update({ estado }).eq('id', id);

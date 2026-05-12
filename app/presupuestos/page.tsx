@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import { useRouter, useSearchParams } from 'next/navigation';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
@@ -62,7 +62,7 @@ function PresupuestosPageContent() {
     checkAuth();
   }, [router, supabase]);
 
-  const loadPresupuestos = async () => {
+  const loadPresupuestos = useCallback(async () => {
     const { data } = await supabase
       .from('presupuestos')
       .select(
@@ -71,18 +71,18 @@ function PresupuestosPageContent() {
       .order('created_at', { ascending: false });
     setPresupuestos((data ?? []) as unknown as Presupuesto[]);
     setLoading(false);
-  };
+  }, [supabase]);
 
   useEffect(() => {
-    if (!authChecking) loadPresupuestos();
-  }, [authChecking]);
+    if (!authChecking) queueMicrotask(() => void loadPresupuestos());
+  }, [authChecking, loadPresupuestos]);
 
   const idFromUrl = searchParams.get('id');
 
   useEffect(() => {
     if (loading || !idFromUrl) return;
     if (presupuestos.some((p) => p.id === idFromUrl)) {
-      setModalId(idFromUrl);
+      queueMicrotask(() => setModalId(idFromUrl));
     }
   }, [loading, idFromUrl, presupuestos]);
 

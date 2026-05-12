@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import { useRouter } from 'next/navigation';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
@@ -55,18 +55,18 @@ export default function AlbaranesPage() {
     checkAuth();
   }, [router, supabase]);
 
-  const loadAlbaranes = async () => {
+  const loadAlbaranes = useCallback(async () => {
     const { data } = await supabase
       .from('albaranes')
       .select('id, business_id, numero_albaran, cliente_nombre, cliente_id, cliente_direccion, descripcion_trabajos, lineas, total, fecha, estado, observaciones, created_at, obra_id, obras(nombre)')
       .order('created_at', { ascending: false });
     setAlbaranes((data ?? []) as unknown as Albaran[]);
     setLoading(false);
-  };
+  }, [supabase]);
 
   useEffect(() => {
-    if (!authChecking) loadAlbaranes();
-  }, [authChecking]);
+    if (!authChecking) queueMicrotask(() => void loadAlbaranes());
+  }, [authChecking, loadAlbaranes]);
 
   const setEstado = async (id: string, estado: string) => {
     if (estado === 'facturado') {

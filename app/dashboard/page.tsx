@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useEmailModal } from '@/contexts/email-modal-context';
 import { useObraModal } from '@/contexts/obra-modal-context';
+import BichoLivePulse from '@/components/dashboard/BichoLivePulse';
 import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
 import NotificationButton from '@/components/pwa/notification-button';
 import { useSession } from '@/components/providers/session-provider';
@@ -260,7 +261,6 @@ function DashboardSkeleton() {
 }
 
 function DashboardContent() {
-  const { businessId } = useSession();
   const { abrirEmail, abrirUrgentes } = useEmailModal();
   const { abrirObra } = useObraModal();
   const router = useRouter();
@@ -682,16 +682,7 @@ function DashboardContent() {
         return;
       }
 
-      const [
-        presupuestosRes,
-        albaranesRes,
-        facturasRes,
-        presListRes,
-        _agendaCargada,
-        facturasPendientesDataRes,
-        presupuestosMetricasRes,
-        presupuestosMaterialesRes,
-      ] = await Promise.all([
+      const dashboardRequests = Promise.all([
         supabase
           .from('presupuestos')
           .select('id', { count: 'exact', head: true })
@@ -714,7 +705,6 @@ function DashboardContent() {
           .eq('business_id', businessId)
           .order('created_at', { ascending: false })
           .limit(5),
-        loadAgenda(businessId),
         supabase
           .from('facturas')
           .select('id, cliente_nombre, total')
@@ -730,6 +720,16 @@ function DashboardContent() {
           .eq('business_id', businessId)
           .ilike('presupuesto_generado', '%material%'),
       ]);
+      await loadAgenda(businessId);
+      const [
+        presupuestosRes,
+        albaranesRes,
+        facturasRes,
+        presListRes,
+        facturasPendientesDataRes,
+        presupuestosMetricasRes,
+        presupuestosMaterialesRes,
+      ] = await dashboardRequests;
 
       setCounts({
         urgentes: 0,
@@ -1245,6 +1245,8 @@ function DashboardContent() {
             {!showPushRecoveryCta ? <NotificationButton /> : null}
           </div>
         </section>
+
+        <BichoLivePulse />
 
         <section>
           <button

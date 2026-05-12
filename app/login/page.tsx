@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import Image from 'next/image';
@@ -123,18 +124,18 @@ export default function LoginPage() {
           <div className="mt-6 pt-6 border-t border-gray-200 text-center">
             <p className="text-sm text-gray-600">
               ¿No tienes cuenta?{' '}
-              <a href="/#probar" className="text-[#ed8936] hover:text-[#dd6b20] font-semibold">
+              <Link href="/#probar" className="text-[#ed8936] hover:text-[#dd6b20] font-semibold">
                 Prueba gratis
-              </a>
+              </Link>
             </p>
           </div>
         </div>
 
         {/* Footer */}
         <div className="mt-8 text-center">
-          <a href="/" className="text-gray-300 hover:text-white text-sm transition-colors">
+          <Link href="/" className="text-gray-300 hover:text-white text-sm transition-colors">
             ← Volver al inicio
-          </a>
+          </Link>
         </div>
       </div>
     </div>

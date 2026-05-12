@@ -157,10 +157,10 @@ export function parsePresupuestoGenerado(texto: string): PresupuestoGeneradoPars
     }
   }
 
-  let baseImponible = footer?.baseImponible ?? 0;
-  let porcentajeIva = footer?.porcentajeIva ?? 0;
-  let importeIva = footer?.importeIva ?? 0;
-  let total = footer?.total ?? 0;
+  const baseImponible = footer?.baseImponible ?? 0;
+  const porcentajeIva = footer?.porcentajeIva ?? 0;
+  const importeIva = footer?.importeIva ?? 0;
+  const total = footer?.total ?? 0;
 
   const parsed: PresupuestoGeneradoParseado = {
     tituloGeneral,

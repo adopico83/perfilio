@@ -1,4 +1,3 @@
-/// <reference path="../../../../types/web-push.d.ts" />
 import { NextRequest, NextResponse } from 'next/server';
 import * as webpush from 'web-push';
 import { createServiceClient } from '@/lib/supabase/server';
