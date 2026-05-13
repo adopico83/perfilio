@@ -75,6 +75,230 @@ function parseMinutosAntelacion(raw: unknown): { value: number; error?: string }
   return { value: parsed };
 }
 
+const DURACION_DEFECTO_MIN = 60;
+const VENTANA_TRABAJO_INICIO_MIN = 8 * 60;
+const VENTANA_TRABAJO_FIN_MIN = 20 * 60;
+
+type IntervaloMin = { inicio: number; fin: number; id: string; titulo: string };
+
+function escapeIlike(s: string): string {
+  return s.replace(/[%_]/g, '').trim();
+}
+
+function horaTextoAMinutos(hora: string | null | undefined): number | null {
+  if (hora == null) return null;
+  const t = String(hora).trim();
+  if (!t) return null;
+  const n = normalizeHora(t);
+  if (!n) return null;
+  return parseHmToMinutes(n);
+}
+
+function intervalosSolapan(a: IntervaloMin, b: IntervaloMin): boolean {
+  return a.inicio < b.fin && b.inicio < a.fin;
+}
+
+function parseDuracionMinutos(raw: unknown): number {
+  if (raw === undefined || raw === null || raw === '') return DURACION_DEFECTO_MIN;
+  const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+  if (!Number.isFinite(n) || n < 15 || n > 24 * 60) return DURACION_DEFECTO_MIN;
+  return Math.round(n);
+}
+
+async function cargarIntervalosDiaAgenda(
+  supabase: SupabaseClient,
+  businessId: string,
+  fecha: string,
+  duracionSlotMin: number,
+  excluirId?: string
+): Promise<IntervaloMin[]> {
+  const { data, error } = await supabase
+    .from('agenda')
+    .select('id, titulo, hora')
+    .eq('business_id', businessId)
+    .eq('fecha', fecha);
+  if (error || !data) return [];
+  const out: IntervaloMin[] = [];
+  for (const row of data as Array<{ id: string; titulo?: string | null; hora?: string | null }>) {
+    if (excluirId && row.id === excluirId) continue;
+    const hm = horaTextoAMinutos(row.hora ?? null);
+    if (hm == null) continue;
+    out.push({
+      id: row.id,
+      titulo: String(row.titulo ?? '').trim() || 'Evento',
+      inicio: hm,
+      fin: hm + duracionSlotMin,
+    });
+  }
+  return out;
+}
+
+function sugerirHuecoLibre(
+  candidatoInicio: number,
+  duracionMin: number,
+  ocupados: IntervaloMin[]
+): string | null {
+  const slotLen = duracionMin;
+  const candidato: IntervaloMin = {
+    id: '__nuevo__',
+    titulo: '',
+    inicio: candidatoInicio,
+    fin: candidatoInicio + slotLen,
+  };
+  const choca = ocupados.some((o) => intervalosSolapan(candidato, o));
+  if (!choca) return formatMinutesToHm(candidatoInicio);
+
+  let best: { dist: number; inicio: number } | null = null;
+  for (let start = VENTANA_TRABAJO_INICIO_MIN; start + slotLen <= VENTANA_TRABAJO_FIN_MIN; start += 15) {
+    const probe: IntervaloMin = {
+      id: '__probe__',
+      titulo: '',
+      inicio: start,
+      fin: start + slotLen,
+    };
+    if (ocupados.some((o) => intervalosSolapan(probe, o))) continue;
+    const dist = Math.abs(start - candidatoInicio);
+    if (!best || dist < best.dist) best = { dist, inicio: start };
+  }
+  return best ? formatMinutesToHm(best.inicio) : null;
+}
+
+type ClienteMatch = {
+  id: string;
+  nombre: string;
+  telefono: string | null;
+  direccion: string | null;
+  nif: string | null;
+};
+
+async function buscarClientePorTitulo(
+  supabase: SupabaseClient,
+  businessId: string,
+  titulo: string
+): Promise<ClienteMatch | null> {
+  const tokens = titulo
+    .split(/[\s,;:|/\\-]+/)
+    .map((t) => escapeIlike(t))
+    .filter((t) => t.length >= 4)
+    .sort((a, b) => b.length - a.length);
+  const seen = new Set<string>();
+  for (const token of tokens) {
+    if (seen.has(token.toLowerCase())) continue;
+    seen.add(token.toLowerCase());
+    const { data, error } = await supabase
+      .from('clientes')
+      .select('id, nombre, telefono, direccion, nif')
+      .eq('business_id', businessId)
+      .ilike('nombre', `%${token}%`)
+      .order('nombre', { ascending: true })
+      .limit(1);
+    if (error || !data?.[0]) continue;
+    const r = data[0] as ClienteMatch;
+    if (r?.id) return r;
+  }
+  return null;
+}
+
+type ObraMatch = { id: string; nombre: string; direccion: string | null };
+
+async function buscarObraPorTitulo(
+  supabase: SupabaseClient,
+  businessId: string,
+  titulo: string
+): Promise<ObraMatch | null> {
+  const tokens = titulo
+    .split(/[\s,;:|/\\-]+/)
+    .map((t) => escapeIlike(t))
+    .filter((t) => t.length >= 4)
+    .sort((a, b) => b.length - a.length);
+  const seen = new Set<string>();
+  for (const token of tokens) {
+    if (seen.has(token.toLowerCase())) continue;
+    seen.add(token.toLowerCase());
+    const { data, error } = await supabase
+      .from('obras')
+      .select('id, nombre, direccion')
+      .eq('business_id', businessId)
+      .in('estado', ['abierta', 'en_curso'])
+      .ilike('nombre', `%${token}%`)
+      .order('nombre', { ascending: true })
+      .limit(1);
+    if (error || !data?.[0]) continue;
+    const r = data[0] as ObraMatch;
+    if (r?.id) return r;
+  }
+  return null;
+}
+
+async function ultimoEstadoPresupuestoObraOCliente(
+  supabase: SupabaseClient,
+  businessId: string,
+  obraId: string | null,
+  clienteId: string | null
+): Promise<string | null> {
+  let q = supabase
+    .from('presupuestos')
+    .select('estado')
+    .eq('business_id', businessId)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (obraId) q = q.eq('obra_id', obraId);
+  else if (clienteId) q = q.eq('cliente_id', clienteId);
+  else return null;
+  const { data, error } = await q.maybeSingle();
+  if (error || !data) return null;
+  return String((data as { estado?: string | null }).estado ?? '').trim() || null;
+}
+
+async function hayPresupuestoAceptadoSinFacturaObra(
+  supabase: SupabaseClient,
+  businessId: string,
+  obraId: string | null
+): Promise<boolean> {
+  if (!obraId) return false;
+  const { data: pres, error: pErr } = await supabase
+    .from('presupuestos')
+    .select('id')
+    .eq('business_id', businessId)
+    .eq('obra_id', obraId)
+    .eq('estado', 'aceptado')
+    .limit(1);
+  if (pErr || !pres?.length) return false;
+  const { data: fac, error: fErr } = await supabase
+    .from('facturas')
+    .select('id')
+    .eq('business_id', businessId)
+    .eq('obra_id', obraId)
+    .limit(1);
+  if (fErr) return false;
+  return !(fac?.length);
+}
+
+async function hayPresupuestoAceptadoSinFacturaCliente(
+  supabase: SupabaseClient,
+  businessId: string,
+  clienteId: string | null
+): Promise<boolean> {
+  if (!clienteId) return false;
+  const { data: pres, error: pErr } = await supabase
+    .from('presupuestos')
+    .select('id, obra_id')
+    .eq('business_id', businessId)
+    .eq('cliente_id', clienteId)
+    .eq('estado', 'aceptado')
+    .limit(10);
+  if (pErr || !pres?.length) return false;
+  let anyObra = false;
+  for (const row of pres as Array<{ obra_id: string | null }>) {
+    if (row.obra_id) {
+      anyObra = true;
+      const sinFac = await hayPresupuestoAceptadoSinFacturaObra(supabase, businessId, row.obra_id);
+      if (sinFac) return true;
+    }
+  }
+  return !anyObra;
+}
+
 function normTituloAgenda(s: string): string {
   return s
     .trim()
@@ -113,6 +337,7 @@ function esConfirmacionUsuario(raw: string): boolean {
 }
 
 export const AGENDA_HANDLED_TOOLS = new Set([
+  'obtener_agenda',
   'crear_recordatorio',
   'editar_recordatorio',
   'eliminar_recordatorio',
@@ -124,22 +349,80 @@ export const AGENDA_AGENT_TOOLS = [
   {
     type: 'function' as const,
     function: {
-      name: 'crear_recordatorio',
-      description: 'Crear un recordatorio en agenda',
+      name: 'obtener_agenda',
+      description:
+        'Lista eventos de agenda para una fecha YYYY-MM-DD (hora, título, descripción, ubicación). Úsala SIEMPRE antes de crear_recordatorio para comprobar solapes.',
       parameters: {
         type: 'object',
         properties: {
-          titulo: { type: 'string' },
+          fecha: { type: 'string', description: 'Fecha en formato YYYY-MM-DD' },
+        },
+        required: ['fecha'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'crear_recordatorio',
+      description:
+        'Crear evento en agenda. Si no envías titulo, pasa fecha y además tipo+cliente (ej. tipo "Cita", cliente "Mendi") para construir el título. Opcional: telefono/direccion del cliente en la tool para enriquecer aunque el título no coincida con la BD. Tras obtener_agenda del mismo día.',
+      parameters: {
+        type: 'object',
+        properties: {
+          titulo: {
+            type: 'string',
+            description:
+              'Título del evento. Si no viene, el servidor puede armarlo con tipo + " con " + cliente cuando ambos existan.',
+          },
+          tipo: {
+            type: 'string',
+            description: 'Tipo de evento (ej. Cita, Visita, Reunión) si titulo va implícito',
+          },
+          cliente: {
+            type: 'string',
+            description: 'Nombre del cliente o contacto (alternativa: cliente_nombre)',
+          },
+          cliente_nombre: { type: 'string', description: 'Sinónimo de cliente' },
+          telefono: { type: 'string', description: 'Teléfono del cliente (alternativa: cliente_telefono)' },
+          cliente_telefono: { type: 'string', description: 'Sinónimo de telefono' },
+          direccion: {
+            type: 'string',
+            description: 'Dirección del cliente o cita (alternativa: cliente_direccion)',
+          },
+          cliente_direccion: { type: 'string', description: 'Sinónimo de direccion' },
           fecha: { type: 'string', description: 'Formato YYYY-MM-DD' },
           hora: { type: 'string', description: 'Formato HH:MM (opcional)' },
+          notas: { type: 'string', description: 'Texto libre del usuario para el campo Notas de la descripción' },
+          duracion_minutos: {
+            type: 'integer',
+            description: 'Duración del evento en minutos (15–1440). Por defecto 60.',
+          },
           minutos_antelacion: {
             type: 'integer',
             description:
               'Minutos de antelación con los que avisar antes de la hora del evento. Usa 0 si es un recordatorio simple (llevar algo, hacer una llamada). Usa 30 si es una cita, reunión o visita con otra persona. Usa 60 si el usuario lo pide explícitamente o si implica desplazamiento largo.',
             default: 0,
           },
+          solo_vista_previa: {
+            type: 'boolean',
+            description:
+              'Si true, solo devuelve vista previa (sin insertar). Tras confirmación del usuario, llama de nuevo con false u omítelo.',
+          },
+          description: {
+            type: 'string',
+            description:
+              'Texto completo del campo description si quieres fijarlo tú (si lo envías no vacío, sustituye la plantilla autogenerada del servidor).',
+          },
+          location: {
+            type: 'string',
+            description:
+              'Dirección o texto de ubicación para GPS; si lo envías no vacío, sustituye la inferida por obra/cliente.',
+          },
         },
-        required: ['titulo', 'fecha'],
+        required: ['fecha'],
+        additionalProperties: false,
       },
     },
   },
@@ -170,17 +453,36 @@ export const AGENDA_AGENT_SYSTEM_PROMPT = `Tu nombre es Bicho. Si el usuario te 
 
 Eres el especialista en agenda y recordatorios de Perfilio.
 
+[MÁXIMA PRIORIDAD — ANTES QUE CUALQUIER OTRA REGLA]
+REGLA ABSOLUTA: Cuando el usuario mencione cualquier nombre de persona, empresa u obra al crear una cita, DEBES buscar sus datos ANTES de crear el evento, sin esperar a que te lo pidan. No es opcional. Es tu responsabilidad como secretario proactivo. Si el nombre no existe en el sistema, créalo con los datos que tengas.
+
+SECRETARIO INVISIBLE — FRASES COTIDIANAS (ej.: «Cita con Mendi mañana a las 10»):
+Actúa sin pedir permiso para «empezar el flujo». En orden:
+1. Búsqueda de cliente u obra por nombre (buscar_cliente y/o buscar_obra con el fragmento que corresponda a persona, empresa u obra) antes de dar el evento por hecho.
+2. obtener_agenda para el día ya resuelto en YYYY-MM-DD y comprobación de conflictos (1 h por defecto, salvo duracion_minutos).
+3. crear_recordatorio con solo_vista_previa true: propuesta con datos enriquecidos (teléfono, dirección, estado presupuesto, notas, alertas que devuelva el servidor). Solo tras confirmación explícita del usuario, segunda llamada con solo_vista_previa false u omitido para guardar.
+
+AGENDA INTELIGENTE — OBLIGATORIO ANTES DE CREAR:
+1. Antes de llamar a crear_recordatorio, llama SIEMPRE a obtener_agenda con la misma fecha (YYYY-MM-DD) que va a usar el evento. Revisa el TOOL RESULT: si hay solape horario con el nuevo evento, NO llames a crear_recordatorio. Asume duración de 1 hora (60 min) para comprobar solapes salvo que Pino indique otra duración (duracion_minutos). Si hay solape, explica el conflicto y sugiere el hueco libre más cercano que devuelva el servidor (campo hueco_sugerido si viene en el error).
+2. Si el usuario menciona un nombre de cliente u obra, antes de crear consulta sus datos en el sistema (buscar_cliente, buscar_obra, ver_cliente o ver_ficha_obra si hace falta): necesitas teléfono y dirección para la descripción. No inventes teléfonos ni direcciones.
+3. El campo descripción del evento debe seguir EXACTAMENTE esta plantilla (rellena con datos reales o "—" si no hay dato), salvo que envíes el parámetro description completo en crear_recordatorio para sustituirla:
+   📞 [Teléfono] | 📍 [Dirección] | 📄 [Estado presupuesto] | Notas: [texto del usuario]
+   El servidor puede completar teléfono, dirección y estado al guardar; tú debes pasar "notas" en crear_recordatorio cuando el usuario dé detalles. Si pasas description o location en la tool, se guardan tal cual en Supabase (tienen prioridad sobre lo inferido).
+
 REGLAS ABSOLUTAS:
-1. NUNCA confirmes un recordatorio sin haber recibido TOOL RESULT con ok:true. Llama a la tool primero, espera el resultado, solo entonces confirma.
-2. Formato de confirmación obligatorio: 'Recordatorio [operación]: [título] para [fecha] a las [hora]. ¿Algo más?'
-3. NUNCA uses body.business_id — usa siempre el business_id recibido por parámetro.
-4. Si el usuario dicta una hora en lenguaje natural ('a las 9 de la mañana', 'a las 3 de la tarde'), conviértela siempre a formato HH:MM antes de guardar.
+4. NUNCA confirmes un recordatorio sin haber recibido TOOL RESULT de crear_recordatorio con ok:true. Llama a la tool primero, espera el resultado, solo entonces confirma.
+5. Formato de confirmación obligatorio: 'Recordatorio [operación]: [título] para [fecha] a las [hora]. ¿Algo más?'
+6. NUNCA uses body.business_id — usa siempre el business_id recibido por parámetro.
+7. Si el usuario dicta una hora en lenguaje natural ('a las 9 de la mañana', 'a las 3 de la tarde'), conviértela siempre a formato HH:MM antes de guardar.
 SINÓNIMOS: Las palabras 'alarma', 'aviso', 'alerta', 'recordatorio' y 'que me salte algo' son siempre peticiones de crear_recordatorio. Nunca las trates como ajenas al dominio de agenda.
-5. Si el usuario dice algo ajeno a la agenda, responde: 'Para eso tendrás que preguntarme fuera del contexto de agenda. ¿Algo más con los recordatorios?'
+8. Si el usuario dice algo ajeno a la agenda, responde: 'Para eso tendrás que preguntarme fuera del contexto de agenda. ¿Algo más con los recordatorios?'
+
+CREACIÓN (SDD):
+9. Si la tool crear_recordatorio admite solo_vista_previa: primera llamada con solo_vista_previa true (tras obtener_agenda y búsquedas); tras confirmación explícita, misma llamada con solo_vista_previa false u omitido para insertar.
 
 ELIMINACIÓN (SDD — obligatorio):
-6. Si el TOOL RESULT trae pendiente_confirmacion: true (vista previa de borrado), el siguiente mensaje del usuario que sea afirmación corta (sí, vale, ok, adelante, elimina, etc.) DEBE ejecutar el borrado: misma tool (eliminar_recordatorio o eliminar_evento_agenda) con el mismo id/evento_id y solo_vista_previa false u omitido. NO vuelvas a llamar con solo_vista_previa true tras una vista previa de borrado.
-7. Si ya mostraste la vista previa y el usuario confirma, nunca repitas la pregunta de confirmación sin llamar antes a la tool en modo ejecución (solo_vista_previa false).`;
+10. Si el TOOL RESULT trae pendiente_confirmacion: true (vista previa de borrado), el siguiente mensaje del usuario que sea afirmación corta (sí, vale, ok, adelante, elimina, etc.) DEBE ejecutar el borrado: misma tool (eliminar_recordatorio o eliminar_evento_agenda) con el mismo id/evento_id y solo_vista_previa false u omitido. NO vuelvas a llamar con solo_vista_previa true tras una vista previa de borrado.
+11. Si ya mostraste la vista previa y el usuario confirma, nunca repitas la pregunta de confirmación sin llamar antes a la tool en modo ejecución (solo_vista_previa false).`;
 
 export type HandleAgendaCtx = {
   mensajeTrim?: string;
@@ -206,16 +508,79 @@ export async function handleAgenda(
   }
 
   switch (toolName) {
+    case 'obtener_agenda': {
+      const fechaAg = String(toolArgs.fecha ?? '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaAg)) {
+        return { error: 'La fecha debe tener formato YYYY-MM-DD' };
+      }
+      const { data, error } = await supabase
+        .from('agenda')
+        .select('id, titulo, fecha, hora, description, location, minutos_antelacion')
+        .eq('business_id', bid)
+        .eq('fecha', fechaAg)
+        .order('hora', { ascending: true, nullsFirst: false });
+      if (error) return { error: error.message };
+      const items = (data ?? []).map((row: Record<string, unknown>) => {
+        const horaStr = row.hora != null ? String(row.hora).trim() : '';
+        const ini = horaTextoAMinutos(horaStr);
+        return {
+          id: String(row.id ?? ''),
+          titulo: String(row.titulo ?? ''),
+          fecha: String(row.fecha ?? fechaAg),
+          hora: horaStr || null,
+          inicio_minutos: ini,
+          fin_minutos: ini != null ? ini + DURACION_DEFECTO_MIN : null,
+          description: row.description != null ? String(row.description) : null,
+          location: row.location != null ? String(row.location) : null,
+          minutos_antelacion:
+            row.minutos_antelacion != null && Number.isFinite(Number(row.minutos_antelacion))
+              ? Number(row.minutos_antelacion)
+              : 0,
+        };
+      });
+      return { fecha: fechaAg, items };
+    }
     case 'crear_recordatorio': {
-      const titulo = String(toolArgs.titulo ?? '').trim();
+      const tipoEv = String(toolArgs.tipo ?? '').trim();
+      const clienteNombreArg = String(
+        toolArgs.cliente ?? toolArgs.cliente_nombre ?? ''
+      ).trim();
+      const telefonoArg = String(
+        toolArgs.telefono ?? toolArgs.cliente_telefono ?? ''
+      ).trim();
+      const direccionArg = String(
+        toolArgs.direccion ?? toolArgs.cliente_direccion ?? ''
+      ).trim();
+
+      let titulo = String(toolArgs.titulo ?? '').trim();
+      if (!titulo) {
+        if (tipoEv && clienteNombreArg) {
+          titulo = `${tipoEv} con ${clienteNombreArg}`;
+        } else if (tipoEv) {
+          titulo = tipoEv;
+        } else if (clienteNombreArg) {
+          titulo = `Cita con ${clienteNombreArg}`;
+        }
+      }
+
       const fechaRaw = String(toolArgs.fecha ?? '').trim();
       const horaOpt = toolArgs.hora != null ? String(toolArgs.hora).trim() : '';
+      const notasUsuario = toolArgs.notas != null ? String(toolArgs.notas).trim() : '';
+      const duracionMin = parseDuracionMinutos(toolArgs.duracion_minutos);
+      const soloVistaCrear =
+        toolArgs.solo_vista_previa === true ||
+        String(toolArgs.solo_vista_previa ?? '').toLowerCase() === 'true';
+      const userConfirmaCrear = esConfirmacionUsuario(mensajeTrim);
+
       const { value: minutosAntelacion, error: errMinAnt } = parseMinutosAntelacion(
         toolArgs.minutos_antelacion
       );
 
       if (!titulo) {
-        return { error: 'El título del recordatorio es obligatorio' };
+        return {
+          error:
+            'Indica titulo, o bien fecha y (tipo + cliente) para construir el título (ej. tipo "Cita", cliente "Mendi").',
+        };
       }
       if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaRaw)) {
         return { error: 'La fecha debe tener formato YYYY-MM-DD' };
@@ -223,6 +588,14 @@ export async function handleAgenda(
       if (errMinAnt) {
         return { error: errMinAnt };
       }
+
+      console.log('[agenda] crear_recordatorio toolArgs', JSON.stringify(toolArgs));
+      console.log(
+        '[agenda] crear_recordatorio toolArgs.description',
+        toolArgs.description,
+        'toolArgs.location',
+        toolArgs.location
+      );
 
       const tituloNorm = normTituloAgenda(titulo);
       const { data: mismoDia, error: errMismoDia } = await supabase
@@ -270,22 +643,119 @@ export async function handleAgenda(
         }
       }
 
+      const needleClienteObra = [titulo, clienteNombreArg].filter(Boolean).join(' ').trim() || titulo;
+      const clienteMatch = await buscarClientePorTitulo(supabase, bid, needleClienteObra);
+      console.log('[agenda] buscarClientePorTitulo', {
+        encontrado: Boolean(clienteMatch),
+        cliente: clienteMatch,
+        needle: needleClienteObra,
+      });
+      const obraMatch = await buscarObraPorTitulo(supabase, bid, needleClienteObra);
+
+      const telefonoDesc =
+        (telefonoArg ? telefonoArg : (clienteMatch?.telefono ?? '').trim()) || '—';
+      const dirClienteResuelta = (direccionArg || (clienteMatch?.direccion ?? '').trim()).trim();
+      const dirObra = (obraMatch?.direccion ?? '').trim();
+      const dirMapa = dirClienteResuelta || dirObra || '—';
+      const locationGps = dirObra || (dirClienteResuelta || null) || null;
+
+      const estadoPres =
+        (await ultimoEstadoPresupuestoObraOCliente(
+          supabase,
+          bid,
+          obraMatch?.id ?? null,
+          clienteMatch?.id ?? null
+        )) ?? '—';
+
+      let anticipoPendiente = false;
+      if (obraMatch?.id) {
+        anticipoPendiente = await hayPresupuestoAceptadoSinFacturaObra(supabase, bid, obraMatch.id);
+      } else if (clienteMatch?.id) {
+        anticipoPendiente = await hayPresupuestoAceptadoSinFacturaCliente(supabase, bid, clienteMatch.id);
+      }
+
+      let descripcion =
+        `📞 ${telefonoDesc} | 📍 ${dirMapa} | 📄 ${estadoPres} | Notas: ${notasUsuario || '—'}`;
+      if (anticipoPendiente) {
+        descripcion += '\n⚠️ Anticipo pendiente de cobrar';
+      }
+
+      const descriptionArg =
+        toolArgs.description != null && String(toolArgs.description).trim()
+          ? String(toolArgs.description).trim()
+          : '';
+      const locationArg =
+        toolArgs.location != null && String(toolArgs.location).trim()
+          ? String(toolArgs.location).trim()
+          : '';
+      const descriptionFinal = descriptionArg.length > 0 ? descriptionArg : descripcion;
+      const locationFinal =
+        locationArg.length > 0 ? locationArg : locationGps != null && locationGps.length > 0 ? locationGps : null;
+
+      let horaFinal: string | undefined;
+      if (horaOpt) {
+        const normalized = normalizeHora(horaOpt);
+        horaFinal = normalized ?? horaOpt;
+      }
+
+      const ocupados = await cargarIntervalosDiaAgenda(
+        supabase,
+        bid,
+        fechaRaw,
+        DURACION_DEFECTO_MIN
+      );
+      if (horaFinal) {
+        const iniNuevo = horaTextoAMinutos(horaFinal);
+        if (iniNuevo != null) {
+          const nuevoSlot: IntervaloMin = {
+            id: '__nuevo__',
+            titulo,
+            inicio: iniNuevo,
+            fin: iniNuevo + duracionMin,
+          };
+          const solapa = ocupados.some((o) => intervalosSolapan(nuevoSlot, o));
+          if (solapa) {
+            const hueco = sugerirHuecoLibre(iniNuevo, duracionMin, ocupados);
+            return {
+              error: 'Solape en agenda: ya hay un evento en esa franja horaria.',
+              solapamiento: true,
+              hueco_sugerido: hueco,
+            };
+          }
+        }
+      }
+
       const insertPayload: {
         business_id: string;
         titulo: string;
         fecha: string;
         hora?: string;
         minutos_antelacion: number;
+        description: string;
+        location: string | null;
       } = {
         business_id: bid,
         titulo,
         fecha: fechaRaw,
         minutos_antelacion: minutosAntelacion,
+        description: descriptionFinal,
+        location: locationFinal,
       };
-      if (horaOpt) {
-        const normalized = normalizeHora(horaOpt);
-        insertPayload.hora = normalized ?? horaOpt;
+      if (horaFinal) insertPayload.hora = horaFinal;
+
+      if (soloVistaCrear && !userConfirmaCrear) {
+        return {
+          mensaje:
+            `Vista previa del evento (no guardado):\n• ${titulo}\n• ${fechaRaw} ${
+              horaFinal ? `a las ${horaFinal}` : '(sin hora)'
+            }\n• Ubicación GPS: ${locationFinal ?? '—'}\n• Descripción:\n${descriptionFinal}\n\n` +
+            'Si el usuario confirma, vuelve a llamar a crear_recordatorio con los mismos datos y solo_vista_previa false (u omítelo).',
+          pendiente_confirmacion: true,
+          vista: insertPayload,
+        };
       }
+
+      console.log('[agenda] crear_recordatorio descriptionFinal antes de insertar', descriptionFinal);
 
       const { data: row, error } = await supabase
         .from('agenda')
@@ -300,7 +770,7 @@ export async function handleAgenda(
       const avisoNatural =
         minutosAntelacion > 0
           ? insertPayload.hora
-            ? ` Perfecto, te aviso a las ${formatMinutesToHm(parseHmToMinutes(insertPayload.hora) - minutosAntelacion)} para que llegues a tiempo a las ${insertPayload.hora}.`
+            ? ` Perfecto, te aviso a las ${formatMinutesToHm(parseHmToMinutes(insertPayload.hora!) - minutosAntelacion)} para que llegues a tiempo a las ${insertPayload.hora}.`
             : ` Perfecto, te aviso con ${minutosAntelacion} minutos de antelación.`
           : '';
       return {

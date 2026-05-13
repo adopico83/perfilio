@@ -586,11 +586,17 @@ const INTENT_TOOL_NAMES_EMAILS = new Set([
 ]);
 
 const INTENT_TOOL_NAMES_AGENDA = new Set([
+  'obtener_agenda',
   'crear_recordatorio',
   'editar_recordatorio',
   'eliminar_recordatorio',
   'eliminar_evento_agenda',
   'modificar_evento_agenda',
+  'buscar_cliente',
+  'buscar_obra',
+  'crear_cliente',
+  'ver_cliente',
+  'ver_ficha_obra',
   'get_directions',
   'consultar_tiempo',
   'guardar_memoria',
@@ -1449,22 +1455,85 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
       {
         type: 'function',
         function: {
-          name: 'crear_recordatorio',
+          name: 'obtener_agenda',
           description:
-            'Nuevo evento en agenda: título, fecha YYYY-MM-DD, hora opcional. SDD obligatorio: primero solo_vista_previa true (resumen sin guardar, pendiente_confirmacion); solo tras confirmación explícita del usuario, misma llamada con solo_vista_previa false u omitido para insertar. No llames varias veces a guardar en la misma petición.',
+            'Eventos del día (fecha YYYY-MM-DD): hora, título, descripción, ubicación. Llamar siempre antes de crear_recordatorio para evitar solapes (1 h de duración por defecto).',
           parameters: {
             type: 'object',
             properties: {
-              titulo: { type: 'string', description: 'Título del recordatorio' },
-              fecha: { type: 'string', description: 'Fecha en formato YYYY-MM-DD' },
-              hora: { type: 'string', description: 'Hora opcional (texto libre)' },
+              fecha: { type: 'string', description: 'Fecha YYYY-MM-DD' },
+            },
+            required: ['fecha'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'crear_recordatorio',
+          description:
+            'Crear evento en agenda. Si no envías titulo, pasa fecha y además tipo+cliente (ej. tipo "Cita", cliente "Mendi") para construir el título. Opcional: telefono/direccion del cliente en la tool para enriquecer aunque el título no coincida con la BD. Tras obtener_agenda del mismo día.',
+          parameters: {
+            type: 'object',
+            properties: {
+              titulo: {
+                type: 'string',
+                description:
+                  'Título del evento. Si no viene, el servidor puede armarlo con tipo + " con " + cliente cuando ambos existan.',
+              },
+              tipo: {
+                type: 'string',
+                description: 'Tipo de evento (ej. Cita, Visita, Reunión) si titulo va implícito',
+              },
+              cliente: {
+                type: 'string',
+                description: 'Nombre del cliente o contacto (alternativa: cliente_nombre)',
+              },
+              cliente_nombre: { type: 'string', description: 'Sinónimo de cliente' },
+              telefono: {
+                type: 'string',
+                description: 'Teléfono del cliente (alternativa: cliente_telefono)',
+              },
+              cliente_telefono: { type: 'string', description: 'Sinónimo de telefono' },
+              direccion: {
+                type: 'string',
+                description: 'Dirección del cliente o cita (alternativa: cliente_direccion)',
+              },
+              cliente_direccion: { type: 'string', description: 'Sinónimo de direccion' },
+              fecha: { type: 'string', description: 'Formato YYYY-MM-DD' },
+              hora: { type: 'string', description: 'Formato HH:MM (opcional)' },
+              notas: {
+                type: 'string',
+                description: 'Texto libre del usuario para el campo Notas de la descripción',
+              },
+              duracion_minutos: {
+                type: 'integer',
+                description: 'Duración del evento en minutos (15–1440). Por defecto 60.',
+              },
+              minutos_antelacion: {
+                type: 'integer',
+                description:
+                  'Minutos de antelación con los que avisar antes de la hora del evento. Usa 0 si es un recordatorio simple (llevar algo, hacer una llamada). Usa 30 si es una cita, reunión o visita con otra persona. Usa 60 si el usuario lo pide explícitamente o si implica desplazamiento largo.',
+                default: 0,
+              },
               solo_vista_previa: {
                 type: 'boolean',
                 description:
-                  'Si true, solo muestra resumen y no inserta. Usar true en la primera llamada. Tras confirmación del usuario, llamar de nuevo con false u omitir para guardar.',
+                  'Si true, solo devuelve vista previa (sin insertar). Tras confirmación del usuario, llama de nuevo con false u omítelo.',
+              },
+              description: {
+                type: 'string',
+                description:
+                  'Texto completo del campo description si quieres fijarlo tú (si lo envías no vacío, sustituye la plantilla autogenerada del servidor).',
+              },
+              location: {
+                type: 'string',
+                description:
+                  'Dirección o texto de ubicación para GPS; si lo envías no vacío, sustituye la inferida por obra/cliente.',
               },
             },
-            required: ['titulo', 'fecha'],
+            required: ['fecha'],
             additionalProperties: false,
           },
         },

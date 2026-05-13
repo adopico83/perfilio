@@ -189,6 +189,109 @@ function pushByObraId<T extends { obra_id: string | null }>(map: Map<string, T[]
   map.set(row.obra_id, rows);
 }
 
+type AgendaRow = {
+  id: string;
+  titulo: string | null;
+  hora: string | null;
+  description: string | null;
+  location: string | null;
+};
+
+async function buildAgendaHoyBloque(
+  adminClient: ReturnType<typeof createAdminClient>,
+  businessId: string,
+  fechaYmd: string
+): Promise<string> {
+  const { data: evs, error } = await adminClient
+    .from('agenda')
+    .select('id, titulo, hora, description, location')
+    .eq('business_id', businessId)
+    .eq('fecha', fechaYmd)
+    .order('hora', { ascending: true, nullsFirst: false });
+  if (error || !evs?.length) {
+    return '';
+  }
+
+  const { data: obrasBiz, error: obErr } = await adminClient
+    .from('obras')
+    .select('id, nombre, direccion, cliente_id')
+    .eq('business_id', businessId)
+    .in('estado', ACTIVE_OBRA_STATES);
+  if (obErr) {
+    console.error('[bicho-daily-check] obras para agenda:', obErr.message);
+  }
+  const obrasLista = (obrasBiz ?? []) as Array<{
+    id: string;
+    nombre: string | null;
+    direccion: string | null;
+    cliente_id: string | null;
+  }>;
+
+  const lineas: string[] = [];
+  for (const ev of evs as AgendaRow[]) {
+    const tit = String(ev.titulo ?? '').trim() || 'Evento';
+    const hora = String(ev.hora ?? '').trim();
+    const loc = String(ev.location ?? '').trim();
+    const titLow = tit.toLowerCase();
+    const locLow = loc.toLowerCase();
+
+    let obraHit: (typeof obrasLista)[number] | null = null;
+    for (const o of obrasLista) {
+      const nom = String(o.nombre ?? '').trim();
+      const dir = String(o.direccion ?? '').trim();
+      if (nom && titLow.includes(nom.toLowerCase())) {
+        obraHit = o;
+        break;
+      }
+      if (dir && locLow && locLow === dir.toLowerCase()) {
+        obraHit = o;
+        break;
+      }
+    }
+
+    const alertas: string[] = [];
+    if (obraHit?.id) {
+      const { data: presRows } = await adminClient
+        .from('presupuestos')
+        .select('id, estado, obra_id')
+        .eq('business_id', businessId)
+        .eq('obra_id', obraHit.id)
+        .order('created_at', { ascending: false })
+        .limit(3);
+      const presList = (presRows ?? []) as Array<{ estado: string | null }>;
+      const pend = presList.find((p) => (p.estado ?? '').toLowerCase() === 'pendiente');
+      if (pend) alertas.push('presupuesto sin firmar');
+      const acept = presList.find((p) => (p.estado ?? '').toLowerCase() === 'aceptado');
+      if (acept) {
+        const { data: fac } = await adminClient
+          .from('facturas')
+          .select('id')
+          .eq('business_id', businessId)
+          .eq('obra_id', obraHit.id)
+          .limit(1);
+        if (!(fac?.length)) alertas.push('falta cobrar anticipo');
+      }
+
+      if (obraHit.cliente_id) {
+        const { data: cli } = await adminClient
+          .from('clientes')
+          .select('nif')
+          .eq('business_id', businessId)
+          .eq('id', obraHit.cliente_id)
+          .maybeSingle();
+        const nif = String((cli as { nif?: string | null } | null)?.nif ?? '').trim();
+        if (!nif) alertas.push('NIF pendiente');
+      }
+    }
+
+    const alertaTxt = alertas.length > 0 ? alertas.join(' · ') : 'sin alertas';
+    lineas.push(`${tit}${hora ? ` (${hora})` : ''} — ${alertaTxt}`);
+  }
+
+  if (lineas.length === 0) return '';
+  return `📅 HOY EN LA AGENDA: ${lineas.join(' | ')}`;
+}
+
 async function buildContextoObras(
   adminClient: ReturnType<typeof createAdminClient>,
   activeObras: ObraRow[],
@@ -315,7 +418,10 @@ async function buildContextoObras(
   };
 }
 
-async function runBichoReasoning(contexto_obras: ContextoObras): Promise<BichoReasoning | null> {
+async function runBichoReasoning(
+  contexto_obras: ContextoObras,
+  agendaHoyBloque: string
+): Promise<BichoReasoning | null> {
   const apiKey = Deno.env.get('OPENAI_API_KEY');
 
   if (!apiKey) {
@@ -338,11 +444,11 @@ async function runBichoReasoning(contexto_obras: ContextoObras): Promise<BichoRe
           {
             role: 'system',
             content:
-              "Eres El Bicho, el asistente experto de Pino, un albañil autónomo del País Vasco. Tu objetivo es la rentabilidad y la paz mental de Pino. Analiza estos datos de sus obras activas y devuelve EXACTAMENTE un array JSON con máximo 3 insights.\nCada insight debe tener:\n- insight_text: texto humano y directo (max 100 chars)\n- ai_reasoning: explicación del porqué (max 200 chars)\n- urgency: 'alta' | 'media' | 'baja'\n- category: 'inactividad' | 'rentabilidad' | 'facturacion'\n- obra_id: el ID de la obra afectada\n\nRegla de Oro: Si todo va bien devuelve [].\nNo inventes problemas. Solo devuelve JSON puro.",
+              "Eres El Bicho, el asistente experto de Pino, un albañil autónomo del País Vasco. Tu objetivo es la rentabilidad y la paz mental de Pino. Analiza estos datos de sus obras activas y devuelve EXACTAMENTE un array JSON con máximo 3 insights.\nCada insight debe tener:\n- insight_text: texto humano y directo (max 100 chars)\n- ai_reasoning: explicación del porqué (max 200 chars)\n- urgency: 'alta' | 'media' | 'baja'\n- category: 'inactividad' | 'rentabilidad' | 'facturacion'\n- obra_id: el ID de la obra afectada\n\nTambién recibirás agenda_hoy_bloque (texto): eventos del día y alertas (anticipo, NIF, presupuesto sin firmar). Intégralo en tu razonamiento si aporta riesgo u oportunidad.\n\nRegla de Oro: Si todo va bien devuelve [].\nNo inventes problemas. Solo devuelve JSON puro.",
           },
           {
             role: 'user',
-            content: JSON.stringify({ contexto_obras }),
+            content: JSON.stringify({ contexto_obras, agenda_hoy_bloque: agendaHoyBloque || null }),
           },
         ],
       },
@@ -422,8 +528,9 @@ async function runDailyCheck(businessId: string) {
     .map((obra) => obra.id);
 
   const contexto_obras = await buildContextoObras(adminClient, activeObras, sevenDaysAgo);
+  const agendaHoyBloque = await buildAgendaHoyBloque(adminClient, businessId, fecha);
   console.log(contexto_obras);
-  const razonamiento_bicho = await runBichoReasoning(contexto_obras);
+  const razonamiento_bicho = await runBichoReasoning(contexto_obras, agendaHoyBloque);
   console.log({ razonamiento_bicho });
 
   if (obraIds.length === 0) {
