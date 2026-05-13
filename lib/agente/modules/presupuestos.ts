@@ -82,11 +82,36 @@ async function resolveClienteIdOpcional(
   return { ok: true, id: cid };
 }
 
+async function buscarClientePorNombreCaseInsensitive(
+  supabase: SupabaseClient,
+  businessId: string,
+  clienteNombre: string
+): Promise<{ id: string | null; nombre: string | null; error: string | null }> {
+  const nombreBuscado = String(clienteNombre ?? '').trim();
+  if (!nombreBuscado) return { id: null, nombre: null, error: null };
+  const { data: rows, error } = await supabase
+    .from('clientes')
+    .select('id, nombre')
+    .eq('business_id', businessId)
+    .ilike('nombre', nombreBuscado)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error) return { id: null, nombre: null, error: error.message };
+  const row = Array.isArray(rows) ? rows[0] : null;
+  if (!row?.id) return { id: null, nombre: null, error: null };
+  return {
+    id: String(row.id),
+    nombre: String(row.nombre ?? '').trim() || nombreBuscado,
+    error: null,
+  };
+}
+
 export const PRESUPUESTOS_HANDLED_TOOLS = new Set([
   'listar_presupuestos',
   'obtener_presupuestos_pendientes',
   'cambiar_estado_presupuesto',
   'editar_presupuesto',
+  'vincular_presupuesto_cliente',
   'convertir_presupuesto_a_albaran',
   'convertir_presupuesto_a_factura',
   'iniciar_borrador_presupuesto',
@@ -130,7 +155,6 @@ FLUJO:
 1. Al iniciar, llama a obtener_borrador_activo. Si existe: 'Tienes un presupuesto en construcción para [cliente] con [N] partidas. ¿Seguimos?'
 2. Si el usuario quiere crear presupuesto: iniciar_borrador_presupuesto en el mismo turno, solo con cliente_nombre (y opcionalmente obra_id / cliente_id / iva si los dijo explícitamente).
 3. Por cada partida: llama a agregar_partida_borrador
-IMPORTANTE: Antes de llamar a agregar_partida_borrador, llama siempre a obtener_borrador_activo para obtener el borrador_id actual. Nunca uses un borrador_id de mensajes anteriores.
 4. Confirma cada partida: 'Añadido: [descripción] ([total]€). ¿Siguiente?'
 5. Cuando diga 'ya está', 'finaliza', 'confirma' o similar: llama a confirmar_borrador
 6. Al confirmar: 'Presupuesto guardado. Base: [X]€, IVA [Y]%: [Z]€, Total: [W]€.'`;
@@ -185,6 +209,23 @@ export const PRESUPUESTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
           descripcion: { type: 'string', description: 'Texto completo (presupuesto_generado)' },
         },
         required: ['id'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'vincular_presupuesto_cliente',
+      description:
+        'Vincula un presupuesto a un cliente existente buscando por nombre (sin distinguir mayúsculas/minúsculas).',
+      parameters: {
+        type: 'object',
+        properties: {
+          presupuesto_id: { type: 'string', description: 'UUID del presupuesto' },
+          cliente_nombre: { type: 'string', description: 'Nombre del cliente tal como lo dijo el usuario' },
+        },
+        required: ['presupuesto_id', 'cliente_nombre'],
         additionalProperties: false,
       },
     },
@@ -664,6 +705,54 @@ export async function handlePresupuestos(
       }
       return { ok: true, id: row.id as string };
     }
+    case 'vincular_presupuesto_cliente': {
+      const presupuestoId = String(toolArgs.presupuesto_id ?? '').trim();
+      const clienteNombre = String(toolArgs.cliente_nombre ?? '').trim();
+      if (!presupuestoId) return { error: 'presupuesto_id es obligatorio' };
+      if (!clienteNombre) return { error: 'cliente_nombre es obligatorio' };
+
+      const { data: pRow, error: pErr } = await supabase
+        .from('presupuestos')
+        .select('id')
+        .eq('id', presupuestoId)
+        .eq('business_id', businessId)
+        .maybeSingle();
+      if (pErr) return { error: pErr.message };
+      if (!pRow?.id) return { error: 'Presupuesto no encontrado' };
+
+      const clienteMatch = await buscarClientePorNombreCaseInsensitive(
+        supabase,
+        businessId,
+        clienteNombre
+      );
+      if (clienteMatch.error) return { error: clienteMatch.error };
+      if (!clienteMatch.id) {
+        return {
+          error: `No existe un cliente con nombre «${clienteNombre}» en este negocio.`,
+        };
+      }
+
+      const { data: updated, error: updErr } = await supabase
+        .from('presupuestos')
+        .update({
+          cliente_id: clienteMatch.id,
+          cliente_nombre: clienteMatch.nombre,
+        })
+        .eq('id', presupuestoId)
+        .eq('business_id', businessId)
+        .select('id, cliente_id, cliente_nombre')
+        .maybeSingle();
+      if (updErr) return { error: updErr.message };
+      if (!updated?.id) return { error: 'No se pudo actualizar el presupuesto.' };
+
+      return {
+        ok: true,
+        presupuesto_id: String(updated.id),
+        cliente_id: String(updated.cliente_id ?? ''),
+        cliente_nombre: String(updated.cliente_nombre ?? ''),
+      };
+    }
+
     case 'convertir_presupuesto_a_albaran': {
       const presupuestoId = String(toolArgs.presupuesto_id ?? '').trim();
       const observaciones =
@@ -1237,6 +1326,21 @@ export async function handlePresupuestos(
       const presupuestoIdExistente = br.row.presupuesto_id ?? null;
       let presId = '';
 
+      let clienteNombreFinal = String(br.row.cliente_nombre ?? '').trim() || null;
+      let clienteIdFinal = String(br.row.cliente_id ?? '').trim() || null;
+      if (clienteNombreFinal) {
+        const clienteMatch = await buscarClientePorNombreCaseInsensitive(
+          supabase,
+          businessId,
+          clienteNombreFinal
+        );
+        if (clienteMatch.error) return { error: clienteMatch.error };
+        if (clienteMatch.id) {
+          clienteIdFinal = clienteMatch.id;
+          clienteNombreFinal = clienteMatch.nombre;
+        }
+      }
+
       if (presupuestoIdExistente) {
         const { data: presUpd, error: pUpdErr } = await supabase
           .from('presupuestos')
@@ -1244,8 +1348,8 @@ export async function handlePresupuestos(
             presupuesto_generado: textoGenerado,
             importe_total: baseImponible,
             estado: 'borrador',
-            cliente_nombre: br.row.cliente_nombre ?? null,
-            cliente_id: br.row.cliente_id ?? null,
+            cliente_nombre: clienteNombreFinal,
+            cliente_id: clienteIdFinal,
             obra_id: br.row.obra_id ?? null,
           })
           .eq('id', String(presupuestoIdExistente))
@@ -1256,7 +1360,6 @@ export async function handlePresupuestos(
         if (!presUpd?.id) return { error: 'No se encontró el presupuesto vinculado para actualizar.' };
         presId = String(presupuestoIdExistente);
       } else {
-        const clienteNombre = String(br.row.cliente_nombre ?? '').trim();
         const { data: lastPres, error: lastPresErr } = await supabase
           .from('presupuestos')
           .select('numero_presupuesto')
@@ -1278,8 +1381,8 @@ export async function handlePresupuestos(
             fecha: new Date().toISOString().split('T')[0],
             estado: 'borrador',
             mensaje_cliente: 'Presupuesto generado desde borrador conversacional',
-            ...(clienteNombre.length > 0 ? { cliente_nombre: clienteNombre } : {}),
-            ...(br.row.cliente_id ? { cliente_id: br.row.cliente_id as string } : {}),
+            ...(clienteNombreFinal ? { cliente_nombre: clienteNombreFinal } : {}),
+            ...(clienteIdFinal ? { cliente_id: clienteIdFinal } : {}),
             ...(br.row.obra_id ? { obra_id: br.row.obra_id as string } : {}),
           })
           .select('id')
