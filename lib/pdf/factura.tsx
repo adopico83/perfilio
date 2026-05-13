@@ -73,13 +73,13 @@ const styles = StyleSheet.create({
   },
   s1LogoWrap: { width: '22%' },
   logo: {
-    width: 92,
-    maxHeight: 52,
+    width: 120,
+    maxHeight: 64,
     objectFit: 'contain',
   },
   logoPlaceholder: {
-    width: 92,
-    height: 44,
+    width: 120,
+    height: 48,
   },
   s1TituloWrap: {
     width: '36%',

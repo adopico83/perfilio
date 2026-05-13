@@ -7,6 +7,10 @@ import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import { X } from 'lucide-react';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import { type ObrasNombreJoin, nombreObraDesdeJoin } from '@/lib/obras-nombre-join';
+import {
+  InvoiceEditor,
+  type InvoiceEditorSavePayload,
+} from '@/components/facturas/invoice-editor';
 
 interface Factura {
   id: string;
@@ -29,34 +33,6 @@ interface Factura {
   obras?: ObrasNombreJoin;
 }
 
-interface FacturaEditForm {
-  cliente_nombre: string;
-  importe_total: string;
-  descripcion_trabajos: string;
-}
-
-function importeInputFromValue(value: number | string | null): string {
-  if (value == null || value === '') return '';
-  return String(value).replace(',', '.');
-}
-
-function parseImporteTotalInput(value: string): number | null {
-  const n = Number(value.trim().replace(',', '.'));
-  return Number.isFinite(n) ? n : null;
-}
-
-function round2(value: number): number {
-  return Math.round(value * 100) / 100;
-}
-
-function buildFacturaEditForm(f: Factura): FacturaEditForm {
-  return {
-    cliente_nombre: f.cliente_nombre ?? '',
-    importe_total: importeInputFromValue(f.total),
-    descripcion_trabajos: f.descripcion_trabajos ?? '',
-  };
-}
-
 export default function FacturasPage() {
   const { abrirObra } = useObraModal();
   const router = useRouter();
@@ -74,18 +50,16 @@ export default function FacturasPage() {
   const [facturas, setFacturas] = useState<Factura[]>([]);
   const [detalleId, setDetalleId] = useState<string | null>(null);
   const [editandoDetalle, setEditandoDetalle] = useState(false);
-  const [editForm, setEditForm] = useState<FacturaEditForm>({
-    cliente_nombre: '',
-    importe_total: '',
-    descripcion_trabajos: '',
-  });
   const [guardandoEdicion, setGuardandoEdicion] = useState(false);
   const [editError, setEditError] = useState('');
   const [facturaGuardadaId, setFacturaGuardadaId] = useState<string | null>(null);
+  const [editorDataRevision, setEditorDataRevision] = useState(0);
 
   useEffect(() => {
     const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (!session) {
         router.replace('/login');
         return;
@@ -123,10 +97,10 @@ export default function FacturasPage() {
 
   const abrirDetalle = (factura: Factura, modoEdicion = false) => {
     setDetalleId(factura.id);
-    setEditForm(buildFacturaEditForm(factura));
     setEditandoDetalle(modoEdicion);
     setEditError('');
     setFacturaGuardadaId(null);
+    setEditorDataRevision((n) => n + 1);
   };
 
   const cerrarDetalle = () => {
@@ -136,10 +110,41 @@ export default function FacturasPage() {
     setFacturaGuardadaId(null);
   };
 
-  const actualizarEditForm = (field: keyof FacturaEditForm, value: string) => {
-    setEditForm((prev) => ({ ...prev, [field]: value }));
+  const guardarDesdeEditor = async (factura: Factura, payload: InvoiceEditorSavePayload) => {
+    setGuardandoEdicion(true);
     setEditError('');
-    setFacturaGuardadaId(null);
+    try {
+      const res = await fetch('/api/agente', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mensaje: 'editar_factura',
+          business_id: factura.business_id,
+          tool_name: 'editar_factura',
+          args: {
+            id: factura.id,
+            cliente_nombre: payload.cliente_nombre,
+            importe_total: payload.importe_total,
+            descripcion_trabajos: payload.descripcion_trabajos,
+          },
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+      if (!res.ok || data.error || data.ok !== true) {
+        throw new Error(data.error ?? 'No se pudo guardar la factura');
+      }
+      await loadFacturas();
+      setFacturaGuardadaId(factura.id);
+      setEditorDataRevision((n) => n + 1);
+    } catch (e) {
+      setEditError(e instanceof Error ? e.message : 'No se pudo guardar la factura');
+    } finally {
+      setGuardandoEdicion(false);
+    }
   };
 
   const badgeEstado = (estado: string | null) => {
@@ -192,59 +197,6 @@ export default function FacturasPage() {
     URL.revokeObjectURL(url);
   };
 
-  const guardarCambiosFactura = async (factura: Factura) => {
-    const clienteNombre = editForm.cliente_nombre.trim();
-    const importeTotal = parseImporteTotalInput(editForm.importe_total);
-    const descripcionTrabajos = editForm.descripcion_trabajos.trim();
-
-    if (!clienteNombre) {
-      setEditError('El cliente no puede estar vacío.');
-      return;
-    }
-    if (importeTotal == null) {
-      setEditError('El importe total debe ser un número válido.');
-      return;
-    }
-    if (!descripcionTrabajos) {
-      setEditError('La descripción no puede estar vacía.');
-      return;
-    }
-
-    setGuardandoEdicion(true);
-    setEditError('');
-    try {
-      const res = await fetch('/api/agente', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mensaje: 'editar_factura',
-          business_id: factura.business_id,
-          tool_name: 'editar_factura',
-          args: {
-            id: factura.id,
-            cliente_nombre: clienteNombre,
-            importe_total: importeTotal,
-            descripcion_trabajos: descripcionTrabajos,
-          },
-        }),
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        error?: string;
-      };
-      if (!res.ok || data.error || data.ok !== true) {
-        throw new Error(data.error ?? 'No se pudo guardar la factura');
-      }
-      await loadFacturas();
-      setFacturaGuardadaId(factura.id);
-    } catch (e) {
-      setEditError(e instanceof Error ? e.message : 'No se pudo guardar la factura');
-    } finally {
-      setGuardandoEdicion(false);
-    }
-  };
-
   if (authChecking) {
     return (
       <div className="min-h-screen bg-[#0f172a] flex items-center justify-center">
@@ -255,13 +207,6 @@ export default function FacturasPage() {
 
   const detalleItem = detalleId ? facturas.find((f) => f.id === detalleId) : null;
   const detalleObraNombre = detalleItem ? nombreObraDesdeJoin(detalleItem.obras) : undefined;
-  const importeTotalEditado = parseImporteTotalInput(editForm.importe_total);
-  const baseEditada =
-    importeTotalEditado != null ? round2(importeTotalEditado / 1.21) : null;
-  const ivaEditado =
-    importeTotalEditado != null && baseEditada != null
-      ? round2(importeTotalEditado - baseEditada)
-      : null;
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-white p-8">
@@ -278,93 +223,91 @@ export default function FacturasPage() {
             {facturas.map((f) => {
               const obraNombre = nombreObraDesdeJoin(f.obras);
               return (
-              <li key={f.id} className="bg-[#1a365d] border border-white/10 rounded-lg p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                  <div className="space-y-1 text-sm min-w-0">
-                    <p className="font-semibold text-white">
-                      {f.numero_factura ?? '—'} — {f.cliente_nombre ?? '—'}
-                    </p>
-                    {f.obra_id && obraNombre ? (
+                <li key={f.id} className="bg-[#1a365d] border border-white/10 rounded-lg p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                    <div className="space-y-1 text-sm min-w-0">
+                      <p className="font-semibold text-white">
+                        {f.numero_factura ?? '—'} — {f.cliente_nombre ?? '—'}
+                      </p>
+                      {f.obra_id && obraNombre ? (
+                        <button
+                          type="button"
+                          onClick={() => abrirObra(f.obra_id!)}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-[#ed8936]/20 text-[#f6ad55] border border-[#ed8936]/45 hover:bg-[#ed8936]/30 transition-colors max-w-full truncate"
+                          title={obraNombre}
+                        >
+                          <span aria-hidden>📁</span>
+                          {obraNombre}
+                        </button>
+                      ) : null}
+                      <p className="text-white/70">
+                        Fecha: {f.fecha ?? new Date(f.created_at).toLocaleDateString('es-ES')}
+                      </p>
+                      <p className="text-white/70">Vencimiento: {f.fecha_vencimiento ?? '—'}</p>
+                    </div>
+                    <div className="text-right space-y-1 text-sm">
+                      <p className="text-white/80">
+                        Base: {f.base_imponible != null ? String(f.base_imponible) : '—'} €
+                      </p>
+                      <p className="text-white/80">
+                        IVA (21%): {f.iva != null ? String(f.iva) : '—'} €
+                      </p>
+                      <p className="font-semibold">
+                        Total: {f.total != null ? String(f.total) : '—'} €
+                      </p>
+                    </div>
+                    <div>{badgeEstado(f.estado)}</div>
+                  </div>
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    <button
+                      type="button"
+                      onClick={() => abrirDetalle(f)}
+                      className="px-3 py-1.5 text-sm font-medium bg-[#ed8936] hover:bg-[#dd6b20] text-white rounded-lg transition-colors"
+                    >
+                      Ver detalle completo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => abrirDetalle(f, true)}
+                      className="px-3 py-1.5 text-sm font-medium bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-lg transition-colors"
+                    >
+                      Editar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await descargarPDF(f);
+                        } catch (e) {
+                          console.error(e);
+                          alert(e instanceof Error ? e.message : 'Error al descargar el PDF');
+                        }
+                      }}
+                      className="px-3 py-1.5 text-sm font-medium bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-lg transition-colors"
+                    >
+                      Descargar PDF
+                    </button>
+                    {(f.estado ?? 'pendiente').toLowerCase() === 'pendiente' && (
                       <button
                         type="button"
-                        onClick={() => abrirObra(f.obra_id!)}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-[#ed8936]/20 text-[#f6ad55] border border-[#ed8936]/45 hover:bg-[#ed8936]/30 transition-colors max-w-full truncate"
-                        title={obraNombre}
+                        onClick={() => setEstado(f.id, 'pagada')}
+                        className="px-3 py-1.5 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
                       >
-                        <span aria-hidden>📁</span>
-                        {obraNombre}
+                        Marcar pagada
                       </button>
-                    ) : null}
-                    <p className="text-white/70">
-                      Fecha: {f.fecha ?? new Date(f.created_at).toLocaleDateString('es-ES')}
-                    </p>
-                    <p className="text-white/70">
-                      Vencimiento: {f.fecha_vencimiento ?? '—'}
-                    </p>
+                    )}
+                    {(f.estado ?? '').toLowerCase() === 'pendiente' && (
+                      <button
+                        type="button"
+                        onClick={() => setEstado(f.id, 'vencida')}
+                        className="px-3 py-1.5 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+                      >
+                        Marcar vencida
+                      </button>
+                    )}
                   </div>
-                  <div className="text-right space-y-1 text-sm">
-                    <p className="text-white/80">
-                      Base: {f.base_imponible != null ? String(f.base_imponible) : '—'} €
-                    </p>
-                    <p className="text-white/80">
-                      IVA (21%): {f.iva != null ? String(f.iva) : '—'} €
-                    </p>
-                    <p className="font-semibold">
-                      Total: {f.total != null ? String(f.total) : '—'} €
-                    </p>
-                  </div>
-                  <div>{badgeEstado(f.estado)}</div>
-                </div>
-                <div className="flex flex-wrap gap-2 mt-3">
-                  <button
-                    type="button"
-                    onClick={() => abrirDetalle(f)}
-                    className="px-3 py-1.5 text-sm font-medium bg-[#ed8936] hover:bg-[#dd6b20] text-white rounded-lg transition-colors"
-                  >
-                    Ver detalle completo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => abrirDetalle(f, true)}
-                    className="px-3 py-1.5 text-sm font-medium bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-lg transition-colors"
-                  >
-                    Editar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      try {
-                        await descargarPDF(f);
-                      } catch (e) {
-                        console.error(e);
-                        alert(e instanceof Error ? e.message : 'Error al descargar el PDF');
-                      }
-                    }}
-                    className="px-3 py-1.5 text-sm font-medium bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-lg transition-colors"
-                  >
-                    Descargar PDF
-                  </button>
-                  {(f.estado ?? 'pendiente').toLowerCase() === 'pendiente' && (
-                    <button
-                      type="button"
-                      onClick={() => setEstado(f.id, 'pagada')}
-                      className="px-3 py-1.5 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
-                    >
-                      Marcar pagada
-                    </button>
-                  )}
-                  {(f.estado ?? '').toLowerCase() === 'pendiente' && (
-                    <button
-                      type="button"
-                      onClick={() => setEstado(f.id, 'vencida')}
-                      className="px-3 py-1.5 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
-                    >
-                      Marcar vencida
-                    </button>
-                  )}
-                </div>
-              </li>
-            );
+                </li>
+              );
             })}
           </ul>
         )}
@@ -374,7 +317,19 @@ export default function FacturasPage() {
         )}
       </div>
 
-      {detalleItem && (
+      {detalleItem && editandoDetalle ? (
+        <InvoiceEditor
+          key={`${detalleItem.id}-${editorDataRevision}`}
+          factura={detalleItem}
+          onClose={cerrarDetalle}
+          onSave={(payload) => guardarDesdeEditor(detalleItem, payload)}
+          saving={guardandoEdicion}
+          error={editError}
+          saved={facturaGuardadaId === detalleItem.id && !editError}
+        />
+      ) : null}
+
+      {detalleItem && !editandoDetalle ? (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60" onClick={cerrarDetalle} aria-hidden />
           <div className="relative w-full max-w-2xl max-h-[90vh] overflow-hidden bg-[#1a365d] rounded-xl border border-white/10 shadow-2xl flex flex-col">
@@ -404,228 +359,114 @@ export default function FacturasPage() {
               </button>
             </div>
             <div className="p-4 overflow-y-auto flex-1 text-sm text-white/90 space-y-2">
-              {editandoDetalle ? (
-                <div className="space-y-4">
-                  {editError && (
-                    <p className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-100">
-                      {editError}
-                    </p>
-                  )}
-                  {facturaGuardadaId === detalleItem.id && !editError && (
-                    <p className="rounded-lg border border-green-500/40 bg-green-500/10 px-3 py-2 text-sm text-green-100">
-                      Cambios guardados. Ya puedes generar el PDF actualizado.
-                    </p>
-                  )}
-
-                  <label className="block space-y-1">
-                    <span className="text-white/70">Cliente</span>
-                    <input
-                      type="text"
-                      value={editForm.cliente_nombre}
-                      onChange={(e) => actualizarEditForm('cliente_nombre', e.target.value)}
-                      className="w-full rounded-lg border border-white/15 bg-[#0f172a] px-3 py-2 text-white outline-none focus:border-[#ed8936]"
-                    />
-                  </label>
-
-                  <label className="block space-y-1">
-                    <span className="text-white/70">Importe total</span>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={editForm.importe_total}
-                      onChange={(e) => actualizarEditForm('importe_total', e.target.value)}
-                      className="w-full rounded-lg border border-white/15 bg-[#0f172a] px-3 py-2 text-white outline-none focus:border-[#ed8936]"
-                      placeholder="0.00"
-                    />
-                  </label>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-lg border border-white/10 bg-white/5 p-3">
-                    <p>
-                      <span className="text-white/60">Base imponible recalculada:</span>{' '}
-                      {baseEditada != null ? `${baseEditada.toFixed(2)} €` : '—'}
-                    </p>
-                    <p>
-                      <span className="text-white/60">IVA (21%) recalculado:</span>{' '}
-                      {ivaEditado != null ? `${ivaEditado.toFixed(2)} €` : '—'}
-                    </p>
-                  </div>
-
-                  <label className="block space-y-1">
-                    <span className="text-white/70">Descripción de trabajos</span>
-                    <textarea
-                      value={editForm.descripcion_trabajos}
-                      onChange={(e) =>
-                        actualizarEditForm('descripcion_trabajos', e.target.value)
-                      }
-                      rows={5}
-                      className="w-full rounded-lg border border-white/15 bg-[#0f172a] px-3 py-2 text-white outline-none focus:border-[#ed8936]"
-                    />
-                  </label>
-                </div>
-              ) : (
-                <>
-                  <p>
-                    <span className="text-white/70">Cliente:</span>{' '}
-                    {detalleItem.cliente_nombre ?? '—'}
-                  </p>
-                  <p>
-                    <span className="text-white/70">Dirección:</span>{' '}
-                    {detalleItem.cliente_direccion ?? '—'}
-                  </p>
-                  <p>
-                    <span className="text-white/70">NIF:</span> {detalleItem.cliente_nif ?? '—'}
-                  </p>
-                  <p>
-                    <span className="text-white/70">Base imponible:</span>{' '}
-                    {detalleItem.base_imponible != null
-                      ? String(detalleItem.base_imponible)
-                      : '—'}{' '}
-                    €
-                  </p>
-                  <p>
-                    <span className="text-white/70">IVA:</span>{' '}
-                    {detalleItem.iva != null ? String(detalleItem.iva) : '—'} €
-                  </p>
-                  <p>
-                    <span className="text-white/70">Total:</span>{' '}
-                    {detalleItem.total != null ? String(detalleItem.total) : '—'} €
-                  </p>
-                  <p>
-                    <span className="text-white/70">Fecha:</span>{' '}
-                    {detalleItem.fecha ??
-                      new Date(detalleItem.created_at).toLocaleDateString('es-ES')}
-                  </p>
-                  <p>
-                    <span className="text-white/70">Fecha vencimiento:</span>{' '}
-                    {detalleItem.fecha_vencimiento ?? '—'}
-                  </p>
-                  <p>
-                    <span className="text-white/70">Estado:</span>{' '}
-                    {badgeEstado(detalleItem.estado)}
-                  </p>
-                  {detalleItem.descripcion_trabajos && (
-                    <p>
-                      <span className="text-white/70">Descripción:</span>{' '}
-                      {detalleItem.descripcion_trabajos}
-                    </p>
-                  )}
-                  {detalleItem.observaciones && (
-                    <p>
-                      <span className="text-white/70">Observaciones:</span>{' '}
-                      {detalleItem.observaciones}
-                    </p>
-                  )}
-                  {detalleItem.lineas != null && (
-                    <p>
-                      <span className="text-white/70">Líneas:</span>{' '}
-                      <pre className="mt-1 text-xs overflow-x-auto">
-                        {JSON.stringify(detalleItem.lineas, null, 2)}
-                      </pre>
-                    </p>
-                  )}
-                </>
+              <p>
+                <span className="text-white/70">Cliente:</span> {detalleItem.cliente_nombre ?? '—'}
+              </p>
+              <p>
+                <span className="text-white/70">Dirección:</span> {detalleItem.cliente_direccion ?? '—'}
+              </p>
+              <p>
+                <span className="text-white/70">NIF:</span> {detalleItem.cliente_nif ?? '—'}
+              </p>
+              <p>
+                <span className="text-white/70">Base imponible:</span>{' '}
+                {detalleItem.base_imponible != null ? String(detalleItem.base_imponible) : '—'} €
+              </p>
+              <p>
+                <span className="text-white/70">IVA:</span>{' '}
+                {detalleItem.iva != null ? String(detalleItem.iva) : '—'} €
+              </p>
+              <p>
+                <span className="text-white/70">Total:</span>{' '}
+                {detalleItem.total != null ? String(detalleItem.total) : '—'} €
+              </p>
+              <p>
+                <span className="text-white/70">Fecha:</span>{' '}
+                {detalleItem.fecha ??
+                  new Date(detalleItem.created_at).toLocaleDateString('es-ES')}
+              </p>
+              <p>
+                <span className="text-white/70">Fecha vencimiento:</span>{' '}
+                {detalleItem.fecha_vencimiento ?? '—'}
+              </p>
+              <p>
+                <span className="text-white/70">Estado:</span> {badgeEstado(detalleItem.estado)}
+              </p>
+              {detalleItem.descripcion_trabajos && (
+                <p>
+                  <span className="text-white/70">Descripción:</span> {detalleItem.descripcion_trabajos}
+                </p>
+              )}
+              {detalleItem.observaciones && (
+                <p>
+                  <span className="text-white/70">Observaciones:</span> {detalleItem.observaciones}
+                </p>
+              )}
+              {detalleItem.lineas != null && (
+                <p>
+                  <span className="text-white/70">Líneas:</span>{' '}
+                  <pre className="mt-1 text-xs overflow-x-auto">
+                    {JSON.stringify(detalleItem.lineas, null, 2)}
+                  </pre>
+                </p>
               )}
             </div>
             <div className="p-4 border-t border-white/10 flex flex-wrap gap-2">
-              {editandoDetalle ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditandoDetalle(true);
+                  setEditError('');
+                  setFacturaGuardadaId(null);
+                  setEditorDataRevision((n) => n + 1);
+                }}
+                className="px-4 py-2 text-sm font-medium bg-[#ed8936] hover:bg-[#dd6b20] text-white rounded-lg"
+              >
+                Editar
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await descargarPDF(detalleItem);
+                  } catch (e) {
+                    console.error(e);
+                    alert(e instanceof Error ? e.message : 'Error al descargar el PDF');
+                  }
+                }}
+                className="px-4 py-2 text-sm font-medium bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-lg"
+              >
+                Descargar PDF
+              </button>
+              {(detalleItem.estado ?? 'pendiente').toLowerCase() === 'pendiente' && (
                 <>
                   <button
                     type="button"
-                    onClick={() => guardarCambiosFactura(detalleItem)}
-                    disabled={guardandoEdicion}
-                    className="px-4 py-2 text-sm font-medium bg-[#ed8936] hover:bg-[#dd6b20] disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-lg"
+                    onClick={() => setEstado(detalleItem.id, 'pagada')}
+                    className="px-4 py-2 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg"
                   >
-                    {guardandoEdicion ? 'Guardando...' : 'Guardar cambios'}
-                  </button>
-                  {facturaGuardadaId === detalleItem.id && (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        try {
-                          await descargarPDF(detalleItem);
-                        } catch (e) {
-                          console.error(e);
-                          alert(e instanceof Error ? e.message : 'Error al generar el PDF');
-                        }
-                      }}
-                      className="px-4 py-2 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg"
-                    >
-                      Generar PDF
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditForm(buildFacturaEditForm(detalleItem));
-                      setEditandoDetalle(false);
-                      setEditError('');
-                      setFacturaGuardadaId(null);
-                    }}
-                    className="px-4 py-2 text-sm font-medium bg-white/10 hover:bg-white/20 text-white rounded-lg"
-                  >
-                    Cancelar
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditForm(buildFacturaEditForm(detalleItem));
-                      setEditandoDetalle(true);
-                      setEditError('');
-                      setFacturaGuardadaId(null);
-                    }}
-                    className="px-4 py-2 text-sm font-medium bg-[#ed8936] hover:bg-[#dd6b20] text-white rounded-lg"
-                  >
-                    Editar
+                    Marcar pagada
                   </button>
                   <button
                     type="button"
-                    onClick={async () => {
-                      try {
-                        await descargarPDF(detalleItem);
-                      } catch (e) {
-                        console.error(e);
-                        alert(e instanceof Error ? e.message : 'Error al descargar el PDF');
-                      }
-                    }}
-                    className="px-4 py-2 text-sm font-medium bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-lg"
+                    onClick={() => setEstado(detalleItem.id, 'vencida')}
+                    className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg"
                   >
-                    Descargar PDF
-                  </button>
-                  {(detalleItem.estado ?? 'pendiente').toLowerCase() === 'pendiente' && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => setEstado(detalleItem.id, 'pagada')}
-                        className="px-4 py-2 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg"
-                      >
-                        Marcar pagada
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEstado(detalleItem.id, 'vencida')}
-                        className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg"
-                      >
-                        Marcar vencida
-                      </button>
-                    </>
-                  )}
-                  <button
-                    type="button"
-                    onClick={cerrarDetalle}
-                    className="px-4 py-2 text-sm font-medium bg-white/10 hover:bg-white/20 text-white rounded-lg"
-                  >
-                    Cerrar
+                    Marcar vencida
                   </button>
                 </>
               )}
+              <button
+                type="button"
+                onClick={cerrarDetalle}
+                className="px-4 py-2 text-sm font-medium bg-white/10 hover:bg-white/20 text-white rounded-lg"
+              >
+                Cerrar
+              </button>
             </div>
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
-
