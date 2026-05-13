@@ -121,10 +121,10 @@ export default function FacturasPage() {
     setFacturaGuardadaId(null);
   };
 
-  const abrirDetalle = (factura: Factura) => {
+  const abrirDetalle = (factura: Factura, modoEdicion = false) => {
     setDetalleId(factura.id);
     setEditForm(buildFacturaEditForm(factura));
-    setEditandoDetalle(false);
+    setEditandoDetalle(modoEdicion);
     setEditError('');
     setFacturaGuardadaId(null);
   };
@@ -322,6 +322,13 @@ export default function FacturasPage() {
                     className="px-3 py-1.5 text-sm font-medium bg-[#ed8936] hover:bg-[#dd6b20] text-white rounded-lg transition-colors"
                   >
                     Ver detalle completo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => abrirDetalle(f, true)}
+                    className="px-3 py-1.5 text-sm font-medium bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-lg transition-colors"
+                  >
+                    Editar
                   </button>
                   <button
                     type="button"
