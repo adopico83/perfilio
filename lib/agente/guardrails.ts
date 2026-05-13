@@ -189,6 +189,82 @@ export function dedupeBySignature(plan: PlannedTool[]): PlannedTool[] {
   return out;
 }
 
+function normFechaRelativaFingerprint(s: string): string {
+  return s
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^el\s+/, '');
+}
+
+/**
+ * Huella del evento que crear_recordatorio persistiría (misma lógica de título que agenda.ts).
+ * Solo aplica a pasos de ejecución (no solo_vista_previa); las vistas previas no se colapsan aquí.
+ */
+function fingerprintCrearRecordatorioEjecucion(args: Record<string, unknown>): string | null {
+  const soloVp =
+    args.solo_vista_previa === true || String(args.solo_vista_previa ?? '').toLowerCase() === 'true';
+  if (soloVp) return null;
+
+  const rel = String(args.fecha_relativa ?? '').trim();
+  let fechaToken = '';
+  if (rel) {
+    fechaToken = `rel:${normFechaRelativaFingerprint(rel)}`;
+  } else {
+    const fecha = String(args.fecha ?? '').trim().split('T')[0];
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return null;
+    fechaToken = `ymd:${fecha}`;
+  }
+
+  let titulo = String(args.titulo ?? '').trim();
+  const tipo = String(args.tipo ?? '').trim();
+  const clienteNombre = String(args.cliente ?? args.cliente_nombre ?? '').trim();
+  if (!titulo) {
+    if (tipo && clienteNombre) titulo = `${tipo} con ${clienteNombre}`;
+    else if (tipo) titulo = tipo;
+    else if (clienteNombre) titulo = `Cita con ${clienteNombre}`;
+  }
+
+  const normTitulo = titulo
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/\s+/g, ' ');
+
+  const horaRaw = args.hora != null ? String(args.hora).trim() : '';
+  const horaNorm = horaRaw
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/\s+/g, '');
+
+  return `${fechaToken}\0${horaNorm}\0${normTitulo}`;
+}
+
+/** Evita dos inserciones del mismo evento en un único plan cuando los args difieren en campos accesorios. */
+function dedupeCrearRecordatorioMismoEvento(plan: PlannedTool[]): PlannedTool[] {
+  const seen = new Set<string>();
+  const out: PlannedTool[] = [];
+  for (const step of plan) {
+    if (step.tool !== 'crear_recordatorio') {
+      out.push(step);
+      continue;
+    }
+    const fp = fingerprintCrearRecordatorioEjecucion(step.args);
+    if (!fp) {
+      out.push(step);
+      continue;
+    }
+    if (seen.has(fp)) continue;
+    seen.add(fp);
+    out.push(step);
+  }
+  return out;
+}
+
 export type PerfilioGuardrailsResult =
   | { ok: true; plan: PlannedTool[] }
   | { ok: false; error: string };
@@ -200,7 +276,7 @@ export function applyPerfilioGuardrails(
   plan: PlannedTool[],
   userMessage: string
 ): PerfilioGuardrailsResult {
-  const deduped = dedupeBySignature(plan);
+  const deduped = dedupeCrearRecordatorioMismoEvento(dedupeBySignature(plan));
 
   for (const step of deduped) {
     const err = validatePresupuestoCriticalRules(step.tool, step.args, userMessage);

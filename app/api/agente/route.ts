@@ -1473,7 +1473,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
         function: {
           name: 'crear_recordatorio',
           description:
-            'Crear evento en agenda. Si no envías titulo, pasa fecha y además tipo+cliente (ej. tipo "Cita", cliente "Mendi") para construir el título. Opcional: telefono/direccion del cliente en la tool para enriquecer aunque el título no coincida con la BD. Tras obtener_agenda del mismo día.',
+            'Crear evento en agenda. Usa fecha_relativa (mañana, lunes, etc.) o fecha YYYY-MM-DD. Si no envías titulo, pasa fecha/fecha_relativa y además tipo+cliente (ej. tipo "Cita", cliente "Mendi") para construir el título. Opcional: telefono/direccion del cliente en la tool para enriquecer aunque el título no coincida con la BD. Tras obtener_agenda del mismo día.',
           parameters: {
             type: 'object',
             properties: {
@@ -1501,7 +1501,16 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
                 description: 'Dirección del cliente o cita (alternativa: cliente_direccion)',
               },
               cliente_direccion: { type: 'string', description: 'Sinónimo de direccion' },
-              fecha: { type: 'string', description: 'Formato YYYY-MM-DD' },
+              fecha: {
+                type: 'string',
+                description:
+                  'Formato YYYY-MM-DD. Obligatorio si no envías fecha_relativa. Si envías ambos, fecha_relativa tiene prioridad.',
+              },
+              fecha_relativa: {
+                type: 'string',
+                description:
+                  "Usa este campo en lugar de fecha cuando el usuario dice 'mañana', 'pasado mañana', 'el lunes', 'el martes', etc. El backend calculará la fecha exacta. Valores válidos: 'mañana', 'pasado mañana', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'",
+              },
               hora: { type: 'string', description: 'Formato HH:MM (opcional)' },
               notas: {
                 type: 'string',
@@ -1533,7 +1542,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
                   'Dirección o texto de ubicación para GPS; si lo envías no vacío, sustituye la inferida por obra/cliente.',
               },
             },
-            required: ['fecha'],
+            required: [],
             additionalProperties: false,
           },
         },
@@ -2130,13 +2139,21 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
       tools = ALL_AGENT_TOOLS;
     }
 
+    const fechaHoyMadrid = new Date().toLocaleDateString('es-ES', {
+      timeZone: 'Europe/Madrid',
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+
     const systemPromptEfectivo =
       intentCategory === 'presupuesto'
         ? `${PRESUPUESTOS_AGENT_SYSTEM_PROMPT}\n\n---\nContexto del negocio (solo referencia; mantén tus reglas de brevedad).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
         : intentCategory === 'diario'
           ? `${DIARIO_AGENT_SYSTEM_PROMPT}\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
           : intentCategory === 'agenda'
-            ? `${AGENDA_AGENT_SYSTEM_PROMPT}\n\nFecha actual: ${fechaActual}. Fecha hoy en formato ISO: ${hoyYmd}. Mañana en formato ISO: ${mananaYmd}.\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
+            ? `Hoy es ${fechaHoyMadrid} en Irún, España.\n\n${AGENDA_AGENT_SYSTEM_PROMPT}\n\nFecha actual: ${fechaActual}. Fecha hoy en formato ISO: ${hoyYmd}. Mañana en formato ISO: ${mananaYmd}.\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
             : intentCategory === 'operarios'
               ? `${OPERARIOS_AGENT_SYSTEM_PROMPT}\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
             : intentCategory === 'gastos'

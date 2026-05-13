@@ -75,6 +75,116 @@ function parseMinutosAntelacion(raw: unknown): { value: number; error?: string }
   return { value: parsed };
 }
 
+const TZ_MADRID = 'Europe/Madrid';
+
+/** YYYY-MM-DD del instante dado en Europe/Madrid (misma idea que diario.ts). */
+function formatYmdInMadrid(date: Date): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ_MADRID,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const y = parts.find((p) => p.type === 'year')?.value;
+  const m = parts.find((p) => p.type === 'month')?.value;
+  const d = parts.find((p) => p.type === 'day')?.value;
+  return `${y}-${m}-${d}`;
+}
+
+function addGregorianDaysFromYmd(ymd: string, deltaDays: number): string {
+  const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return ymd;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const u = new Date(Date.UTC(y, mo - 1, d + deltaDays));
+  const yy = u.getUTCFullYear();
+  const mm = u.getUTCMonth() + 1;
+  const dd = u.getUTCDate();
+  return `${String(yy).padStart(4, '0')}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+}
+
+/** Un instante (mediodía aprox.) en ese día civil en Madrid; sirve para leer día de la semana con Intl. */
+function noonOnMadridYmd(ymd: string): Date {
+  const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return new Date();
+  const Y = Number(m[1]);
+  const M = Number(m[2]);
+  const D = Number(m[3]);
+  const center = Date.UTC(Y, M - 1, D, 12, 0, 0);
+  for (let h = -48; h <= 48; h++) {
+    const cand = new Date(center + h * 3600000);
+    if (formatYmdInMadrid(cand) === ymd) return cand;
+  }
+  return new Date(center);
+}
+
+/** 0 = domingo … 6 = sábado (como Date.getDay en la zona). */
+function madridJsWeekdaySun0(ymd: string): number {
+  const t = noonOnMadridYmd(ymd);
+  const wd = new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ_MADRID,
+    weekday: 'short',
+  }).format(t);
+  const map: Record<string, number> = {
+    Sun: 0,
+    Mon: 1,
+    Tue: 2,
+    Wed: 3,
+    Thu: 4,
+    Fri: 5,
+    Sat: 6,
+  };
+  return map[wd] ?? 0;
+}
+
+/** Próxima fecha (desde hoy en Madrid, incluyendo hoy) con el mismo día de la semana que refYmd. */
+function nextSameWeekdayFromHoyMadrid(refYmd: string, hoyYmd: string): string {
+  const target = madridJsWeekdaySun0(refYmd);
+  for (let add = 0; add < 7; add++) {
+    const cand = addGregorianDaysFromYmd(hoyYmd, add);
+    if (madridJsWeekdaySun0(cand) === target) return cand;
+  }
+  return hoyYmd;
+}
+
+function normFechaRelativaKey(s: string): string {
+  return s
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^el\s+/, '');
+}
+
+function dowFromSpanishDay(n: string): number | null {
+  const map: Record<string, number> = {
+    domingo: 0,
+    lunes: 1,
+    martes: 2,
+    miercoles: 3,
+    jueves: 4,
+    viernes: 5,
+    sabado: 6,
+  };
+  return map[n] ?? null;
+}
+
+/** Resuelve fecha_relativa a YYYY-MM-DD en calendario Madrid (hoy = hoyYmd). */
+function resolveFechaRelativaToYmd(raw: string, hoyYmd: string): string | null {
+  const n = normFechaRelativaKey(raw);
+  if (n === 'pasado manana') return addGregorianDaysFromYmd(hoyYmd, 2);
+  if (n === 'manana') return addGregorianDaysFromYmd(hoyYmd, 1);
+  const dow = dowFromSpanishDay(n);
+  if (dow === null) return null;
+  for (let add = 0; add < 7; add++) {
+    const cand = addGregorianDaysFromYmd(hoyYmd, add);
+    if (madridJsWeekdaySun0(cand) === dow) return cand;
+  }
+  return null;
+}
+
 const DURACION_DEFECTO_MIN = 60;
 const VENTANA_TRABAJO_INICIO_MIN = 8 * 60;
 const VENTANA_TRABAJO_FIN_MIN = 20 * 60;
@@ -308,6 +418,22 @@ function normTituloAgenda(s: string): string {
     .replace(/\s+/g, ' ');
 }
 
+/** Extrae el valor tras 📞 o 📍 en la plantilla guardada en description (hasta | o salto de línea). */
+function extraerCampoPlantillaDescripcion(desc: string, prefijo: '📞' | '📍'): string | null {
+  const idx = desc.indexOf(prefijo);
+  if (idx === -1) return null;
+  let start = idx + prefijo.length;
+  while (start < desc.length && /\s/.test(desc[start]!)) start++;
+  const pipe = desc.indexOf('|', start);
+  const nl = desc.indexOf('\n', start);
+  let end = desc.length;
+  if (pipe !== -1) end = Math.min(end, pipe);
+  if (nl !== -1) end = Math.min(end, nl);
+  const v = desc.slice(start, end).trim();
+  if (!v || v === '—') return null;
+  return v;
+}
+
 /** Mensajes cortos de confirmación (p. ej. tras vista previa SDD). Evita bucles si el modelo repite solo_vista_previa true. */
 function esConfirmacionUsuario(raw: string): boolean {
   const s = raw
@@ -367,7 +493,7 @@ export const AGENDA_AGENT_TOOLS = [
     function: {
       name: 'crear_recordatorio',
       description:
-        'Crear evento en agenda. Si no envías titulo, pasa fecha y además tipo+cliente (ej. tipo "Cita", cliente "Mendi") para construir el título. Opcional: telefono/direccion del cliente en la tool para enriquecer aunque el título no coincida con la BD. Tras obtener_agenda del mismo día.',
+        'Crear evento en agenda. Usa fecha_relativa (mañana, lunes, etc.) o fecha YYYY-MM-DD. Si no envías titulo, pasa fecha/fecha_relativa y además tipo+cliente (ej. tipo "Cita", cliente "Mendi") para construir el título. Opcional: telefono/direccion del cliente en la tool para enriquecer aunque el título no coincida con la BD. Tras obtener_agenda del mismo día.',
       parameters: {
         type: 'object',
         properties: {
@@ -392,7 +518,16 @@ export const AGENDA_AGENT_TOOLS = [
             description: 'Dirección del cliente o cita (alternativa: cliente_direccion)',
           },
           cliente_direccion: { type: 'string', description: 'Sinónimo de direccion' },
-          fecha: { type: 'string', description: 'Formato YYYY-MM-DD' },
+          fecha: {
+            type: 'string',
+            description:
+              'Formato YYYY-MM-DD. Obligatorio si no envías fecha_relativa. Si envías ambos, fecha_relativa tiene prioridad.',
+          },
+          fecha_relativa: {
+            type: 'string',
+            description:
+              "Usa este campo en lugar de fecha cuando el usuario dice 'mañana', 'pasado mañana', 'el lunes', 'el martes', etc. El backend calculará la fecha exacta. Valores válidos: 'mañana', 'pasado mañana', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'",
+          },
           hora: { type: 'string', description: 'Formato HH:MM (opcional)' },
           notas: { type: 'string', description: 'Texto libre del usuario para el campo Notas de la descripción' },
           duracion_minutos: {
@@ -421,7 +556,7 @@ export const AGENDA_AGENT_TOOLS = [
               'Dirección o texto de ubicación para GPS; si lo envías no vacío, sustituye la inferida por obra/cliente.',
           },
         },
-        required: ['fecha'],
+        required: [],
         additionalProperties: false,
       },
     },
@@ -460,7 +595,7 @@ SECRETARIO INVISIBLE — FRASES COTIDIANAS (ej.: «Cita con Mendi mañana a las 
 Actúa sin pedir permiso para «empezar el flujo». En orden:
 1. Búsqueda de cliente u obra por nombre (buscar_cliente y/o buscar_obra con el fragmento que corresponda a persona, empresa u obra) antes de dar el evento por hecho.
 2. obtener_agenda para el día ya resuelto en YYYY-MM-DD y comprobación de conflictos (1 h por defecto, salvo duracion_minutos).
-3. crear_recordatorio con solo_vista_previa true: propuesta con datos enriquecidos (teléfono, dirección, estado presupuesto, notas, alertas que devuelva el servidor). Solo tras confirmación explícita del usuario, segunda llamada con solo_vista_previa false u omitido para guardar.
+3. crear_recordatorio con solo_vista_previa true: propuesta con datos enriquecidos (teléfono, dirección, estado presupuesto, notas, alertas que devuelva el servidor). Puedes usar fecha_relativa (mañana, lunes, etc.) o fecha YYYY-MM-DD. Solo tras confirmación explícita del usuario, segunda llamada con solo_vista_previa false u omitido para guardar.
 
 AGENDA INTELIGENTE — OBLIGATORIO ANTES DE CREAR:
 1. Antes de llamar a crear_recordatorio, llama SIEMPRE a obtener_agenda con la misma fecha (YYYY-MM-DD) que va a usar el evento. Revisa el TOOL RESULT: si hay solape horario con el nuevo evento, NO llames a crear_recordatorio. Asume duración de 1 hora (60 min) para comprobar solapes salvo que Pino indique otra duración (duracion_minutos). Si hay solape, explica el conflicto y sugiere el hueco libre más cercano que devuelva el servidor (campo hueco_sugerido si viene en el error).
@@ -541,6 +676,32 @@ export async function handleAgenda(
       return { fecha: fechaAg, items };
     }
     case 'crear_recordatorio': {
+      const hoyYmdAgenda = formatYmdInMadrid(new Date());
+      const relRaw = String(toolArgs.fecha_relativa ?? '').trim();
+      let fechaRaw = '';
+      if (relRaw) {
+        const resRel = resolveFechaRelativaToYmd(relRaw, hoyYmdAgenda);
+        if (!resRel) {
+          return {
+            error:
+              'fecha_relativa no reconocida. Valores válidos: mañana, pasado mañana, lunes, martes, miércoles, jueves, viernes, sábado, domingo.',
+          };
+        }
+        fechaRaw = resRel;
+      } else {
+        fechaRaw = String(toolArgs.fecha ?? '').trim().split('T')[0];
+        if (/^\d{4}-\d{2}-\d{2}$/.test(fechaRaw)) {
+          const yNum = parseInt(fechaRaw.slice(0, 4), 10);
+          if (Number.isFinite(yNum) && yNum < 2026) {
+            fechaRaw = nextSameWeekdayFromHoyMadrid(fechaRaw, hoyYmdAgenda);
+          }
+        }
+      }
+
+      if (!fechaRaw) {
+        return { error: 'Indica fecha o fecha_relativa.' };
+      }
+
       const tipoEv = String(toolArgs.tipo ?? '').trim();
       const clienteNombreArg = String(
         toolArgs.cliente ?? toolArgs.cliente_nombre ?? ''
@@ -563,7 +724,6 @@ export async function handleAgenda(
         }
       }
 
-      const fechaRaw = String(toolArgs.fecha ?? '').trim();
       const horaOpt = toolArgs.hora != null ? String(toolArgs.hora).trim() : '';
       const notasUsuario = toolArgs.notas != null ? String(toolArgs.notas).trim() : '';
       const duracionMin = parseDuracionMinutos(toolArgs.duracion_minutos);
@@ -579,7 +739,7 @@ export async function handleAgenda(
       if (!titulo) {
         return {
           error:
-            'Indica titulo, o bien fecha y (tipo + cliente) para construir el título (ej. tipo "Cita", cliente "Mendi").',
+            'Indica titulo, o bien fecha o fecha_relativa y (tipo + cliente) para construir el título (ej. tipo "Cita", cliente "Mendi").',
         };
       }
       if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaRaw)) {
@@ -773,10 +933,39 @@ export async function handleAgenda(
             ? ` Perfecto, te aviso a las ${formatMinutesToHm(parseHmToMinutes(insertPayload.hora!) - minutosAntelacion)} para que llegues a tiempo a las ${insertPayload.hora}.`
             : ` Perfecto, te aviso con ${minutosAntelacion} minutos de antelación.`
           : '';
+
+      const telMsg =
+        extraerCampoPlantillaDescripcion(descriptionFinal, '📞') ??
+        (telefonoDesc !== '—' ? telefonoDesc : '');
+      const dirMsg =
+        extraerCampoPlantillaDescripcion(descriptionFinal, '📍') ??
+        (() => {
+          const loc = locationFinal?.trim();
+          if (loc) return loc;
+          if (dirMapa !== '—') return dirMapa;
+          return '';
+        })();
+
+      const alertas: string[] = [];
+      if (anticipoPendiente) {
+        alertas.push('Anticipo pendiente de cobrar');
+      }
+
+      const bloqueContacto: string[] = [];
+      if (telMsg) bloqueContacto.push(`📞 ${telMsg}`);
+      if (dirMsg) bloqueContacto.push(`📍 ${dirMsg}`);
+      let postHora = '';
+      if (bloqueContacto.length) postHora += ` ${bloqueContacto.join(' | ')}`;
+      if (alertas.length) {
+        postHora += (bloqueContacto.length ? '. ' : ' ') + `⚠️ ${alertas.join(', ')}`;
+      }
+
+      const mensajeCreado = `Recordatorio creado: ${titulo} para ${fechaRaw} a las ${horaConfirmacion}.${postHora}${avisoNatural} ¿Algo más?`;
+
       return {
         ok: true,
         id: row.id as string,
-        mensaje: `Recordatorio creado: ${titulo} para ${fechaRaw} a las ${horaConfirmacion}.${avisoNatural} ¿Algo más?`,
+        mensaje: mensajeCreado,
       };
     }
     case 'editar_recordatorio': {
