@@ -43,10 +43,15 @@ interface ChatMessage {
   id: string;
   role: MessageRole;
   content: string;
-  /** Data URLs para mostrar mensajes de usuario con fotos adjuntas */
+  /** Miniaturas locales (data URL); no se envían al agente */
   imagenPreviews?: string[];
   emailPendiente?: EmailPendienteEnMensaje;
 }
+
+type ImagenPendienteAgente = {
+  preview: string;
+  url: string;
+};
 
 interface ConversationSummaryItem {
   conversation_id: string;
@@ -129,7 +134,7 @@ async function comprimirImagenParaAgente(file: File): Promise<string> {
     el.onerror = () => reject(new Error('img'));
     el.src = dataUrl;
   });
-  const maxSide = 1600;
+  const maxSide = 1200;
   let w = img.naturalWidth;
   let h = img.naturalHeight;
   if (w <= 0 || h <= 0) throw new Error('dims');
@@ -148,7 +153,45 @@ async function comprimirImagenParaAgente(file: File): Promise<string> {
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('ctx');
   ctx.drawImage(img, 0, 0, w, h);
-  return canvas.toDataURL('image/jpeg', 0.82);
+  return canvas.toDataURL('image/jpeg', 0.75);
+}
+
+function dataUrlToJpegFile(dataUrl: string, filename: string): File {
+  const comma = dataUrl.indexOf(',');
+  const header = comma >= 0 ? dataUrl.slice(0, comma) : 'data:image/jpeg;base64';
+  const b64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+  const mimeMatch = /data:([^;]+)/i.exec(header);
+  const mime = mimeMatch?.[1] ?? 'image/jpeg';
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new File([arr], filename, { type: mime });
+}
+
+async function subirImagenDiarioConReintentos(
+  file: File,
+  businessId: string
+): Promise<{ url: string; path: string } | { error: string }> {
+  let lastError = 'Error desconocido';
+  for (let intento = 0; intento < 3; intento++) {
+    if (intento > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    const form = new FormData();
+    form.append('file', file);
+    form.append('business_id', businessId);
+    const res = await fetch('/api/diario/upload', { method: 'POST', body: form });
+    const data = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      url?: string;
+      path?: string;
+    };
+    if (res.ok && typeof data.url === 'string' && data.url.trim()) {
+      return { url: data.url.trim(), path: String(data.path ?? '').trim() };
+    }
+    lastError = data.error ?? res.statusText ?? 'No se pudo subir la imagen';
+  }
+  return { error: lastError };
 }
 
 function parseEmailPendienteApi(
@@ -547,7 +590,13 @@ export default function AgentSidebar() {
   const [transcribiendoAudio, setTranscribiendoAudio] = useState(false);
   const [error, setError] = useState('');
   const [emailSendLoadingId, setEmailSendLoadingId] = useState<string | null>(null);
-  const [imagenesPendientes, setImagenesPendientes] = useState<string[]>([]);
+  const [imagenesPendientes, setImagenesPendientes] = useState<ImagenPendienteAgente[]>([]);
+  const [subidaImagenesProgreso, setSubidaImagenesProgreso] = useState<{
+    actual: number;
+    total: number;
+  } | null>(null);
+  const [subidaImagenesResumen, setSubidaImagenesResumen] = useState<string | null>(null);
+  const [subiendoImagenes, setSubiendoImagenes] = useState(false);
   const [subiendoVideo, setSubiendoVideo] = useState(false);
   const [canvasActivo, setCanvasActivo] = useState(false);
   const [confirmDeleteConversationId, setConfirmDeleteConversationId] = useState<string | null>(
@@ -936,7 +985,8 @@ export default function AgentSidebar() {
   ) => {
     const textoTrim = texto.trim();
     const imagenesEnviar = imagenesPendientes;
-    if (!selectedId || (!textoTrim && imagenesEnviar.length === 0)) {
+    const imagenesUrlsEnviar = imagenesEnviar.map((p) => p.url);
+    if (!selectedId || (!textoTrim && imagenesUrlsEnviar.length === 0)) {
       if (opts?.desdeTranscripcion) setTranscribiendoAudio(false);
       setError('Escribe un mensaje o adjunta una imagen del ticket.');
       return;
@@ -944,11 +994,12 @@ export default function AgentSidebar() {
     setError('');
     setMensaje('');
     setImagenesPendientes([]);
+    setSubidaImagenesResumen(null);
     const esPrimerMensajeUsuarioDeConversacion = !historial.some((m) => m.role === 'user');
     const contenidoUsuario =
       textoTrim ||
-      (imagenesEnviar.length > 1
-        ? `📎 ${imagenesEnviar.length} imágenes adjuntas (obra / ticket)`
+      (imagenesUrlsEnviar.length > 1
+        ? `📎 ${imagenesUrlsEnviar.length} imágenes adjuntas (obra / ticket)`
         : '📎 Imagen adjunta (ticket / factura)');
     setHistorial((prev) => [
       ...prev,
@@ -959,7 +1010,8 @@ export default function AgentSidebar() {
             : `u_${Date.now()}`,
         role: 'user',
         content: contenidoUsuario,
-        imagenPreviews: imagenesEnviar.length > 0 ? imagenesEnviar.slice() : undefined,
+        imagenPreviews:
+          imagenesEnviar.length > 0 ? imagenesEnviar.map((p) => p.preview) : undefined,
       },
     ]);
     if (opts?.desdeTranscripcion) setTranscribiendoAudio(false);
@@ -995,7 +1047,7 @@ export default function AgentSidebar() {
           mensaje: textoTrim,
           business_id: selectedId,
           historial,
-          ...(imagenesEnviar.length > 0 ? { imagenes: imagenesEnviar } : {}),
+          ...(imagenesUrlsEnviar.length > 0 ? { imagenesUrls: imagenesUrlsEnviar } : {}),
         }),
       });
       const data = (await res.json()) as Record<string, unknown>;
@@ -1095,8 +1147,8 @@ export default function AgentSidebar() {
           sender_email: currentUserEmail,
           role: 'user',
           content:
-            imagenesEnviar.length > 0
-              ? `${textoTrim ? `${textoTrim}\n` : ''}[${imagenesEnviar.length} imagen${imagenesEnviar.length === 1 ? '' : 'es'} adjunta${imagenesEnviar.length === 1 ? '' : 's'}: ticket / obra]`
+            imagenesUrlsEnviar.length > 0
+              ? `${textoTrim ? `${textoTrim}\n` : ''}[${imagenesUrlsEnviar.length} imagen${imagenesUrlsEnviar.length === 1 ? '' : 'es'} adjunta${imagenesUrlsEnviar.length === 1 ? '' : 's'}: ticket / obra]`
               : textoTrim,
           created_at: isoUsuario,
         },
@@ -1340,6 +1392,9 @@ export default function AgentSidebar() {
     setError('');
     setTranscribiendoAudio(false);
     setImagenesPendientes([]);
+    setSubidaImagenesProgreso(null);
+    setSubidaImagenesResumen(null);
+    setSubiendoImagenes(false);
     setSubiendoVideo(false);
     setPanelConversacionesAbierto(false);
     const nextConversationId = generateConversationId();
@@ -1352,32 +1407,83 @@ export default function AgentSidebar() {
   const handleSeleccionarImagen = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     e.target.value = '';
-    if (files.length === 0) return;
-    setError('');
-    const nuevas: string[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+    if (files.length === 0 || !selectedId) return;
+
+    for (const file of files) {
       if (!file.type.startsWith('image/')) {
         setError('Solo se admiten archivos de imagen.');
         return;
       }
-      try {
-        nuevas.push(await comprimirImagenParaAgente(file));
-      } catch {
-        setError('No se pudo cargar una de las imágenes. Prueba con otras fotos.');
-        return;
-      }
     }
-    let truncadas = false;
-    setImagenesPendientes((prev) => {
-      const merged = [...prev, ...nuevas];
-      if (merged.length > MAX_IMAGENES_AGENTE_ADJUNTAS) {
-        truncadas = true;
-      }
-      return merged.slice(0, MAX_IMAGENES_AGENTE_ADJUNTAS);
-    });
-    if (truncadas) {
+
+    const cupoRestante = Math.max(0, MAX_IMAGENES_AGENTE_ADJUNTAS - imagenesPendientes.length);
+    if (cupoRestante === 0) {
       setError(`Máximo ${MAX_IMAGENES_AGENTE_ADJUNTAS} imágenes por mensaje.`);
+      return;
+    }
+
+    const aProcesar = files.slice(0, cupoRestante);
+    const truncadas = files.length > cupoRestante;
+
+    setError('');
+    setSubidaImagenesResumen(null);
+    setSubiendoImagenes(true);
+
+    const subidasOk: ImagenPendienteAgente[] = [];
+    let fallidas = 0;
+
+    try {
+      for (let i = 0; i < aProcesar.length; i++) {
+        const file = aProcesar[i]!;
+        setSubidaImagenesProgreso({ actual: i + 1, total: aProcesar.length });
+
+        let preview: string;
+        try {
+          preview = await comprimirImagenParaAgente(file);
+        } catch {
+          fallidas++;
+          continue;
+        }
+
+        const jpegFile = dataUrlToJpegFile(
+          preview,
+          `foto_${Date.now()}_${i}.jpg`
+        );
+        const up = await subirImagenDiarioConReintentos(jpegFile, selectedId);
+        if ('error' in up) {
+          fallidas++;
+          continue;
+        }
+        subidasOk.push({ preview, url: up.url });
+      }
+    } finally {
+      setSubidaImagenesProgreso(null);
+      setSubiendoImagenes(false);
+    }
+
+    if (subidasOk.length > 0) {
+      setImagenesPendientes((prev) => [...prev, ...subidasOk].slice(0, MAX_IMAGENES_AGENTE_ADJUNTAS));
+    }
+
+    const okCount = subidasOk.length;
+    if (okCount > 0 && fallidas === 0) {
+      setSubidaImagenesResumen(
+        okCount === 1 ? '1 foto lista ✓' : `${okCount} fotos listas ✓`
+      );
+    } else if (okCount > 0 && fallidas > 0) {
+      setSubidaImagenesResumen(
+        `${okCount} foto${okCount === 1 ? '' : 's'} lista${okCount === 1 ? '' : 's'}, ${fallidas} no se pudieron subir`
+      );
+    } else if (fallidas > 0) {
+      setError('No se pudo subir ninguna de las imágenes. Prueba de nuevo.');
+    }
+
+    if (truncadas) {
+      setError((prev) =>
+        prev
+          ? `${prev} Máximo ${MAX_IMAGENES_AGENTE_ADJUNTAS} imágenes por mensaje.`
+          : `Máximo ${MAX_IMAGENES_AGENTE_ADJUNTAS} imágenes por mensaje.`
+      );
     }
   };
 
@@ -1507,6 +1613,8 @@ export default function AgentSidebar() {
 
   const puedeEnviarMensaje =
     Boolean(selectedId) &&
+    !subiendoImagenes &&
+    !subidaImagenesProgreso &&
     (mensaje.trim().length > 0 || imagenesPendientes.length > 0);
 
   const shouldHideSidebarContent = sessionLoading && !selectedId;
@@ -1686,16 +1794,26 @@ export default function AgentSidebar() {
                 {error}
               </div>
             )}
+            {subidaImagenesProgreso ? (
+              <p className="text-xs text-[#f6ad55] font-medium" role="status">
+                Subiendo foto {subidaImagenesProgreso.actual} de {subidaImagenesProgreso.total}…
+              </p>
+            ) : null}
+            {subidaImagenesResumen ? (
+              <p className="text-xs text-green-300/90" role="status">
+                {subidaImagenesResumen}
+              </p>
+            ) : null}
             {imagenesPendientes.length > 0 ? (
               <div className="rounded-lg border border-white/10 bg-white/5 p-2 space-y-2">
                 <div className="flex flex-wrap gap-2">
-                  {imagenesPendientes.map((src, idx) => (
+                  {imagenesPendientes.map((item, idx) => (
                     <div
-                      key={`pend-${idx}-${src.slice(0, 24)}`}
+                      key={`pend-${idx}-${item.preview.slice(0, 24)}`}
                       className="relative shrink-0"
                     >
                       <img
-                        src={src}
+                        src={item.preview}
                         alt=""
                         className="h-16 w-16 rounded-md border border-white/10 object-cover"
                       />
@@ -1737,7 +1855,7 @@ export default function AgentSidebar() {
               <button
                 type="button"
                 aria-label="Adjuntar imagen de ticket o factura"
-                disabled={loading || grabando || !selectedId || subiendoVideo}
+                disabled={loading || grabando || !selectedId || subiendoVideo || subiendoImagenes}
                 onClick={() => fileInputImagenRef.current?.click()}
                 className="w-11 shrink-0 flex items-center justify-center rounded-lg border border-white/10 bg-white/10 hover:bg-white/15 text-white transition-colors disabled:opacity-50 touch-manipulation"
               >
@@ -2015,16 +2133,27 @@ export default function AgentSidebar() {
                           {error}
                         </div>
                       )}
+                      {subidaImagenesProgreso ? (
+                        <p className="text-xs text-[#f6ad55] font-medium" role="status">
+                          Subiendo foto {subidaImagenesProgreso.actual} de{' '}
+                          {subidaImagenesProgreso.total}…
+                        </p>
+                      ) : null}
+                      {subidaImagenesResumen ? (
+                        <p className="text-xs text-green-300/90" role="status">
+                          {subidaImagenesResumen}
+                        </p>
+                      ) : null}
                       {imagenesPendientes.length > 0 ? (
                         <div className="rounded-lg border border-white/10 bg-white/5 p-2 space-y-2">
                           <div className="flex flex-wrap gap-2">
-                            {imagenesPendientes.map((src, idx) => (
+                            {imagenesPendientes.map((item, idx) => (
                               <div
-                                key={`pend-m-${idx}-${src.slice(0, 24)}`}
+                                key={`pend-m-${idx}-${item.preview.slice(0, 24)}`}
                                 className="relative shrink-0"
                               >
                                 <img
-                                  src={src}
+                                  src={item.preview}
                                   alt=""
                                   className="h-16 w-16 rounded-md border border-white/10 object-cover"
                                 />
@@ -2066,7 +2195,7 @@ export default function AgentSidebar() {
                         <button
                           type="button"
                           aria-label="Adjuntar imagen"
-                          disabled={loading || grabando || !selectedId || subiendoVideo}
+                          disabled={loading || grabando || !selectedId || subiendoVideo || subiendoImagenes}
                           onClick={() => fileInputImagenRef.current?.click()}
                           className="py-2 rounded-lg border border-white/10 bg-white/10 hover:bg-white/15 text-white transition-colors disabled:opacity-50 touch-manipulation flex items-center justify-center"
                         >

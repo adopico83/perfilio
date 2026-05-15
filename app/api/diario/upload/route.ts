@@ -3,6 +3,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { uploadDiarioObraMediaToBucket } from '@/lib/diario-obra';
 
 const BUCKET = 'diario-obra';
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 const ALLOWED_MIME = new Set([
   'image/jpeg',
@@ -85,6 +86,13 @@ export async function POST(request: NextRequest) {
 
     if (!(file instanceof File) || file.size === 0) {
       return NextResponse.json({ error: 'Falta el archivo (campo file)' }, { status: 400 });
+    }
+
+    if (file.size > MAX_FILE_BYTES) {
+      return NextResponse.json(
+        { error: 'El archivo supera el tamaño máximo permitido (10 MB).' },
+        { status: 400 }
+      );
     }
 
     const ok = await assertUserOwnsBusiness(supabaseAuth, user.id, business_id);

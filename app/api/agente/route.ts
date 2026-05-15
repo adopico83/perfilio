@@ -66,6 +66,7 @@ import {
   handleGastosAgent,
 } from '@/lib/agente/modules/gastos';
 import { applyPerfilioGuardrails, type PlannedTool } from '@/lib/agente/guardrails';
+import { extractDiarioObraObjectPath } from '@/lib/diario-obra';
 
 async function assertUserCanAccessBusiness(
   supabase: SupabaseClient,
@@ -228,6 +229,14 @@ function parseEstadoDoc(raw: unknown): EstadoDoc | null {
 
 const IMAGEN_VISION_MIMES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 const MAX_IMAGEN_DECODED_BYTES = 4 * 1024 * 1024;
+
+/** URL http(s) para visión (p. ej. firmada de Storage); el sidebar envía imagenesUrls, no base64. */
+function normalizarImagenUrlVision(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const u = raw.trim();
+  if (!u || !/^https?:\/\//i.test(u)) return null;
+  return u;
+}
 
 /** Devuelve data URL lista para OpenAI vision, o null si es inválida o demasiado grande. */
 function normalizarImagenVision(
@@ -709,7 +718,7 @@ function toolsForAgentIntent(
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { mensaje, business_id, historial, imagen, imagen_mime, imagenes } = body;
+    const { mensaje, business_id, historial, imagen, imagen_mime, imagenesUrls } = body;
     const directToolName =
       typeof body?.tool_name === 'string'
         ? body.tool_name.trim()
@@ -722,23 +731,41 @@ export async function POST(request: NextRequest) {
         : {};
 
     const mensajeTrim = typeof mensaje === 'string' ? mensaje.trim() : '';
-    const imagenesNormalizadas: string[] = [];
-    if (Array.isArray(imagenes)) {
-      for (const raw of imagenes) {
-        const u = normalizarImagenVision(raw, undefined);
-        if (u) imagenesNormalizadas.push(u);
+    const imagenesVisionUrls: string[] = [];
+    if (Array.isArray(imagenesUrls)) {
+      for (const raw of imagenesUrls) {
+        const u = normalizarImagenUrlVision(raw);
+        if (u) imagenesVisionUrls.push(u);
       }
     }
+    const imagenesNormalizadas: string[] = [...imagenesVisionUrls];
     if (imagenesNormalizadas.length === 0) {
       const single = normalizarImagenVision(imagen, imagen_mime);
       if (single) imagenesNormalizadas.push(single);
     }
 
+    const pathsAdjuntosStorage = imagenesVisionUrls
+      .map((u) => extractDiarioObraObjectPath(u))
+      .filter((p): p is string => Boolean(p));
+    let mensajeTrimParaTools = mensajeTrim;
+    if (pathsAdjuntosStorage.length > 0) {
+      mensajeTrimParaTools = [
+        mensajeTrim,
+        `[Fotos adjuntas ya en almacenamiento. Al llamar a crear_entrada_diario, pasa el campo fotos con exactamente estas rutas: ${JSON.stringify(pathsAdjuntosStorage)}]`,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+    }
+    const imagenesParaDiarioCtx =
+      imagenesVisionUrls.length > 0
+        ? []
+        : imagenesNormalizadas.filter((u) => u.startsWith('data:image/'));
+
     if (!mensajeTrim && imagenesNormalizadas.length === 0 && !directToolName) {
       return NextResponse.json(
         {
           error:
-            'Envía un mensaje de texto o una imagen válida (base64 o data URL image/*)',
+            'Envía un mensaje de texto o al menos una imagen (imagenesUrls con URL https)',
         },
         { status: 400 }
       );
@@ -1761,7 +1788,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
         function: {
           name: 'crear_entrada_diario',
           description:
-            'Entrada en diario de obra: texto y opcionalmente fotos/vídeos. Obligatorio obra_nombre; el servidor resuelve obra_id. Si el usuario adjuntó una o más imágenes en este mensaje, el servidor las sube a Storage automáticamente (una entrada con todas las fotos): NO inventes URLs ni pongas texto en fotos. Omite el array fotos salvo que haya URLs reales del bucket (p. ej. tras subir con el endpoint de diario). Ejecuta la tool con el obra_nombre que dio el usuario; no pidas aclarar ambigüedad antes — solo si la tool devuelve mensaje de ambigüedad.',
+            'Entrada en diario de obra: texto y opcionalmente fotos/vídeos. Obligatorio obra_nombre; el servidor resuelve obra_id. Si el usuario adjuntó imágenes en este mensaje, el servidor las gestiona automáticamente: NO pongas nada en el campo fotos, déjalo sin definir. Para URLs o rutas que el usuario pegue manualmente, usa el array fotos. NO inventes URLs. Ejecuta la tool con el obra_nombre que dio el usuario; no pidas aclarar ambigüedad antes — solo si la tool devuelve mensaje de ambigüedad.',
           parameters: {
             type: 'object',
             properties: {
@@ -1788,7 +1815,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
                 type: 'array',
                 items: { type: 'string' },
                 description:
-                  'Solo rutas/URLs reales del bucket diario-obra si ya existen; no rellenes con enlaces inventados. Si el usuario adjuntó foto en el chat, déjalo vacío: el servidor la sube.',
+                  'Solo rutas/URLs reales del bucket diario-obra si el usuario las pegó manualmente; no rellenes con enlaces inventados. Si el usuario adjuntó imágenes en este mensaje, el servidor las gestiona automáticamente: NO pongas nada en el campo fotos, déjalo sin definir.',
               },
               videos: {
                 type: 'array',
@@ -2242,7 +2269,11 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
           authUser?.id ?? null,
           supabase,
           openai,
-          { mensajeTrim, imagenesNormalizadas }
+          {
+            mensajeTrim: mensajeTrimParaTools,
+            imagenesNormalizadas: imagenesParaDiarioCtx,
+            fotosAdjuntasStorage: pathsAdjuntosStorage,
+          }
         );
       }
 

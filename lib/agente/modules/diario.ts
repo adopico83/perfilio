@@ -59,6 +59,7 @@ REGLAS ABSOLUTAS — NUNCA LAS INCUMPLAS:
 export type HandleDiarioCtx = {
   mensajeTrim?: string;
   imagenesNormalizadas?: string[];
+  fotosAdjuntasStorage?: string[];
 };
 
 export async function handleDiario(
@@ -74,6 +75,7 @@ export async function handleDiario(
   void _openai;
   const mensajeTrim = ctx.mensajeTrim ?? '';
   const imagenesNormalizadas = ctx.imagenesNormalizadas ?? [];
+  const fotosAdjuntasStorage = ctx.fotosAdjuntasStorage ?? [];
 
   switch (toolName) {
     case 'eliminar_entrada_diario': {
@@ -326,7 +328,9 @@ export async function handleDiario(
         pathsSubidaAdjunto.push(up.path);
       }
 
-      const fotosCombinadas = [...new Set([...pathsSubidaAdjunto, ...fotosDesdeTool])];
+      const fotosCombinadas = [
+        ...new Set([...pathsSubidaAdjunto, ...fotosDesdeTool, ...fotosAdjuntasStorage]),
+      ];
       const fotosParaInsertar = fotosCombinadas.length > 0 ? fotosCombinadas : null;
       const videosParaInsertar = videosDesdeTool.length > 0 ? videosDesdeTool : null;
 
