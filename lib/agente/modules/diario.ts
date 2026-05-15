@@ -4,6 +4,7 @@ import {
   buildDiarioObraPdf,
   collectDiarioObraStoragePathsFromEntry,
   decodeDataUrlImageForDiarioUpload,
+  extractDiarioObraObjectPath,
   fetchDiarioObraEntries,
   insertDiarioObraEntry,
   normalizeDiarioObraRowMediaForInsert,
@@ -61,6 +62,23 @@ export type HandleDiarioCtx = {
   imagenesNormalizadas?: string[];
   fotosAdjuntasStorage?: string[];
 };
+
+/** Descarta URLs inventadas del modelo; solo paths relativos o URLs de Storage Supabase. */
+function filtrarFotosToolConfiables(raw: string[]): string[] {
+  const out: string[] = [];
+  for (const item of raw) {
+    const s = typeof item === 'string' ? item.trim() : '';
+    if (!s) continue;
+    if (!/^https?:\/\//i.test(s)) {
+      if (/^[a-f0-9-]{8,}\/.+/i.test(s)) out.push(s);
+      continue;
+    }
+    if (!/supabase\.co/i.test(s)) continue;
+    const p = extractDiarioObraObjectPath(s);
+    if (p) out.push(p);
+  }
+  return out;
+}
 
 export async function handleDiario(
   toolName: string,
@@ -273,18 +291,21 @@ export async function handleDiario(
         toolArgs.obra_direccion != null ? String(toolArgs.obra_direccion).trim() : undefined;
       const textoDiario =
         toolArgs.texto != null ? String(toolArgs.texto).trim() : undefined;
-      const fotosDiario = Array.isArray(toolArgs.fotos)
+      const fotosDiarioRaw = Array.isArray(toolArgs.fotos)
         ? toolArgs.fotos.filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
-        : undefined;
+        : [];
+      const fotosDiarioConfiables = filtrarFotosToolConfiables(fotosDiarioRaw);
       const videosDiario = Array.isArray(toolArgs.videos)
         ? toolArgs.videos.filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
         : undefined;
 
       const toolMedia = normalizeDiarioObraRowMediaForInsert({
-        fotos: fotosDiario ?? null,
+        fotos: fotosDiarioConfiables.length > 0 ? fotosDiarioConfiables : null,
         videos: videosDiario ?? null,
       });
-      const fotosDesdeTool = toolMedia.fotos ?? [];
+      const fotosDesdeTool = (toolMedia.fotos ?? []).filter((p) =>
+        /^[a-f0-9-]{8,}\/.+/i.test(p)
+      );
       const videosDesdeTool = toolMedia.videos ?? [];
 
       const explicitObraDiario =

@@ -1815,7 +1815,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
                 type: 'array',
                 items: { type: 'string' },
                 description:
-                  'Solo rutas/URLs reales del bucket diario-obra si el usuario las pegó manualmente; no rellenes con enlaces inventados. Si el usuario adjuntó imágenes en este mensaje, el servidor las gestiona automáticamente: NO pongas nada en el campo fotos, déjalo sin definir.',
+                  'Solo rutas/URLs reales del bucket diario-obra si el usuario las pegó manualmente. NUNCA pongas URLs inventadas ni de ejemplo. Si no tienes rutas reales del bucket, omite este campo completamente (no lo incluyas en el JSON). Si el usuario adjuntó imágenes en este mensaje, el servidor las gestiona automáticamente: NO pongas nada en el campo fotos.',
               },
               videos: {
                 type: 'array',
