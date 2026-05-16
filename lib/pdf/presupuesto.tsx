@@ -166,11 +166,33 @@ function fmtNum(n: number): string {
   }).format(n);
 }
 
+function esCapituloGenerico(nombre: string): boolean {
+  const n = nombre.trim().toLowerCase();
+  // Coincidencia exacta únicamente — evitar falsos positivos con nombres reales de obra
+  const exactos = [
+    'general',
+    'obra',
+    'libertad',
+    'varios',
+    'otros',
+    'sin título',
+    'sin titulo',
+    'capítulo 1',
+    'capitulo 1',
+    'capítulo general',
+    'capitulo general',
+  ];
+  return exactos.includes(n);
+}
+
 export function PresupuestoPdfDocument(props: PresupuestoPdfProps) {
   const { logoUrl, numeroPresupuesto, referencia, fecha, parsed, textoPlanoFallback } = props;
   const showTabla = parsed.capitulos.length > 0;
   const showPie =
     parsed.baseImponible > 0 || parsed.importeIva > 0 || parsed.total > 0;
+  const modoPlano =
+    parsed.capitulos.length === 1 ||
+    (parsed.capitulos.length > 0 && parsed.capitulos.every((c) => esCapituloGenerico(c.nombre)));
 
   return (
     <Document title={`Presupuesto ${numeroPresupuesto}`} language="es">
@@ -224,7 +246,9 @@ export function PresupuestoPdfDocument(props: PresupuestoPdfProps) {
 
             {parsed.capitulos.map((cap, idx) => (
               <View key={`${cap.nombre}-${idx}`}>
-                <Text style={styles.capTitulo}>.-{cap.nombre.toUpperCase()}</Text>
+                {!modoPlano ? (
+                  <Text style={styles.capTitulo}>.-{cap.nombre.toUpperCase()}</Text>
+                ) : null}
                 {cap.partidas.map((p, j) => (
                   <View key={`${idx}-${j}`} style={styles.rowPartida} wrap={false}>
                     <Text style={styles.tdConcepto}>{p.concepto}</Text>
@@ -233,10 +257,14 @@ export function PresupuestoPdfDocument(props: PresupuestoPdfProps) {
                     <Text style={styles.tdImporte}>{formatEuro(p.importe)}</Text>
                   </View>
                 ))}
-                <Text style={styles.totalCap}>
-                  TOTAL {cap.nombre.toUpperCase()} — {formatEuro(cap.total)}
-                </Text>
-                {idx < parsed.capitulos.length - 1 ? <View style={styles.sepCap} /> : null}
+                {!modoPlano ? (
+                  <Text style={styles.totalCap}>
+                    TOTAL {cap.nombre.toUpperCase()} — {formatEuro(cap.total)}
+                  </Text>
+                ) : null}
+                {!modoPlano && idx < parsed.capitulos.length - 1 ? (
+                  <View style={styles.sepCap} />
+                ) : null}
               </View>
             ))}
           </>

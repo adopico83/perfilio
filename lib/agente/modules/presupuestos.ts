@@ -1021,8 +1021,16 @@ export async function handlePresupuestos(
           ? String(toolArgs.capitulo).trim().slice(0, 200)
           : null;
       const unidad = String(toolArgs.unidad ?? 'ud').trim().slice(0, 32) || 'ud';
-      const cantidad = Number(toolArgs.cantidad);
+      const importeCerrado = Number(toolArgs.importe);
+      let cantidad = Number(toolArgs.cantidad);
       let precioUnitario = Number(toolArgs.precio_unitario);
+      const tieneImporte = Number.isFinite(importeCerrado) && importeCerrado > 0;
+      const tieneCantidad = Number.isFinite(cantidad) && cantidad >= 0;
+      const tienePrecioUnitario = Number.isFinite(precioUnitario) && precioUnitario >= 0;
+      if (tieneImporte && !tieneCantidad && !tienePrecioUnitario) {
+        cantidad = 1;
+        precioUnitario = importeCerrado;
+      }
       if (!borradorId) return fin({ error: 'borrador_id es obligatorio' });
       if (!descripcion) return fin({ error: 'descripcion es obligatoria' });
       if (!Number.isFinite(cantidad) || cantidad < 0) return fin({ error: 'cantidad inválida' });

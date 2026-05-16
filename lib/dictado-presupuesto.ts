@@ -45,14 +45,18 @@ function normalizePartida(raw: Record<string, unknown>, index: number): PartidaP
   const cantidad = Number(raw.cantidad);
   const unidad = String(raw.unidad ?? 'ud').trim() || 'ud';
   const precio_unitario = Number(raw.precio_unitario ?? raw.precioUnitario);
-  const categoria = String(raw.categoria ?? 'varios').trim() || 'varios';
+  const categoria = String(raw.categoria ?? 'general').trim() || 'general';
   if (!Number.isFinite(cantidad) || cantidad < 0) {
     throw new Error(`Partida ${index + 1}: cantidad inválida`);
   }
   if (!Number.isFinite(precio_unitario) || precio_unitario < 0) {
     throw new Error(`Partida ${index + 1}: precio_unitario inválido`);
   }
-  const total = round2(cantidad * precio_unitario);
+  const totalRaw = Number(raw.total);
+  const total =
+    Number.isFinite(totalRaw) && totalRaw > 0
+      ? round2(totalRaw)
+      : round2(cantidad * precio_unitario);
   return {
     descripcion: descripcion || `Partida ${index + 1}`,
     cantidad,
@@ -91,9 +95,12 @@ Analiza el siguiente dictado de visita de obra y extrae las partidas de trabajo 
 
 Tarifas disponibles: ${tarifasJson}
 
-IMPORTANTE: Cuando el dictado mencione un trabajo que coincida con alguna tarifa disponible (por nombre o categoría), usa EXACTAMENTE la descripción del campo \`nombre\` de esa tarifa como \`descripcion\` de la partida. No reescribas ni resumas la descripción — cópiala tal cual. Usa el precio de la tarifa como \`precio_unitario\` base. Solo si no hay coincidencia en las tarifas, redacta una descripción propia.
-
-Responde SOLO con un array JSON válido de partidas, sin texto adicional.`;
+IMPORTANTE — Reglas de extracción por prioridad:
+1. Si el dictado indica un importe total cerrado para una partida (ej: "colocar material, 942 euros" o "rejuntear material 104 euros"), usa: cantidad=1, unidad="ud", precio_unitario=ese importe exacto, total=ese importe exacto. No uses las tarifas en este caso.
+2. Si el dictado indica cantidad + unidad + precio unitario (ej: "alicatado 15m2 a 50 euros el m2"), extrae los tres valores directamente del dictado.
+3. Si el dictado indica cantidad + unidad sin precio (ej: "enfoscado 20m2"), busca la tarifa más cercana por nombre o categoría y usa su precio como precio_unitario.
+4. Si el dictado solo menciona el trabajo sin cantidad ni precio (ej: "demolición de tabique"), busca la tarifa más cercana y estima una cantidad razonable.
+En todos los casos: responde SOLO con un array JSON válido de partidas. No incluyas texto adicional ni menciones IVA en el JSON.`;
 
   const completion = await openai.chat.completions.create({
     model: 'gpt-4o-mini',

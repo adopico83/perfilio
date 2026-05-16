@@ -663,11 +663,19 @@ const INTENT_TOOL_NAMES_OPERARIOS = new Set([
 
 const INTENT_TOOL_NAMES_PRESUPUESTO = new Set([
   ...PRESUPUESTOS_HANDLED_TOOLS,
+  'generar_presupuesto_por_dictado',
   'mostrar_vista_visual',
   'get_directions',
   'guardar_memoria',
   'eliminar_memoria',
 ]);
+
+/** Prefijo del system prompt de presupuesto (route); el cuerpo viene de presupuestos.ts */
+const PRESUPUESTOS_AGENT_SYSTEM_PROMPT_PREFIX = `REGLA CRÍTICA — DICTADO COMPLETO:
+Si el mensaje del usuario contiene múltiples partidas o trabajos descritos de golpe (con o sin precios), DEBES usar generar_presupuesto_por_dictado con TODO el texto como dictado. NO uses iniciar_borrador_presupuesto ni agregar_partida_borrador en ese caso.
+Solo usa el flujo borrador conversacional (iniciar_borrador + agregar_partida) cuando el usuario añade partidas de una en una interactivamente Y ya hay un borrador activo con partidas guardadas.
+
+`;
 
 const INTENT_TOOL_NAMES: Record<AgentIntentCategory, Set<string> | null> = {
   documentos: INTENT_TOOL_NAMES_DOCUMENTOS,
@@ -2176,7 +2184,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
 
     const systemPromptEfectivo =
       intentCategory === 'presupuesto'
-        ? `${PRESUPUESTOS_AGENT_SYSTEM_PROMPT}\n\n---\nContexto del negocio (solo referencia; mantén tus reglas de brevedad).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
+        ? `${PRESUPUESTOS_AGENT_SYSTEM_PROMPT_PREFIX}${PRESUPUESTOS_AGENT_SYSTEM_PROMPT}\n\n---\nContexto del negocio (solo referencia; mantén tus reglas de brevedad).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
         : intentCategory === 'diario'
           ? `${DIARIO_AGENT_SYSTEM_PROMPT}\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
           : intentCategory === 'agenda'
