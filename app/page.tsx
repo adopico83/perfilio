@@ -1,7 +1,7 @@
 'use client';
 
 import { Header } from '@/components/landing/header';
-import { Hero } from '@/components/landing/hero';
+import Hero from '@/components/landing/hero';
 import { DemoSection } from '@/components/landing/demo-section';
 import { Features } from '@/components/landing/features';
 import { Sectors } from '@/components/landing/sectors';

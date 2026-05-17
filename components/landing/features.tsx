@@ -20,50 +20,68 @@ type Feature = {
 
 const features: Feature[] = [
   {
-    number: '01',
+    number: '01.',
     icon: Mic,
     title: 'Presupuestos por voz',
     description:
       'Dicta las partidas como se las contarías a un compañero. PDF en 30 segundos.',
   },
   {
-    number: '02',
+    number: '02.',
     icon: Camera,
     title: 'Diario de obra',
-    description: 'Foto + audio registrado con fecha y obra automáticamente.',
+    description:
+      'Foto + audio registrado automáticamente con fecha y obra. Sin Excel.',
   },
   {
-    number: '03',
+    number: '03.',
     icon: Receipt,
     title: 'Control de gastos',
-    description: 'OCR de tickets y albaranes directo desde el móvil.',
+    description:
+      'Escanea tickets con la cámara. El agente extrae proveedor, importe e IVA.',
   },
   {
-    number: '04',
+    number: '04.',
     icon: Users,
     title: 'Gestión de operarios',
-    description: 'Jornadas y horas por obra sin llamadas ni Excel.',
+    description: 'Jornadas y horas por obra sin llamadas ni hojas de cálculo.',
   },
   {
-    number: '05',
+    number: '05.',
     icon: CalendarClock,
     title: 'Agenda inteligente',
-    description: 'Recordatorios con antelación automática para citas y visitas.',
+    description:
+      'Recordatorios con antelación automática para citas y visitas.',
   },
   {
-    number: '06',
+    number: '06.',
     icon: FolderKanban,
     title: 'Obras y clientes',
-    description: 'Toda la documentación agrupada por obra en un solo lugar.',
+    description:
+      'Toda la documentación agrupada por obra. Presupuestos, facturas, diario y gastos.',
   },
 ];
+
+function DrawnLine({ visible }: { visible: boolean }) {
+  return (
+    <div className="h-px w-full overflow-hidden bg-transparent">
+      <div
+        className="h-px bg-[#C8C4BB] transition-[width] duration-[600ms] ease-out"
+        style={{ width: visible ? '100%' : '0%' }}
+        aria-hidden
+      />
+    </div>
+  );
+}
 
 function FeatureRow({
   feature,
   index,
+  isLast,
 }: {
   feature: Feature;
   index: number;
+  isLast: boolean;
 }) {
   const ref = useRef<HTMLElement>(null);
   const [visible, setVisible] = useState(false);
@@ -80,7 +98,7 @@ function FeatureRow({
           observer.disconnect();
         }
       },
-      { threshold: 0.15, rootMargin: '0px 0px -40px 0px' }
+      { threshold: 0.12, rootMargin: '0px 0px -48px 0px' }
     );
 
     observer.observe(el);
@@ -88,46 +106,48 @@ function FeatureRow({
   }, []);
 
   return (
-    <article
-      ref={ref}
-      className={`flex items-start gap-6 py-6 border-b border-[#C8C4BB] transition-all duration-700 ease-out ${
-        visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'
-      }`}
-      style={{ transitionDelay: visible ? `${index * 80}ms` : '0ms' }}
-    >
-      <span className="w-16 shrink-0 font-serif text-4xl text-accent leading-none">
-        {feature.number}
-      </span>
-      <div className="flex-1 min-w-0">
-        <h3 className="font-serif text-xl font-bold text-foreground">{feature.title}</h3>
-        <p className="mt-2 font-mono text-sm text-[--muted-foreground] leading-relaxed">
-          {feature.description}
+    <article ref={ref} className="w-full">
+      <DrawnLine visible={visible} />
+      <div
+        className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-12 transition-[opacity,transform] duration-700 ease-out sm:px-6 lg:flex-row lg:items-start lg:gap-0 lg:px-8"
+        style={{
+          opacity: visible ? 1 : 0,
+          transform: visible ? 'translateY(0)' : 'translateY(15px)',
+          transitionDelay: visible ? `${index * 100}ms` : '0ms',
+        }}
+      >
+        <div className="w-20 shrink-0 font-serif text-5xl leading-none text-[#A04A2F]">
+          {feature.number}
+        </div>
+        <h3 className="w-full font-serif text-3xl font-medium text-[#1A1A1A] lg:w-1/3 lg:pr-8">
+          {feature.title}
+        </h3>
+        <p className="flex flex-1 items-end gap-3 font-mono text-sm leading-relaxed text-[#6B6A65]">
+          <span>{feature.description}</span>
+          <Icon
+            className="mt-0.5 h-5 w-5 shrink-0 text-[#A04A2F]"
+            strokeWidth={1.5}
+            aria-hidden
+          />
         </p>
       </div>
-      <Icon className="w-8 h-8 shrink-0 text-accent" strokeWidth={1.5} aria-hidden />
+      {isLast ? <DrawnLine visible={visible} /> : null}
     </article>
   );
 }
 
 export function Features() {
   return (
-    <section id="funcionalidades" className="py-24 bg-background border-b border-[#C8C4BB]">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="mb-16 max-w-3xl">
-          <h2 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-bold text-foreground mb-6 text-left">
-            Todo lo que necesitas,{' '}
-            <span className="text-accent">con IA que trabaja por ti</span>
-          </h2>
-          <p className="text-lg text-[--muted-foreground] font-mono">
-            Herramienta de trabajo real para el día a día en obra
-          </p>
-        </div>
-
-        <div>
-          {features.map((feature, index) => (
-            <FeatureRow key={feature.number} feature={feature} index={index} />
-          ))}
-        </div>
+    <section id="funcionalidades" className="bg-[#EFEADF] py-24">
+      <div className="w-full">
+        {features.map((feature, index) => (
+          <FeatureRow
+            key={feature.number}
+            feature={feature}
+            index={index}
+            isLast={index === features.length - 1}
+          />
+        ))}
       </div>
     </section>
   );

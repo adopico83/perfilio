@@ -1,3 +1,6 @@
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   Hammer,
@@ -10,6 +13,8 @@ import {
 
 const WHATSAPP_HREF =
   'https://wa.me/34697613884?text=Hola%2C%20he%20visto%20Perfilio%20en%20vuestra%20web%20y%20me%20gustar%C3%ADa%20ver%20c%C3%B3mo%20funciona';
+
+const CELL_REVEAL_DELAYS = [50, 130, 220, 90, 180, 300] as const;
 
 type Sector = {
   icon: LucideIcon;
@@ -52,7 +57,7 @@ const sectors: Sector[] = [
 
 function sectorCellBorder(index: number): string {
   return [
-    'border-[#4A2C1A]',
+    'border-[#27272A]',
     index % 2 === 0 ? 'border-r' : '',
     index < 4 ? 'border-b' : '',
   ]
@@ -60,49 +65,121 @@ function sectorCellBorder(index: number): string {
     .join(' ');
 }
 
-export function Sectors() {
+function useRevealOnScroll(threshold = 0.15) {
+  const ref = useRef<HTMLElement>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { threshold, rootMargin: '0px 0px -40px 0px' }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [threshold]);
+
+  return { ref, visible };
+}
+
+function SectorCell({
+  sector,
+  index,
+  sectionVisible,
+}: {
+  sector: Sector;
+  index: number;
+  sectionVisible: boolean;
+}) {
+  const Icon = sector.icon;
+  const delay = CELL_REVEAL_DELAYS[index] ?? 150;
+
   return (
-    <section id="sectores" className="py-24 bg-[#2C1810]">
+    <article
+      className={`group flex flex-col px-8 py-10 transition-[background-color,opacity,transform] duration-700 ease-out hover:bg-white/[0.02] ${sectorCellBorder(index)}`}
+      style={{
+        opacity: sectionVisible ? 1 : 0,
+        transform: sectionVisible ? 'translateY(0)' : 'translateY(15px)',
+        transitionDelay: sectionVisible ? `${delay}ms` : '0ms',
+      }}
+    >
+      <Icon
+        className="h-6 w-6 text-[#A04A2F]"
+        strokeWidth={1.5}
+        aria-hidden
+      />
+      <h3 className="mt-5 font-serif text-xl text-[#EFEADF] transition-colors duration-200 group-hover:text-white">
+        {sector.title}
+      </h3>
+      <p className="mt-3 font-mono text-sm leading-relaxed text-[#6B6A65]">
+        {sector.description}
+      </p>
+    </article>
+  );
+}
+
+export function Sectors() {
+  const { ref: sectionRef, visible: sectionVisible } = useRevealOnScroll(0.1);
+
+  return (
+    <section
+      ref={sectionRef}
+      id="sectores"
+      className="py-24"
+      style={{
+        background:
+          'radial-gradient(ellipse at center, rgba(160,74,47,0.08) 0%, #0D0D0F 70%)',
+      }}
+    >
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="mb-16 md:mb-20 max-w-3xl">
-          <h2 className="font-serif text-5xl font-bold text-[#F4F1EA] mb-6 text-left">
+        <div
+          className="mb-16 max-w-3xl transition-[opacity,transform] duration-700 ease-out md:mb-20"
+          style={{
+            opacity: sectionVisible ? 1 : 0,
+            transform: sectionVisible ? 'translateY(0)' : 'translateY(15px)',
+          }}
+        >
+          <h2 className="mb-6 text-left font-serif text-6xl text-[#EFEADF] lg:text-7xl">
             Perfilio se adapta a{' '}
-            <span className="text-accent">tu sector</span>
+            <span className="text-[#A04A2F]">tu sector</span>
           </h2>
-          <p className="text-lg text-[#A89070] font-mono">
+          <p className="font-mono text-sm text-[#EFEADF]">
             Soluciones específicas para cada tipo de negocio
           </p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2">
-          {sectors.map((sector, index) => {
-            const Icon = sector.icon;
-            return (
-              <article
-                key={sector.title}
-                className={`flex flex-col p-8 sm:p-10 ${sectorCellBorder(index)}`}
-              >
-                <Icon className="h-6 w-6 text-accent" strokeWidth={1.5} aria-hidden />
-                <h3 className="mt-5 font-serif text-xl font-bold text-[#F4F1EA]">
-                  {sector.title}
-                </h3>
-                <p className="mt-3 font-mono text-sm leading-relaxed text-[#A89070]">
-                  {sector.description}
-                </p>
-              </article>
-            );
-          })}
+        <div className="grid grid-cols-1 border border-[#27272A] sm:grid-cols-2">
+          {sectors.map((sector, index) => (
+            <SectorCell
+              key={sector.title}
+              sector={sector}
+              index={index}
+              sectionVisible={sectionVisible}
+            />
+          ))}
         </div>
 
-        <div className="mt-16 text-center">
-          <p className="text-lg text-[#A89070] mb-6 font-mono">
-            ¿Tu gremio no aparece aquí? Te enseñamos cómo adaptamos Perfilio a tu trabajo.
-          </p>
+        <div
+          className="mt-16 text-center transition-[opacity,transform] duration-700 ease-out"
+          style={{
+            opacity: sectionVisible ? 1 : 0,
+            transform: sectionVisible ? 'translateY(0)' : 'translateY(15px)',
+            transitionDelay: sectionVisible ? '320ms' : '0ms',
+          }}
+        >
           <a
             href={WHATSAPP_HREF}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center justify-center text-accent font-bold font-mono hover:text-[--brand-orange-hover] transition-colors"
+            className="inline-flex items-center justify-center font-mono text-[#A04A2F] transition-colors hover:text-[#c25a3a]"
           >
             Háblanos de tu negocio →
           </a>
@@ -111,4 +188,3 @@ export function Sectors() {
     </section>
   );
 }
-
