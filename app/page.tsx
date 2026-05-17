@@ -12,7 +12,7 @@ import FAQ from '@/components/landing/faq';
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-white dark:bg-brand-blue/5">
+    <div data-theme="light" className="min-h-screen bg-background">
       <Header />
       <main>
         <Hero />

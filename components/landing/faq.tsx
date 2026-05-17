@@ -34,34 +34,32 @@ export default function FAQ() {
   ];
 
   return (
-    <section className="py-20 bg-gray-400">
+    <section className="py-20 bg-[#EDE9E0] border-y border-[--border]">
       <div className="container mx-auto px-4 max-w-4xl">
         <div className="text-center mb-16">
-          <h2 className="text-4xl font-bold text-gray-900 mb-4">
+          <h2 className="font-serif text-4xl font-bold text-foreground mb-4">
             Preguntas frecuentes
           </h2>
-          <p className="text-xl text-gray-700">
+          <p className="text-xl text-[--muted-foreground]">
             Todo lo que necesitas saber sobre Perfilio
           </p>
         </div>
 
         <div className="space-y-4">
           {faqs.map((faq, index) => (
-            <div key={index} className="border border-gray-300 rounded-lg overflow-hidden">
+            <div key={index} className="border border-[--border] rounded-lg overflow-hidden">
               <button
                 onClick={() => setOpenIndex(openIndex === index ? null : index)}
-                className="w-full text-left p-6 bg-white hover:bg-gray-50 transition flex justify-between items-center"
+                className="w-full text-left p-6 bg-background hover:bg-[#EDE9E0] transition flex justify-between items-center"
               >
-                <span className="font-semibold text-gray-900 pr-8">
-                  {faq.question}
-                </span>
-                <span className="text-2xl text-[#ed8936] flex-shrink-0">
+                <span className="font-semibold text-foreground pr-8">{faq.question}</span>
+                <span className="text-2xl text-accent flex-shrink-0">
                   {openIndex === index ? '−' : '+'}
                 </span>
               </button>
 
               {openIndex === index && (
-                <div className="px-6 pb-6 text-gray-700 bg-gray-50">
+                <div className="px-6 pb-6 text-[--muted-foreground] bg-background border-t border-[--border]">
                   {faq.answer}
                 </div>
               )}

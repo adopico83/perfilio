@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import { Geist, Geist_Mono, Playfair_Display } from 'next/font/google';
 import { ThemeProvider } from '@/components/ui/theme-provider';
 import DashboardShellProvider from '@/components/dashboard/dashboard-shell-provider';
 import AppShellClient from '@/components/providers/app-shell-client';
@@ -14,6 +14,11 @@ const geistSans = Geist({
 
 const geistMono = Geist_Mono({
   variable: '--font-geist-mono',
+  subsets: ['latin'],
+});
+
+const playfairDisplay = Playfair_Display({
+  variable: '--font-serif',
   subsets: ['latin'],
 });
 
@@ -37,7 +42,9 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
       </head>
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} ${playfairDisplay.variable} antialiased`}
+      >
         <PwaRegister />
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <SessionProvider>
