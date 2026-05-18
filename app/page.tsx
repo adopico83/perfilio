@@ -688,6 +688,13 @@ function AudioWaveVisualizer() {
 const HERMES_OVAL_CLASS =
   'rounded-full border border-zinc-300 bg-white px-4 py-2 font-mono text-[10px] text-zinc-800 shadow-sm whitespace-nowrap';
 
+const HERMES_SVG_LINES = [
+  { x2: 80, y2: 60 },
+  { x2: 300, y2: 60 },
+  { x2: 80, y2: 240 },
+  { x2: 300, y2: 240 },
+] as const;
+
 function HermesTreeConnector() {
   return (
     <div className="flex justify-center">
@@ -711,28 +718,71 @@ function DocumentTreeVisualizer() {
 
   return (
     <div
-      className="flex w-full flex-1 flex-col justify-center border border-zinc-200 bg-zinc-50/30 px-6 py-4"
+      className="relative flex w-full flex-1 flex-col justify-center overflow-hidden border border-zinc-200 bg-zinc-50/30 px-4 py-4"
       aria-hidden
     >
-      <motion.div className="mb-4 flex justify-around" {...rowMotion(0)}>
-        <div className={HERMES_OVAL_CLASS}>Dictado de Obra</div>
-        <div className={HERMES_OVAL_CLASS}>Mermas Aluminio</div>
-      </motion.div>
+      <svg
+        className="pointer-events-none absolute inset-0 z-0 h-full w-full"
+        viewBox="0 0 400 300"
+        aria-hidden
+      >
+        <defs>
+          <marker
+            id="hermes-arrow"
+            markerWidth="6"
+            markerHeight="6"
+            refX="3"
+            refY="3"
+            orient="auto"
+          >
+            <path
+              d="M0,0 L0,6 L6,3 z"
+              fill="#A04A2F"
+              fillOpacity="0.5"
+            />
+          </marker>
+        </defs>
+        {HERMES_SVG_LINES.map((target, index) => (
+          <line
+            key={index}
+            x1={200}
+            y1={150}
+            x2={target.x2}
+            y2={target.y2}
+            stroke="#A04A2F"
+            strokeWidth="1"
+            strokeDasharray="5 3"
+            strokeOpacity="0.45"
+            markerEnd="url(#hermes-arrow)"
+          />
+        ))}
+      </svg>
 
-      <HermesTreeConnector />
+      <div className="relative z-10 flex flex-col">
+        <motion.div className="mb-4 flex items-start justify-between gap-2" {...rowMotion(0)}>
+          <div className={HERMES_OVAL_CLASS}>Dictado de Obra</div>
+          <div className={`${HERMES_OVAL_CLASS} mr-2 shrink-0`}>
+            Mermas Aluminio
+          </div>
+        </motion.div>
 
-      <motion.div className="my-4 flex justify-center" {...rowMotion(0.2)}>
-        <div className="bg-[#A04A2F] px-6 py-3 font-mono text-xs text-white shadow-md">
-          HERMES CORE
-        </div>
-      </motion.div>
+        <HermesTreeConnector />
 
-      <HermesTreeConnector />
+        <motion.div className="my-4 flex justify-center" {...rowMotion(0.2)}>
+          <div className="bg-[#A04A2F] px-6 py-3 font-mono text-xs text-white shadow-md">
+            HERMES CORE
+          </div>
+        </motion.div>
 
-      <motion.div className="mt-4 flex justify-around" {...rowMotion(0.4)}>
-        <div className={HERMES_OVAL_CLASS}>Desglose IVA</div>
-        <div className={HERMES_OVAL_CLASS}>TicketBAI Hash</div>
-      </motion.div>
+        <HermesTreeConnector />
+
+        <motion.div className="mt-4 flex items-start justify-between gap-2" {...rowMotion(0.4)}>
+          <div className={HERMES_OVAL_CLASS}>Desglose IVA</div>
+          <div className={`${HERMES_OVAL_CLASS} mr-2 shrink-0`}>
+            TicketBAI Hash
+          </div>
+        </motion.div>
+      </div>
     </div>
   );
 }
@@ -769,15 +819,23 @@ function MonitorTypewriterLogs({
   logs,
   enabled,
   resetKey,
+  compact,
 }: {
   logs: readonly MonitorLogLine[];
   enabled: boolean;
   resetKey: number;
+  compact?: boolean;
 }) {
   const visibleCount = useTypewriterLog(logs, enabled, resetKey);
 
   return (
-    <ul className="mt-auto space-y-2 border-t border-[#C8C4BB]/80 pt-4">
+    <ul
+      className={
+        compact
+          ? 'mt-3 space-y-2 border-t border-[#C8C4BB]/80 pt-3'
+          : 'mt-auto space-y-2 border-t border-[#C8C4BB]/80 pt-4'
+      }
+    >
       {logs.slice(0, visibleCount).map((line, i) => (
         <motion.li
           key={`${resetKey}-${i}-${line.text}`}
@@ -802,10 +860,15 @@ function OperationsControlMonitor({
 }) {
   const profile =
     NUCLEO_MONITOR_PROFILES[activeIndex] ?? NUCLEO_MONITOR_PROFILES[0];
+  const isHermes = profile.id === 'hermes';
 
   return (
     <motion.div
-      className="flex h-full min-h-[min(520px,72vh)] w-full max-w-xl [color-scheme:light]"
+      className={
+        isHermes
+          ? 'flex h-full min-h-[min(520px,72vh)] w-full max-w-xl [color-scheme:light]'
+          : 'flex h-fit w-full max-w-xl self-start [color-scheme:light]'
+      }
       initial={{ opacity: 0, y: 24 }}
       animate={active ? { opacity: 1, y: 0 } : { opacity: 0, y: 24 }}
       transition={{ duration: 0.65, ease: FOLIO_EASE }}
@@ -817,18 +880,29 @@ function OperationsControlMonitor({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.4 }}
-          className="flex h-full min-h-[min(520px,72vh)] w-full flex-col rounded-none border border-[#C8C4BB] bg-[#EFEADF] p-6 font-mono text-xs text-zinc-700"
+          className={
+            isHermes
+              ? 'flex h-full min-h-[min(520px,72vh)] w-full flex-col rounded-none border border-[#C8C4BB] bg-[#EFEADF] p-6 font-mono text-xs text-zinc-700'
+              : 'flex h-fit w-full flex-col rounded-none border border-[#C8C4BB] bg-[#EFEADF] px-6 pt-6 pb-4 font-mono text-xs text-zinc-700'
+          }
         >
           <p className="shrink-0 font-bold uppercase tracking-[0.2em] text-zinc-700">
             {profile.title}
           </p>
-          <motion.div className="flex min-h-[min(300px,55vh)] flex-1 items-stretch justify-center py-2">
+          <motion.div
+            className={
+              isHermes
+                ? 'flex min-h-[min(300px,55vh)] flex-1 items-stretch justify-center py-2'
+                : 'flex w-full items-center justify-center pt-1'
+            }
+          >
             <TelemetryVisual kind={profile.id} />
           </motion.div>
           <MonitorTypewriterLogs
             logs={profile.logs}
             enabled={active}
             resetKey={activeIndex}
+            compact={!isHermes}
           />
         </motion.div>
       </AnimatePresence>
