@@ -72,16 +72,18 @@ const HERO_KEYFRAMES = `
 `;
 
 const sceneSlide = {
-  initial: { opacity: 0, y: 40 },
+  initial: { opacity: 0, scale: 0.96, y: 40 },
   animate: {
     opacity: 1,
+    scale: 1,
     y: 0,
-    transition: { duration: 0.8, ease: 'easeOut' as const },
+    transition: { duration: 1, ease: 'easeOut' as const },
   },
   exit: {
     opacity: 0,
-    y: -40,
-    transition: { duration: 0.6 },
+    scale: 0.96,
+    y: -20,
+    transition: { duration: 0.6, ease: 'easeIn' as const },
   },
 };
 
@@ -115,28 +117,58 @@ const WORKFLOW_PHASES = [
   },
 ] as const;
 
-const ENGINEERING_TIMELINE = [
-  { step: '01', label: 'Corte de perfiles serie europea' },
-  { step: '02', label: 'Ensamblado en taller' },
-  { step: '03', label: 'Verificación de escuadras' },
-] as const;
-
-const WORKSHOP_OPERATORS = [
-  { name: 'Artxi', initial: 'A', progress: 62 },
-  { name: 'Luis', initial: 'L', progress: 75 },
-  { name: 'Dani', initial: 'D', progress: 48 },
-] as const;
-
-const OBRA_VIDEO_PRIMARY =
-  'https://player.vimeo.com/external/371433846.sd.mp4?s=236da2f3c054ba2d2bbdeae180b7e289bf00ec7a&profile_id=165&oauth2_token_id=57447761';
-const OBRA_VIDEO_FALLBACK =
-  'https://assets.mixkit.co/videos/preview/mixkit-worker-welding-metal-structures-in-a-factory-43178-large.mp4';
-const OBRA_VIDEO_SOURCES = [OBRA_VIDEO_PRIMARY, OBRA_VIDEO_FALLBACK] as const;
+const SECTOR_VIDEO_SRC = '/sectores.mp4';
 
 const FOLIO_EASE = [0.22, 1, 0.36, 1] as const;
 const FOLIO_ENTER_S = 1;
 const FOLIO_ROW_BASE_DELAY_S = 1.05;
-const FOLIO_ROW_STAGGER_S = 0.2;
+const FOLIO_ROW_STAGGER_S = 0.5;
+
+const MONITOR_LOG_LINE_MS = 200;
+
+type MonitorLogLine = { text: string; isStatus?: boolean };
+type NucleoVisualKind = 'brain' | 'hermes' | 'fiscal';
+
+const NUCLEO_MONITOR_PROFILES: ReadonlyArray<{
+  id: NucleoVisualKind;
+  title: string;
+  logs: readonly MonitorLogLine[];
+}> = [
+  {
+    id: 'brain',
+    title: 'BRAIN AGENT · PROCESANDO',
+    logs: [
+      { text: '[AUDIO_IN] Dictado de obra entrante...' },
+      { text: '[PARSE] Detectadas 3 partidas, obra: Calle Mayor' },
+      { text: '[BRAIN] Estructurando mediciones lineales...' },
+      { text: '[STATUS] Procesamiento completado ✓', isStatus: true },
+    ],
+  },
+  {
+    id: 'hermes',
+    title: 'HERMES SYSTEM · COMPILANDO',
+    logs: [
+      { text: '[DOC] Plantilla premium cargada...' },
+      { text: '[CALC] Calculando bases imponibles e IVA...' },
+      { text: '[PDF] Generando documento bilingüe...' },
+      { text: '[STATUS] PDF listo para envío ✓', isStatus: true },
+    ],
+  },
+  {
+    id: 'fiscal',
+    title: 'CONEXIÓN FISCAL · ACTIVA',
+    logs: [
+      { text: '[TBAI] Conectando con Hacienda...' },
+      { text: '[CERT] Generando certificado digital...' },
+      { text: '[SIGN] TicketBAI firmado · SHA256: a4f2e8...' },
+      { text: '[STATUS] Estado: 200 OK ✓', isStatus: true },
+    ],
+  },
+];
+
+const AUDIO_BAR_COUNT = 20;
+const AUDIO_BAR_MIN = 8;
+const AUDIO_BAR_MAX = 48;
 
 const BUDGET_ROWS = [
   {
@@ -220,8 +252,8 @@ const CELL_DELAYS = [50, 130, 220, 90, 180, 300] as const;
 function sectorCellBorder(index: number): string {
   return [
     'border-zinc-800',
-    index % 2 === 0 ? 'border-r' : '',
-    index < 4 ? 'border-b' : '',
+    index % 3 !== 2 ? 'border-r' : '',
+    index < 3 ? 'border-b' : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -403,9 +435,9 @@ function EngineeringFolio({ active }: { active: boolean }) {
     ? {
         x: 0,
         opacity: 1,
-        y: reduceMotion ? 0 : [0, -8, 0],
+        y: reduceMotion ? 0 : [0, -6, 0],
       }
-    : { x: '100%' as const, opacity: 0, y: 0 };
+    : { x: 150, opacity: 0, y: 0 };
 
   const folioTransition = reduceMotion
     ? { duration: 0.35, ease: FOLIO_EASE }
@@ -413,7 +445,7 @@ function EngineeringFolio({ active }: { active: boolean }) {
         x: { duration: FOLIO_ENTER_S, ease: FOLIO_EASE },
         opacity: { duration: FOLIO_ENTER_S, ease: FOLIO_EASE },
         y: {
-          duration: 3.8,
+          duration: 4,
           repeat: Infinity,
           ease: 'easeInOut' as const,
           delay: FOLIO_ENTER_S,
@@ -431,31 +463,32 @@ function EngineeringFolio({ active }: { active: boolean }) {
 
   return (
     <motion.div
-      className="folio-sheet relative isolate mx-auto w-full max-w-md overflow-hidden rounded-none border border-black/20 bg-white p-8 shadow-[0_30px_60px_rgba(0,0,0,0.14)] [color-scheme:light]"
+      className="folio-sheet relative isolate mx-auto w-[420px] aspect-[1/1.41] shrink-0 overflow-hidden rounded-none border border-black/20 bg-white shadow-[0_30px_60px_rgba(0,0,0,0.14)] [color-scheme:light]"
       style={{
         color: '#000000',
         transform: 'perspective(1000px) rotateX(2deg) rotateY(-6deg)',
         transformStyle: 'preserve-3d',
       }}
-      initial={{ x: '100%', opacity: 0, y: 0 }}
+      initial={{ x: 150, opacity: 0, y: 0 }}
       animate={folioEnter}
       transition={folioTransition}
     >
+      <div className="flex h-full flex-col overflow-hidden p-5 font-mono text-[10px] text-zinc-950">
       <motion.header
-        className="border-b border-black pb-4 text-zinc-950"
+        className="shrink-0 border-b border-black pb-3 text-zinc-950"
         initial={{ opacity: 0 }}
         animate={blockReveal(FOLIO_ROW_BASE_DELAY_S - 0.15)}
       >
-        <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em]">
+        <p className="font-bold uppercase tracking-[0.18em]">
           PERFILIO TECHNOLOGIES · PRESUPUESTO #2026-047
         </p>
-        <p className="mt-1 font-mono text-[9px]">
+        <p className="mt-0.5">
           Obra: Reforma integral · Cliente: Confidencial
         </p>
       </motion.header>
 
       <motion.div
-        className="mt-4 grid grid-cols-[52px_1fr_28px_56px_72px] gap-x-2 border-b border-black pb-2 font-mono text-[9px] font-semibold uppercase tracking-wider text-zinc-950"
+        className="mt-2 grid shrink-0 grid-cols-[40px_1fr_22px_44px_58px] gap-x-1 border-b border-black pb-1.5 font-semibold uppercase tracking-wider text-zinc-950"
         initial={{ opacity: 0 }}
         animate={blockReveal(FOLIO_ROW_BASE_DELAY_S - 0.05)}
       >
@@ -469,7 +502,7 @@ function EngineeringFolio({ active }: { active: boolean }) {
       {BUDGET_ROWS.map((row, rowIndex) => (
         <motion.div
           key={row.code}
-          className="grid grid-cols-[52px_1fr_28px_56px_72px] gap-x-2 border-b border-black py-2.5 font-mono text-[10px] text-zinc-950"
+          className="grid grid-cols-[40px_1fr_22px_44px_58px] gap-x-1 border-b border-black py-1.5 text-zinc-950"
           initial={{ opacity: 0, y: 14 }}
           animate={
             active
@@ -494,42 +527,269 @@ function EngineeringFolio({ active }: { active: boolean }) {
         </motion.div>
       ))}
 
-      <motion.footer
-        className="mt-4 space-y-1 font-mono text-[10px] text-zinc-950"
-        initial={{ opacity: 0 }}
-        animate={blockReveal(
-          FOLIO_ROW_BASE_DELAY_S + BUDGET_ROWS.length * FOLIO_ROW_STAGGER_S
-        )}
+      <motion.div
+        className="mt-2 flex shrink-0 justify-between border-t border-black pt-2 text-zinc-950"
+        initial={{ opacity: 0, y: 14 }}
+        animate={
+          active
+            ? {
+                opacity: 1,
+                y: 0,
+                transition: {
+                  duration: 0.5,
+                  delay:
+                    FOLIO_ROW_BASE_DELAY_S +
+                    BUDGET_ROWS.length * FOLIO_ROW_STAGGER_S,
+                  ease: FOLIO_EASE,
+                },
+              }
+            : { opacity: 0, y: 14 }
+        }
       >
-        <div className="flex justify-between border-t border-black pt-3">
-          <span>Subtotal</span>
-          <span className="tabular-nums font-medium">6.860,00 €</span>
-        </div>
-        <div className="flex justify-between">
-          <span>IVA 21%</span>
-          <span className="tabular-nums font-medium">1.440,60 €</span>
-        </div>
-        <div className="flex justify-between border-t border-black pt-2 text-xs font-bold">
-          <span>TOTAL</span>
-          <span className="tabular-nums">8.300,60 €</span>
-        </div>
-      </motion.footer>
+        <span>Subtotal</span>
+        <span className="tabular-nums font-medium">6.860,00 €</span>
+      </motion.div>
 
       <motion.div
-        className="mt-6 border border-black px-3 py-2"
-        initial={{ opacity: 0 }}
-        animate={blockReveal(
-          FOLIO_ROW_BASE_DELAY_S +
-            BUDGET_ROWS.length * FOLIO_ROW_STAGGER_S +
-            0.12
-        )}
+        className="flex shrink-0 justify-between text-zinc-950"
+        initial={{ opacity: 0, y: 14 }}
+        animate={
+          active
+            ? {
+                opacity: 1,
+                y: 0,
+                transition: {
+                  duration: 0.5,
+                  delay:
+                    FOLIO_ROW_BASE_DELAY_S +
+                    (BUDGET_ROWS.length + 1) * FOLIO_ROW_STAGGER_S,
+                  ease: FOLIO_EASE,
+                },
+              }
+            : { opacity: 0, y: 14 }
+        }
       >
-        <p className="font-mono text-[9px] font-bold uppercase tracking-widest text-[#A04A2F]">
+        <span>IVA 21%</span>
+        <span className="tabular-nums font-medium">1.440,60 €</span>
+      </motion.div>
+
+      <motion.div
+        className="flex shrink-0 justify-between border-t border-black pt-1.5 font-bold text-zinc-950"
+        initial={{ opacity: 0, y: 14 }}
+        animate={
+          active
+            ? {
+                opacity: 1,
+                y: 0,
+                transition: {
+                  duration: 0.5,
+                  delay:
+                    FOLIO_ROW_BASE_DELAY_S +
+                    (BUDGET_ROWS.length + 2) * FOLIO_ROW_STAGGER_S,
+                  ease: FOLIO_EASE,
+                },
+              }
+            : { opacity: 0, y: 14 }
+        }
+      >
+        <span>TOTAL</span>
+        <span className="tabular-nums">8.300,60 €</span>
+      </motion.div>
+
+      <motion.div
+        className="mt-3 shrink-0 border border-black px-2 py-1.5"
+        initial={{ opacity: 0, y: 14 }}
+        animate={
+          active
+            ? {
+                opacity: 1,
+                y: 0,
+                transition: {
+                  duration: 0.5,
+                  delay:
+                    FOLIO_ROW_BASE_DELAY_S +
+                    (BUDGET_ROWS.length + 3) * FOLIO_ROW_STAGGER_S,
+                  ease: FOLIO_EASE,
+                },
+              }
+            : { opacity: 0, y: 14 }
+        }
+      >
+        <p className="font-bold uppercase tracking-widest text-[#A04A2F]">
           GENERADO POR PERFILIO
         </p>
-        <p className="mt-1 font-mono text-[8px] text-zinc-950">{stamp}</p>
+        <p className="mt-0.5 text-zinc-950">{stamp}</p>
       </motion.div>
+      </div>
     </motion.div>
+  );
+}
+
+function useTypewriterLog(
+  logs: readonly MonitorLogLine[],
+  enabled: boolean,
+  resetKey: number
+) {
+  const [visibleCount, setVisibleCount] = useState(0);
+
+  useEffect(() => {
+    setVisibleCount(0);
+    if (!enabled) return;
+
+    const timers: number[] = [];
+    logs.forEach((_, index) => {
+      timers.push(
+        window.setTimeout(() => {
+          setVisibleCount(index + 1);
+        }, index * MONITOR_LOG_LINE_MS)
+      );
+    });
+
+    return () => timers.forEach((t) => window.clearTimeout(t));
+  }, [enabled, resetKey, logs]);
+
+  return visibleCount;
+}
+
+function randomBarHeights() {
+  return Array.from({ length: AUDIO_BAR_COUNT }, () =>
+    Math.round(AUDIO_BAR_MIN + Math.random() * (AUDIO_BAR_MAX - AUDIO_BAR_MIN))
+  );
+}
+
+function AudioWaveVisualizer() {
+  const reduceMotion = useReducedMotion();
+  const [heights, setHeights] = useState(randomBarHeights);
+
+  useEffect(() => {
+    if (reduceMotion) return;
+    const id = window.setInterval(() => setHeights(randomBarHeights()), 300);
+    return () => window.clearInterval(id);
+  }, [reduceMotion]);
+
+  return (
+    <div
+      className="flex h-14 w-full max-w-sm items-end justify-center gap-[3px]"
+      aria-hidden
+    >
+      {heights.map((h, i) => (
+        <motion.div
+          key={i}
+          className="w-1.5 rounded-sm bg-[#A04A2F]"
+          animate={{ height: h }}
+          transition={{ duration: 0.28, ease: 'easeOut' }}
+          style={{ height: h }}
+        />
+      ))}
+    </div>
+  );
+}
+
+const HERMES_OVAL_CLASS =
+  'rounded-full border border-zinc-300 bg-white px-4 py-2 font-mono text-[10px] text-zinc-800 shadow-sm whitespace-nowrap';
+
+function HermesTreeConnector() {
+  return (
+    <div className="flex justify-center">
+      <div className="h-6 w-px bg-[#A04A2F]/30" />
+    </div>
+  );
+}
+
+function DocumentTreeVisualizer() {
+  const reduceMotion = useReducedMotion();
+
+  const rowMotion = (delay: number) => ({
+    initial: { opacity: 0, y: 10 },
+    animate: { opacity: 1, y: 0 },
+    transition: {
+      delay: reduceMotion ? 0 : delay,
+      duration: 0.45,
+      ease: FOLIO_EASE,
+    },
+  });
+
+  return (
+    <div
+      className="flex w-full flex-1 flex-col justify-center border border-zinc-200 bg-zinc-50/30 px-6 py-4"
+      aria-hidden
+    >
+      <motion.div className="mb-4 flex justify-around" {...rowMotion(0)}>
+        <div className={HERMES_OVAL_CLASS}>Dictado de Obra</div>
+        <div className={HERMES_OVAL_CLASS}>Mermas Aluminio</div>
+      </motion.div>
+
+      <HermesTreeConnector />
+
+      <motion.div className="my-4 flex justify-center" {...rowMotion(0.2)}>
+        <div className="bg-[#A04A2F] px-6 py-3 font-mono text-xs text-white shadow-md">
+          HERMES CORE
+        </div>
+      </motion.div>
+
+      <HermesTreeConnector />
+
+      <motion.div className="mt-4 flex justify-around" {...rowMotion(0.4)}>
+        <div className={HERMES_OVAL_CLASS}>Desglose IVA</div>
+        <div className={HERMES_OVAL_CLASS}>TicketBAI Hash</div>
+      </motion.div>
+    </div>
+  );
+}
+
+function FiscalCertificateVisualizer() {
+  return (
+    <motion.div
+      className="w-full max-w-sm border border-[#A04A2F] bg-white/60 px-5 py-4"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+    >
+      <p className="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-[#A04A2F]">
+        TICKETBAI FIRMADO
+      </p>
+      <motion.p
+        className="mt-3 font-mono text-[9px] text-zinc-600"
+        animate={{ opacity: [1, 0.35, 1] }}
+        transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+      >
+        SHA256: a4f2e8c91b3d7f02e6a1c4b9d8e7f6a5
+      </motion.p>
+    </motion.div>
+  );
+}
+
+function TelemetryVisual({ kind }: { kind: NucleoVisualKind }) {
+  if (kind === 'brain') return <AudioWaveVisualizer />;
+  if (kind === 'hermes') return <DocumentTreeVisualizer />;
+  return <FiscalCertificateVisualizer />;
+}
+
+function MonitorTypewriterLogs({
+  logs,
+  enabled,
+  resetKey,
+}: {
+  logs: readonly MonitorLogLine[];
+  enabled: boolean;
+  resetKey: number;
+}) {
+  const visibleCount = useTypewriterLog(logs, enabled, resetKey);
+
+  return (
+    <ul className="mt-auto space-y-2 border-t border-[#C8C4BB]/80 pt-4">
+      {logs.slice(0, visibleCount).map((line, i) => (
+        <motion.li
+          key={`${resetKey}-${i}-${line.text}`}
+          initial={{ opacity: 0, x: -4 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.2 }}
+          className={line.isStatus ? 'text-[#A04A2F]' : 'text-zinc-600'}
+        >
+          {line.text}
+        </motion.li>
+      ))}
+    </ul>
   );
 }
 
@@ -540,226 +800,107 @@ function OperationsControlMonitor({
   active: boolean;
   activeIndex: number;
 }) {
-  const reduceMotion = useReducedMotion();
+  const profile =
+    NUCLEO_MONITOR_PROFILES[activeIndex] ?? NUCLEO_MONITOR_PROFILES[0];
 
   return (
     <motion.div
-      className="w-full max-w-lg rounded-none border border-zinc-200 bg-white/90 p-8 shadow-xl backdrop-blur-sm [color-scheme:light] text-zinc-950"
-      style={{ color: '#000000' }}
+      className="flex h-full min-h-[min(520px,72vh)] w-full max-w-xl [color-scheme:light]"
       initial={{ opacity: 0, y: 24 }}
       animate={active ? { opacity: 1, y: 0 } : { opacity: 0, y: 24 }}
       transition={{ duration: 0.65, ease: FOLIO_EASE }}
     >
-      <p className="font-mono text-[10px] font-bold uppercase tracking-[0.32em]">
-        Monitor de Control
-      </p>
-      <p className="mt-2 font-mono text-[9px] uppercase tracking-[0.22em]">
-        Operaciones y Estructuras · Obra 24
-      </p>
-
-      <motion.div className="mt-10">
-        <p className="mb-5 font-mono text-[9px] font-bold uppercase tracking-[0.24em]">
-          Flujo de ingeniería
-        </p>
-        <ol className="flex flex-col">
-          {ENGINEERING_TIMELINE.map((item, i) => {
-            const highlighted = activeIndex === 0 || activeIndex === 1;
-            return (
-              <li
-                key={item.step}
-                className={`flex items-start gap-4 py-4 ${
-                  i < ENGINEERING_TIMELINE.length - 1
-                    ? 'border-b border-zinc-200'
-                    : ''
-                }`}
-              >
-                <span
-                  className={`flex h-9 w-9 shrink-0 items-center justify-center border font-mono text-[11px] font-bold text-[#A04A2F] ${
-                    highlighted
-                      ? 'border-[#A04A2F] bg-[#A04A2F]/5'
-                      : 'border-zinc-300 bg-white'
-                  }`}
-                >
-                  {item.step}
-                </span>
-                <p className="min-w-0 flex-1 pt-1.5 font-sans text-sm font-medium leading-snug">
-                  {item.label}
-                </p>
-              </li>
-            );
-          })}
-        </ol>
-      </motion.div>
-
-      <motion.div
-        className="mt-10 border-t border-zinc-200 pt-8"
-        initial={{ opacity: 0 }}
-        animate={active ? { opacity: 1 } : { opacity: 0 }}
-        transition={{ delay: 0.2, duration: 0.5 }}
-      >
-        <p className="mb-5 font-mono text-[9px] font-bold uppercase tracking-[0.24em]">
-          Panel de operarios
-        </p>
-        <ul className="flex flex-col gap-4">
-          {WORKSHOP_OPERATORS.map((op, i) => {
-            const highlighted = activeIndex === 2;
-            return (
-              <motion.li
-                key={op.name}
-                className={`rounded-none border border-zinc-200 bg-white p-4 shadow-sm ${
-                  highlighted ? 'border-[#A04A2F]/40 shadow-md' : ''
-                }`}
-                initial={{ opacity: 0, y: 16 }}
-                animate={active ? { opacity: 1, y: 0 } : { opacity: 0, y: 16 }}
-                transition={{
-                  duration: 0.5,
-                  delay: 0.15 + i * 0.12,
-                  ease: FOLIO_EASE,
-                }}
-              >
-                <div className="flex items-center gap-3">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-zinc-300 bg-zinc-50 font-mono text-sm font-bold text-[#A04A2F]">
-                    {op.initial}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-sans text-sm font-semibold tracking-tight">
-                      {op.name}
-                    </p>
-                    <span className="mt-1 inline-flex items-center gap-2 rounded-none border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wide text-emerald-900">
-                      <span className="relative flex h-2 w-2">
-                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
-                        <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-                      </span>
-                      En Faena - Obra 24
-                    </span>
-                  </div>
-                  <span className="shrink-0 font-mono text-[11px] font-bold tabular-nums">
-                    {op.progress}%
-                  </span>
-                </div>
-                <motion.div className="mt-4 h-1 w-full overflow-hidden bg-zinc-100">
-                  <motion.div
-                    className="h-full bg-[#A04A2F]"
-                    initial={{ scaleX: 0 }}
-                    animate={
-                      active
-                        ? { scaleX: op.progress / 100 }
-                        : { scaleX: 0 }
-                    }
-                    transition={{
-                      duration: reduceMotion ? 0.2 : 1.15,
-                      delay: reduceMotion ? 0 : 0.35 + i * 0.14,
-                      ease: FOLIO_EASE,
-                    }}
-                    style={{ transformOrigin: 'left center', width: '100%' }}
-                  />
-                </motion.div>
-              </motion.li>
-            );
-          })}
-        </ul>
-      </motion.div>
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={activeIndex}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.4 }}
+          className="flex h-full min-h-[min(520px,72vh)] w-full flex-col rounded-none border border-[#C8C4BB] bg-[#EFEADF] p-6 font-mono text-xs text-zinc-700"
+        >
+          <p className="shrink-0 font-bold uppercase tracking-[0.2em] text-zinc-700">
+            {profile.title}
+          </p>
+          <motion.div className="flex min-h-[min(300px,55vh)] flex-1 items-stretch justify-center py-2">
+            <TelemetryVisual kind={profile.id} />
+          </motion.div>
+          <MonitorTypewriterLogs
+            logs={profile.logs}
+            enabled={active}
+            resetKey={activeIndex}
+          />
+        </motion.div>
+      </AnimatePresence>
     </motion.div>
   );
 }
 
+
 function SectorVideoFallback() {
   return (
-    <motion.div
-      className="absolute inset-0 overflow-hidden"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.6 }}
+    <div
+      className="absolute inset-0 flex items-center justify-center rounded-3xl border border-[#A04A2F]/20 bg-[#1C0E08] animate-pulse"
       aria-hidden
     >
-      <motion.div
-        className="absolute inset-0"
-        style={{
-          background:
-            'radial-gradient(ellipse 80% 70% at 50% 50%, rgba(160,74,47,0.45) 0%, rgba(13,13,15,0.95) 72%)',
-        }}
-        animate={{ opacity: [0.75, 1, 0.75] }}
-        transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
-      />
-      <motion.div
-        className="absolute inset-0 opacity-40"
-        style={{
-          backgroundImage:
-            'linear-gradient(rgba(244,241,234,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(244,241,234,0.08) 1px, transparent 1px)',
-          backgroundSize: '28px 28px',
-        }}
-        animate={{ backgroundPosition: ['0px 0px', '28px 28px'] }}
-        transition={{ duration: 12, repeat: Infinity, ease: 'linear' }}
-      />
-      <motion.div
-        className="absolute inset-0 bg-gradient-to-tr from-transparent via-[#A04A2F]/10 to-transparent"
-        animate={{ opacity: [0.3, 0.6, 0.3] }}
-        transition={{ duration: 3.5, repeat: Infinity, ease: 'easeInOut' }}
-      />
-      <div className="absolute bottom-6 left-6 font-mono text-[10px] uppercase tracking-[0.3em] text-[#F4F1EA]/70">
-        Señal de obra · Modo técnico
-      </div>
-    </motion.div>
+      <p className="font-mono text-xs text-[#A04A2F]/40">
+        SEÑAL DE OBRA · EN DIRECTO
+      </p>
+    </div>
   );
 }
 
 function SectorVideoPanel({ active }: { active: boolean }) {
-  const [sourceIndex, setSourceIndex] = useState(0);
-  const [useFallbackVisual, setUseFallbackVisual] = useState(false);
+  const [videoFailed, setVideoFailed] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
-
-  const currentSrc = OBRA_VIDEO_SOURCES[sourceIndex] ?? OBRA_VIDEO_SOURCES[0];
-
-  const handleVideoError = () => {
-    setVideoReady(false);
-    if (sourceIndex < OBRA_VIDEO_SOURCES.length - 1) {
-      setSourceIndex((i) => i + 1);
-      return;
-    }
-    setUseFallbackVisual(true);
-  };
 
   useEffect(() => {
     if (!active) {
-      setSourceIndex(0);
-      setUseFallbackVisual(false);
+      setVideoFailed(false);
       setVideoReady(false);
     }
   }, [active]);
 
+  const showFallback = videoFailed || !videoReady;
+
   return (
     <motion.div
-      className="relative h-[350px] w-full overflow-hidden border border-zinc-800 bg-zinc-950 shadow-2xl lg:h-[450px]"
+      className="relative h-[350px] w-full overflow-hidden rounded-3xl border border-zinc-800 shadow-[0_0_40px_rgba(0,0,0,0.6)] lg:h-[450px]"
       initial={{ opacity: 0, x: 20 }}
       animate={active ? { opacity: 1, x: 0 } : { opacity: 0, x: 20 }}
       transition={{ duration: 0.75, ease: FOLIO_EASE, delay: 0.08 }}
     >
-      {useFallbackVisual ? (
+      {videoFailed ? (
         <SectorVideoFallback />
       ) : (
         <>
           <video
-            key={currentSrc}
-            src={currentSrc}
+            src={SECTOR_VIDEO_SRC}
             autoPlay
             loop
             muted
             playsInline
             preload="auto"
-            onError={handleVideoError}
+            onError={() => {
+              setVideoReady(false);
+              setVideoFailed(true);
+            }}
             onLoadedData={() => setVideoReady(true)}
             onCanPlay={() => setVideoReady(true)}
-            className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-700 ${
+            className={`absolute inset-0 h-full w-full rounded-3xl object-cover transition-opacity duration-700 ${
               videoReady ? 'opacity-85 contrast-110' : 'opacity-0'
             }`}
           />
-          {!videoReady ? <SectorVideoFallback /> : null}
+          {showFallback ? <SectorVideoFallback /> : null}
         </>
       )}
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#0D0D0F]/50 via-transparent to-transparent" />
+      {videoReady && !videoFailed ? (
+        <div className="pointer-events-none absolute inset-0 rounded-3xl bg-gradient-to-t from-[#0D0D0F]/40 via-transparent to-transparent" />
+      ) : null}
     </motion.div>
   );
 }
+
 
 function SceneMonolith() {
   const [panelActive, setPanelActive] = useState(false);
@@ -771,23 +912,20 @@ function SceneMonolith() {
 
   return (
     <motion.div
-      className="absolute inset-0 flex items-center justify-center overflow-hidden bg-[#0D0D0F] pt-16 sm:pt-20"
+      className="absolute inset-0 flex h-screen w-full flex-col items-center justify-center overflow-hidden bg-[#0D0D0F] px-6 lg:px-16"
       variants={sceneSlide}
       initial="initial"
       animate="animate"
       exit="exit"
     >
-      <div
-        className={`${SCENE_CENTER} relative z-10 h-full min-h-0 w-full max-h-full py-8`}
-      >
         <motion.div
-          className="mx-auto grid h-full w-full max-w-7xl grid-cols-1 items-center gap-12 px-6 lg:grid-cols-2"
+          className="grid w-full max-w-7xl grid-cols-1 items-center gap-12 lg:grid-cols-2"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.5 }}
         >
           <motion.div
-            className="flex min-h-0 flex-col justify-center"
+            className="flex flex-col"
             initial={{ opacity: 0, x: -16 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.65, ease: FOLIO_EASE }}
@@ -801,7 +939,7 @@ function SceneMonolith() {
             </p>
 
             <motion.div
-              className="mt-8 grid grid-cols-1 border border-zinc-800 bg-[#0D0D0F]/80 backdrop-blur-sm sm:grid-cols-2"
+              className="mt-8 grid grid-cols-1 border border-zinc-800 bg-[#0D0D0F]/80 backdrop-blur-sm sm:grid-cols-3"
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.55, delay: 0.15, ease: FOLIO_EASE }}
@@ -850,9 +988,10 @@ function SceneMonolith() {
             </motion.div>
           </motion.div>
 
-          <SectorVideoPanel active={panelActive} />
+          <div className="w-full">
+            <SectorVideoPanel active={panelActive} />
+          </div>
         </motion.div>
-      </div>
     </motion.div>
   );
 }
@@ -1075,9 +1214,11 @@ function SceneNucleo({ lightReady }: { lightReady: boolean }) {
             })}
           </div>
 
-          <OperationsControlMonitor active={lightReady} activeIndex={activeRow} />
+          <div className="flex h-full min-h-0 w-full items-stretch lg:justify-end">
+            <OperationsControlMonitor active={lightReady} activeIndex={activeRow} />
           </div>
         </div>
+      </div>
       </LightSceneContent>
     </motion.div>
   );
