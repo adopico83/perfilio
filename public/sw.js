@@ -1,5 +1,5 @@
  
-const STATIC_CACHE = 'perfilio-static-1779138619222';
+const STATIC_CACHE = 'perfilio-static-1779140183578';
 
 const PRECACHE_URLS = [
   '/manifest.json',

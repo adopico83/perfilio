@@ -28,7 +28,51 @@ const WHEEL_RESET_MS = 140;
 const SCENE_CENTER = 'flex h-full w-full items-center justify-center';
 
 const SCENE_GRID =
-  'grid w-full max-w-7xl grid-cols-1 items-center gap-12 px-6 mx-auto lg:grid-cols-2';
+  'grid w-full max-w-7xl grid-cols-1 items-center gap-8 px-6 mx-auto lg:grid-cols-2 lg:gap-12';
+
+const MOBILE_BREAKPOINT_PX = 1024;
+
+const MOBILE_IN_VIEW = { once: true, margin: '-80px' } as const;
+
+type SceneLayoutProps = { isMobile?: boolean };
+
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < MOBILE_BREAKPOINT_PX);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+
+  return isMobile;
+}
+
+function sceneMotionProps(isMobile: boolean) {
+  return isMobile
+    ? {
+        initial: { opacity: 0, y: 24 },
+        whileInView: { opacity: 1, y: 0 },
+        viewport: MOBILE_IN_VIEW,
+        transition: { duration: 0.6, ease: 'easeOut' as const },
+      }
+    : {
+        variants: sceneSlide,
+        initial: 'initial' as const,
+        animate: 'animate' as const,
+        exit: 'exit' as const,
+      };
+}
+
+function mobileChildMotion(delay = 0) {
+  return {
+    initial: { opacity: 0, y: 16 },
+    whileInView: { opacity: 1, y: 0 },
+    viewport: MOBILE_IN_VIEW,
+    transition: { duration: 0.5, delay, ease: FOLIO_EASE },
+  };
+}
 
 const HERO_KEYFRAMES = `
   @keyframes orbital-swing-3d {
@@ -284,11 +328,17 @@ function useLightBgReady(scene: number) {
 
 function LightSceneContent({
   ready,
+  isMobile,
   children,
 }: {
   ready: boolean;
+  isMobile?: boolean;
   children: React.ReactNode;
 }) {
+  if (isMobile) {
+    return <div className="w-full">{children}</div>;
+  }
+
   return (
     <motion.div
       className="h-full w-full"
@@ -307,7 +357,8 @@ function LightSceneContent({
 
 function useSceneWheel(
   currentScene: number,
-  setCurrentScene: React.Dispatch<React.SetStateAction<number>>
+  setCurrentScene: React.Dispatch<React.SetStateAction<number>>,
+  enabled: boolean
 ) {
   const lockedRef = useRef(false);
   const accumRef = useRef(0);
@@ -337,6 +388,8 @@ function useSceneWheel(
   );
 
   useEffect(() => {
+    if (!enabled) return;
+
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       if (lockedRef.current) return;
@@ -373,7 +426,7 @@ function useSceneWheel(
       window.removeEventListener('keydown', onKeyDown);
       if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
     };
-  }, [currentScene, goTo]);
+  }, [currentScene, goTo, enabled]);
 }
 
 function SceneIndicator({
@@ -385,7 +438,7 @@ function SceneIndicator({
 }) {
   return (
     <nav
-      className="pointer-events-auto fixed right-5 top-1/2 z-[60] flex -translate-y-1/2 flex-col gap-3 sm:right-8"
+      className="pointer-events-auto fixed right-5 top-1/2 z-[60] hidden -translate-y-1/2 flex-col gap-3 sm:right-8 lg:flex"
       aria-label="Escenas de la landing"
     >
       {Array.from({ length: SCENE_COUNT }, (_, i) => {
@@ -421,7 +474,13 @@ function DrawnLine({ delay = 0 }: { delay?: number }) {
   );
 }
 
-function EngineeringFolio({ active }: { active: boolean }) {
+function EngineeringFolio({
+  active,
+  isMobile = false,
+}: {
+  active: boolean;
+  isMobile?: boolean;
+}) {
   const reduceMotion = useReducedMotion();
   const stamp = new Date().toLocaleString('es-ES', {
     day: '2-digit',
@@ -461,19 +520,33 @@ function EngineeringFolio({ active }: { active: boolean }) {
         }
       : { opacity: 0, y: 8 };
 
+  const folioMotion = isMobile
+    ? {
+        initial: { opacity: 0, y: 24 },
+        whileInView: { opacity: 1, y: 0, x: 0 },
+        viewport: MOBILE_IN_VIEW,
+        transition: { duration: 0.7, ease: FOLIO_EASE },
+      }
+    : {
+        initial: { x: 150, opacity: 0, y: 0 },
+        animate: folioEnter,
+        transition: folioTransition,
+      };
+
   return (
     <motion.div
-      className="folio-sheet relative isolate mx-auto w-[420px] aspect-[1/1.41] shrink-0 overflow-hidden rounded-none border border-black/20 bg-white shadow-[0_30px_60px_rgba(0,0,0,0.14)] [color-scheme:light]"
+      className="folio-sheet relative isolate mx-auto h-[594px] w-[420px] shrink-0 overflow-hidden rounded-none border border-black/20 bg-white shadow-[0_30px_60px_rgba(0,0,0,0.14)] [color-scheme:light]"
       style={{
         color: '#000000',
-        transform: 'perspective(1000px) rotateX(2deg) rotateY(-6deg)',
+        transform: isMobile
+          ? undefined
+          : 'perspective(1000px) rotateX(2deg) rotateY(-6deg)',
         transformStyle: 'preserve-3d',
       }}
-      initial={{ x: 150, opacity: 0, y: 0 }}
-      animate={folioEnter}
-      transition={folioTransition}
+      {...folioMotion}
     >
-      <div className="flex h-full flex-col overflow-hidden p-5 font-mono text-[10px] text-zinc-950">
+      <motion.div className="flex h-full flex-col justify-between p-8 font-mono text-[11px] text-zinc-950">
+      <div className="flex flex-col">
       <motion.header
         className="shrink-0 border-b border-black pb-3 text-zinc-950"
         initial={{ opacity: 0 }}
@@ -488,7 +561,7 @@ function EngineeringFolio({ active }: { active: boolean }) {
       </motion.header>
 
       <motion.div
-        className="mt-2 grid shrink-0 grid-cols-[40px_1fr_22px_44px_58px] gap-x-1 border-b border-black pb-1.5 font-semibold uppercase tracking-wider text-zinc-950"
+        className="mt-2 grid shrink-0 grid-cols-[40px_1fr_22px_44px_58px] gap-x-1 border-b border-black py-3 font-semibold uppercase tracking-wider text-zinc-950"
         initial={{ opacity: 0 }}
         animate={blockReveal(FOLIO_ROW_BASE_DELAY_S - 0.05)}
       >
@@ -502,7 +575,7 @@ function EngineeringFolio({ active }: { active: boolean }) {
       {BUDGET_ROWS.map((row, rowIndex) => (
         <motion.div
           key={row.code}
-          className="grid grid-cols-[40px_1fr_22px_44px_58px] gap-x-1 border-b border-black py-1.5 text-zinc-950"
+          className="grid grid-cols-[40px_1fr_22px_44px_58px] gap-x-1 border-b border-black py-3 text-zinc-950"
           initial={{ opacity: 0, y: 14 }}
           animate={
             active
@@ -526,9 +599,13 @@ function EngineeringFolio({ active }: { active: boolean }) {
           <span className="text-right tabular-nums font-bold">{row.total}</span>
         </motion.div>
       ))}
+      </div>
 
+      <motion.div className="min-h-0 flex-grow" aria-hidden />
+
+      <div className="flex shrink-0 flex-col">
       <motion.div
-        className="mt-2 flex shrink-0 justify-between border-t border-black pt-2 text-zinc-950"
+        className="flex shrink-0 justify-between border-t border-black py-3 text-zinc-950"
         initial={{ opacity: 0, y: 14 }}
         animate={
           active
@@ -551,7 +628,7 @@ function EngineeringFolio({ active }: { active: boolean }) {
       </motion.div>
 
       <motion.div
-        className="flex shrink-0 justify-between text-zinc-950"
+        className="flex shrink-0 justify-between py-3 text-zinc-950"
         initial={{ opacity: 0, y: 14 }}
         animate={
           active
@@ -574,7 +651,7 @@ function EngineeringFolio({ active }: { active: boolean }) {
       </motion.div>
 
       <motion.div
-        className="flex shrink-0 justify-between border-t border-black pt-1.5 font-bold text-zinc-950"
+        className="flex shrink-0 justify-between border-t border-black py-3 font-bold text-zinc-950"
         initial={{ opacity: 0, y: 14 }}
         animate={
           active
@@ -595,9 +672,10 @@ function EngineeringFolio({ active }: { active: boolean }) {
         <span>TOTAL</span>
         <span className="tabular-nums">8.300,60 €</span>
       </motion.div>
+      </div>
 
       <motion.div
-        className="mt-3 shrink-0 border border-black px-2 py-1.5"
+        className="mt-auto shrink-0 border border-black px-2 py-3"
         initial={{ opacity: 0, y: 14 }}
         animate={
           active
@@ -620,7 +698,7 @@ function EngineeringFolio({ active }: { active: boolean }) {
         </p>
         <p className="mt-0.5 text-zinc-950">{stamp}</p>
       </motion.div>
-      </div>
+      </motion.div>
     </motion.div>
   );
 }
@@ -976,33 +1054,47 @@ function SectorVideoPanel({ active }: { active: boolean }) {
 }
 
 
-function SceneMonolith() {
-  const [panelActive, setPanelActive] = useState(false);
+function SceneMonolith({ isMobile = false }: SceneLayoutProps) {
+  const [panelActive, setPanelActive] = useState(isMobile);
 
   useEffect(() => {
+    if (isMobile) {
+      setPanelActive(true);
+      return;
+    }
     const t = window.setTimeout(() => setPanelActive(true), 120);
     return () => window.clearTimeout(t);
-  }, []);
+  }, [isMobile]);
 
   return (
     <motion.div
-      className="absolute inset-0 flex h-screen w-full flex-col items-center justify-center overflow-hidden bg-[#0D0D0F] px-6 lg:px-16"
-      variants={sceneSlide}
-      initial="initial"
-      animate="animate"
-      exit="exit"
+      id={isMobile ? 'scene-sectores' : undefined}
+      className={
+        isMobile
+          ? 'relative w-full scroll-mt-20 bg-[#0D0D0F] px-6 py-24'
+          : 'absolute inset-0 flex h-screen w-full flex-col items-center justify-center overflow-hidden bg-[#0D0D0F] px-6 lg:px-16'
+      }
+      {...sceneMotionProps(isMobile)}
     >
         <motion.div
-          className="grid w-full max-w-7xl grid-cols-1 items-center gap-12 lg:grid-cols-2"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.5 }}
+          className="grid w-full max-w-7xl grid-cols-1 items-center gap-8 lg:grid-cols-2 lg:gap-12"
+          {...(isMobile
+            ? mobileChildMotion(0)
+            : {
+                initial: { opacity: 0 },
+                animate: { opacity: 1 },
+                transition: { duration: 0.5 },
+              })}
         >
           <motion.div
             className="flex flex-col"
-            initial={{ opacity: 0, x: -16 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.65, ease: FOLIO_EASE }}
+            {...(isMobile
+              ? mobileChildMotion(0.05)
+              : {
+                  initial: { opacity: 0, x: -16 },
+                  animate: { opacity: 1, x: 0 },
+                  transition: { duration: 0.65, ease: FOLIO_EASE },
+                })}
           >
             <h2 className="max-w-xl font-serif text-4xl leading-[1.08] text-[#F4F1EA] sm:text-5xl lg:text-[3.25rem]">
               Perfilio se adapta a{' '}
@@ -1014,9 +1106,13 @@ function SceneMonolith() {
 
             <motion.div
               className="mt-8 grid grid-cols-1 border border-zinc-800 bg-[#0D0D0F]/80 backdrop-blur-sm sm:grid-cols-3"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.55, delay: 0.15, ease: FOLIO_EASE }}
+              {...(isMobile
+                ? mobileChildMotion(0.1)
+                : {
+                    initial: { opacity: 0, y: 12 },
+                    animate: { opacity: 1, y: 0 },
+                    transition: { duration: 0.55, delay: 0.15, ease: FOLIO_EASE },
+                  })}
             >
               {SECTORS.map((sector, index) => {
                 const Icon = sector.icon;
@@ -1025,9 +1121,17 @@ function SceneMonolith() {
                   <motion.article
                     key={sector.title}
                     className={`group flex flex-col px-5 py-6 transition-colors hover:bg-white/[0.04] sm:px-6 sm:py-7 ${sectorCellBorder(index)}`}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.45, delay: 0.2 + delay, ease: FOLIO_EASE }}
+                    {...(isMobile
+                      ? mobileChildMotion(0.15 + delay)
+                      : {
+                          initial: { opacity: 0, y: 10 },
+                          animate: { opacity: 1, y: 0 },
+                          transition: {
+                            duration: 0.45,
+                            delay: 0.2 + delay,
+                            ease: FOLIO_EASE,
+                          },
+                        })}
                   >
                     <Icon
                       className="h-5 w-5 text-[#A04A2F]"
@@ -1047,9 +1151,13 @@ function SceneMonolith() {
 
             <motion.div
               className="mt-6 flex justify-start"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.4, ease: FOLIO_EASE }}
+              {...(isMobile
+                ? mobileChildMotion(0.25)
+                : {
+                    initial: { opacity: 0, y: 8 },
+                    animate: { opacity: 1, y: 0 },
+                    transition: { duration: 0.5, delay: 0.4, ease: FOLIO_EASE },
+                  })}
             >
               <a
                 href={WHATSAPP_DEMO_HREF}
@@ -1062,22 +1170,23 @@ function SceneMonolith() {
             </motion.div>
           </motion.div>
 
-          <div className="w-full">
+          <motion.div className="w-full" {...(isMobile ? mobileChildMotion(0.12) : {})}>
             <SectorVideoPanel active={panelActive} />
-          </div>
+          </motion.div>
         </motion.div>
     </motion.div>
   );
 }
 
-function SceneHero() {
+function SceneHero({ isMobile = false }: SceneLayoutProps) {
   return (
     <motion.div
-      className="absolute inset-0 flex flex-col pt-16 sm:pt-20"
-      variants={sceneSlide}
-      initial="initial"
-      animate="animate"
-      exit="exit"
+      className={
+        isMobile
+          ? 'relative flex min-h-[100svh] w-full flex-col bg-[#09090B] pt-16 sm:pt-20'
+          : 'absolute inset-0 flex flex-col pt-16 sm:pt-20'
+      }
+      {...sceneMotionProps(isMobile)}
     >
       <div className="pointer-events-none absolute inset-0 z-0">
         <div className="absolute top-0 inset-x-0 h-32 bg-[#1C1917]" />
@@ -1088,9 +1197,13 @@ function SceneHero() {
 
       <motion.div
         className="relative z-10 w-full shrink-0 overflow-hidden border-b border-zinc-200 bg-white py-3 select-none"
-        initial={{ opacity: 0, y: -8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.15, duration: 0.5 }}
+        {...(isMobile
+          ? mobileChildMotion(0)
+          : {
+              initial: { opacity: 0, y: -8 },
+              animate: { opacity: 1, y: 0 },
+              transition: { delay: 0.15, duration: 0.5 },
+            })}
       >
         <div className="cartier-marquee font-mono text-xs font-bold uppercase tracking-[0.2em] text-[#A04A2F] whitespace-nowrap">
           <span>
@@ -1108,8 +1221,9 @@ function SceneHero() {
         <div className="mx-auto flex w-full max-w-7xl flex-col items-center justify-center gap-8 px-6 lg:flex-row lg:items-center lg:gap-12">
           <motion.div
           className="order-2 flex w-full max-w-xl flex-col items-start space-y-6 text-left lg:order-1"
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.45 }}
+          {...(isMobile
+            ? mobileChildMotion(0.08)
+            : { exit: { opacity: 0 }, transition: { duration: 0.45 } })}
         >
           <h1 className="font-serif text-5xl font-normal leading-none tracking-tight text-white sm:text-6xl lg:text-7xl xl:text-8xl">
             El encargado que <br />
@@ -1132,8 +1246,9 @@ function SceneHero() {
         <motion.div
           className="order-1 flex w-full justify-center py-2 lg:order-2 lg:justify-end lg:pr-8"
           style={{ transformStyle: 'preserve-3d' }}
-          variants={iphoneExit}
-          exit="exit"
+          {...(isMobile
+            ? mobileChildMotion(0.04)
+            : { variants: iphoneExit, exit: 'exit' })}
         >
           <div
             className="relative flex justify-center"
@@ -1181,27 +1296,35 @@ function SceneHero() {
   );
 }
 
-function SceneWorkflow({ lightReady }: { lightReady: boolean }) {
-  const [folioActive, setFolioActive] = useState(false);
+function SceneWorkflow({
+  lightReady,
+  isMobile = false,
+}: SceneLayoutProps & { lightReady: boolean }) {
+  const [folioActive, setFolioActive] = useState(isMobile);
 
   useEffect(() => {
+    if (isMobile) {
+      setFolioActive(true);
+      return;
+    }
     if (!lightReady) {
       setFolioActive(false);
       return;
     }
     const t = window.setTimeout(() => setFolioActive(true), 400);
     return () => window.clearTimeout(t);
-  }, [lightReady]);
+  }, [lightReady, isMobile]);
 
   return (
     <motion.div
-      className="absolute inset-0 flex items-center justify-center overflow-hidden pt-16 sm:pt-20"
-      variants={sceneSlide}
-      initial="initial"
-      animate="animate"
-      exit="exit"
+      className={
+        isMobile
+          ? 'relative w-full scroll-mt-20 bg-[#EFEADF] py-24 pt-28'
+          : 'absolute inset-0 flex items-center justify-center overflow-hidden pt-16 sm:pt-20'
+      }
+      {...sceneMotionProps(isMobile)}
     >
-      <LightSceneContent ready={lightReady}>
+      <LightSceneContent ready={lightReady} isMobile={isMobile}>
         <div className={`${SCENE_CENTER} min-h-full py-8`}>
           <div className={SCENE_GRID}>
             <div>
@@ -1228,9 +1351,12 @@ function SceneWorkflow({ lightReady }: { lightReady: boolean }) {
             </div>
           </div>
 
-          <div className="flex items-center justify-center lg:justify-end">
-            <EngineeringFolio active={folioActive} />
-          </div>
+          <motion.div
+            className="flex items-center justify-center lg:justify-end"
+            {...(isMobile ? mobileChildMotion(0.1) : {})}
+          >
+            <EngineeringFolio active={folioActive} isMobile={isMobile} />
+          </motion.div>
           </div>
         </div>
       </LightSceneContent>
@@ -1238,18 +1364,22 @@ function SceneWorkflow({ lightReady }: { lightReady: boolean }) {
   );
 }
 
-function SceneNucleo({ lightReady }: { lightReady: boolean }) {
+function SceneNucleo({
+  lightReady,
+  isMobile = false,
+}: SceneLayoutProps & { lightReady: boolean }) {
   const [activeRow, setActiveRow] = useState(0);
 
   return (
     <motion.div
-      className="absolute inset-0 flex items-center justify-center overflow-hidden pt-16 sm:pt-20"
-      variants={sceneSlide}
-      initial="initial"
-      animate="animate"
-      exit="exit"
+      className={
+        isMobile
+          ? 'relative w-full scroll-mt-20 bg-[#EFEADF] py-24 pt-28'
+          : 'absolute inset-0 flex items-center justify-center overflow-hidden pt-16 sm:pt-20'
+      }
+      {...sceneMotionProps(isMobile)}
     >
-      <LightSceneContent ready={lightReady}>
+      <LightSceneContent ready={lightReady} isMobile={isMobile}>
         <div className={`${SCENE_CENTER} min-h-full py-8`}>
           <div className={SCENE_GRID}>
             <div>
@@ -1261,6 +1391,7 @@ function SceneNucleo({ lightReady }: { lightReady: boolean }) {
                   key={row.n}
                   className={`cursor-pointer transition-colors ${isActive ? 'bg-black/[0.03]' : ''}`}
                   onMouseEnter={() => setActiveRow(index)}
+                  onClick={() => setActiveRow(index)}
                   onFocus={() => setActiveRow(index)}
                   tabIndex={0}
                 >
@@ -1299,12 +1430,14 @@ function SceneNucleo({ lightReady }: { lightReady: boolean }) {
 }
 
 export default function Home() {
+  const isMobile = useIsMobile();
   const [currentScene, setCurrentScene] = useState(1);
   const lightReady = useLightBgReady(currentScene);
+  const sceneLightReady = isMobile || lightReady;
   const reduceMotion = useReducedMotion();
   const lockedNavRef = useRef(false);
 
-  useSceneWheel(currentScene, setCurrentScene);
+  useSceneWheel(currentScene, setCurrentScene, !isMobile);
 
   const goToScene = useCallback((n: number) => {
     const clamped = Math.min(SCENE_COUNT, Math.max(1, n));
@@ -1315,6 +1448,31 @@ export default function Home() {
       lockedNavRef.current = false;
     }, SCENE_COOLDOWN_MS);
   }, []);
+
+  const handleGoToSectores = useCallback(() => {
+    if (isMobile) {
+      document.getElementById('scene-sectores')?.scrollIntoView({ behavior: 'smooth' });
+      return;
+    }
+    goToScene(4);
+  }, [isMobile, goToScene]);
+
+  if (isMobile) {
+    return (
+      <motion.div
+        data-theme="light"
+        className="h-auto w-full overflow-y-auto bg-[#09090B]"
+      >
+        <Header onGoToSectores={handleGoToSectores} />
+        <main className="relative w-full">
+          <SceneHero isMobile />
+          <SceneWorkflow lightReady={sceneLightReady} isMobile />
+          <SceneNucleo lightReady={sceneLightReady} isMobile />
+          <SceneMonolith isMobile />
+        </main>
+      </motion.div>
+    );
+  }
 
   const bg =
     currentScene === 1
@@ -1336,7 +1494,7 @@ export default function Home() {
 
       <div className="pointer-events-none fixed inset-x-0 top-0 z-50">
         <div className="pointer-events-auto">
-          <Header />
+          <Header onGoToSectores={handleGoToSectores} />
         </div>
       </div>
 
