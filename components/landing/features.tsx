@@ -116,16 +116,16 @@ function FeatureRow({
           transitionDelay: visible ? `${index * 100}ms` : '0ms',
         }}
       >
-        <div className="w-20 shrink-0 font-serif text-5xl leading-none text-[#A04A2F]">
+        <div className="w-24 shrink-0 font-serif text-5xl leading-none text-[#A04A2F]">
           {feature.number}
         </div>
         <h3 className="w-full font-serif text-3xl font-medium text-[#1A1A1A] lg:w-1/3 lg:pr-8">
           {feature.title}
         </h3>
-        <p className="flex flex-1 items-end gap-3 font-mono text-sm leading-relaxed text-[#6B6A65]">
-          <span>{feature.description}</span>
+        <p className="flex-1 font-mono text-sm leading-relaxed text-[#6B6A65]">
+          {feature.description}{' '}
           <Icon
-            className="mt-0.5 h-5 w-5 shrink-0 text-[#A04A2F]"
+            className="inline-block h-[1.1em] w-[1.1em] shrink-0 align-[-0.12em] text-[#A04A2F]"
             strokeWidth={1.5}
             aria-hidden
           />

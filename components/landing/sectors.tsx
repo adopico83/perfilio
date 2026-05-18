@@ -104,7 +104,7 @@ function SectorCell({
 
   return (
     <article
-      className={`group flex flex-col px-8 py-10 transition-[background-color,opacity,transform] duration-700 ease-out hover:bg-white/[0.02] ${sectorCellBorder(index)}`}
+      className={`group flex flex-col px-8 py-10 transition-[opacity,transform,background-color] duration-700 ease-out hover:bg-white/[0.02] ${sectorCellBorder(index)}`}
       style={{
         opacity: sectionVisible ? 1 : 0,
         transform: sectionVisible ? 'translateY(0)' : 'translateY(15px)',
@@ -116,7 +116,7 @@ function SectorCell({
         strokeWidth={1.5}
         aria-hidden
       />
-      <h3 className="mt-5 font-serif text-xl text-[#EFEADF] transition-colors duration-200 group-hover:text-white">
+      <h3 className="mt-5 font-serif text-xl text-[#F4F1EA] transition-colors duration-200 group-hover:text-white">
         {sector.title}
       </h3>
       <p className="mt-3 font-mono text-sm leading-relaxed text-[#6B6A65]">
@@ -133,25 +133,32 @@ export function Sectors() {
     <section
       ref={sectionRef}
       id="sectores"
-      className="py-24"
+      className="bg-[#0D0D0F] py-24"
       style={{
         background:
           'radial-gradient(ellipse at center, rgba(160,74,47,0.08) 0%, #0D0D0F 70%)',
       }}
     >
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div
-          className="mb-16 max-w-3xl transition-[opacity,transform] duration-700 ease-out md:mb-20"
-          style={{
-            opacity: sectionVisible ? 1 : 0,
-            transform: sectionVisible ? 'translateY(0)' : 'translateY(15px)',
-          }}
-        >
-          <h2 className="mb-6 text-left font-serif text-6xl text-[#EFEADF] lg:text-7xl">
+        <div className="mb-16 max-w-3xl md:mb-20">
+          <h2
+            className="mb-6 text-left font-serif text-6xl text-[#F4F1EA] transition-[opacity,transform] duration-700 ease-out lg:text-7xl"
+            style={{
+              opacity: sectionVisible ? 1 : 0,
+              transform: sectionVisible ? 'translateY(0)' : 'translateY(15px)',
+            }}
+          >
             Perfilio se adapta a{' '}
             <span className="text-[#A04A2F]">tu sector</span>
           </h2>
-          <p className="font-mono text-sm text-[#EFEADF]">
+          <p
+            className="font-mono text-sm text-[#6B6A65] transition-[opacity,transform] duration-700 ease-out"
+            style={{
+              opacity: sectionVisible ? 1 : 0,
+              transform: sectionVisible ? 'translateY(0)' : 'translateY(15px)',
+              transitionDelay: sectionVisible ? '90ms' : '0ms',
+            }}
+          >
             Soluciones específicas para cada tipo de negocio
           </p>
         </div>
