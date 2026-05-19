@@ -1277,7 +1277,7 @@ function SceneHero({ isMobile = false }: SceneLayoutProps) {
                   style={{ transform: 'translateZ(1px)' }}
                 >
                   <video
-                    src="/demo.mp4"
+                    src="/demo_nueva.mp4"
                     autoPlay
                     loop
                     muted
