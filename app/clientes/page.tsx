@@ -148,19 +148,19 @@ export default function ClientesPage() {
 
   if (authChecking) {
     return (
-      <div className="min-h-screen bg-[#0f172a] flex items-center justify-center text-white">
+      <div className="min-h-screen bg-[#EFEADF] flex items-center justify-center text-zinc-900">
         Cargando…
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0f172a] text-white">
+    <div className="min-h-screen bg-[#EFEADF] text-zinc-900">
       <DashboardMainNav
         brand={
           <Link
             href="/dashboard"
-            className="text-white font-bold text-xl sm:text-2xl truncate shrink-0 min-w-0 max-w-[min(220px,46vw)] sm:max-w-[min(260px,40vw)]"
+            className="text-zinc-900 font-bold text-xl sm:text-2xl truncate shrink-0 min-w-0 max-w-[min(220px,46vw)] sm:max-w-[min(260px,40vw)]"
           >
             {businessName}
           </Link>
@@ -179,24 +179,24 @@ export default function ClientesPage() {
       <main className="max-w-7xl mx-auto px-6 py-6 space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-white">
-              <span className="text-[#ed8936]">Clientes</span>
+            <h1 className="text-2xl sm:text-3xl font-bold text-zinc-900">
+              <span className="text-[#A04A2F]">Clientes</span>
             </h1>
-            <p className="text-sm text-white/70 mt-1">
+            <p className="text-sm text-zinc-600 mt-1">
               Fichas de contacto y documentos asociados.
             </p>
           </div>
           <button
             type="button"
             onClick={() => setModalNuevo(true)}
-            className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-[#ed8936] hover:bg-[#dd6b20] rounded-lg transition-colors"
+            className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-[#A04A2F] hover:bg-[#8a3f28] rounded-lg transition-colors"
           >
             Nuevo cliente
           </button>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
-          <label className="text-sm text-white/70 sr-only" htmlFor="buscar-cliente">
+          <label className="text-sm text-zinc-600 sr-only" htmlFor="buscar-cliente">
             Buscar por nombre
           </label>
           <input
@@ -205,27 +205,27 @@ export default function ClientesPage() {
             placeholder="Buscar por nombre…"
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
-            className="w-full sm:max-w-xs rounded-lg border border-white/15 bg-[#1a365d]/80 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-[#ed8936]/60"
+            className="w-full sm:max-w-xs rounded-lg border border-zinc-400/50 bg-[#E5DFD0]/80 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[#A04A2F]/60"
           />
         </div>
 
         {error ? <p className="text-red-300 text-sm">{error}</p> : null}
 
         {!businessId ? (
-          <p className="text-white/70 text-sm">No hay un perfil de negocio asociado.</p>
+          <p className="text-zinc-600 text-sm">No hay un perfil de negocio asociado.</p>
         ) : loading ? (
-          <p className="text-white/60">Cargando clientes…</p>
+          <p className="text-zinc-500">Cargando clientes…</p>
         ) : filtrados.length === 0 ? (
-          <div className="rounded-xl border border-white/10 bg-[#1a365d]/80 p-6 text-white/70 text-sm">
+          <div className="rounded-xl border border-zinc-400/40 bg-[#E5DFD0]/80 p-6 text-zinc-600 text-sm">
             {clientes.length === 0
               ? 'Aún no hay clientes. Crea el primero con «Nuevo cliente».'
               : 'Ningún cliente coincide con la búsqueda.'}
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-white/10 bg-[#1a365d]/60">
+          <div className="overflow-x-auto rounded-xl border border-zinc-400/40 bg-[#E5DFD0]/60">
             <table className="w-full text-sm text-left">
               <thead>
-                <tr className="border-b border-white/10 bg-[#0f2744]/90 text-white/80">
+                <tr className="border-b border-zinc-400/40 bg-[#EFEADF]/90 text-zinc-700">
                   <th className="px-4 py-3 font-medium">Nombre</th>
                   <th className="px-4 py-3 font-medium">Teléfono</th>
                   <th className="px-4 py-3 font-medium">Email</th>
@@ -237,17 +237,17 @@ export default function ClientesPage() {
               </thead>
               <tbody>
                 {filtrados.map((c) => (
-                  <tr key={c.id} className="border-b border-white/5 hover:bg-white/5">
-                    <td className="px-4 py-3 font-medium text-white">{c.nombre}</td>
-                    <td className="px-4 py-3 text-white/85 tabular-nums">{c.telefono ?? '—'}</td>
-                    <td className="px-4 py-3 text-white/85 max-w-[12rem] truncate">{c.email ?? '—'}</td>
+                  <tr key={c.id} className="bg-[#E5DFD0] border-b border-zinc-300/50 hover:bg-[#D4CCBC]">
+                    <td className="px-4 py-3 font-medium text-zinc-900">{c.nombre}</td>
+                    <td className="px-4 py-3 text-zinc-700 tabular-nums">{c.telefono ?? '—'}</td>
+                    <td className="px-4 py-3 text-zinc-700 max-w-[12rem] truncate">{c.email ?? '—'}</td>
                     <td className="px-4 py-3 tabular-nums">{c.num_presupuestos}</td>
                     <td className="px-4 py-3 tabular-nums">{c.num_facturas}</td>
                     <td className="px-4 py-3 tabular-nums">{c.num_albaranes}</td>
                     <td className="px-4 py-3 text-right">
                       <Link
                         href={`/clientes/${c.id}`}
-                        className="text-[#ed8936] hover:text-[#f6ad55] font-medium"
+                        className="text-[#A04A2F] hover:text-[#A04A2F] font-medium"
                       >
                         Ver ficha →
                       </Link>
@@ -267,64 +267,64 @@ export default function ClientesPage() {
           onClick={() => !guardando && setModalNuevo(false)}
         >
           <div
-            className="bg-[#1a365d] border border-[#ed8936]/50 rounded-xl w-full max-w-md shadow-xl p-5"
+            className="bg-[#E5DFD0] border border-[#A04A2F]/50 rounded-xl w-full max-w-md shadow-xl p-5"
             role="dialog"
             aria-modal="true"
             aria-labelledby="modal-nuevo-cliente-titulo"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 id="modal-nuevo-cliente-titulo" className="text-lg font-semibold text-[#ed8936] mb-4">
+            <h2 id="modal-nuevo-cliente-titulo" className="text-lg font-semibold text-[#A04A2F] mb-4">
               Nuevo cliente
             </h2>
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-white/60 block mb-1">Nombre *</label>
+                <label className="text-xs text-zinc-500 block mb-1">Nombre *</label>
                 <input
                   value={form.nombre}
                   onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))}
-                  className="w-full rounded-lg border border-white/15 bg-[#0f2744] px-3 py-2 text-sm text-white"
+                  className="w-full rounded-lg border border-zinc-400/50 bg-[#EFEADF] px-3 py-2 text-sm text-zinc-900"
                 />
               </div>
               <div>
-                <label className="text-xs text-white/60 block mb-1">Teléfono</label>
+                <label className="text-xs text-zinc-500 block mb-1">Teléfono</label>
                 <input
                   value={form.telefono}
                   onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))}
-                  className="w-full rounded-lg border border-white/15 bg-[#0f2744] px-3 py-2 text-sm text-white"
+                  className="w-full rounded-lg border border-zinc-400/50 bg-[#EFEADF] px-3 py-2 text-sm text-zinc-900"
                 />
               </div>
               <div>
-                <label className="text-xs text-white/60 block mb-1">Email</label>
+                <label className="text-xs text-zinc-500 block mb-1">Email</label>
                 <input
                   type="email"
                   value={form.email}
                   onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                  className="w-full rounded-lg border border-white/15 bg-[#0f2744] px-3 py-2 text-sm text-white"
+                  className="w-full rounded-lg border border-zinc-400/50 bg-[#EFEADF] px-3 py-2 text-sm text-zinc-900"
                 />
               </div>
               <div>
-                <label className="text-xs text-white/60 block mb-1">Dirección</label>
+                <label className="text-xs text-zinc-500 block mb-1">Dirección</label>
                 <input
                   value={form.direccion}
                   onChange={(e) => setForm((f) => ({ ...f, direccion: e.target.value }))}
-                  className="w-full rounded-lg border border-white/15 bg-[#0f2744] px-3 py-2 text-sm text-white"
+                  className="w-full rounded-lg border border-zinc-400/50 bg-[#EFEADF] px-3 py-2 text-sm text-zinc-900"
                 />
               </div>
               <div>
-                <label className="text-xs text-white/60 block mb-1">NIF/CIF</label>
+                <label className="text-xs text-zinc-500 block mb-1">NIF/CIF</label>
                 <input
                   value={form.nif}
                   onChange={(e) => setForm((f) => ({ ...f, nif: e.target.value }))}
-                  className="w-full rounded-lg border border-white/15 bg-[#0f2744] px-3 py-2 text-sm text-white"
+                  className="w-full rounded-lg border border-zinc-400/50 bg-[#EFEADF] px-3 py-2 text-sm text-zinc-900"
                 />
               </div>
               <div>
-                <label className="text-xs text-white/60 block mb-1">Notas</label>
+                <label className="text-xs text-zinc-500 block mb-1">Notas</label>
                 <textarea
                   value={form.notas}
                   onChange={(e) => setForm((f) => ({ ...f, notas: e.target.value }))}
                   rows={3}
-                  className="w-full rounded-lg border border-white/15 bg-[#0f2744] px-3 py-2 text-sm text-white resize-y"
+                  className="w-full rounded-lg border border-zinc-400/50 bg-[#EFEADF] px-3 py-2 text-sm text-zinc-900 resize-y"
                 />
               </div>
             </div>
@@ -333,7 +333,7 @@ export default function ClientesPage() {
                 type="button"
                 disabled={guardando}
                 onClick={() => setModalNuevo(false)}
-                className="px-4 py-2 text-sm rounded-lg border border-white/20 text-white/90 hover:bg-white/10"
+                className="px-4 py-2 text-sm rounded-lg border border-zinc-400/50 text-zinc-800 hover:bg-[#E5DFD0]"
               >
                 Cancelar
               </button>
@@ -341,7 +341,7 @@ export default function ClientesPage() {
                 type="button"
                 disabled={guardando || !form.nombre.trim()}
                 onClick={() => void crearCliente()}
-                className="px-4 py-2 text-sm rounded-lg bg-[#ed8936] hover:bg-[#dd6b20] text-white disabled:opacity-50"
+                className="px-4 py-2 text-sm rounded-lg bg-[#A04A2F] hover:bg-[#8a3f28] text-white disabled:opacity-50"
               >
                 {guardando ? 'Guardando…' : 'Guardar'}
               </button>

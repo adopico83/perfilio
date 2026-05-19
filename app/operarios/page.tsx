@@ -205,19 +205,19 @@ export default function OperariosPage() {
 
   if (authChecking) {
     return (
-      <div className="min-h-screen bg-[#0f172a] flex items-center justify-center text-white">
+      <div className="min-h-screen bg-[#EFEADF] flex items-center justify-center text-zinc-900">
         Cargando…
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0f172a] text-white">
+    <div className="min-h-screen bg-[#EFEADF] text-zinc-900">
       <DashboardMainNav
         brand={
           <Link
             href="/dashboard"
-            className="text-white font-bold text-xl sm:text-2xl truncate shrink-0 min-w-0 max-w-[min(220px,46vw)] sm:max-w-[min(260px,40vw)]"
+            className="text-zinc-900 font-bold text-xl sm:text-2xl truncate shrink-0 min-w-0 max-w-[min(220px,46vw)] sm:max-w-[min(260px,40vw)]"
           >
             {businessName}
           </Link>
@@ -236,18 +236,18 @@ export default function OperariosPage() {
       <main className="max-w-7xl mx-auto px-6 py-6 space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-white">Operarios</h1>
-            <p className="text-sm text-white/70 mt-1">
+            <h1 className="text-2xl sm:text-3xl font-bold text-zinc-900">Operarios</h1>
+            <p className="text-sm text-zinc-600 mt-1">
               Horas reales y de convenio por mes; desglose por obra.
             </p>
           </div>
-          <label className="flex flex-col gap-1 text-sm text-white/80 shrink-0">
-            <span className="text-xs uppercase tracking-wide text-white/50 font-semibold">Mes</span>
+          <label className="flex flex-col gap-1 text-sm text-zinc-700 shrink-0">
+            <span className="text-xs uppercase tracking-wide text-zinc-500 font-semibold">Mes</span>
             <input
               type="month"
               value={mes}
               onChange={(e) => setMes(e.target.value)}
-              className="px-3 py-2 rounded-lg bg-white/5 border border-white/15 text-white tabular-nums focus:ring-2 focus:ring-[#ed8936]/40 focus:border-[#ed8936]/70 outline-none"
+              className="px-3 py-2 rounded-lg bg-[#E5DFD0] border border-zinc-400/50 text-zinc-900 tabular-nums focus:ring-2 focus:ring-[#A04A2F]/40 focus:border-[#A04A2F]/70 outline-none"
             />
           </label>
         </div>
@@ -255,13 +255,13 @@ export default function OperariosPage() {
         {error ? <p className="text-red-200/95 text-sm">{error}</p> : null}
 
         {!businessId ? (
-          <p className="text-white/60 text-sm">No hay negocio vinculado a tu cuenta.</p>
+          <p className="text-zinc-500 text-sm">No hay negocio vinculado a tu cuenta.</p>
         ) : loading ? (
-          <p className="text-white/60 text-sm">Cargando operarios…</p>
+          <p className="text-zinc-500 text-sm">Cargando operarios…</p>
         ) : (
           <div className="space-y-3">
             {filas.length === 0 ? (
-              <p className="text-white/60 text-sm">No hay operarios activos.</p>
+              <p className="text-zinc-500 text-sm">No hay operarios activos.</p>
             ) : (
               <ul className="space-y-2">
                 {filas.map((op) => {
@@ -275,9 +275,9 @@ export default function OperariosPage() {
                   return (
                     <li
                       key={op.id}
-                      className="rounded-xl border border-white/10 bg-[#111827]/90 overflow-hidden"
+                      className="rounded-xl border border-zinc-400/40 bg-[#E5DFD0]/90 overflow-hidden"
                     >
-                      <div className="w-full flex items-stretch gap-2 px-4 py-3 hover:bg-white/5 transition-colors">
+                      <div className="w-full flex items-stretch gap-2 px-4 py-3 hover:bg-[#E5DFD0] transition-colors">
                         <button
                           type="button"
                           onClick={() => toggleExpand(op.id)}
@@ -285,21 +285,21 @@ export default function OperariosPage() {
                           aria-expanded={abierto}
                         >
                           <ChevronDown
-                            className={`size-5 shrink-0 text-[#ed8936] transition-transform ${abierto ? 'rotate-180' : ''}`}
+                            className={`size-5 shrink-0 text-[#A04A2F] transition-transform ${abierto ? 'rotate-180' : ''}`}
                             aria-hidden
                           />
                           <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-white truncate">
+                            <p className="font-semibold text-zinc-900 truncate">
                               {op.nombre}
-                              {op.dni ? <span className="text-white/60 font-normal"> · DNI {op.dni}</span> : null}
+                              {op.dni ? <span className="text-zinc-500 font-normal"> · DNI {op.dni}</span> : null}
                             </p>
-                            <p className="text-xs text-white/60 mt-0.5 tabular-nums">
+                            <p className="text-xs text-zinc-500 mt-0.5 tabular-nums">
                               Mes: {op.horas_reales_mes.toFixed(2)} h reales ·{' '}
                               {op.horas_convenio_mes.toFixed(2)} h convenio
                             </p>
                           </div>
                           {!tieneObra ? (
-                            <span className="text-[10px] uppercase tracking-wide text-white/40 shrink-0 hidden sm:inline">
+                            <span className="text-[10px] uppercase tracking-wide text-zinc-400 shrink-0 hidden sm:inline">
                               Sin obra este mes
                             </span>
                           ) : null}
@@ -307,20 +307,20 @@ export default function OperariosPage() {
                         <button
                           type="button"
                           onClick={() => abrirEditorDni(op)}
-                          className="shrink-0 px-2.5 py-1.5 h-fit self-center rounded-md border border-white/20 text-xs text-white/80 hover:bg-white/10"
+                          className="shrink-0 px-2.5 py-1.5 h-fit self-center rounded-md border border-zinc-400/50 text-xs text-zinc-700 hover:bg-[#E5DFD0]"
                         >
                           Editar DNI
                         </button>
                       </div>
                       {abierto ? (
-                        <div className="border-t border-white/10 px-4 py-3 bg-[#0f172a]/80">
+                        <div className="border-t border-zinc-400/40 px-4 py-3 bg-[#EFEADF]/80">
                           {op.por_obra.length === 0 ? (
-                            <p className="text-sm text-white/55">Sin horas registradas por obra en este mes.</p>
+                            <p className="text-sm text-zinc-500">Sin horas registradas por obra en este mes.</p>
                           ) : (
-                            <div className="overflow-x-auto rounded-lg border border-white/10">
+                            <div className="overflow-x-auto rounded-lg border border-zinc-400/40">
                               <table className="w-full text-sm text-left min-w-[280px]">
                                 <thead>
-                                  <tr className="border-b border-white/10 bg-[#0f2744]/90 text-white/80">
+                                  <tr className="border-b border-zinc-400/40 bg-[#EFEADF]/90 text-zinc-700">
                                     <th className="px-3 py-2 font-medium">Detalle</th>
                                     <th className="px-3 py-2 font-medium">Horas reales</th>
                                     <th className="px-3 py-2 font-medium">Horas convenio</th>
@@ -328,21 +328,21 @@ export default function OperariosPage() {
                                 </thead>
                                 <tbody>
                                   {op.por_obra.map((row) => (
-                                    <tr key={`${op.id}-${row.obra_id || row.obra_nombre}`} className="border-b border-white/5">
+                                    <tr key={`${op.id}-${row.obra_id || row.obra_nombre}`} className="border-b border-zinc-400/30">
                                       <td colSpan={3} className="px-0 py-0">
                                         <table className="w-full text-sm text-left">
                                           <tbody>
                                             <tr className="bg-white/[0.03]">
-                                              <td className="px-3 py-2 text-white font-medium">{row.obra_nombre}</td>
-                                              <td className="px-3 py-2 tabular-nums text-white/70">—</td>
-                                              <td className="px-3 py-2 tabular-nums text-white/70">—</td>
+                                              <td className="px-3 py-2 text-zinc-900 font-medium">{row.obra_nombre}</td>
+                                              <td className="px-3 py-2 tabular-nums text-zinc-600">—</td>
+                                              <td className="px-3 py-2 tabular-nums text-zinc-600">—</td>
                                             </tr>
                                             {row.por_dia.map((dia) => (
                                               <tr
                                                 key={`${op.id}-${row.obra_id || row.obra_nombre}-${dia.fecha}`}
-                                                className="border-t border-white/5"
+                                                className="border-t border-zinc-400/30"
                                               >
-                                                <td className="px-3 py-2 text-white/80">
+                                                <td className="px-3 py-2 text-zinc-700">
                                                   {formatearDiaCorto(dia.fecha)}
                                                 </td>
                                                 <td className="px-3 py-2 tabular-nums">
@@ -353,14 +353,14 @@ export default function OperariosPage() {
                                                 </td>
                                               </tr>
                                             ))}
-                                            <tr className="border-t border-white/10 bg-[#ed8936]/10">
-                                              <td className="px-3 py-2 text-[#f6ad55] font-semibold">
+                                            <tr className="border-t border-zinc-400/40 bg-[#A04A2F]/10">
+                                              <td className="px-3 py-2 text-[#A04A2F] font-semibold">
                                                 Total {row.obra_nombre}
                                               </td>
-                                              <td className="px-3 py-2 tabular-nums font-semibold text-[#f6ad55]">
+                                              <td className="px-3 py-2 tabular-nums font-semibold text-[#A04A2F]">
                                                 {row.horas_reales.toFixed(2)}
                                               </td>
-                                              <td className="px-3 py-2 tabular-nums font-semibold text-[#f6ad55]">
+                                              <td className="px-3 py-2 tabular-nums font-semibold text-[#A04A2F]">
                                                 {row.horas_convenio.toFixed(2)}
                                               </td>
                                             </tr>
@@ -369,10 +369,10 @@ export default function OperariosPage() {
                                       </td>
                                     </tr>
                                   ))}
-                                  <tr className="border-t border-[#ed8936]/40 bg-[#ed8936]/10">
+                                  <tr className="border-t border-[#A04A2F]/40 bg-[#A04A2F]/10">
                                     <td
                                       colSpan={3}
-                                      className="px-3 py-2.5 text-sm font-semibold text-[#f6ad55] tabular-nums"
+                                      className="px-3 py-2.5 text-sm font-semibold text-[#A04A2F] tabular-nums"
                                     >
                                       Total {op.nombre}: {totalRealesDesglose.toFixed(2)} h reales ·{' '}
                                       {totalConvenioDesglose.toFixed(2)} h convenio
@@ -391,9 +391,9 @@ export default function OperariosPage() {
             )}
 
             {filas.length > 0 ? (
-              <div className="rounded-xl border border-[#ed8936]/40 bg-[#ed8936]/10 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
-                <span className="text-sm font-semibold text-[#f6ad55]">Totales del mes</span>
-                <div className="text-sm tabular-nums text-[#f6ad55] font-semibold">
+              <div className="rounded-xl border border-[#A04A2F]/40 bg-[#A04A2F]/10 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-[#A04A2F]">Totales del mes</span>
+                <div className="text-sm tabular-nums text-[#A04A2F] font-semibold">
                   <span className="mr-4">{totales.horas_reales.toFixed(2)} h reales</span>
                   <span>{totales.horas_convenio.toFixed(2)} h convenio</span>
                 </div>
@@ -410,24 +410,24 @@ export default function OperariosPage() {
           onClick={() => !guardandoDni && setModalDniAbierto(false)}
         >
           <div
-            className="bg-[#1a365d] border border-[#ed8936]/50 rounded-xl w-full max-w-md shadow-xl p-5"
+            className="bg-[#E5DFD0] border border-[#A04A2F]/50 rounded-xl w-full max-w-md shadow-xl p-5"
             role="dialog"
             aria-modal="true"
             aria-labelledby="modal-dni-titulo"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 id="modal-dni-titulo" className="text-lg font-semibold text-[#ed8936] mb-1">
+            <h2 id="modal-dni-titulo" className="text-lg font-semibold text-[#A04A2F] mb-1">
               Editar DNI
             </h2>
-            <p className="text-sm text-white/70 mb-4">{operarioEditando.nombre}</p>
-            <label className="text-xs text-white/60 block mb-1">DNI</label>
+            <p className="text-sm text-zinc-600 mb-4">{operarioEditando.nombre}</p>
+            <label className="text-xs text-zinc-500 block mb-1">DNI</label>
             <input
               value={dniDraft}
               onChange={(e) => setDniDraft(e.target.value)}
               placeholder="Ej: 12345678A"
-              className="w-full rounded-lg border border-white/15 bg-[#0f2744] px-3 py-2 text-sm text-white"
+              className="w-full rounded-lg border border-zinc-400/50 bg-[#EFEADF] px-3 py-2 text-sm text-zinc-900"
             />
-            <p className="text-xs text-white/55 mt-2">
+            <p className="text-xs text-zinc-500 mt-2">
               Deja vacío para quitar el DNI del operario.
             </p>
             <div className="flex justify-end gap-2 mt-5">
@@ -435,7 +435,7 @@ export default function OperariosPage() {
                 type="button"
                 disabled={guardandoDni}
                 onClick={() => setModalDniAbierto(false)}
-                className="px-4 py-2 text-sm rounded-lg border border-white/20 text-white/90 hover:bg-white/10"
+                className="px-4 py-2 text-sm rounded-lg border border-zinc-400/50 text-zinc-800 hover:bg-[#E5DFD0]"
               >
                 Cancelar
               </button>
@@ -443,7 +443,7 @@ export default function OperariosPage() {
                 type="button"
                 disabled={guardandoDni}
                 onClick={() => void guardarDni()}
-                className="px-4 py-2 text-sm rounded-lg bg-[#ed8936] hover:bg-[#dd6b20] text-white disabled:opacity-50"
+                className="px-4 py-2 text-sm rounded-lg bg-[#A04A2F] hover:bg-[#8a3f28] text-white disabled:opacity-50"
               >
                 {guardandoDni ? 'Guardando…' : 'Guardar'}
               </button>

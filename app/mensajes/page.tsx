@@ -160,18 +160,18 @@ export default function MensajesPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0f172a] flex items-center justify-center">
-        <p className="text-white">Cargando...</p>
+      <div className="min-h-screen bg-[#EFEADF] flex items-center justify-center">
+        <p className="text-zinc-900">Cargando...</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0f172a] text-white p-8">
+    <div className="min-h-screen bg-[#EFEADF] text-zinc-900 p-8">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
           <div className="flex justify-between items-center mb-4">
-            <h1 className="text-2xl font-bold text-white">Bandeja de mensajes</h1>
+            <h1 className="text-2xl font-bold text-zinc-900">Bandeja de mensajes</h1>
             <div className="flex items-center gap-4">
               <VolverAlDashboard />
               <LogoutButton />
@@ -188,44 +188,44 @@ export default function MensajesPage() {
             return (
               <div
                 key={conv.id}
-                className="bg-[#1a365d] border border-white/10 rounded-xl p-6 shadow-md"
+                className="bg-[#E5DFD0] border border-zinc-400/40 rounded-xl p-6 shadow-md"
               >
                 <div className="flex justify-between items-start mb-4">
                   <div>
-                    <h3 className="font-bold text-lg text-white">{conv.customer_name}</h3>
-                    <p className="text-sm text-gray-300">{conv.customer_contact}</p>
+                    <h3 className="font-bold text-lg text-zinc-900">{conv.customer_name}</h3>
+                    <p className="text-sm text-zinc-600">{conv.customer_contact}</p>
                     <div className="flex gap-2 mt-2">
-                      <span className="inline-block px-3 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
+                      <span className="inline-block px-3 py-1 bg-[#A04A2F]/15 text-[#A04A2F] text-xs rounded-full">
                         {conv.channel}
                       </span>
                       {getPriorityBadge(conv.priority ?? 'normal')}
                     </div>
                   </div>
-                  <span className="text-sm text-gray-300">
+                  <span className="text-sm text-zinc-600">
                     {new Date(conv.created_at).toLocaleDateString('es-ES')}
                   </span>
                 </div>
 
                 <div className="mb-4">
-                  <p className="text-sm font-semibold text-gray-100 mb-2">Mensaje del cliente:</p>
-                  <p className="text-[#e2e8f0] bg-[#111827] border border-white/10 p-4 rounded">
+                  <p className="text-sm font-semibold text-zinc-800 mb-2">Mensaje del cliente:</p>
+                  <p className="text-zinc-800 bg-[#E5DFD0] border border-zinc-400/40 p-4 rounded">
                     {conv.message}
                   </p>
                 </div>
 
                 {aiResponse ? (
                   <div className="mb-4">
-                    <p className="text-sm font-semibold text-gray-100 mb-2">
+                    <p className="text-sm font-semibold text-zinc-800 mb-2">
                       Respuesta sugerida por IA:
                       {aiResponse.edited_response && (
-                        <span className="ml-2 text-xs text-blue-300">(editada)</span>
+                        <span className="ml-2 text-xs text-[#A04A2F]">(editada)</span>
                       )}
                     </p>
 
                     {isEditing ? (
                       <div>
                         <textarea
-                          className="w-full p-4 border border-white/20 rounded bg-[#111827] text-[#e2e8f0]"
+                          className="w-full p-4 border border-zinc-400/50 rounded bg-[#E5DFD0] text-zinc-800"
                           rows={6}
                           value={editedText}
                           onChange={(e) => setEditedText(e.target.value)}
@@ -233,7 +233,7 @@ export default function MensajesPage() {
                         <div className="flex gap-2 mt-2">
                           <button
                             onClick={() => saveEdit(aiResponse.id)}
-                            className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+                            className="px-4 py-2 bg-[#5a7a4a] text-white rounded hover:bg-[#4d6b40]"
                           >
                             💾 Guardar
                           </button>
@@ -246,7 +246,7 @@ export default function MensajesPage() {
                         </div>
                       </div>
                     ) : (
-                      <p className="text-[#e2e8f0] bg-[#022c22] p-4 rounded border-l-4 border-green-500 whitespace-pre-wrap">
+                      <p className="text-zinc-800 bg-[#5a7a4a]/10 p-4 rounded border-l-4 border-[#5a7a4a] whitespace-pre-wrap">
                         {displayText}
                       </p>
                     )}
@@ -254,7 +254,7 @@ export default function MensajesPage() {
                 ) : (
                   <button
                     onClick={() => generateAIResponse(conv.id, conv.message ?? '')}
-                    className="mb-4 px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700"
+                    className="mb-4 px-4 py-2 bg-[#A04A2F] text-white rounded hover:bg-[#8a3f28]"
                   >
                     🤖 Generar Respuesta IA
                   </button>
@@ -264,13 +264,13 @@ export default function MensajesPage() {
                   <div className="flex gap-3 mt-6">
                     <button
                       onClick={() => approveResponse(conv.id)}
-                      className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+                      className="px-4 py-2 bg-[#5a7a4a] text-white rounded hover:bg-[#4d6b40]"
                     >
                       ✓ Aprobar y Enviar
                     </button>
                     <button
                       onClick={() => startEditing(aiResponse.id, displayText ?? '')}
-                      className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                      className="px-4 py-2 bg-[#A04A2F] text-white rounded hover:bg-[#8a3f28]"
                     >
                       ✎ Editar Respuesta
                     </button>

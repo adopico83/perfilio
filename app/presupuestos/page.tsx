@@ -102,7 +102,7 @@ function PresupuestosPageContent() {
     const estilos: Record<string, { label: string; className: string }> = {
       borrador: {
         label: 'Borrador',
-        className: 'bg-gray-500/80 text-white',
+        className: 'bg-gray-500/80 text-zinc-900',
       },
       pendiente: {
         label: 'Pendiente',
@@ -110,28 +110,28 @@ function PresupuestosPageContent() {
       },
       aceptado: {
         label: 'Aceptado',
-        className: 'bg-green-600/80 text-white',
+        className: 'bg-[#5a7a4a]/80 text-zinc-900',
       },
       aprobado: {
         label: 'Aprobado',
-        className: 'bg-green-600/80 text-white',
+        className: 'bg-[#5a7a4a]/80 text-zinc-900',
       },
       rechazado: {
         label: 'Rechazado',
-        className: 'bg-red-600/80 text-white',
+        className: 'bg-red-600/80 text-zinc-900',
       },
       facturado: {
         label: 'Facturado',
-        className: 'bg-blue-600/80 text-white',
+        className: 'bg-[#A04A2F]/80 text-zinc-900',
       },
       pagado: {
         label: 'Pagado',
-        className: 'bg-green-800/95 text-white',
+        className: 'bg-[#5a7a4a]/95 text-zinc-900',
       },
     };
     const cfg = estilos[s] ?? {
       label: estado?.trim() ? estado : 'Borrador',
-      className: 'bg-gray-500/80 text-white',
+      className: 'bg-gray-500/80 text-zinc-900',
     };
     return (
       <span
@@ -218,8 +218,8 @@ function PresupuestosPageContent() {
 
   if (authChecking) {
     return (
-      <div className="min-h-screen bg-[#1a365d] flex items-center justify-center">
-        <p className="text-white">Comprobando sesión...</p>
+      <div className="min-h-screen bg-[#E5DFD0] flex items-center justify-center">
+        <p className="text-zinc-900">Comprobando sesión...</p>
       </div>
     );
   }
@@ -228,24 +228,24 @@ function PresupuestosPageContent() {
   const modalObraNombre = modalItem ? nombreObraDesdeJoin(modalItem.obras) : undefined;
 
   return (
-    <div className="min-h-screen bg-[#1a365d] text-white p-8">
+    <div className="min-h-screen bg-[#EFEADF] text-zinc-900 p-8">
       <div className="max-w-4xl mx-auto">
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-bold text-white">Historial de presupuestos</h1>
+          <h1 className="text-2xl font-bold text-zinc-900">Historial de presupuestos</h1>
           <VolverAlDashboard />
         </div>
 
         {loading ? (
-          <p className="text-white/70">Cargando...</p>
+          <p className="text-zinc-600">Cargando...</p>
         ) : (
           <ul className="space-y-4">
             {presupuestos.map((p) => {
               const obraNombre = nombreObraDesdeJoin(p.obras);
               const sub = lineaContextoPresupuestoLista(p);
               return (
-              <li key={p.id} className="bg-white/5 border border-white/10 rounded-lg p-4">
+              <li key={p.id} className="bg-[#D4CCBC] border border-zinc-400/40 rounded-lg p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                  <span className="text-white/70 text-sm">
+                  <span className="text-zinc-600 text-sm">
                     {p.fecha ?? new Date(p.created_at).toLocaleDateString('es-ES')}
                     {p.numero_presupuesto != null && Number.isFinite(Number(p.numero_presupuesto))
                       ? ` · Presupuesto #${p.numero_presupuesto}`
@@ -256,7 +256,7 @@ function PresupuestosPageContent() {
                       <button
                         type="button"
                         onClick={() => abrirObra(p.obra_id!)}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-[#ed8936]/20 text-[#f6ad55] border border-[#ed8936]/45 hover:bg-[#ed8936]/30 transition-colors max-w-[14rem] truncate"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-[#A04A2F]/20 text-[#A04A2F] border border-[#A04A2F]/45 hover:bg-[#A04A2F]/30 transition-colors max-w-[14rem] truncate"
                         title={obraNombre}
                       >
                         <span aria-hidden>📁</span>
@@ -267,7 +267,7 @@ function PresupuestosPageContent() {
                   </div>
                 </div>
                 {sub && !(p.obra_id && obraNombre) ? (
-                  <p className="text-white/90 text-sm mb-3 truncate" title={sub}>
+                  <p className="text-zinc-800 text-sm mb-3 truncate" title={sub}>
                     {sub}
                   </p>
                 ) : null}
@@ -275,7 +275,7 @@ function PresupuestosPageContent() {
                   <button
                     type="button"
                     onClick={() => setModalId(p.id)}
-                    className="px-3 py-1.5 text-sm font-medium bg-[#ed8936] hover:bg-[#dd6b20] text-white rounded-lg transition-colors"
+                    className="px-3 py-1.5 text-sm font-medium bg-[#A04A2F] hover:bg-[#8a3f28] text-white rounded-lg transition-colors"
                   >
                     Ver presupuesto completo
                   </button>
@@ -289,7 +289,7 @@ function PresupuestosPageContent() {
                         alert(e instanceof Error ? e.message : 'Error al descargar el PDF');
                       }
                     }}
-                    className="px-3 py-1.5 text-sm font-medium bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-lg transition-colors"
+                    className="px-3 py-1.5 text-sm font-medium bg-[#E5DFD0] hover:bg-[#D4CCBC] text-zinc-900 border border-zinc-400/50 rounded-lg transition-colors"
                   >
                     Descargar PDF
                   </button>
@@ -297,7 +297,7 @@ function PresupuestosPageContent() {
                     <button
                       type="button"
                       onClick={() => void generarFactura(p)}
-                      className="px-3 py-1.5 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+                      className="px-3 py-1.5 text-sm font-medium bg-[#5a7a4a] hover:bg-[#4d6b40] text-white rounded-lg transition-colors"
                     >
                       Generar factura
                     </button>
@@ -324,11 +324,11 @@ function PresupuestosPageContent() {
                             alert(e instanceof Error ? e.message : 'No se pudo reabrir el borrador');
                           }
                         }}
-                        className="px-3 py-1.5 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
+                        className="px-3 py-1.5 text-sm font-medium bg-[#A04A2F] hover:bg-[#8a3f28] text-white rounded-lg transition-colors"
                       >
                         Editar borrador
                       </button>
-                      <button type="button" onClick={() => setEstado(p.id, 'aprobado')} className="px-3 py-1.5 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors">Aprobar</button>
+                      <button type="button" onClick={() => setEstado(p.id, 'aprobado')} className="px-3 py-1.5 text-sm font-medium bg-[#5a7a4a] hover:bg-[#4d6b40] text-white rounded-lg transition-colors">Aprobar</button>
                       <button type="button" onClick={() => setEstado(p.id, 'rechazado')} className="px-3 py-1.5 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors">Rechazar</button>
                     </>
                   )}
@@ -340,49 +340,49 @@ function PresupuestosPageContent() {
         )}
 
         {!loading && presupuestos.length === 0 && (
-          <p className="text-white/60 text-center py-8">No hay presupuestos.</p>
+          <p className="text-zinc-500 text-center py-8">No hay presupuestos.</p>
         )}
       </div>
 
       {modalItem && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60" onClick={cerrarModal} aria-hidden />
-          <div className="relative w-full max-w-2xl max-h-[90vh] overflow-hidden bg-[#1a365d] rounded-xl border border-white/10 shadow-2xl flex flex-col">
-            <div className="flex justify-between items-start gap-3 p-4 border-b border-white/10">
+          <div className="relative w-full max-w-2xl max-h-[90vh] overflow-hidden bg-[#E5DFD0] rounded-xl border border-zinc-400/40 shadow-2xl flex flex-col">
+            <div className="flex justify-between items-start gap-3 p-4 border-b border-zinc-400/40">
               <div className="min-w-0">
-                <h2 className="text-lg font-bold text-white">Presupuesto completo</h2>
+                <h2 className="text-lg font-bold text-zinc-900">Presupuesto completo</h2>
                 {modalItem.obra_id && modalObraNombre ? (
                   <button
                     type="button"
                     onClick={() => abrirObra(modalItem.obra_id!)}
-                    className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-[#f6ad55] hover:text-[#ed8936] transition-colors text-left"
+                    className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-[#A04A2F] hover:text-[#A04A2F] transition-colors text-left"
                   >
                     <span aria-hidden>📁</span>
                     <span className="truncate">{modalObraNombre}</span>
                   </button>
                 ) : null}
               </div>
-              <button type="button" onClick={cerrarModal} className="p-2 text-white/80 hover:text-white rounded-lg shrink-0" aria-label="Cerrar">
+              <button type="button" onClick={cerrarModal} className="p-2 text-zinc-700 hover:text-zinc-900 rounded-lg shrink-0" aria-label="Cerrar">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-4 overflow-y-auto flex-1 text-white/90 text-sm leading-relaxed [&>*+*]:mt-3">
+            <div className="p-4 overflow-y-auto flex-1 text-zinc-800 text-sm leading-relaxed [&>*+*]:mt-3">
               <ReactMarkdown
                 components={{
-                  p: ({ children }) => <p className="text-white">{children}</p>,
-                  strong: ({ children }) => <strong className="text-[#ed8936] font-bold">{children}</strong>,
-                  ul: ({ children }) => <ul className="list-disc pl-6 space-y-1 text-white">{children}</ul>,
-                  ol: ({ children }) => <ol className="list-decimal pl-6 space-y-1 text-white">{children}</ol>,
-                  li: ({ children }) => <li className="text-white">{children}</li>,
+                  p: ({ children }) => <p className="text-zinc-900">{children}</p>,
+                  strong: ({ children }) => <strong className="text-[#A04A2F] font-bold">{children}</strong>,
+                  ul: ({ children }) => <ul className="list-disc pl-6 space-y-1 text-zinc-900">{children}</ul>,
+                  ol: ({ children }) => <ol className="list-decimal pl-6 space-y-1 text-zinc-900">{children}</ol>,
+                  li: ({ children }) => <li className="text-zinc-900">{children}</li>,
                 }}
               >
                 {modalItem.presupuesto_generado ?? ''}
               </ReactMarkdown>
             </div>
-            <div className="p-4 border-t border-white/10 flex flex-wrap gap-2">
+            <div className="p-4 border-t border-zinc-400/40 flex flex-wrap gap-2">
               {(modalItem.estado ?? 'borrador') === 'borrador' && (
                 <>
-                  <button type="button" onClick={() => setEstado(modalItem.id, 'aprobado')} className="px-4 py-2 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg">Aprobar</button>
+                  <button type="button" onClick={() => setEstado(modalItem.id, 'aprobado')} className="px-4 py-2 text-sm font-medium bg-[#5a7a4a] hover:bg-[#4d6b40] text-white rounded-lg">Aprobar</button>
                   <button type="button" onClick={() => setEstado(modalItem.id, 'rechazado')} className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg">Rechazar</button>
                 </>
               )}
@@ -390,12 +390,12 @@ function PresupuestosPageContent() {
                 <button
                   type="button"
                   onClick={() => void generarFactura(modalItem)}
-                  className="px-4 py-2 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg"
+                  className="px-4 py-2 text-sm font-medium bg-[#5a7a4a] hover:bg-[#4d6b40] text-white rounded-lg"
                 >
                   Generar factura
                 </button>
               )}
-              <button type="button" onClick={cerrarModal} className="px-4 py-2 text-sm font-medium bg-white/10 hover:bg-white/20 text-white rounded-lg">Cerrar</button>
+              <button type="button" onClick={cerrarModal} className="px-4 py-2 text-sm font-medium bg-[#E5DFD0] hover:bg-[#D4CCBC] text-zinc-900 rounded-lg">Cerrar</button>
             </div>
           </div>
         </div>
@@ -408,8 +408,8 @@ export default function PresupuestosPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-[#1a365d] flex items-center justify-center">
-          <p className="text-white">Cargando...</p>
+        <div className="min-h-screen bg-[#E5DFD0] flex items-center justify-center">
+          <p className="text-zinc-900">Cargando...</p>
         </div>
       }
     >

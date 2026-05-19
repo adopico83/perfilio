@@ -160,19 +160,19 @@ export default function GastosPage() {
 
   if (authChecking) {
     return (
-      <div className="min-h-screen bg-[#0f172a] flex items-center justify-center text-white">
+      <div className="min-h-screen bg-[#EFEADF] flex items-center justify-center text-zinc-900">
         Cargando…
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0f172a] text-white">
+    <div className="min-h-screen bg-[#EFEADF] text-zinc-900">
       <DashboardMainNav
         brand={
           <Link
             href="/dashboard"
-            className="text-white font-bold text-xl sm:text-2xl truncate shrink-0 min-w-0 max-w-[min(220px,46vw)] sm:max-w-[min(260px,40vw)]"
+            className="text-zinc-900 font-bold text-xl sm:text-2xl truncate shrink-0 min-w-0 max-w-[min(220px,46vw)] sm:max-w-[min(260px,40vw)]"
           >
             {businessName}
           </Link>
@@ -191,18 +191,18 @@ export default function GastosPage() {
       <main className="max-w-7xl mx-auto px-6 py-6 space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-white">Gastos</h1>
-            <p className="text-sm text-white/70 mt-1">
+            <h1 className="text-2xl sm:text-3xl font-bold text-zinc-900">Gastos</h1>
+            <p className="text-sm text-zinc-600 mt-1">
               Resumen mensual por categoría y por obra (tickets y compras registradas).
             </p>
           </div>
-          <label className="flex flex-col gap-1 text-sm text-white/80 shrink-0">
-            <span className="text-xs uppercase tracking-wide text-white/50 font-semibold">Mes</span>
+          <label className="flex flex-col gap-1 text-sm text-zinc-700 shrink-0">
+            <span className="text-xs uppercase tracking-wide text-zinc-500 font-semibold">Mes</span>
             <input
               type="month"
               value={mes}
               onChange={(e) => setMes(e.target.value)}
-              className="px-3 py-2 rounded-lg bg-white/5 border border-white/15 text-white tabular-nums focus:ring-2 focus:ring-[#ed8936]/40 focus:border-[#ed8936]/70 outline-none"
+              className="px-3 py-2 rounded-lg bg-[#E5DFD0] border border-zinc-400/50 text-zinc-900 tabular-nums focus:ring-2 focus:ring-[#A04A2F]/40 focus:border-[#A04A2F]/70 outline-none"
             />
           </label>
         </div>
@@ -210,27 +210,27 @@ export default function GastosPage() {
         {error ? <p className="text-red-200/95 text-sm">{error}</p> : null}
 
         {!businessId ? (
-          <p className="text-white/60 text-sm">No hay negocio vinculado a tu cuenta.</p>
+          <p className="text-zinc-500 text-sm">No hay negocio vinculado a tu cuenta.</p>
         ) : loading ? (
-          <p className="text-white/60 text-sm">Cargando gastos…</p>
+          <p className="text-zinc-500 text-sm">Cargando gastos…</p>
         ) : (
           <div className="space-y-4">
-            <div className="rounded-xl border border-[#ed8936]/35 bg-[#1a365d]/60 px-4 py-3 space-y-3">
-              <p className="text-xs uppercase tracking-wide text-white/55 font-semibold">Resumen del mes</p>
+            <div className="rounded-xl border border-[#A04A2F]/35 bg-[#E5DFD0]/60 px-4 py-3 space-y-3">
+              <p className="text-xs uppercase tracking-wide text-zinc-500 font-semibold">Resumen del mes</p>
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <span className="text-sm text-white/80">Total gastado</span>
-                <span className="text-xl font-bold tabular-nums text-[#f6ad55]">{totalMes.toFixed(2)} €</span>
+                <span className="text-sm text-zinc-700">Total gastado</span>
+                <span className="text-xl font-bold tabular-nums text-[#A04A2F]">{totalMes.toFixed(2)} €</span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-1 border-t border-white/10">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-1 border-t border-zinc-400/40">
                 {GASTO_CATEGORIAS.map((c) => {
                   const t = totalesPorCategoriaMap.get(c) ?? 0;
                   return (
                     <div
                       key={c}
-                      className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm"
+                      className="flex items-center justify-between gap-2 rounded-lg bg-[#E5DFD0] border border-zinc-400/40 px-3 py-2 text-sm"
                     >
-                      <span className="text-white/75">{etiquetaGastoCategoria(c)}</span>
-                      <span className="tabular-nums font-semibold text-white">{t.toFixed(2)} €</span>
+                      <span className="text-zinc-700">{etiquetaGastoCategoria(c)}</span>
+                      <span className="tabular-nums font-semibold text-zinc-900">{t.toFixed(2)} €</span>
                     </div>
                   );
                 })}
@@ -238,7 +238,7 @@ export default function GastosPage() {
             </div>
 
             {porObra.length === 0 ? (
-              <p className="text-white/60 text-sm">No hay gastos registrados en este mes.</p>
+              <p className="text-zinc-500 text-sm">No hay gastos registrados en este mes.</p>
             ) : (
               <ul className="space-y-2">
                 {porObra.map((grupo) => {
@@ -247,32 +247,32 @@ export default function GastosPage() {
                   return (
                     <li
                       key={key}
-                      className="rounded-xl border border-white/10 bg-[#111827]/90 overflow-hidden"
+                      className="rounded-xl border border-zinc-400/40 bg-[#E5DFD0]/90 overflow-hidden"
                     >
                       <button
                         type="button"
                         onClick={() => toggleExpand(key)}
-                        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/5 transition-colors touch-manipulation"
+                        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[#E5DFD0] transition-colors touch-manipulation"
                         aria-expanded={abierto}
                       >
                         <ChevronDown
-                          className={`size-5 shrink-0 text-[#ed8936] transition-transform ${abierto ? 'rotate-180' : ''}`}
+                          className={`size-5 shrink-0 text-[#A04A2F] transition-transform ${abierto ? 'rotate-180' : ''}`}
                           aria-hidden
                         />
                         <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-white truncate">{grupo.obra_nombre}</p>
-                          <p className="text-xs text-white/60 mt-0.5 tabular-nums">
+                          <p className="font-semibold text-zinc-900 truncate">{grupo.obra_nombre}</p>
+                          <p className="text-xs text-zinc-500 mt-0.5 tabular-nums">
                             {grupo.gastos.length} gasto{grupo.gastos.length === 1 ? '' : 's'} · Subtotal{' '}
                             {grupo.subtotal.toFixed(2)} €
                           </p>
                         </div>
                       </button>
                       {abierto ? (
-                        <div className="border-t border-white/10 px-4 py-3 bg-[#0f172a]/80">
-                          <div className="overflow-x-auto rounded-lg border border-white/10">
+                        <div className="border-t border-zinc-400/40 px-4 py-3 bg-[#EFEADF]/80">
+                          <div className="overflow-x-auto rounded-lg border border-zinc-400/40">
                             <table className="w-full text-sm text-left min-w-[560px]">
                               <thead>
-                                <tr className="border-b border-white/10 bg-[#0f2744]/90 text-white/80">
+                                <tr className="border-b border-zinc-400/40 bg-[#EFEADF]/90 text-zinc-700">
                                   <th className="px-3 py-2 font-medium">Fecha</th>
                                   <th className="px-3 py-2 font-medium">Proveedor</th>
                                   <th className="px-3 py-2 font-medium">Descripción</th>
@@ -284,31 +284,31 @@ export default function GastosPage() {
                               </thead>
                               <tbody>
                                 {grupo.gastos.map((row) => (
-                                  <tr key={row.id} className="border-b border-white/5">
-                                    <td className="px-3 py-2 text-xs text-white/70 whitespace-nowrap">
+                                  <tr key={row.id} className="border-b border-zinc-400/30">
+                                    <td className="px-3 py-2 text-xs text-zinc-600 whitespace-nowrap">
                                       {fmtFechaCorta(row.fecha)}
                                     </td>
-                                    <td className="px-3 py-2 text-white/90 font-medium">{row.proveedor}</td>
-                                    <td className="px-3 py-2 text-xs text-white/65 max-w-[12rem] break-words">
+                                    <td className="px-3 py-2 text-zinc-800 font-medium">{row.proveedor}</td>
+                                    <td className="px-3 py-2 text-xs text-zinc-600 max-w-[12rem] break-words">
                                       {row.descripcion ?? '—'}
                                     </td>
-                                    <td className="px-3 py-2 text-xs text-white/80">
+                                    <td className="px-3 py-2 text-xs text-zinc-700">
                                       {etiquetaGastoCategoria(row.categoria)}
                                     </td>
                                     <td className="px-3 py-2 tabular-nums font-semibold">
                                       {row.importe.toFixed(2)} €
                                     </td>
                                     <td className="px-3 py-2 tabular-nums font-semibold">{row.iva.toFixed(2)} €</td>
-                                    <td className="px-3 py-2 tabular-nums font-semibold text-[#f6ad55]">
+                                    <td className="px-3 py-2 tabular-nums font-semibold text-[#A04A2F]">
                                       {row.importe_total.toFixed(2)} €
                                     </td>
                                   </tr>
                                 ))}
-                                <tr className="border-t border-[#ed8936]/40 bg-[#ed8936]/10">
-                                  <td colSpan={6} className="px-3 py-2.5 text-sm font-semibold text-[#f6ad55]">
+                                <tr className="border-t border-[#A04A2F]/40 bg-[#A04A2F]/10">
+                                  <td colSpan={6} className="px-3 py-2.5 text-sm font-semibold text-[#A04A2F]">
                                     Subtotal {grupo.obra_nombre}
                                   </td>
-                                  <td className="px-3 py-2.5 text-sm font-semibold text-[#f6ad55] tabular-nums">
+                                  <td className="px-3 py-2.5 text-sm font-semibold text-[#A04A2F] tabular-nums">
                                     {grupo.subtotal.toFixed(2)} €
                                   </td>
                                 </tr>
@@ -324,9 +324,9 @@ export default function GastosPage() {
             )}
 
             {porObra.length > 0 ? (
-              <div className="rounded-xl border border-[#ed8936]/40 bg-[#ed8936]/10 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
-                <span className="text-sm font-semibold text-[#f6ad55]">Totales del mes</span>
-                <div className="text-sm tabular-nums text-[#f6ad55] font-semibold">{totalMes.toFixed(2)} €</div>
+              <div className="rounded-xl border border-[#A04A2F]/40 bg-[#A04A2F]/10 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-[#A04A2F]">Totales del mes</span>
+                <div className="text-sm tabular-nums text-[#A04A2F] font-semibold">{totalMes.toFixed(2)} €</div>
               </div>
             ) : null}
           </div>

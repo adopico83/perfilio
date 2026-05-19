@@ -184,19 +184,19 @@ function DiarioPageInner() {
 
   if (authChecking) {
     return (
-      <div className="min-h-screen bg-[#0f172a] flex items-center justify-center text-white">
+      <div className="min-h-screen bg-[#EFEADF] flex items-center justify-center text-zinc-900">
         Cargando…
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0f172a] text-white">
+    <div className="min-h-screen bg-[#EFEADF] text-zinc-900">
       <DashboardMainNav
         brand={
           <Link
             href="/dashboard"
-            className="text-white font-bold text-xl sm:text-2xl truncate shrink-0 min-w-0 max-w-[min(220px,46vw)] sm:max-w-[min(260px,40vw)]"
+            className="text-zinc-900 font-bold text-xl sm:text-2xl truncate shrink-0 min-w-0 max-w-[min(220px,46vw)] sm:max-w-[min(260px,40vw)]"
           >
             {businessName}
           </Link>
@@ -214,22 +214,22 @@ function DiarioPageInner() {
 
       <main className="max-w-7xl mx-auto px-6 py-6 space-y-6">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-white">
-            Diario de <span className="text-[#ed8936]">obra</span>
+          <h1 className="text-2xl sm:text-3xl font-bold text-zinc-900">
+            Diario de <span className="text-[#A04A2F]">obra</span>
           </h1>
-          <p className="text-sm text-white/70 mt-1">
+          <p className="text-sm text-zinc-600 mt-1">
             Obras en carpetas desplegables. Desde el agente puedes registrar notas o generar el PDF.
           </p>
         </div>
 
         {!businessId ? (
-          <p className="text-white/70 text-sm">No hay un perfil de negocio asociado.</p>
+          <p className="text-zinc-600 text-sm">No hay un perfil de negocio asociado.</p>
         ) : error ? (
           <p className="text-red-300 text-sm">{error}</p>
         ) : loading ? (
-          <p className="text-white/60">Cargando entradas…</p>
+          <p className="text-zinc-500">Cargando entradas…</p>
         ) : obrasOrdenadas.length === 0 ? (
-          <div className="rounded-xl border border-white/10 bg-[#1a365d]/80 p-6 text-white/70 text-sm">
+          <div className="rounded-xl border border-zinc-400/40 bg-[#E5DFD0]/80 p-6 text-zinc-600 text-sm">
             Aún no hay entradas en el diario. Usa el agente para crear la primera.
           </div>
         ) : (
@@ -256,18 +256,18 @@ function DiarioPageInner() {
                   ref={(el) => {
                     obraRefs.current[obraNombre] = el;
                   }}
-                  className={`rounded-xl border bg-[#1e3a5f]/90 border-white/10 overflow-hidden transition-[box-shadow,border-color] duration-300 ${
+                  className={`rounded-xl border bg-[#D4CCBC] border-zinc-400/40 overflow-hidden transition-[box-shadow,border-color] duration-300 ${
                     highlightObra === obraNombre
-                      ? 'ring-2 ring-[#ed8936] ring-offset-2 ring-offset-[#0f172a] border-[#ed8936]/60'
+                      ? 'ring-2 ring-[#A04A2F] ring-offset-2 ring-offset-[#EFEADF] border-[#A04A2F]/60'
                       : ''
                   }`}
                 >
-                  <div className="flex flex-col sm:flex-row sm:items-stretch gap-0 sm:gap-2 border-b border-white/10 bg-[#243d5c]/95">
+                  <div className="flex flex-col sm:flex-row sm:items-stretch gap-0 sm:gap-2 border-b border-zinc-400/40 bg-[#D4CCBC] text-zinc-900">
                     <div className="flex flex-1 min-w-0 flex-col sm:flex-row sm:items-stretch">
                       <button
                         type="button"
                         onClick={() => toggleObra(obraNombre)}
-                        className="flex-1 text-left px-4 py-3 sm:py-3.5 flex items-start gap-3 min-w-0 hover:bg-white/5 transition-colors"
+                        className="flex-1 text-left px-4 py-3 sm:py-3.5 flex items-start gap-3 min-w-0 hover:bg-[#E5DFD0] transition-colors"
                         aria-expanded={isOpen}
                       >
                         <span className="text-xl shrink-0 mt-0.5" aria-hidden>
@@ -275,28 +275,28 @@ function DiarioPageInner() {
                         </span>
                         <div className="min-w-0 flex-1 space-y-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-bold text-white">{obraNombre}</span>
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#ed8936]/25 text-[#f6ad55] border border-[#ed8936]/40">
+                            <span className="font-bold text-zinc-900">{obraNombre}</span>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#A04A2F] text-white">
                               {entradas.length}{' '}
                               {entradas.length === 1 ? 'entrada' : 'entradas'}
                             </span>
                           </div>
                           {direccion ? (
-                            <p className="text-xs sm:text-sm text-white/55 truncate">{direccion}</p>
+                            <p className="text-xs sm:text-sm text-zinc-500 truncate">{direccion}</p>
                           ) : null}
-                          <p className="text-[11px] sm:text-xs text-white/50 tabular-nums">
+                          <p className="text-[11px] sm:text-xs text-zinc-500 tabular-nums">
                             Última entrada: {fechaUltimaStr}
                           </p>
                         </div>
                         <ChevronDown
-                          className={`shrink-0 w-5 h-5 text-[#ed8936] mt-1 transition-transform duration-300 ${
+                          className={`shrink-0 w-5 h-5 text-[#A04A2F] mt-1 transition-transform duration-300 ${
                             isOpen ? 'rotate-180' : ''
                           }`}
                           aria-hidden
                         />
                       </button>
                       {obraIdParaFicha ? (
-                        <div className="flex items-center justify-center sm:justify-start px-4 pb-3 sm:pb-0 sm:px-3 sm:border-l border-white/5 sm:min-w-[9rem]">
+                        <div className="flex items-center justify-center sm:justify-start px-4 pb-3 sm:pb-0 sm:px-3 sm:border-l border-zinc-400/30 sm:min-w-[9rem]">
                           <span
                             role="button"
                             tabIndex={0}
@@ -311,20 +311,20 @@ function DiarioPageInner() {
                                 abrirObra(obraIdParaFicha);
                               }
                             }}
-                            className="text-[11px] font-semibold text-[#ed8936] hover:text-[#f6ad55] underline underline-offset-2 cursor-pointer"
+                            className="text-[11px] font-semibold text-[#A04A2F] hover:text-[#A04A2F] underline underline-offset-2 cursor-pointer"
                           >
                             Ver ficha de obra →
                           </span>
                         </div>
                       ) : null}
                     </div>
-                    <div className="px-4 pb-3 sm:pb-0 sm:pr-4 sm:flex sm:items-center shrink-0 border-t border-white/5 sm:border-t-0 sm:border-l sm:pl-0 sm:ml-0">
+                    <div className="px-4 pb-3 sm:pb-0 sm:pr-4 sm:flex sm:items-center shrink-0 border-t border-zinc-400/30 sm:border-t-0 sm:border-l sm:pl-0 sm:ml-0">
                       <Link
                         href={`/agente?mensaje=${encodeURIComponent(
                           `genera el PDF del diario de la obra ${obraNombre}`
                         )}`}
                         onClick={(e) => e.stopPropagation()}
-                        className="inline-flex w-full sm:w-auto justify-center items-center px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg bg-[#ed8936] hover:bg-[#dd6b20] text-white transition-colors"
+                        className="inline-flex w-full sm:w-auto justify-center items-center px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg bg-[#A04A2F] hover:bg-[#8a3f28] text-white transition-colors"
                       >
                         Generar PDF
                       </Link>
@@ -336,12 +336,12 @@ function DiarioPageInner() {
                     style={{ gridTemplateRows: isOpen ? '1fr' : '0fr' }}
                   >
                     <div className="overflow-hidden min-h-0">
-                      <div className="px-4 py-3 sm:px-5 bg-[#1a365d]/40 border-t border-white/5">
+                      <div className="px-4 py-3 sm:px-5 bg-[#E5DFD0]/40 border-t border-zinc-400/30">
                         <ul className="space-y-0">
                           {entradas.map((e, idx) => (
                             <li key={e.id}>
                               {idx > 0 ? (
-                                <div className="border-t border-white/10 my-4" aria-hidden />
+                                <div className="border-t border-zinc-400/40 my-4" aria-hidden />
                               ) : null}
                               <div
                                 role="button"
@@ -353,11 +353,11 @@ function DiarioPageInner() {
                                     setEntradaSeleccionada(e);
                                   }
                                 }}
-                                className="w-full text-left rounded-lg px-2 py-2 -mx-2 space-y-2 pb-3 transition-colors cursor-pointer hover:bg-white/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#ed8936]/60"
+                                className="w-full text-left rounded-lg px-2 py-2 -mx-2 space-y-2 pb-3 transition-colors cursor-pointer hover:bg-[#E5DFD0] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#A04A2F]/60"
                               >
                                 <div className="flex flex-wrap items-start justify-between gap-2">
                                   <div className="flex flex-wrap items-center gap-2 min-w-0">
-                                  <p className="text-xs font-medium text-[#ed8936] tabular-nums">
+                                  <p className="text-xs font-medium text-[#A04A2F] tabular-nums">
                                     {new Date(e.fecha).toLocaleString('es-ES', {
                                       dateStyle: 'full',
                                       timeStyle: 'short',
@@ -377,7 +377,7 @@ function DiarioPageInner() {
                                           abrirObra(e.obra_id!);
                                         }
                                       }}
-                                      className="inline-flex items-center max-w-[min(100%,12rem)] px-2 py-0.5 rounded-md text-[10px] font-semibold bg-[#ed8936]/25 text-[#f6ad55] border border-[#ed8936]/45 hover:bg-[#ed8936]/35 transition-colors truncate cursor-pointer"
+                                      className="inline-flex items-center max-w-[min(100%,12rem)] px-2 py-0.5 rounded-md text-[10px] font-semibold bg-[#A04A2F]/25 text-[#A04A2F] border border-[#A04A2F]/45 hover:bg-[#A04A2F]/35 transition-colors truncate cursor-pointer"
                                       title={obraNombre}
                                     >
                                       {obraNombre}
@@ -394,23 +394,23 @@ function DiarioPageInner() {
                                       if (!businessId) return;
                                       setPendingDelete(e);
                                     }}
-                                    className="shrink-0 p-2 rounded-lg text-white/50 hover:text-red-300 hover:bg-red-500/15 border border-transparent hover:border-red-500/30 transition-colors disabled:opacity-40 touch-manipulation"
+                                    className="shrink-0 p-2 rounded-lg text-zinc-500 hover:text-red-300 hover:bg-red-500/15 border border-transparent hover:border-red-500/30 transition-colors disabled:opacity-40 touch-manipulation"
                                     aria-label="Eliminar entrada del diario"
                                   >
                                     <Trash2 className="size-4" aria-hidden />
                                   </button>
                                 </div>
                                 {e.texto ? (
-                                  <p className="text-sm text-white/90 line-clamp-4 leading-relaxed">
+                                  <p className="text-sm text-zinc-800 line-clamp-4 leading-relaxed">
                                     {e.texto}
                                   </p>
                                 ) : (
-                                  <p className="text-sm text-white/50 italic">Sin texto</p>
+                                  <p className="text-sm text-zinc-500 italic">Sin texto</p>
                                 )}
                                 {e.fotos && e.fotos.length > 0 ? (
                                   <div className="grid grid-cols-2 gap-2 pointer-events-none">
                                     {e.fotos.slice(0, 4).map((url) => (
-                                      <div key={url} className="overflow-hidden rounded-lg border border-white/10">
+                                      <div key={url} className="overflow-hidden rounded-lg border border-zinc-400/40">
                                         <img
                                           src={url}
                                           alt=""
@@ -421,7 +421,7 @@ function DiarioPageInner() {
                                   </div>
                                 ) : null}
                                 {e.videos && e.videos.length > 0 ? (
-                                  <p className="text-xs text-[#f6ad55]/90 flex items-center gap-1.5 pointer-events-none">
+                                  <p className="text-xs text-[#A04A2F]/90 flex items-center gap-1.5 pointer-events-none">
                                     <span aria-hidden>🎬</span>
                                     {e.videos.length}{' '}
                                     {e.videos.length === 1 ? 'vídeo' : 'vídeos'} en esta entrada
@@ -464,7 +464,7 @@ export default function DiarioPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-[#0f172a] flex items-center justify-center text-white">
+        <div className="min-h-screen bg-[#EFEADF] flex items-center justify-center text-zinc-900">
           Cargando…
         </div>
       }

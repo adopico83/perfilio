@@ -46,11 +46,11 @@ function estadoBadge(estado: string | null | undefined): { label: string; classN
   const s = (estado ?? '').toLowerCase();
   const map: Record<string, { label: string; className: string }> = {
     abierta: { label: 'Abierta', className: 'bg-[#A04A2F]/20 text-[#c97c5a] border border-[#A04A2F]/35' },
-    en_curso: { label: 'En curso', className: 'bg-blue-500/15 text-blue-200 border border-blue-500/30' },
+    en_curso: { label: 'En curso', className: 'bg-[#A04A2F] text-white text-xs font-medium px-2 py-0.5 rounded-sm' },
     cerrada: { label: 'Cerrada', className: 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30' },
     en_espera: { label: 'En espera', className: 'bg-amber-500/15 text-amber-200 border border-amber-500/30' },
   };
-  return map[s] ?? { label: estado?.trim() ? estado : '—', className: 'bg-white/10 text-white/90 border border-white/15' };
+  return map[s] ?? { label: estado?.trim() ? estado : '—', className: 'bg-[#EFEADF] text-zinc-800 border border-zinc-400/40' };
 }
 
 function parseNumber(v: unknown): number {
@@ -300,7 +300,7 @@ export default function ObraModal() {
       onClick={cerrarObra}
     >
       <div
-        className="relative w-full max-w-5xl max-h-[90vh] flex flex-col rounded-xl border border-[#A04A2F]/40 bg-[#E5DFD0] shadow-xl text-white overflow-hidden"
+        className="relative w-full max-w-5xl max-h-[90vh] flex flex-col rounded-xl border border-[#A04A2F]/40 bg-[#E5DFD0] shadow-xl text-zinc-900 overflow-hidden"
         role="dialog"
         aria-modal="true"
         onClick={(e) => e.stopPropagation()}
@@ -311,11 +311,11 @@ export default function ObraModal() {
               <h2 className="text-xl sm:text-2xl font-bold text-[#A04A2F] truncate">{ficha?.obra?.nombre ?? '...'}</h2>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 {ficha?.cliente?.nombre ? (
-                  <span className="text-sm text-white/85">
+                  <span className="text-sm text-zinc-700">
                     Cliente: <span className="font-semibold">{ficha.cliente.nombre}</span>
                   </span>
                 ) : (
-                  <span className="text-sm text-white/65">Cliente: —</span>
+                  <span className="text-sm text-zinc-600">Cliente: —</span>
                 )}
                 {ficha?.obra?.direccion ? (
                   <span className="text-sm text-zinc-600 truncate max-w-[18rem]">
@@ -342,8 +342,8 @@ export default function ObraModal() {
                   className={[
                     'inline-flex items-center px-3 py-1.5 text-sm font-semibold rounded-lg border transition-colors touch-manipulation',
                     isCerrada
-                      ? 'bg-transparent text-[#A04A2F] border-[#A04A2F]/60 hover:bg-[#A04A2F]/15'
-                      : 'bg-transparent text-red-200 border-red-500/60 hover:bg-red-500/15',
+                      ? 'bg-transparent text-[#A04A2F] border-[#A04A2F]/60 hover:bg-[#D4CCBC]'
+                      : 'bg-transparent text-zinc-800 border-zinc-500 hover:bg-[#D4CCBC]',
                     estadoUpdating ? 'opacity-60 cursor-not-allowed' : '',
                   ].join(' ')}
                   aria-label={isCerrada ? 'Reabrir obra' : 'Cerrar obra'}
@@ -386,8 +386,8 @@ export default function ObraModal() {
                 className={[
                   'px-3 py-1.5 text-sm rounded-lg border transition-colors touch-manipulation',
                   tab === k
-                    ? 'bg-[#A04A2F]/20 border-[#A04A2F]/60 text-[#c97c5a]'
-                    : 'bg-white/5 border-white/10 text-white/75 hover:bg-white/10',
+                    ? 'bg-[#A04A2F]/20 border-[#A04A2F]/60 text-zinc-900 font-medium'
+                    : 'bg-[#EFEADF] border-zinc-400/40 text-zinc-700 hover:bg-[#D4CCBC]',
                 ].join(' ')}
               >
                 {label}
@@ -425,8 +425,8 @@ export default function ObraModal() {
 
                   {ficha.obra.descripcion ? (
                     <div className="bg-white/5 border border-white/10 rounded-xl p-3">
-                      <p className="text-sm font-semibold text-white/85">Descripción</p>
-                      <p className="text-sm text-white/75 mt-1 whitespace-pre-wrap">{ficha.obra.descripcion}</p>
+                      <p className="text-sm font-semibold text-zinc-700">Descripción</p>
+                      <p className="text-sm text-zinc-600 mt-1 whitespace-pre-wrap">{ficha.obra.descripcion}</p>
                     </div>
                   ) : null}
                 </div>
@@ -458,7 +458,7 @@ export default function ObraModal() {
                           return (
                             <tr key={String(row.id)} className="border-b border-white/5 hover:bg-white/5">
                               <td className="px-3 py-2">
-                                <span className="inline-flex px-3 py-0.5 text-xs font-semibold rounded-full bg-white/10 text-white/90">
+                                <span className="inline-flex px-3 py-0.5 text-xs font-semibold rounded-full bg-white/10 text-zinc-800">
                                   {estado}
                                 </span>
                               </td>
@@ -505,7 +505,7 @@ export default function ObraModal() {
                           const row = a as Record<string, unknown>;
                           return (
                             <tr key={String(row.id)} className="border-b border-white/5 hover:bg-white/5">
-                              <td className="px-3 py-2 text-xs text-white/85">{String(row.estado ?? 'pendiente')}</td>
+                              <td className="px-3 py-2 text-xs text-zinc-700">{String(row.estado ?? 'pendiente')}</td>
                               <td className="px-3 py-2 tabular-nums font-semibold">
                                 {parseNumber(row.total).toFixed(2)} €
                               </td>
@@ -551,7 +551,7 @@ export default function ObraModal() {
                           const row = f as Record<string, unknown>;
                           return (
                             <tr key={String(row.id)} className="border-b border-white/5 hover:bg-white/5">
-                              <td className="px-3 py-2 text-xs text-white/85">{String(row.estado ?? 'pendiente')}</td>
+                              <td className="px-3 py-2 text-xs text-zinc-700">{String(row.estado ?? 'pendiente')}</td>
                               <td className="px-3 py-2 tabular-nums font-semibold">
                                 {parseNumber(row.total).toFixed(2)} €
                               </td>
@@ -587,7 +587,7 @@ export default function ObraModal() {
                         <div key={rowId} className="bg-white/5 border border-white/10 rounded-xl p-3">
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0 flex-1">
-                              <p className="font-semibold text-white/90 truncate">{String(row.obra_nombre ?? ficha.obra.nombre)}</p>
+                              <p className="font-semibold text-zinc-800 truncate">{String(row.obra_nombre ?? ficha.obra.nombre)}</p>
                               <p className="text-xs text-zinc-600 tabular-nums mt-1">
                                 {fmtFecha(row.fecha ?? row.created_at)}
                               </p>
@@ -691,8 +691,8 @@ export default function ObraModal() {
                                     <td className="px-3 py-2 text-xs text-zinc-600 whitespace-nowrap">
                                       {fmtFecha(row.fecha ?? row.created_at)}
                                     </td>
-                                    <td className="px-3 py-2 text-sm font-medium text-white/90">{prov}</td>
-                                    <td className="px-3 py-2 text-xs text-white/65 max-w-[14rem] break-words">
+                                    <td className="px-3 py-2 text-sm font-medium text-zinc-800">{prov}</td>
+                                    <td className="px-3 py-2 text-xs text-zinc-600 max-w-[14rem] break-words">
                                       {row.descripcion ? String(row.descripcion) : '—'}
                                     </td>
                                     <td className="px-3 py-2 text-xs text-zinc-700">{cat}</td>
@@ -794,14 +794,14 @@ export default function ObraModal() {
                             <>
                               {filasUi.map((fila) => (
                                 <tr key={fila.key} className="border-b border-white/5 hover:bg-white/5">
-                                  <td className="px-3 py-2 text-sm font-medium text-white/90">{fila.operarioNombre}</td>
+                                  <td className="px-3 py-2 text-sm font-medium text-zinc-800">{fila.operarioNombre}</td>
                                   <td className="px-3 py-2 text-xs text-zinc-600 whitespace-nowrap">{fila.fechaLabel}</td>
                                   <td className="px-3 py-2 tabular-nums font-semibold">{fila.horasReales.toFixed(2)}</td>
                                   <td className="px-3 py-2 tabular-nums font-semibold">{fila.horasConvenio.toFixed(2)}</td>
                                   <td className="px-3 py-2 tabular-nums font-semibold text-[#c97c5a]">
                                     {fila.coste.toFixed(2)} €
                                   </td>
-                                  <td className="px-3 py-2 text-xs text-white/65 max-w-[14rem] break-words">
+                                  <td className="px-3 py-2 text-xs text-zinc-600 max-w-[14rem] break-words">
                                     {fila.notasStr}
                                   </td>
                                 </tr>

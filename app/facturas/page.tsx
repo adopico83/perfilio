@@ -151,7 +151,7 @@ export default function FacturasPage() {
     const s = (estado ?? '').toLowerCase();
     if (s === 'pagada') {
       return (
-        <span className="inline-block px-3 py-1 text-xs font-semibold rounded-full bg-green-600/80 text-white">
+        <span className="inline-block px-3 py-1 text-xs font-semibold rounded-full bg-[#5a7a4a]/80 text-white">
           Pagada
         </span>
       );
@@ -199,8 +199,8 @@ export default function FacturasPage() {
 
   if (authChecking) {
     return (
-      <div className="min-h-screen bg-[#0f172a] flex items-center justify-center">
-        <p className="text-white">Comprobando sesión...</p>
+      <div className="min-h-screen bg-[#EFEADF] flex items-center justify-center">
+        <p className="text-zinc-900">Comprobando sesión...</p>
       </div>
     );
   }
@@ -209,47 +209,47 @@ export default function FacturasPage() {
   const detalleObraNombre = detalleItem ? nombreObraDesdeJoin(detalleItem.obras) : undefined;
 
   return (
-    <div className="min-h-screen bg-[#0f172a] text-white p-8">
+    <div className="min-h-screen bg-[#EFEADF] text-zinc-900 p-8">
       <div className="max-w-4xl mx-auto">
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-bold text-white">Historial de facturas</h1>
+          <h1 className="text-2xl font-bold text-zinc-900">Historial de facturas</h1>
           <VolverAlDashboard />
         </div>
 
         {loading ? (
-          <p className="text-white/70">Cargando...</p>
+          <p className="text-zinc-600">Cargando...</p>
         ) : (
           <ul className="space-y-4">
             {facturas.map((f) => {
               const obraNombre = nombreObraDesdeJoin(f.obras);
               return (
-                <li key={f.id} className="bg-[#1a365d] border border-white/10 rounded-lg p-4">
+                <li key={f.id} className="bg-[#E5DFD0] border border-zinc-400/40 rounded-lg p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                     <div className="space-y-1 text-sm min-w-0">
-                      <p className="font-semibold text-white">
+                      <p className="font-semibold text-zinc-900">
                         {f.numero_factura ?? '—'} — {f.cliente_nombre ?? '—'}
                       </p>
                       {f.obra_id && obraNombre ? (
                         <button
                           type="button"
                           onClick={() => abrirObra(f.obra_id!)}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-[#ed8936]/20 text-[#f6ad55] border border-[#ed8936]/45 hover:bg-[#ed8936]/30 transition-colors max-w-full truncate"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-[#A04A2F]/20 text-[#A04A2F] border border-[#A04A2F]/45 hover:bg-[#A04A2F]/30 transition-colors max-w-full truncate"
                           title={obraNombre}
                         >
                           <span aria-hidden>📁</span>
                           {obraNombre}
                         </button>
                       ) : null}
-                      <p className="text-white/70">
+                      <p className="text-zinc-600">
                         Fecha: {f.fecha ?? new Date(f.created_at).toLocaleDateString('es-ES')}
                       </p>
-                      <p className="text-white/70">Vencimiento: {f.fecha_vencimiento ?? '—'}</p>
+                      <p className="text-zinc-600">Vencimiento: {f.fecha_vencimiento ?? '—'}</p>
                     </div>
                     <div className="text-right space-y-1 text-sm">
-                      <p className="text-white/80">
+                      <p className="text-zinc-700">
                         Base: {f.base_imponible != null ? String(f.base_imponible) : '—'} €
                       </p>
-                      <p className="text-white/80">
+                      <p className="text-zinc-700">
                         IVA (21%): {f.iva != null ? String(f.iva) : '—'} €
                       </p>
                       <p className="font-semibold">
@@ -262,14 +262,14 @@ export default function FacturasPage() {
                     <button
                       type="button"
                       onClick={() => abrirDetalle(f)}
-                      className="px-3 py-1.5 text-sm font-medium bg-[#ed8936] hover:bg-[#dd6b20] text-white rounded-lg transition-colors"
+                      className="px-3 py-1.5 text-sm font-medium bg-[#A04A2F] hover:bg-[#8a3f28] text-white rounded-lg transition-colors"
                     >
                       Ver detalle completo
                     </button>
                     <button
                       type="button"
                       onClick={() => abrirDetalle(f, true)}
-                      className="px-3 py-1.5 text-sm font-medium bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-lg transition-colors"
+                      className="px-3 py-1.5 text-sm font-medium bg-[#E5DFD0] hover:bg-[#D4CCBC] text-zinc-900 border border-zinc-400/50 rounded-lg transition-colors"
                     >
                       Editar
                     </button>
@@ -283,7 +283,7 @@ export default function FacturasPage() {
                           alert(e instanceof Error ? e.message : 'Error al descargar el PDF');
                         }
                       }}
-                      className="px-3 py-1.5 text-sm font-medium bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-lg transition-colors"
+                      className="px-3 py-1.5 text-sm font-medium bg-[#E5DFD0] hover:bg-[#D4CCBC] text-zinc-900 border border-zinc-400/50 rounded-lg transition-colors"
                     >
                       Descargar PDF
                     </button>
@@ -291,7 +291,7 @@ export default function FacturasPage() {
                       <button
                         type="button"
                         onClick={() => setEstado(f.id, 'pagada')}
-                        className="px-3 py-1.5 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+                        className="px-3 py-1.5 text-sm font-medium bg-[#5a7a4a] hover:bg-[#4d6b40] text-white rounded-lg transition-colors"
                       >
                         Marcar pagada
                       </button>
@@ -313,7 +313,7 @@ export default function FacturasPage() {
         )}
 
         {!loading && facturas.length === 0 && (
-          <p className="text-white/60 text-center py-8">No hay facturas.</p>
+          <p className="text-zinc-500 text-center py-8">No hay facturas.</p>
         )}
       </div>
 
@@ -332,17 +332,17 @@ export default function FacturasPage() {
       {detalleItem && !editandoDetalle ? (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60" onClick={cerrarDetalle} aria-hidden />
-          <div className="relative w-full max-w-2xl max-h-[90vh] overflow-hidden bg-[#1a365d] rounded-xl border border-white/10 shadow-2xl flex flex-col">
-            <div className="flex justify-between items-start gap-3 p-4 border-b border-white/10">
+          <div className="relative w-full max-w-2xl max-h-[90vh] overflow-hidden bg-[#E5DFD0] rounded-xl border border-zinc-400/40 shadow-2xl flex flex-col">
+            <div className="flex justify-between items-start gap-3 p-4 border-b border-zinc-400/40">
               <div className="min-w-0">
-                <h2 className="text-lg font-bold text-white">
+                <h2 className="text-lg font-bold text-zinc-900">
                   Factura {detalleItem.numero_factura ?? ''}
                 </h2>
                 {detalleItem.obra_id && detalleObraNombre ? (
                   <button
                     type="button"
                     onClick={() => abrirObra(detalleItem.obra_id!)}
-                    className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-[#f6ad55] hover:text-[#ed8936] transition-colors text-left"
+                    className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-[#A04A2F] hover:text-[#A04A2F] transition-colors text-left"
                   >
                     <span aria-hidden>📁</span>
                     <span className="truncate">{detalleObraNombre}</span>
@@ -352,66 +352,66 @@ export default function FacturasPage() {
               <button
                 type="button"
                 onClick={cerrarDetalle}
-                className="p-2 text-white/80 hover:text-white rounded-lg shrink-0"
+                className="p-2 text-zinc-700 hover:text-zinc-900 rounded-lg shrink-0"
                 aria-label="Cerrar"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-4 overflow-y-auto flex-1 text-sm text-white/90 space-y-2">
+            <div className="p-4 overflow-y-auto flex-1 text-sm text-zinc-800 space-y-2">
               <p>
-                <span className="text-white/70">Cliente:</span> {detalleItem.cliente_nombre ?? '—'}
+                <span className="text-zinc-600">Cliente:</span> {detalleItem.cliente_nombre ?? '—'}
               </p>
               <p>
-                <span className="text-white/70">Dirección:</span> {detalleItem.cliente_direccion ?? '—'}
+                <span className="text-zinc-600">Dirección:</span> {detalleItem.cliente_direccion ?? '—'}
               </p>
               <p>
-                <span className="text-white/70">NIF:</span> {detalleItem.cliente_nif ?? '—'}
+                <span className="text-zinc-600">NIF:</span> {detalleItem.cliente_nif ?? '—'}
               </p>
               <p>
-                <span className="text-white/70">Base imponible:</span>{' '}
+                <span className="text-zinc-600">Base imponible:</span>{' '}
                 {detalleItem.base_imponible != null ? String(detalleItem.base_imponible) : '—'} €
               </p>
               <p>
-                <span className="text-white/70">IVA:</span>{' '}
+                <span className="text-zinc-600">IVA:</span>{' '}
                 {detalleItem.iva != null ? String(detalleItem.iva) : '—'} €
               </p>
               <p>
-                <span className="text-white/70">Total:</span>{' '}
+                <span className="text-zinc-600">Total:</span>{' '}
                 {detalleItem.total != null ? String(detalleItem.total) : '—'} €
               </p>
               <p>
-                <span className="text-white/70">Fecha:</span>{' '}
+                <span className="text-zinc-600">Fecha:</span>{' '}
                 {detalleItem.fecha ??
                   new Date(detalleItem.created_at).toLocaleDateString('es-ES')}
               </p>
               <p>
-                <span className="text-white/70">Fecha vencimiento:</span>{' '}
+                <span className="text-zinc-600">Fecha vencimiento:</span>{' '}
                 {detalleItem.fecha_vencimiento ?? '—'}
               </p>
               <p>
-                <span className="text-white/70">Estado:</span> {badgeEstado(detalleItem.estado)}
+                <span className="text-zinc-600">Estado:</span> {badgeEstado(detalleItem.estado)}
               </p>
               {detalleItem.descripcion_trabajos && (
                 <p>
-                  <span className="text-white/70">Descripción:</span> {detalleItem.descripcion_trabajos}
+                  <span className="text-zinc-600">Descripción:</span> {detalleItem.descripcion_trabajos}
                 </p>
               )}
               {detalleItem.observaciones && (
                 <p>
-                  <span className="text-white/70">Observaciones:</span> {detalleItem.observaciones}
+                  <span className="text-zinc-600">Observaciones:</span> {detalleItem.observaciones}
                 </p>
               )}
               {detalleItem.lineas != null && (
                 <p>
-                  <span className="text-white/70">Líneas:</span>{' '}
+                  <span className="text-zinc-600">Líneas:</span>{' '}
                   <pre className="mt-1 text-xs overflow-x-auto">
                     {JSON.stringify(detalleItem.lineas, null, 2)}
                   </pre>
                 </p>
               )}
             </div>
-            <div className="p-4 border-t border-white/10 flex flex-wrap gap-2">
+            <div className="p-4 border-t border-zinc-400/40 flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => {
@@ -420,7 +420,7 @@ export default function FacturasPage() {
                   setFacturaGuardadaId(null);
                   setEditorDataRevision((n) => n + 1);
                 }}
-                className="px-4 py-2 text-sm font-medium bg-[#ed8936] hover:bg-[#dd6b20] text-white rounded-lg"
+                className="px-4 py-2 text-sm font-medium bg-[#A04A2F] hover:bg-[#8a3f28] text-white rounded-lg"
               >
                 Editar
               </button>
@@ -434,7 +434,7 @@ export default function FacturasPage() {
                     alert(e instanceof Error ? e.message : 'Error al descargar el PDF');
                   }
                 }}
-                className="px-4 py-2 text-sm font-medium bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-lg"
+                className="px-4 py-2 text-sm font-medium bg-[#E5DFD0] hover:bg-[#D4CCBC] text-zinc-900 border border-zinc-400/50 rounded-lg"
               >
                 Descargar PDF
               </button>
@@ -443,7 +443,7 @@ export default function FacturasPage() {
                   <button
                     type="button"
                     onClick={() => setEstado(detalleItem.id, 'pagada')}
-                    className="px-4 py-2 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg"
+                    className="px-4 py-2 text-sm font-medium bg-[#5a7a4a] hover:bg-[#4d6b40] text-white rounded-lg"
                   >
                     Marcar pagada
                   </button>
@@ -459,7 +459,7 @@ export default function FacturasPage() {
               <button
                 type="button"
                 onClick={cerrarDetalle}
-                className="px-4 py-2 text-sm font-medium bg-white/10 hover:bg-white/20 text-white rounded-lg"
+                className="px-4 py-2 text-sm font-medium bg-[#E5DFD0] hover:bg-[#D4CCBC] text-zinc-900 rounded-lg"
               >
                 Cerrar
               </button>
