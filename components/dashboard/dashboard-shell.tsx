@@ -8,7 +8,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
   const { isOpen } = useAgentSidebar();
 
   return (
-    <div className="min-h-screen bg-[#0f172a] text-white">
+    <div className="min-h-screen bg-[#EFEADF] text-zinc-900">
       <div className="flex min-h-screen">
         <div className="flex-1 min-w-0">{children}</div>
         {isOpen && (

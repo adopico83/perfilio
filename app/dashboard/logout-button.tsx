@@ -21,7 +21,7 @@ export default function LogoutButton() {
     <button
       onClick={handleLogout}
       disabled={loading}
-      className="inline-flex items-center gap-2 px-4 py-2 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-semibold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+      className="inline-flex items-center gap-2 px-4 py-2 bg-[#A04A2F] hover:bg-[#8a3f28] text-white font-semibold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
     >
       <LogOut className="w-4 h-4" />
       {loading ? 'Cerrando...' : 'Cerrar Sesión'}

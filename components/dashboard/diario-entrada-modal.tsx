@@ -57,7 +57,7 @@ export default function DiarioEntradaModal({ entrada, onClose }: DiarioEntradaMo
         onClick={onClose}
       >
         <div
-          className="relative w-full max-w-2xl max-h-[85vh] flex flex-col rounded-xl border border-[#ed8936]/40 bg-[#1a365d] shadow-xl text-white overflow-hidden"
+          className="relative w-full max-w-2xl max-h-[85vh] flex flex-col rounded-xl border border-[#A04A2F]/40 bg-[#E5DFD0] shadow-xl text-white overflow-hidden"
           role="dialog"
           aria-modal="true"
           aria-labelledby="diario-entrada-modal-titulo"
@@ -67,18 +67,18 @@ export default function DiarioEntradaModal({ entrada, onClose }: DiarioEntradaMo
             <button
               type="button"
               onClick={onClose}
-              className="absolute top-3 right-3 p-2 rounded-lg text-[#ed8936] hover:bg-[#ed8936]/15 border border-[#ed8936]/50 transition-colors"
+              className="absolute top-3 right-3 p-2 rounded-lg text-[#A04A2F] hover:bg-[#A04A2F]/15 border border-[#A04A2F]/50 transition-colors"
               aria-label="Cerrar"
             >
               <X className="size-5" />
             </button>
-            <h2 id="diario-entrada-modal-titulo" className="text-lg font-bold text-[#ed8936] pr-2">
+            <h2 id="diario-entrada-modal-titulo" className="text-lg font-bold text-[#A04A2F] pr-2">
               {entrada.obra_nombre}
             </h2>
             {entrada.obra_direccion ? (
               <p className="text-sm text-white/55 mt-1">{entrada.obra_direccion}</p>
             ) : null}
-            <p className="text-xs text-white/70 tabular-nums mt-2">{fechaLarga}</p>
+            <p className="text-xs text-zinc-600 tabular-nums mt-2">{fechaLarga}</p>
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5 space-y-4">
@@ -97,7 +97,7 @@ export default function DiarioEntradaModal({ entrada, onClose }: DiarioEntradaMo
                         key={url}
                         type="button"
                         onClick={() => setLightboxUrl(url)}
-                        className="block w-full overflow-hidden rounded-lg border border-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#ed8936]/70"
+                        className="block w-full overflow-hidden rounded-lg border border-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#A04A2F]/70"
                       >
                         <img
                           src={url}
@@ -130,7 +130,7 @@ export default function DiarioEntradaModal({ entrada, onClose }: DiarioEntradaMo
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium rounded-lg border border-[#ed8936] text-[#ed8936] hover:bg-[#ed8936]/15 transition-colors"
+              className="px-4 py-2 text-sm font-medium rounded-lg border border-[#A04A2F] text-[#A04A2F] hover:bg-[#A04A2F]/15 transition-colors"
             >
               Cerrar
             </button>

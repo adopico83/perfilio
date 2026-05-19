@@ -117,20 +117,20 @@ export default function CanvasModal() {
       onClick={cerrarCanvas}
     >
       <div
-        className="relative w-full max-w-4xl max-h-[80vh] flex flex-col rounded-xl border border-[#ed8936]/40 bg-[#1a365d] shadow-xl text-white overflow-hidden"
+        className="relative w-full max-w-4xl max-h-[80vh] flex flex-col rounded-xl border border-[#A04A2F]/40 bg-[#E5DFD0] shadow-xl text-white overflow-hidden"
         role="dialog"
         aria-modal="true"
         aria-labelledby="canvas-modal-titulo"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-white/10 shrink-0">
-          <h2 id="canvas-modal-titulo" className="text-lg font-semibold text-[#ed8936] pr-8">
+          <h2 id="canvas-modal-titulo" className="text-lg font-semibold text-[#A04A2F] pr-8">
             {titulo}
           </h2>
           <button
             type="button"
             onClick={cerrarCanvas}
-            className="absolute top-3 right-3 p-1.5 rounded-lg text-[#ed8936] hover:bg-[#ed8936]/15 border border-[#ed8936]/50 transition-colors"
+            className="absolute top-3 right-3 p-1.5 rounded-lg text-[#A04A2F] hover:bg-[#A04A2F]/15 border border-[#A04A2F]/50 transition-colors"
             aria-label="Cerrar panel visual"
           >
             <X className="size-5" aria-hidden />
@@ -142,7 +142,7 @@ export default function CanvasModal() {
             <div className="overflow-x-auto rounded-lg border border-white/10">
               <table className="w-full text-sm text-left">
                 <thead>
-                  <tr className="border-b border-white/10 bg-[#0f2744]/90 text-white/80">
+                  <tr className="border-b border-white/10 bg-[#EFEADF]/90 text-zinc-700">
                     <th className="px-3 py-2 font-medium">Nombre</th>
                     <th className="px-3 py-2 font-medium">Teléfono</th>
                     <th className="px-3 py-2 font-medium">Email</th>
@@ -174,7 +174,7 @@ export default function CanvasModal() {
                               cerrarCanvas();
                               router.push(verHref('clientes', row));
                             }}
-                            className="text-[#ed8936] hover:text-[#f6ad55] font-medium cursor-pointer bg-transparent border-0 p-0 text-right"
+                            className="text-[#A04A2F] hover:text-[#c97c5a] font-medium cursor-pointer bg-transparent border-0 p-0 text-right"
                           >
                             Ver →
                           </button>
@@ -191,7 +191,7 @@ export default function CanvasModal() {
             <div className="overflow-x-auto rounded-lg border border-white/10">
               <table className="w-full text-sm text-left">
                 <thead>
-                  <tr className="border-b border-white/10 bg-[#0f2744]/90 text-white/80">
+                  <tr className="border-b border-white/10 bg-[#EFEADF]/90 text-zinc-700">
                     <th className="px-3 py-2 font-medium">Nº documento</th>
                     <th className="px-3 py-2 font-medium">Cliente</th>
                     <th className="px-3 py-2 font-medium">Importe</th>
@@ -206,7 +206,7 @@ export default function CanvasModal() {
                     const est = pickFirstStr(row.estado) ?? '-';
                     const badge =
                       est === '-'
-                        ? { label: '-', className: 'bg-white/10 text-white/60' }
+                        ? { label: '-', className: 'bg-white/10 text-zinc-600' }
                         : estadoBadgeClass(est);
                     const rowKey = pickFirstStr(row.id) ?? `row-${i}`;
                     return (
@@ -221,7 +221,7 @@ export default function CanvasModal() {
                             {badge.label}
                           </span>
                         </td>
-                        <td className="px-3 py-2 text-white/80 text-xs">{fechaDoc(row)}</td>
+                        <td className="px-3 py-2 text-zinc-700 text-xs">{fechaDoc(row)}</td>
                         <td className="px-3 py-2 text-right">
                           <button
                             type="button"
@@ -229,7 +229,7 @@ export default function CanvasModal() {
                               cerrarCanvas();
                               router.push(verHref(tipo, row));
                             }}
-                            className="text-[#ed8936] hover:text-[#f6ad55] font-medium cursor-pointer bg-transparent border-0 p-0 text-right"
+                            className="text-[#A04A2F] hover:text-[#c97c5a] font-medium cursor-pointer bg-transparent border-0 p-0 text-right"
                           >
                             Ver →
                           </button>
@@ -273,16 +273,16 @@ export default function CanvasModal() {
                     key={i}
                     className={`rounded-lg border px-3 py-2 ${
                       noLeido
-                        ? 'border-[#ed8936]/50 bg-[#ed8936]/10'
-                        : 'border-white/10 bg-[#0f2744]/50'
+                        ? 'border-[#A04A2F]/50 bg-[#A04A2F]/10'
+                        : 'border-white/10 bg-[#EFEADF]/50'
                     }`}
                   >
                     <p className={`text-sm ${noLeido ? 'font-semibold text-white' : 'text-white/90'}`}>
                       {remitente}
                     </p>
-                    <p className="text-sm text-white/80 mt-0.5">{asunto}</p>
+                    <p className="text-sm text-zinc-700 mt-0.5">{asunto}</p>
                     {fecha ? (
-                      <p className="text-xs text-[#ed8936]/90 mt-1 tabular-nums">{fecha}</p>
+                      <p className="text-xs text-[#A04A2F]/90 mt-1 tabular-nums">{fecha}</p>
                     ) : null}
                   </li>
                 );
@@ -294,7 +294,7 @@ export default function CanvasModal() {
             <div className="overflow-x-auto rounded-lg border border-white/10">
               <table className="w-full text-sm text-left">
                 <thead>
-                  <tr className="border-b border-white/10 bg-[#0f2744]/90 text-white/80">
+                  <tr className="border-b border-white/10 bg-[#EFEADF]/90 text-zinc-700">
                     <th className="px-3 py-2 font-medium">Proveedor</th>
                     <th className="px-3 py-2 font-medium">Importe</th>
                     <th className="px-3 py-2 font-medium">IVA</th>
@@ -318,7 +318,7 @@ export default function CanvasModal() {
                         <td className="px-3 py-2 tabular-nums">{fmtImporte(imp)}</td>
                         <td className="px-3 py-2 tabular-nums">{fmtImporte(iva)}</td>
                         <td className="px-3 py-2 tabular-nums">{fmtImporte(total)}</td>
-                        <td className="px-3 py-2 text-xs text-white/80">{f}</td>
+                        <td className="px-3 py-2 text-xs text-zinc-700">{f}</td>
                       </tr>
                     );
                   })}
@@ -354,10 +354,10 @@ export default function CanvasModal() {
                 return (
                   <li
                     key={pickFirstStr(row.id) ?? `d-${i}`}
-                    className="rounded-lg border border-white/10 bg-[#0f2744]/60 p-3"
+                    className="rounded-lg border border-white/10 bg-[#EFEADF]/60 p-3"
                   >
-                    <p className="font-semibold text-[#ed8936]">{obra}</p>
-                    <p className="text-xs text-white/60 tabular-nums mt-0.5">
+                    <p className="font-semibold text-[#A04A2F]">{obra}</p>
+                    <p className="text-xs text-zinc-600 tabular-nums mt-0.5">
                       {fechaDiario ?? '-'}
                     </p>
                     <p className="text-sm text-white/85 mt-2 leading-snug">
@@ -370,7 +370,7 @@ export default function CanvasModal() {
           ) : null}
 
           {tipo === '' && (
-            <p className="text-white/70 text-sm">Tipo de vista no reconocido.</p>
+            <p className="text-zinc-600 text-sm">Tipo de vista no reconocido.</p>
           )}
         </div>
       </div>

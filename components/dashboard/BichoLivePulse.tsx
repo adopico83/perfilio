@@ -96,13 +96,13 @@ function insightText(insight: InsightRow): string {
 
 function InsightIcon({ kind }: { kind: InsightKind }) {
   if (kind === 'facturacion') return <FileText className="size-3.5 text-blue-200" aria-hidden />;
-  if (kind === 'inactividad') return <PauseCircle className="size-3.5 text-amber-200" aria-hidden />;
+  if (kind === 'inactividad') return <PauseCircle className="size-3.5 text-zinc-600" aria-hidden />;
   return <AlertTriangle className="size-3.5 text-red-200" aria-hidden />;
 }
 
 function BichoPulseSkeleton() {
   return (
-    <section className="h-auto rounded-xl border border-white/10 bg-[#111827]/70 p-2 shadow-lg backdrop-blur-md">
+    <section className="h-auto rounded-xl border border-zinc-400/50 bg-[#E5DFD0]/70 p-2 shadow-lg backdrop-blur-md">
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="h-3 w-28 animate-pulse rounded bg-white/10" />
         <div className="h-3 w-14 animate-pulse rounded-full bg-white/10" />
@@ -111,7 +111,7 @@ function BichoPulseSkeleton() {
         {Array.from({ length: 3 }).map((_, idx) => (
           <div
             key={idx}
-            className="min-w-[8.25rem] flex-1 rounded-lg border border-white/10 bg-white/[0.04] p-2"
+            className="min-w-[8.25rem] flex-1 rounded-lg border border-zinc-400/30 bg-white/[0.04] p-2"
           >
             <div className="mb-1.5 h-3 w-10 animate-pulse rounded bg-white/10" />
             <div className="mb-1.5 h-5 w-12 animate-pulse rounded bg-white/10" />
@@ -184,21 +184,21 @@ export default function BichoLivePulse() {
   if (loading) return <BichoPulseSkeleton />;
 
   return (
-    <section className="h-auto rounded-xl border border-white/10 bg-[#111827]/75 p-2 shadow-lg backdrop-blur-md">
+    <section className="h-auto rounded-xl border border-zinc-400/50 bg-[#E5DFD0]/75 p-2 shadow-lg backdrop-blur-md">
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1.5">
-          <span className="size-2 shrink-0 rounded-full bg-[#ed8936] animate-pulse shadow-[0_0_12px_rgba(237,137,54,0.9)]" />
-          <h2 className="truncate text-xs font-semibold uppercase tracking-wide text-white/70">
+          <span className="size-2 shrink-0 rounded-full bg-[#A04A2F] animate-pulse shadow-[0_0_12px_rgba(237,137,54,0.9)]" />
+          <h2 className="truncate text-xs font-semibold uppercase tracking-wide text-zinc-600">
             El Bicho activo
           </h2>
         </div>
-        <span className="shrink-0 rounded-full border border-[#ed8936]/35 bg-[#ed8936]/10 px-2 py-0.5 text-xs font-medium text-[#fed7aa]">
+        <span className="shrink-0 rounded-full border border-[#A04A2F]/35 bg-[#A04A2F]/10 px-2 py-0.5 text-xs font-medium text-zinc-900">
           {visibleInsights.length} pendientes
         </span>
       </div>
 
       {visibleInsights.length === 0 ? (
-        <div className="rounded-lg border border-white/10 bg-white/[0.04] p-2 text-xs text-white/65">
+        <div className="rounded-lg border border-zinc-400/30 bg-white/[0.04] p-2 text-xs text-zinc-600">
           No hay avisos pendientes ahora mismo.
         </div>
       ) : (
@@ -212,14 +212,14 @@ export default function BichoLivePulse() {
               <Link
                 key={key}
                 href={insightHref(insight, kind)}
-                className="flex min-w-[8.25rem] flex-1 cursor-pointer flex-col rounded-lg border border-white/10 bg-white/[0.04] p-2 transition hover:border-[#ed8936]/40 hover:bg-white/[0.06] hover:brightness-110"
+                className="flex min-w-[8.25rem] flex-1 cursor-pointer flex-col rounded-lg border border-zinc-400/30 bg-white/[0.04] p-2 transition hover:border-[#A04A2F]/40 hover:bg-white/[0.06] hover:brightness-110"
               >
-                <div className="mb-1 flex min-w-0 items-center gap-1 text-xs font-semibold text-white/80">
+                <div className="mb-1 flex min-w-0 items-center gap-1 text-xs font-semibold text-zinc-700">
                   <InsightIcon kind={kind} />
                   <span className="truncate">{kindLabel(kind)}</span>
                 </div>
 
-                <p className="line-clamp-2 text-xs leading-snug text-white/70">{text}</p>
+                <p className="line-clamp-2 text-xs leading-snug text-zinc-600">{text}</p>
               </Link>
             );
           })}

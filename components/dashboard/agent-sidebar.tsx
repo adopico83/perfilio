@@ -229,28 +229,28 @@ function EmailAprobacionCard({
   }
   if (email.estado === 'cancelado') {
     return (
-      <p className="text-xs text-white/65 mt-1" role="status">
+      <p className="text-xs text-zinc-800 mt-1" role="status">
         Email cancelado
       </p>
     );
   }
   return (
-    <div className="mt-2 w-full rounded-lg border border-[#ed8936]/40 bg-[#1a365d]/90 p-3 space-y-2 text-left">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-[#ed8936]/90">
+    <div className="mt-2 w-full rounded-lg border border-[#A04A2F]/40 bg-[#E5DFD0]/90 p-3 space-y-2 text-left">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-[#A04A2F]/90">
         Borrador — pendiente de tu aprobación
       </p>
       <div className="space-y-1.5 text-xs">
         <div>
-          <span className="text-white/50">Para: </span>
-          <span className="text-white break-all">{email.para}</span>
+          <span className="text-zinc-600">Para: </span>
+          <span className="text-zinc-800 break-all">{email.para}</span>
         </div>
         <div>
-          <span className="text-white/50">Asunto: </span>
-          <span className="text-white font-medium">{email.asunto}</span>
+          <span className="text-zinc-600">Asunto: </span>
+          <span className="text-zinc-800 font-medium">{email.asunto}</span>
         </div>
         <div>
-          <p className="text-white/50 mb-0.5">Cuerpo:</p>
-          <pre className="whitespace-pre-wrap break-words text-white/90 text-[11px] leading-snug bg-black/20 rounded p-2 border border-white/10 max-h-36 overflow-y-auto">
+          <p className="text-zinc-600 mb-0.5">Cuerpo:</p>
+          <pre className="whitespace-pre-wrap break-words text-zinc-800 text-[11px] leading-snug bg-black/20 rounded p-2 border border-white/10 max-h-36 overflow-y-auto">
             {email.cuerpo}
           </pre>
         </div>
@@ -298,25 +298,25 @@ function textoPlanoParaTts(markdown: string): string {
 }
 
 const agentAssistantMarkdownComponents = {
-  p: ({ children }: { children?: ReactNode }) => <p className="text-white">{children}</p>,
+  p: ({ children }: { children?: ReactNode }) => <p className="text-zinc-800">{children}</p>,
   strong: ({ children }: { children?: ReactNode }) => (
-    <strong className="text-[#ed8936] font-bold">{children}</strong>
+    <strong className="text-[#A04A2F] font-bold">{children}</strong>
   ),
   ul: ({ children }: { children?: ReactNode }) => (
-    <ul className="list-disc pl-6 space-y-1 text-white">{children}</ul>
+    <ul className="list-disc pl-6 space-y-1 text-zinc-800">{children}</ul>
   ),
   ol: ({ children }: { children?: ReactNode }) => (
-    <ol className="list-decimal pl-6 space-y-1 text-white">{children}</ol>
+    <ol className="list-decimal pl-6 space-y-1 text-zinc-800">{children}</ol>
   ),
-  li: ({ children }: { children?: ReactNode }) => <li className="text-white">{children}</li>,
+  li: ({ children }: { children?: ReactNode }) => <li className="text-zinc-800">{children}</li>,
   h1: ({ children }: { children?: ReactNode }) => (
-    <h1 className="text-base font-bold text-white mt-2 mb-1">{children}</h1>
+    <h1 className="text-base font-bold text-zinc-800 mt-2 mb-1">{children}</h1>
   ),
   h2: ({ children }: { children?: ReactNode }) => (
-    <h2 className="text-sm font-bold text-white mt-2 mb-1">{children}</h2>
+    <h2 className="text-sm font-bold text-zinc-800 mt-2 mb-1">{children}</h2>
   ),
   h3: ({ children }: { children?: ReactNode }) => (
-    <h3 className="text-sm font-bold text-white mt-1 mb-1">{children}</h3>
+    <h3 className="text-sm font-bold text-zinc-800 mt-1 mb-1">{children}</h3>
   ),
   a: ({ href, children }: { href?: string; children?: ReactNode }) => {
     const url = href ?? '#';
@@ -326,7 +326,7 @@ const agentAssistantMarkdownComponents = {
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 text-[#ed8936] underline underline-offset-2 decoration-[#ed8936] hover:text-[#f6ad55]"
+          className="inline-flex items-center gap-1.5 text-[#A04A2F] underline underline-offset-2 decoration-[#A04A2F] hover:text-[#c97c5a]"
         >
           <span className="shrink-0" aria-hidden>
             📄
@@ -340,7 +340,7 @@ const agentAssistantMarkdownComponents = {
         href={url}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-[#ed8936] underline underline-offset-2 hover:text-[#f6ad55]"
+        className="text-[#A04A2F] underline underline-offset-2 hover:text-[#c97c5a]"
       >
         {children}
       </a>
@@ -377,14 +377,14 @@ function AssistantTtsButton({
               ? 'Reanudar lectura'
               : 'Escuchar respuesta en voz alta'
       }
-      className="shrink-0 mt-0.5 size-8 flex items-center justify-center rounded-lg border border-[#ed8936]/80 bg-[#ed8936]/15 text-lg leading-none text-[#ed8936] hover:bg-[#ed8936]/28 transition-colors disabled:opacity-70 touch-manipulation"
+      className="shrink-0 mt-0.5 size-8 flex items-center justify-center rounded-lg border border-[#A04A2F]/80 bg-[#A04A2F]/15 text-lg leading-none text-[#A04A2F] hover:bg-[#A04A2F]/28 transition-colors disabled:opacity-70 touch-manipulation"
     >
       {isLoading ? (
-        <Loader2 className="size-4 animate-spin text-[#ed8936]" aria-hidden />
+        <Loader2 className="size-4 animate-spin text-[#A04A2F]" aria-hidden />
       ) : isActive && !isPaused ? (
-        <Pause className="size-4 text-[#ed8936]" aria-hidden />
+        <Pause className="size-4 text-[#A04A2F]" aria-hidden />
       ) : isActive && isPaused ? (
-        <span className="text-sm text-[#ed8936]" aria-hidden>
+        <span className="text-sm text-[#A04A2F]" aria-hidden>
           ▶
         </span>
       ) : (
@@ -398,7 +398,7 @@ function AgentTypingIndicator() {
   return (
     <div className="flex justify-start" aria-live="polite">
       <div
-        className="max-w-[90%] px-4 py-3 rounded-xl rounded-bl-md bg-[#1a365d] text-white border border-white/15"
+        className="max-w-[90%] px-4 py-3 rounded-xl rounded-bl-md bg-[#E5DFD0] text-zinc-800 border border-zinc-400/30"
         role="status"
       >
         <span className="sr-only">El agente está escribiendo</span>
@@ -421,12 +421,12 @@ function AgentTranscribingIndicator() {
   return (
     <div className="flex justify-start" aria-live="polite">
       <div
-        className="max-w-[90%] px-4 py-3 rounded-xl rounded-bl-md bg-[#1a365d] text-white border border-white/15 flex items-center gap-2.5"
+        className="max-w-[90%] px-4 py-3 rounded-xl rounded-bl-md bg-[#E5DFD0] text-zinc-800 border border-white/15 flex items-center gap-2.5"
         role="status"
       >
         <span className="sr-only">Transcribiendo audio</span>
-        <Loader2 className="size-4 text-[#ed8936] animate-spin shrink-0" aria-hidden />
-        <span className="text-sm text-white/95">Transcribiendo audio</span>
+        <Loader2 className="size-4 text-[#A04A2F] animate-spin shrink-0" aria-hidden />
+        <span className="text-sm text-zinc-800">Transcribiendo audio</span>
         <span className="inline-flex items-center gap-0.5 h-4" aria-hidden>
           {[0, 1, 2].map((i) => (
             <span
@@ -473,14 +473,14 @@ function ConversacionListRow({
   if (isConfirming) {
     return (
       <li>
-        <div className="rounded-lg border border-[#ed8936]/50 bg-[#1a365d] px-2.5 py-2 space-y-2">
-          <p className="text-xs text-white/95 leading-snug">¿Eliminar esta conversación?</p>
+        <div className="rounded-lg border border-[#A04A2F]/50 bg-[#E5DFD0] px-2.5 py-2 space-y-2">
+          <p className="text-xs text-zinc-800 leading-snug">¿Eliminar esta conversación?</p>
           <div className="flex gap-2">
             <button
               type="button"
               onClick={onConfirmDelete}
               disabled={isDeleting}
-              className="flex-1 py-1.5 rounded-md text-xs font-semibold bg-[#ed8936] hover:bg-[#dd6b20] text-white disabled:opacity-60 inline-flex items-center justify-center gap-1 touch-manipulation"
+              className="flex-1 py-1.5 rounded-md text-xs font-semibold bg-[#A04A2F] hover:bg-[#8a3f28] text-white disabled:opacity-60 inline-flex items-center justify-center gap-1 touch-manipulation"
             >
               {isDeleting ? (
                 <>
@@ -495,7 +495,7 @@ function ConversacionListRow({
               type="button"
               onClick={onCancelDelete}
               disabled={isDeleting}
-              className="flex-1 py-1.5 rounded-md text-xs font-medium border border-white/25 text-white hover:bg-white/10 disabled:opacity-50 touch-manipulation"
+              className="flex-1 py-1.5 rounded-md text-xs font-medium border border-white/25 text-zinc-800 hover:bg-white/10 disabled:opacity-50 touch-manipulation"
             >
               Cancelar
             </button>
@@ -506,20 +506,18 @@ function ConversacionListRow({
   }
 
   return (
-    <li className="group">
+    <li className="group border-b border-zinc-400/40">
       <div className="flex items-stretch gap-1">
         <button
           type="button"
           onClick={onSelect}
           className={[
-            'flex-1 min-w-0 text-left rounded-lg border px-2.5 py-2 transition-colors',
-            isActive
-              ? 'border-[#ed8936]/70 bg-[#ed8936]/15'
-              : 'border-white/10 bg-white/5 hover:bg-white/10',
+            'flex-1 min-w-0 text-left px-2.5 py-2 bg-[#E0D9CC] hover:bg-[#C8BFB0] hover:scale-[1.01] cursor-pointer transition-all duration-150 rounded-md',
+            isActive ? 'bg-[#C8BFB0]' : '',
           ].join(' ')}
         >
-          <p className="text-sm text-white truncate pr-1">{conv.titulo}</p>
-          <p className="mt-1 text-[11px] text-white/60">
+          <p className="text-sm text-zinc-800 font-medium truncate pr-1">{conv.titulo}</p>
+          <p className="mt-1 text-xs text-zinc-500">
             {formatFechaRelativa(conv.created_at, fechaRelativaAnchorMs)} · {conv.total_mensajes}{' '}
             mensajes
           </p>
@@ -531,7 +529,7 @@ function ConversacionListRow({
             e.stopPropagation();
             onRequestDelete();
           }}
-          className="shrink-0 self-start mt-1 p-1.5 rounded-md border border-transparent text-white/45 hover:text-red-500 hover:border-red-500/30 hover:bg-red-500/10 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-colors touch-manipulation"
+          className="shrink-0 self-start mt-1 p-1.5 rounded-md border border-transparent text-zinc-600 hover:text-red-500 hover:border-red-500/30 hover:bg-red-500/10 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-colors touch-manipulation"
           aria-label="Eliminar conversación"
           title="Eliminar conversación"
         >
@@ -1622,7 +1620,7 @@ export default function AgentSidebar() {
   const Panel = (
     <aside
       className={[
-        'h-full bg-[#0f172a] text-white border-l border-[#1a365d]',
+        'h-full bg-[#D4CCBC] text-zinc-900 border-l border-[#C4BCAC]',
         'flex flex-col',
         'touch-manipulation',
         containerWidthClass,
@@ -1638,14 +1636,14 @@ export default function AgentSidebar() {
               type="button"
               onClick={nuevaConversacion}
               {...touchActivate(nuevaConversacion)}
-              className="ml-2 px-2 py-1 text-xs font-medium rounded-md bg-white/10 hover:bg-white/15 border border-white/10 touch-manipulation"
+              className="ml-2 px-2 py-1 text-xs font-medium rounded-md border border-zinc-500/50 bg-[#C8BFB0 hover:bg-[#B8B0A0] text-zinc-800 touch-manipulation"
             >
               Nuevo
             </button>
             <button
               type="button"
               onClick={() => setPanelConversacionesAbierto((v) => !v)}
-              className="px-2 py-1 text-xs font-medium rounded-md bg-white/10 hover:bg-white/15 border border-white/10 touch-manipulation inline-flex items-center gap-1"
+              className="px-2 py-1 text-xs font-medium rounded-md border border-zinc-500/50 bg-[#C8BFB0 hover:bg-[#B8B0A0] text-zinc-800 touch-manipulation inline-flex items-center gap-1"
               aria-label="Mostrar conversaciones anteriores"
               title="Conversaciones"
             >
@@ -1654,7 +1652,7 @@ export default function AgentSidebar() {
             </button>
           </div>
         ) : (
-          <span className="font-semibold text-[#ed8936]">✨</span>
+          <span className="font-semibold text-[#A04A2F]">✨</span>
         )}
 
         <button
@@ -1686,7 +1684,7 @@ export default function AgentSidebar() {
             {panelConversacionesAbierto ? (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <p className="text-xs uppercase tracking-wide text-white/60">Conversaciones</p>
+                  <p className="text-xs uppercase tracking-wide text-zinc-600">Conversaciones</p>
                   <button
                     type="button"
                     onClick={() => setPanelConversacionesAbierto(false)}
@@ -1696,9 +1694,9 @@ export default function AgentSidebar() {
                   </button>
                 </div>
                 {conversacionesLoading ? (
-                  <p className="text-xs text-white/60">Cargando conversaciones...</p>
+                  <p className="text-xs text-zinc-600">Cargando conversaciones...</p>
                 ) : conversaciones.length === 0 ? (
-                  <p className="text-xs text-white/60">No hay conversaciones anteriores.</p>
+                  <p className="text-xs text-zinc-600">No hay conversaciones anteriores.</p>
                 ) : (
                   <ul className="space-y-1.5">
                     {conversaciones.map((conv) => (
@@ -1719,7 +1717,7 @@ export default function AgentSidebar() {
                 )}
               </div>
             ) : historial.length === 0 && !transcribiendoAudio ? (
-              <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/70">
+              <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-zinc-600">
                 Escribe un mensaje para empezar.
               </div>
             ) : (
@@ -1727,7 +1725,7 @@ export default function AgentSidebar() {
                 {historial.map((msg) =>
                   msg.role === 'user' ? (
                     <div key={msg.id} className="flex justify-end">
-                      <div className="max-w-[90%] px-3 py-2 rounded-xl rounded-br-md bg-[#ed8936] text-white">
+                      <div className="max-w-[90%] px-3 py-2 rounded-xl rounded-br-md bg-[#A04A2F] text-white">
                         {(msg.imagenPreviews ?? []).length > 0 ? (
                           <div className="mb-2 flex flex-wrap gap-1.5 justify-end">
                             {(msg.imagenPreviews ?? []).map((src, idx) => (
@@ -1747,7 +1745,7 @@ export default function AgentSidebar() {
                     <div key={msg.id} className="flex justify-start w-full">
                       <div className="max-w-[min(90%,100%)] flex flex-col gap-0">
                         <div className="flex gap-1.5 items-start">
-                          <div className="min-w-0 max-w-[min(90%,calc(100%-2.5rem))] px-3 py-2 rounded-xl rounded-bl-md bg-[#0f2744] text-white border border-white/10">
+                          <div className="min-w-0 max-w-[min(90%,calc(100%-2.5rem))] px-3 py-2 rounded-xl rounded-bl-md bg-[#E5DFD0] text-zinc-800 border border-white/10">
                             <div className="text-sm leading-relaxed [&>*+*]:mt-2">
                               <ReactMarkdown components={agentAssistantMarkdownComponents}>
                                 {textoAsistenteVisible(msg.content)}
@@ -1795,7 +1793,7 @@ export default function AgentSidebar() {
               </div>
             )}
             {subidaImagenesProgreso ? (
-              <p className="text-xs text-[#f6ad55] font-medium" role="status">
+              <p className="text-xs text-[#c97c5a] font-medium" role="status">
                 Subiendo foto {subidaImagenesProgreso.actual} de {subidaImagenesProgreso.total}…
               </p>
             ) : null}
@@ -1822,7 +1820,7 @@ export default function AgentSidebar() {
                         onClick={() =>
                           setImagenesPendientes((prev) => prev.filter((_, i) => i !== idx))
                         }
-                        className="absolute -top-1 -right-1 p-1 rounded-full bg-black/70 border border-white/20 text-white hover:bg-red-600/90 touch-manipulation"
+                        className="absolute -top-1 -right-1 p-1 rounded-full bg-black/70 border border-white/20 text-zinc-800 hover:bg-red-600/90 touch-manipulation"
                         aria-label={`Quitar imagen ${idx + 1}`}
                       >
                         <X className="size-3" aria-hidden />
@@ -1830,7 +1828,7 @@ export default function AgentSidebar() {
                     </div>
                   ))}
                 </div>
-                <p className="text-xs text-white/70">
+                <p className="text-xs text-zinc-600">
                   {imagenesPendientes.length === 1
                     ? 'Vista previa — se enviará con el próximo mensaje'
                     : `${imagenesPendientes.length} fotos — se enviarán juntas en el próximo mensaje`}
@@ -1848,7 +1846,7 @@ export default function AgentSidebar() {
               }}
               placeholder="Escribe tu mensaje…"
               rows={3}
-              className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/40 focus:ring-2 focus:ring-[#ed8936] focus:border-[#ed8936] outline-none resize-none"
+              className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-zinc-800 placeholder:text-zinc-600 focus:ring-2 focus:ring-[#A04A2F] focus:border-[#A04A2F] outline-none resize-none"
               disabled={loading}
             />
             <div className="flex gap-2 items-stretch min-h-[44px]">
@@ -1857,7 +1855,7 @@ export default function AgentSidebar() {
                 aria-label="Adjuntar imagen de ticket o factura"
                 disabled={loading || grabando || !selectedId || subiendoVideo || subiendoImagenes}
                 onClick={() => fileInputImagenRef.current?.click()}
-                className="w-11 shrink-0 flex items-center justify-center rounded-lg border border-white/10 bg-white/10 hover:bg-white/15 text-white transition-colors disabled:opacity-50 touch-manipulation"
+                className="w-11 shrink-0 flex items-center justify-center bg-[#D4CCBC] hover:bg-[#B8B0A0] transition-colors duration-150 rounded-md text-zinc-800 disabled:opacity-50 touch-manipulation"
               >
                 <Paperclip className="size-5" aria-hidden />
               </button>
@@ -1866,7 +1864,7 @@ export default function AgentSidebar() {
                 aria-label="Adjuntar vídeo para el diario de obra"
                 disabled={loading || grabando || !selectedId || subiendoVideo}
                 onClick={() => fileInputVideoRef.current?.click()}
-                className="w-11 shrink-0 flex items-center justify-center rounded-lg border border-white/10 bg-white/10 hover:bg-white/15 text-white transition-colors disabled:opacity-50 touch-manipulation"
+                className="w-11 shrink-0 flex items-center justify-center bg-[#D4CCBC] hover:bg-[#B8B0A0] transition-colors duration-150 rounded-md text-zinc-800 disabled:opacity-50 touch-manipulation"
               >
                 <Video className="size-5" aria-hidden />
               </button>
@@ -1875,7 +1873,7 @@ export default function AgentSidebar() {
                 onClick={handleEnviar}
                 {...touchActivate(handleEnviar, loading || grabando || !puedeEnviarMensaje)}
                 disabled={loading || grabando || !puedeEnviarMensaje}
-                className="flex-1 min-w-0 py-2.5 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
+                className="flex-1 min-w-0 py-2.5 bg-[#A04A2F] hover:bg-[#8a3f28] text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
               >
                 {loading ? 'Enviando…' : 'Enviar'}
               </button>
@@ -1887,10 +1885,10 @@ export default function AgentSidebar() {
                 onPointerDown={handleMicPointerDown(loading || !selectedId)}
                 onClick={handleMicClick(loading || !selectedId)}
                 className={[
-                  'w-11 shrink-0 py-2.5 rounded-lg border transition-colors touch-manipulation flex items-center justify-center',
+                  'w-11 shrink-0 py-2.5 rounded-md border transition-colors duration-150 touch-manipulation flex items-center justify-center',
                   grabando
                     ? 'bg-red-600 hover:bg-red-700 border-red-400/60 text-white animate-pulse shadow-[0_0_0_3px_rgba(248,113,113,0.2)]'
-                    : 'bg-white/10 hover:bg-white/15 border-white/10 text-white',
+                    : 'bg-[#D4CCBC] hover:bg-[#B8B0A0] border-transparent text-zinc-800',
                 ].join(' ')}
               >
                 🎤
@@ -1941,7 +1939,7 @@ export default function AgentSidebar() {
             type="button"
             onClick={() => setMobileOpen(true)}
             {...touchActivate(() => setMobileOpen(true))}
-            className="lg:hidden fixed bottom-5 right-5 z-40 px-4 py-3 rounded-full bg-[#ed8936] text-white font-semibold shadow-lg hover:bg-[#dd6b20] transition-colors touch-manipulation"
+            className="lg:hidden fixed bottom-5 right-5 z-40 px-4 py-3 rounded-full bg-[#A04A2F] text-white font-semibold shadow-lg hover:bg-[#8a3f28] transition-colors touch-manipulation"
           >
             ✨ Agente
           </button>
@@ -1961,7 +1959,7 @@ export default function AgentSidebar() {
                 <div className="h-full">
                   {/* Forzamos expandido en móvil */}
                   <div
-                    className="h-full bg-[#0f172a] text-white border-l border-[#1a365d] flex flex-col w-full min-w-[320px]"
+                    className="h-full bg-[#D4CCBC] text-zinc-900 border-l border-[#C4BCAC] flex flex-col w-full min-w-[320px]"
                     onClick={(e) => e.stopPropagation()}
                     onTouchEnd={(e) => e.stopPropagation()}
                   >
@@ -1974,7 +1972,7 @@ export default function AgentSidebar() {
                           type="button"
                           onClick={nuevaConversacion}
                           {...touchActivate(nuevaConversacion)}
-                          className="inline-flex items-center justify-center gap-1 min-h-9 px-2 shrink-0 rounded-md bg-white/10 border border-white/10 hover:bg-white/15 touch-manipulation text-xs font-medium"
+                          className="inline-flex items-center justify-center gap-1 min-h-9 px-2 shrink-0 rounded-md border border-zinc-500/50 bg-[#C8BFB0 hover:bg-[#B8B0A0] text-zinc-800 touch-manipulation text-xs font-medium"
                           aria-label="Nueva conversación"
                           title="Nueva conversación"
                         >
@@ -1985,7 +1983,7 @@ export default function AgentSidebar() {
                           type="button"
                           onClick={() => setPanelConversacionesAbierto((v) => !v)}
                           {...touchActivate(() => setPanelConversacionesAbierto((v) => !v))}
-                          className="flex items-center justify-center w-9 h-9 shrink-0 rounded-md bg-white/10 border border-white/10 hover:bg-white/15 touch-manipulation"
+                          className="flex items-center justify-center w-9 h-9 shrink-0 rounded-md border border-zinc-500/50 bg-[#C8BFB0 hover:bg-[#B8B0A0] text-zinc-800 touch-manipulation"
                           aria-label="Mostrar conversaciones"
                           title="Conversaciones"
                         >
@@ -2021,7 +2019,7 @@ export default function AgentSidebar() {
                       {panelConversacionesAbierto ? (
                         <div className="space-y-2">
                           <div className="flex items-center justify-between">
-                            <p className="text-xs uppercase tracking-wide text-white/60">Conversaciones</p>
+                            <p className="text-xs uppercase tracking-wide text-zinc-600">Conversaciones</p>
                             <button
                               type="button"
                               onClick={() => setPanelConversacionesAbierto(false)}
@@ -2031,9 +2029,9 @@ export default function AgentSidebar() {
                             </button>
                           </div>
                           {conversacionesLoading ? (
-                            <p className="text-xs text-white/60">Cargando conversaciones...</p>
+                            <p className="text-xs text-zinc-600">Cargando conversaciones...</p>
                           ) : conversaciones.length === 0 ? (
-                            <p className="text-xs text-white/60">No hay conversaciones anteriores.</p>
+                            <p className="text-xs text-zinc-600">No hay conversaciones anteriores.</p>
                           ) : (
                             <ul className="space-y-1.5">
                               {conversaciones.map((conv) => (
@@ -2058,7 +2056,7 @@ export default function AgentSidebar() {
                           )}
                         </div>
                       ) : historial.length === 0 && !transcribiendoAudio ? (
-                        <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/70">
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-zinc-600">
                           Escribe un mensaje para empezar.
                         </div>
                       ) : (
@@ -2066,7 +2064,7 @@ export default function AgentSidebar() {
                           {historial.map((msg) =>
                             msg.role === 'user' ? (
                               <div key={msg.id} className="flex justify-end">
-                                <div className="max-w-[90%] px-3 py-2 rounded-xl rounded-br-md bg-[#ed8936] text-white">
+                                <div className="max-w-[90%] px-3 py-2 rounded-xl rounded-br-md bg-[#A04A2F] text-white">
                                   {(msg.imagenPreviews ?? []).length > 0 ? (
                                     <div className="mb-2 flex flex-wrap gap-1.5 justify-end">
                                       {(msg.imagenPreviews ?? []).map((src, idx) => (
@@ -2086,7 +2084,7 @@ export default function AgentSidebar() {
                               <div key={msg.id} className="flex justify-start w-full">
                                 <div className="max-w-[min(90%,100%)] flex flex-col gap-0">
                                   <div className="flex gap-1.5 items-start">
-                                    <div className="min-w-0 max-w-[min(90%,calc(100%-2.5rem))] px-3 py-2 rounded-xl rounded-bl-md bg-[#0f2744] text-white border border-white/10">
+                                    <div className="min-w-0 max-w-[min(90%,calc(100%-2.5rem))] px-3 py-2 rounded-xl rounded-bl-md bg-[#EFEADF] text-zinc-800 border border-white/10">
                                       <div className="text-sm leading-relaxed [&>*+*]:mt-2">
                                         <ReactMarkdown components={agentAssistantMarkdownComponents}>
                                           {textoAsistenteVisible(msg.content)}
@@ -2134,7 +2132,7 @@ export default function AgentSidebar() {
                         </div>
                       )}
                       {subidaImagenesProgreso ? (
-                        <p className="text-xs text-[#f6ad55] font-medium" role="status">
+                        <p className="text-xs text-[#c97c5a] font-medium" role="status">
                           Subiendo foto {subidaImagenesProgreso.actual} de{' '}
                           {subidaImagenesProgreso.total}…
                         </p>
@@ -2162,7 +2160,7 @@ export default function AgentSidebar() {
                                   onClick={() =>
                                     setImagenesPendientes((prev) => prev.filter((_, i) => i !== idx))
                                   }
-                                  className="absolute -top-1 -right-1 p-1 rounded-full bg-black/70 border border-white/20 text-white hover:bg-red-600/90 touch-manipulation"
+                                  className="absolute -top-1 -right-1 p-1 rounded-full bg-black/70 border border-white/20 text-zinc-800 hover:bg-red-600/90 touch-manipulation"
                                   aria-label={`Quitar imagen ${idx + 1}`}
                                 >
                                   <X className="size-3" aria-hidden />
@@ -2170,7 +2168,7 @@ export default function AgentSidebar() {
                               </div>
                             ))}
                           </div>
-                          <p className="text-xs text-white/70">
+                          <p className="text-xs text-zinc-600">
                             {imagenesPendientes.length === 1
                               ? 'Vista previa — se enviará con el próximo mensaje'
                               : `${imagenesPendientes.length} fotos — se enviarán juntas en el próximo mensaje`}
@@ -2188,7 +2186,7 @@ export default function AgentSidebar() {
                         }}
                         placeholder="Escribe tu mensaje…"
                         rows={3}
-                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/40 focus:ring-2 focus:ring-[#ed8936] focus:border-[#ed8936] outline-none resize-none"
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-zinc-800 placeholder:text-zinc-600 focus:ring-2 focus:ring-[#A04A2F] focus:border-[#A04A2F] outline-none resize-none"
                         disabled={loading}
                       />
                       <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
@@ -2197,7 +2195,7 @@ export default function AgentSidebar() {
                           aria-label="Adjuntar imagen"
                           disabled={loading || grabando || !selectedId || subiendoVideo || subiendoImagenes}
                           onClick={() => fileInputImagenRef.current?.click()}
-                          className="py-2 rounded-lg border border-white/10 bg-white/10 hover:bg-white/15 text-white transition-colors disabled:opacity-50 touch-manipulation flex items-center justify-center"
+                          className="py-2 bg-[#D4CCBC] hover:bg-[#B8B0A0] transition-colors duration-150 rounded-md text-zinc-800 disabled:opacity-50 touch-manipulation flex items-center justify-center"
                         >
                           <Paperclip className="size-5" aria-hidden />
                         </button>
@@ -2206,7 +2204,7 @@ export default function AgentSidebar() {
                           aria-label="Adjuntar vídeo para el diario de obra"
                           disabled={loading || grabando || !selectedId || subiendoVideo}
                           onClick={() => fileInputVideoRef.current?.click()}
-                          className="py-2 rounded-lg border border-white/10 bg-white/10 hover:bg-white/15 text-white transition-colors disabled:opacity-50 touch-manipulation flex items-center justify-center"
+                          className="py-2 bg-[#D4CCBC] hover:bg-[#B8B0A0] transition-colors duration-150 rounded-md text-zinc-800 disabled:opacity-50 touch-manipulation flex items-center justify-center"
                         >
                           <Video className="size-5" aria-hidden />
                         </button>
@@ -2218,10 +2216,10 @@ export default function AgentSidebar() {
                           onPointerDown={handleMicPointerDown(loading || !selectedId)}
                           onClick={handleMicClick(loading || !selectedId)}
                           className={[
-                            'py-2 rounded-lg border transition-colors touch-manipulation',
+                            'py-2 rounded-md border transition-colors duration-150 touch-manipulation flex items-center justify-center',
                             grabando
                               ? 'bg-red-600 hover:bg-red-700 border-red-400/60 text-white animate-pulse shadow-[0_0_0_3px_rgba(248,113,113,0.2)]'
-                              : 'bg-white/10 hover:bg-white/15 border-white/10 text-white',
+                              : 'bg-[#D4CCBC] hover:bg-[#B8B0A0] border-transparent text-zinc-800',
                           ].join(' ')}
                         >
                           🎤
@@ -2232,7 +2230,7 @@ export default function AgentSidebar() {
                           onClick={handleEnviar}
                           {...touchActivate(handleEnviar, loading || grabando || !puedeEnviarMensaje)}
                           disabled={loading || grabando || !puedeEnviarMensaje}
-                          className="py-2 bg-[#ed8936] hover:bg-[#dd6b20] text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation text-sm"
+                          className="py-2 bg-[#A04A2F] hover:bg-[#8a3f28] text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation text-sm"
                         >
                           {loading ? '…' : 'Enviar'}
                         </button>

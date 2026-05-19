@@ -46,7 +46,7 @@ function linkClass(active: boolean, compact: boolean): string {
   return [
     size,
     'shrink-0 transition-colors',
-    active ? 'font-medium text-[#ed8936]' : 'text-gray-200 hover:text-white',
+    active ? 'font-medium text-[#A04A2F]' : 'text-zinc-800 hover:text-zinc-900',
   ].join(' ');
 }
 
@@ -90,15 +90,15 @@ function NavMasDropdown({
         className={[
           'inline-flex items-center gap-0.5 rounded-lg border px-2 py-1.5 sm:px-2.5 sm:py-1.5 text-xs sm:text-sm transition-colors touch-manipulation',
           open || activeInMore
-            ? 'border-[#ed8936]/55 bg-[#ed8936]/15 text-[#f6ad55]'
-            : 'border-white/15 text-white/85 hover:bg-white/10',
+            ? 'border-[#A04A2F]/55 bg-[#A04A2F]/15 text-[#c97c5a]'
+            : 'border-zinc-400/40 text-zinc-800 hover:bg-zinc-900/5',
         ].join(' ')}
       >
         Más <span aria-hidden>▾</span>
       </button>
       {open ? (
         <div
-          className="absolute right-0 top-full z-[130] mt-1 min-w-[11rem] rounded-lg border border-white/10 bg-[#111827] py-1 shadow-xl"
+          className="absolute right-0 top-full z-[130] mt-1 min-w-[11rem] rounded-lg border border-white/10 bg-[#E5DFD0] py-1 shadow-xl"
           role="menu"
         >
           {moreItems.map((item) => {
@@ -110,7 +110,7 @@ function NavMasDropdown({
                 role="menuitem"
                 className={[
                   'block px-3 py-2 text-sm transition-colors',
-                  isActive ? 'bg-[#ed8936]/15 font-medium text-[#f6ad55]' : 'text-gray-200 hover:bg-white/10 hover:text-white',
+                  isActive ? 'bg-[#A04A2F]/15 font-medium text-[#A04A2F]' : 'text-zinc-800 hover:bg-zinc-900/5 hover:text-zinc-900',
                 ].join(' ')}
                 onClick={() => {
                   setOpen(false);
@@ -148,19 +148,19 @@ export default function DashboardMainNav({
   const closeMobile = () => setMenuMovilAbierto(false);
 
   const agenteBtnClassCompact =
-    'inline-flex shrink-0 items-center px-3 py-1.5 sm:px-3.5 sm:py-1.5 text-xs sm:text-sm font-medium text-[#ed8936] bg-transparent border border-[#ed8936] rounded-lg hover:bg-[#ed8936] hover:text-white transition-colors';
+    'inline-flex shrink-0 items-center px-3 py-1.5 sm:px-3.5 sm:py-1.5 text-xs sm:text-sm font-medium text-[#A04A2F] bg-transparent border border-[#A04A2F] rounded-lg hover:bg-[#A04A2F] hover:text-white transition-colors';
   const agenteBtnClassWide =
-    'inline-flex shrink-0 items-center px-3 py-1.5 2xl:px-4 2xl:py-2 text-xs 2xl:text-sm font-medium text-[#ed8936] bg-transparent border border-[#ed8936] rounded-lg hover:bg-[#ed8936] hover:text-white transition-colors';
+    'inline-flex shrink-0 items-center px-3 py-1.5 2xl:px-4 2xl:py-2 text-xs 2xl:text-sm font-medium text-[#A04A2F] bg-transparent border border-[#A04A2F] rounded-lg hover:bg-[#A04A2F] hover:text-white transition-colors';
 
   return (
-    <div className="border-b border-white/10 bg-[#0f172a]/95 backdrop-blur">
+    <div className="border-b border-white/10 bg-[#EFEADF]/95 backdrop-blur">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center gap-3 min-w-0">
         {brand}
         {betweenBrandAndMenu ?? null}
         <button
           type="button"
           onClick={() => setMenuMovilAbierto((v) => !v)}
-          className="md:hidden inline-flex items-center justify-center w-10 h-10 shrink-0 rounded-lg border border-white/20 text-white hover:bg-white/10 transition-colors ml-auto"
+          className="md:hidden inline-flex items-center justify-center w-10 h-10 shrink-0 rounded-lg border border-zinc-400/40 text-zinc-800 hover:bg-zinc-900/5 transition-colors ml-auto"
           aria-label="Abrir menú"
         >
           ☰
@@ -217,18 +217,18 @@ export default function DashboardMainNav({
 
       {menuMovilAbierto ? (
         <div className="md:hidden max-w-7xl mx-auto px-6 pb-4">
-          <div className="bg-[#111827] border border-white/10 rounded-xl p-4 flex flex-col gap-3">
+          <div className="bg-[#E5DFD0] border border-white/10 rounded-xl p-4 flex flex-col gap-3">
             {NAV_ITEMS.map((item) => {
               const isActive = active === item.key;
               return isActive ? (
-                <span key={item.key} className="text-sm font-medium text-[#ed8936]">
+                <span key={item.key} className="text-sm font-medium text-[#A04A2F]">
                   {item.label}
                 </span>
               ) : (
                 <Link
                   key={item.key}
                   href={item.href}
-                  className="text-sm text-gray-200 hover:text-white"
+                  className="text-sm text-zinc-800 hover:text-zinc-900"
                   onClick={closeMobile}
                 >
                   {item.label}
@@ -236,7 +236,7 @@ export default function DashboardMainNav({
               );
             })}
             <div onClick={closeMobile}>
-              <ToggleAgenteNavButton className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-[#ed8936] bg-transparent border border-[#ed8936] rounded-lg hover:bg-[#ed8936] hover:text-white transition-colors" />
+              <ToggleAgenteNavButton className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-[#A04A2F] bg-transparent border border-[#A04A2F] rounded-lg hover:bg-[#A04A2F] hover:text-white transition-colors" />
             </div>
             {mobileDrawerFooter}
           </div>

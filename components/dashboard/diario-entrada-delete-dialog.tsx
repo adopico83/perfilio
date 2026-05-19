@@ -28,10 +28,10 @@ export default function DiarioEntradaDeleteDialog({
         aria-modal="true"
         aria-labelledby="diario-delete-title"
         aria-describedby="diario-delete-desc"
-        className="w-full max-w-md rounded-xl border border-white/15 bg-[#1a365d] shadow-xl p-5 text-white"
+        className="w-full max-w-md rounded-xl border border-white/15 bg-[#E5DFD0] shadow-xl p-5 text-white"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 id="diario-delete-title" className="text-lg font-semibold text-[#ed8936]">
+        <h2 id="diario-delete-title" className="text-lg font-semibold text-[#A04A2F]">
           Eliminar entrada
         </h2>
         <p id="diario-delete-desc" className="mt-3 text-sm text-white/85 leading-relaxed">
