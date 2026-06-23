@@ -1,37 +1,12 @@
 import type OpenAI from 'openai';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { normalizeGastoCategoria } from '@/lib/gastos-categoria';
+import { clienteDesdeObraSiAplica, resolveClienteIdOpcional } from '@/lib/agente/modules/obras-clientes';
 import {
   mensajeObrasAmbiguas,
   resolverObraDocumentoAgente,
   type Obra,
 } from '@/lib/obras-context';
-
-/** Cliente de la obra (JOIN clientes) para heredar en documentos cuando no hay cliente_id explícito. */
-async function clienteDesdeObraSiAplica(
-  supabase: SupabaseClient,
-  businessId: string,
-  obraId: string
-): Promise<{ cliente_id: string | null; cliente_nombre: string | null }> {
-  const { data, error } = await supabase
-    .from('obras')
-    .select('cliente_id, clientes ( nombre )')
-    .eq('id', obraId)
-    .eq('business_id', businessId)
-    .maybeSingle();
-  if (error || !data) return { cliente_id: null, cliente_nombre: null };
-  const row = data as {
-    cliente_id: string | null;
-    clientes?: { nombre?: string | null } | null;
-  };
-  const cid = row.cliente_id ?? null;
-  if (!cid) return { cliente_id: null, cliente_nombre: null };
-  const cn =
-    row.clientes && typeof row.clientes === 'object'
-      ? String((row.clientes as { nombre?: string | null }).nombre ?? '').trim() || null
-      : null;
-  return { cliente_id: cid, cliente_nombre: cn };
-}
 
 export const GASTOS_HANDLED_TOOLS = new Set([
   'registrar_gasto_ticket',
@@ -253,22 +228,6 @@ export async function handleGastosAgent(
   void userId;
   void _openai;
   const mensajeTrim = ctx.mensajeTrim ?? '';
-
-  const resolveClienteIdOpcional = async (
-    raw: unknown
-  ): Promise<{ ok: true; id: string | null } | { ok: false; error: string }> => {
-    if (raw == null || !String(raw).trim()) return { ok: true, id: null };
-    const cid = String(raw).trim();
-    const { data: row, error: e0 } = await supabase
-      .from('clientes')
-      .select('id')
-      .eq('id', cid)
-      .eq('business_id', businessId)
-      .maybeSingle();
-    if (e0) return { ok: false, error: e0.message };
-    if (!row?.id) return { ok: false, error: 'cliente_id no válido para este negocio' };
-    return { ok: true, id: cid };
-  };
 
   switch (toolName) {
     case 'eliminar_gasto': {
@@ -607,7 +566,7 @@ export async function handleGastosAgent(
         return { error: 'business_id es requerido' };
       }
 
-      const crGasto = await resolveClienteIdOpcional(toolArgs.cliente_id);
+      const crGasto = await resolveClienteIdOpcional(supabase, businessId, toolArgs.cliente_id);
       if (!crGasto.ok) return { error: crGasto.error };
 
       let explicitObraGasto =

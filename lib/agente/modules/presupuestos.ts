@@ -1,5 +1,6 @@
 import type OpenAI from 'openai';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { clienteDesdeObraSiAplica, resolveClienteIdOpcional } from '@/lib/agente/modules/obras-clientes';
 import { resolverObraDocumentoAgente } from '@/lib/obras-context';
 
 const ESTADOS_DOC = ['pendiente', 'aceptado', 'rechazado', 'facturado', 'pagado'] as const;
@@ -37,49 +38,6 @@ function fmtImporteLinea(n: number): string {
 
 function fmtCantidadLinea(n: number): string {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 4 });
-}
-
-async function clienteDesdeObraSiAplica(
-  supabase: SupabaseClient,
-  businessId: string,
-  obraId: string
-): Promise<{ cliente_id: string | null; cliente_nombre: string | null }> {
-  const { data, error } = await supabase
-    .from('obras')
-    .select('cliente_id, clientes ( nombre )')
-    .eq('id', obraId)
-    .eq('business_id', businessId)
-    .maybeSingle();
-  if (error || !data) return { cliente_id: null, cliente_nombre: null };
-  const row = data as {
-    cliente_id: string | null;
-    clientes?: { nombre?: string | null } | null;
-  };
-  const cid = row.cliente_id ?? null;
-  if (!cid) return { cliente_id: null, cliente_nombre: null };
-  const cn =
-    row.clientes && typeof row.clientes === 'object'
-      ? String((row.clientes as { nombre?: string | null }).nombre ?? '').trim() || null
-      : null;
-  return { cliente_id: cid, cliente_nombre: cn };
-}
-
-async function resolveClienteIdOpcional(
-  supabase: SupabaseClient,
-  businessId: string,
-  raw: unknown
-): Promise<{ ok: true; id: string | null } | { ok: false; error: string }> {
-  if (raw == null || !String(raw).trim()) return { ok: true, id: null };
-  const cid = String(raw).trim();
-  const { data: row, error: e0 } = await supabase
-    .from('clientes')
-    .select('id')
-    .eq('id', cid)
-    .eq('business_id', businessId)
-    .maybeSingle();
-  if (e0) return { ok: false, error: e0.message };
-  if (!row?.id) return { ok: false, error: 'cliente_id no válido para este negocio' };
-  return { ok: true, id: cid };
 }
 
 async function buscarClientePorNombreCaseInsensitive(
