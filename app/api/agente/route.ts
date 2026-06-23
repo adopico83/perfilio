@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
-import { getGmailAccessTokenForUser } from '@/lib/gmail/get-access-token';
+import {
+  capturarEmailPendiente,
+  handleEnviarEmail,
+  handleLeerEmailsRecientes,
+} from '@/lib/agente/modules/correo';
 import {
   diasDesdeFechaHasta,
   hoyYmdEnZona,
@@ -2231,15 +2235,6 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
 
     const firstMessage = completion.choices[0]?.message;
 
-    const getGmailAccessToken = async () => {
-      if (!authUser?.id) return { error: 'No hay usuario autenticado para Gmail' } as const;
-      const r = await getGmailAccessTokenForUser(authUser.id);
-      if ('error' in r) {
-        return { error: r.error } as const;
-      }
-      return { accessToken: r.accessToken } as const;
-    };
-
     const runTool = async (toolName: string, toolArgs: Record<string, unknown>) => {
       const resolveClienteIdOpcional = async (
         raw: unknown
@@ -3707,75 +3702,10 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
             })),
           };
         }
-        case 'leer_emails_recientes': {
-          const tokenResult = await getGmailAccessToken();
-          if ('error' in tokenResult) return { error: tokenResult.error };
-          const accessToken = tokenResult.accessToken;
-
-          const listRes = await fetch(
-            'https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=5&labelIds=INBOX',
-            {
-              headers: { Authorization: `Bearer ${accessToken}` },
-            }
-          );
-
-          if (!listRes.ok) {
-            return { error: 'No se pudieron leer emails recientes de Gmail' };
-          }
-
-          const listJson = (await listRes.json()) as {
-            messages?: Array<{ id: string }>;
-          };
-
-          const msgIds = listJson.messages ?? [];
-          const items: Array<{ remitente: string | null; asunto: string | null; resumen: string | null }> = [];
-
-          for (const msg of msgIds) {
-            const msgRes = await fetch(
-              `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=full`,
-              {
-                headers: { Authorization: `Bearer ${accessToken}` },
-              }
-            );
-            if (!msgRes.ok) continue;
-
-            const msgJson = (await msgRes.json()) as {
-              snippet?: string;
-              payload?: { headers?: Array<{ name?: string; value?: string }> };
-            };
-
-            const headers = msgJson.payload?.headers ?? [];
-            const from =
-              headers.find((h) => (h.name ?? '').toLowerCase() === 'from')?.value ?? null;
-            const subject =
-              headers.find((h) => (h.name ?? '').toLowerCase() === 'subject')?.value ??
-              null;
-
-            items.push({
-              remitente: from,
-              asunto: subject,
-              resumen: msgJson.snippet ?? null,
-            });
-          }
-
-          return { items };
-        }
-        case 'enviar_email': {
-          const destinatario = String(toolArgs.destinatario ?? '').trim();
-          const asunto = String(toolArgs.asunto ?? '').trim();
-          const cuerpo = String(toolArgs.cuerpo ?? '').trim();
-
-          if (!destinatario || !asunto || !cuerpo) {
-            return { error: 'Faltan parámetros obligatorios para enviar email' };
-          }
-
-          return {
-            tipo: 'email_pendiente_aprobacion',
-            para: destinatario,
-            asunto,
-            cuerpo,
-          };
-        }
+        case 'leer_emails_recientes':
+          return handleLeerEmailsRecientes(toolArgs, authUser?.id);
+        case 'enviar_email':
+          return handleEnviarEmail(toolArgs);
         case 'calcular_medicion': {
           return calcularMedicionObra(toolArgs);
         }
@@ -4661,24 +4591,6 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
       canvasParaCliente = { tipo, titulo, datos };
     };
 
-    const capturarEmailPendiente = (toolResult: unknown) => {
-      if (!toolResult || typeof toolResult !== 'object') return;
-      const o = toolResult as Record<string, unknown>;
-      if (o.tipo !== 'email_pendiente_aprobacion') return;
-      if (
-        typeof o.para !== 'string' ||
-        typeof o.asunto !== 'string' ||
-        typeof o.cuerpo !== 'string'
-      ) {
-        return;
-      }
-      emailPendienteParaCliente = {
-        para: o.para,
-        asunto: o.asunto,
-        cuerpo: o.cuerpo,
-      };
-    };
-
     const capturarObraFicha = (toolResult: unknown) => {
       if (!toolResult || typeof toolResult !== 'object') return;
       const o = toolResult as Record<string, unknown>;
@@ -4810,7 +4722,8 @@ El campo args debe ser un objeto con los parámetros de cada herramienta.`;
               };
             }
             console.log('[TOOL RESULT]', step.tool, JSON.stringify(toolResult));
-            capturarEmailPendiente(toolResult);
+            const emailCapturado = capturarEmailPendiente(toolResult);
+            if (emailCapturado) emailPendienteParaCliente = emailCapturado;
             capturarCanvas(toolResult);
             capturarObraFicha(toolResult);
             toolSummaries.push(`${step.tool}: ${JSON.stringify(toolResult)}`);
