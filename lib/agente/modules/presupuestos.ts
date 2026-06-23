@@ -1,15 +1,8 @@
 import type OpenAI from 'openai';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { parseEstadoDoc } from '@/lib/agente/modules/documentos';
 import { clienteDesdeObraSiAplica, resolveClienteIdOpcional } from '@/lib/agente/modules/obras-clientes';
 import { resolverObraDocumentoAgente } from '@/lib/obras-context';
-
-const ESTADOS_DOC = ['pendiente', 'aceptado', 'rechazado', 'facturado', 'pagado'] as const;
-type EstadoDoc = (typeof ESTADOS_DOC)[number];
-
-function parseEstadoDoc(raw: unknown): EstadoDoc | null {
-  const s = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
-  return (ESTADOS_DOC as readonly string[]).includes(s) ? (s as EstadoDoc) : null;
-}
 
 function escapeIlike(s: string): string {
   return s.replace(/[%_]/g, '');
