@@ -3,8 +3,9 @@ import OpenAI from 'openai';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import {
   capturarEmailPendiente,
-  handleEnviarEmail,
-  handleLeerEmailsRecientes,
+  CORREO_AGENT_TOOLS,
+  CORREO_HANDLED_TOOLS,
+  handleCorreoAgent,
 } from '@/lib/agente/modules/correo';
 import { enriquecerTextoConMaps, generarLinkMaps } from '@/lib/maps';
 import {
@@ -33,6 +34,7 @@ import {
 } from '@/lib/agente/modules/operarios';
 import {
   DIARIO_AGENT_SYSTEM_PROMPT,
+  DIARIO_AGENT_TOOLS,
   DIARIO_HANDLED_TOOLS,
   handleDiario,
 } from '@/lib/agente/modules/diario';
@@ -43,6 +45,7 @@ import {
   PRESUPUESTOS_HANDLED_TOOLS,
 } from '@/lib/agente/modules/presupuestos';
 import {
+  AGENDA_AGENT_TOOLS,
   AGENDA_AGENT_SYSTEM_PROMPT,
   AGENDA_HANDLED_TOOLS,
   handleAgenda,
@@ -65,6 +68,15 @@ import {
   capturarObraFicha,
   handleObrasClientesAgent,
 } from '@/lib/agente/modules/obras-clientes';
+import {
+  CANVAS_AGENT_TOOLS,
+  handleMostrarVistaVisual,
+  normalizarDatosCanvasVista,
+} from '@/lib/agente/modules/canvas';
+import {
+  CALCULO_AGENT_TOOLS,
+  handleCalcularMedicion,
+} from '@/lib/agente/modules/calculo';
 import { applyPerfilioGuardrails, type PlannedTool } from '@/lib/agente/guardrails';
 import { extractDiarioObraObjectPath } from '@/lib/diario-obra';
 
@@ -95,24 +107,6 @@ async function assertUserCanAccessBusiness(
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
-
-/** El modelo a veces envía un objeto o string JSON en lugar de un array; sin esto capturarCanvas no rellena canvas. */
-function normalizarDatosCanvasVista(datos: unknown): unknown[] {
-  if (Array.isArray(datos)) return datos;
-  if (datos && typeof datos === 'object') return [datos];
-  if (typeof datos === 'string') {
-    const s = datos.trim();
-    if (!s) return [];
-    try {
-      const p = JSON.parse(s) as unknown;
-      if (Array.isArray(p)) return p;
-      if (p && typeof p === 'object') return [p];
-    } catch {
-      return [];
-    }
-  }
-  return [];
-}
 
 /** YYYY-MM-DD del instante dado en la zona horaria indicada (p. ej. Europa/Madrid). */
 function formatYmdInTimeZone(date: Date, timeZone: string): string {
@@ -194,171 +188,6 @@ function normalizarImagenVision(
   }
 
   return `data:${mime};base64,${b64}`;
-}
-
-const TIPOS_MEDICION = ['superficie', 'volumen', 'lineal', 'perimetro'] as const;
-type TipoMedicion = (typeof TIPOS_MEDICION)[number];
-
-/** Convierte dimensiones del usuario a metros y calcula totales en m², m³ o ml. */
-function calcularMedicionObra(toolArgs: Record<string, unknown>):
-  | { error: string }
-  | {
-      tipo: TipoMedicion;
-      total: number;
-      unidad: 'm²' | 'm³' | 'ml';
-      desglose: string[];
-      descripcion?: string;
-    } {
-  const tipoRaw = String(toolArgs.tipo ?? '').trim().toLowerCase();
-  if (!(TIPOS_MEDICION as readonly string[]).includes(tipoRaw)) {
-    return {
-      error:
-        'tipo inválido. Usa: superficie, volumen, lineal o perimetro',
-    };
-  }
-  const tipo = tipoRaw as TipoMedicion;
-
-  const unidadEntrada =
-    toolArgs.unidad === undefined || toolArgs.unidad === null
-      ? 'm'
-      : String(toolArgs.unidad).trim().toLowerCase();
-  if (unidadEntrada !== 'm' && unidadEntrada !== 'cm') {
-    return { error: 'unidad debe ser "m" o "cm"' };
-  }
-  const factorAMetros = unidadEntrada === 'cm' ? 0.01 : 1;
-
-  const dimensionesRaw = toolArgs.dimensiones;
-  if (!Array.isArray(dimensionesRaw) || dimensionesRaw.length === 0) {
-    return { error: 'dimensiones debe ser un array con al menos un elemento' };
-  }
-
-  type Dim = { largo: number; ancho: number; alto?: number };
-  const dimensiones: Dim[] = [];
-  for (let idx = 0; idx < dimensionesRaw.length; idx++) {
-    const d = dimensionesRaw[idx];
-    if (!d || typeof d !== 'object') {
-      return { error: `dimensiones[${idx}] debe ser un objeto con largo y ancho` };
-    }
-    const o = d as Record<string, unknown>;
-    const largo = Number(o.largo);
-    const ancho = Number(o.ancho);
-    const alto =
-      o.alto !== undefined && o.alto !== null ? Number(o.alto) : undefined;
-    if (!Number.isFinite(largo) || !Number.isFinite(ancho)) {
-      return { error: 'cada dimensión necesita largo y ancho numéricos' };
-    }
-    if (tipo === 'volumen') {
-      if (alto === undefined || !Number.isFinite(alto)) {
-        return { error: 'para volumen cada dimensión necesita largo, ancho y alto' };
-      }
-    }
-    dimensiones.push({ largo, ancho, alto });
-  }
-
-  const huecos: Array<{ cantidad: number; largo: number; ancho: number }> = [];
-  if (toolArgs.huecos !== undefined && toolArgs.huecos !== null) {
-    if (!Array.isArray(toolArgs.huecos)) {
-      return { error: 'huecos debe ser un array de objetos' };
-    }
-    for (let i = 0; i < toolArgs.huecos.length; i++) {
-      const h = toolArgs.huecos[i];
-      if (!h || typeof h !== 'object') {
-        return { error: `huecos[${i}] debe ser un objeto` };
-      }
-      const ho = h as Record<string, unknown>;
-      const cantidad = Number(ho.cantidad);
-      const hl = Number(ho.largo);
-      const ha = Number(ho.ancho);
-      if (!Number.isFinite(cantidad) || !Number.isFinite(hl) || !Number.isFinite(ha)) {
-        return { error: 'cada hueco necesita cantidad, largo y ancho numéricos' };
-      }
-      huecos.push({ cantidad, largo: hl, ancho: ha });
-    }
-  }
-
-  const descripcionStr =
-    toolArgs.descripcion !== undefined && toolArgs.descripcion !== null
-      ? String(toolArgs.descripcion).trim()
-      : '';
-  const descripcion = descripcionStr.length > 0 ? descripcionStr : undefined;
-
-  const L = (n: number) => n * factorAMetros;
-  const desglose: string[] = [];
-  let total = 0;
-
-  const unidadSalida: 'm²' | 'm³' | 'ml' =
-    tipo === 'superficie' ? 'm²' : tipo === 'volumen' ? 'm³' : 'ml';
-
-  if (tipo === 'superficie') {
-    let bruto = 0;
-    dimensiones.forEach((d, i) => {
-      const area = L(d.largo) * L(d.ancho);
-      bruto += area;
-      desglose.push(
-        `Pieza ${i + 1}: ${d.largo} × ${d.ancho} ${unidadEntrada} → ${area.toFixed(6)} m²`
-      );
-    });
-    let restaHuecos = 0;
-    huecos.forEach((h, i) => {
-      const aHueco = L(h.largo) * L(h.ancho) * h.cantidad;
-      restaHuecos += aHueco;
-      desglose.push(
-        `Hueco ${i + 1}: ${h.cantidad} × (${h.largo} × ${h.ancho} ${unidadEntrada}) → ${aHueco.toFixed(6)} m²`
-      );
-    });
-    total = bruto - restaHuecos;
-    desglose.push(`Subtotal superficies: ${bruto.toFixed(6)} m²`);
-    if (restaHuecos > 0) {
-      desglose.push(`Resta huecos: ${restaHuecos.toFixed(6)} m²`);
-    }
-    desglose.push(`Total neto: ${total.toFixed(6)} m²`);
-  } else if (tipo === 'volumen') {
-    dimensiones.forEach((d, i) => {
-      const vol = L(d.largo) * L(d.ancho) * L(d.alto!);
-      total += vol;
-      desglose.push(
-        `Volumen ${i + 1}: ${d.largo} × ${d.ancho} × ${d.alto} ${unidadEntrada} → ${vol.toFixed(6)} m³`
-      );
-    });
-    desglose.push(`Total: ${total.toFixed(6)} m³`);
-  } else if (tipo === 'lineal') {
-    dimensiones.forEach((d, i) => {
-      const len = L(d.largo);
-      total += len;
-      desglose.push(
-        `Tramo ${i + 1}: largo ${d.largo} ${unidadEntrada} → ${len.toFixed(6)} ml`
-      );
-    });
-    desglose.push(`Total lineal: ${total.toFixed(6)} ml`);
-  } else {
-    dimensiones.forEach((d, i) => {
-      const p = 2 * (L(d.largo) + L(d.ancho));
-      total += p;
-      desglose.push(
-        `Rectángulo ${i + 1}: perímetro 2×(${d.largo}+${d.ancho}) ${unidadEntrada} → ${p.toFixed(6)} ml`
-      );
-    });
-    desglose.push(`Total perímetro: ${total.toFixed(6)} ml`);
-  }
-
-  const totalRedondeado = Math.round(total * 1e9) / 1e9;
-
-  const out: {
-    tipo: TipoMedicion;
-    total: number;
-    unidad: 'm²' | 'm³' | 'ml';
-    desglose: string[];
-    descripcion?: string;
-  } = {
-    tipo,
-    total: totalRedondeado,
-    unidad: unidadSalida,
-    desglose,
-  };
-  if (descripcion !== undefined) {
-    out.descripcion = descripcion;
-  }
-  return out;
 }
 
 type AgentIntentCategory =
@@ -872,234 +701,9 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
           },
         },
       },
-      {
-        type: 'function',
-        function: {
-          name: 'leer_emails_recientes',
-          description: 'Últimos 5 emails del inbox: remitente, asunto, resumen del cuerpo.',
-          parameters: {
-            type: 'object',
-            properties: {},
-            additionalProperties: false,
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'enviar_email',
-          description:
-            'Crea borrador de email (para, asunto, cuerpo); el usuario aprueba y envía desde el panel, no se envía solo. No aplica el flujo SDD de presupuestos/facturas.',
-          parameters: {
-            type: 'object',
-            properties: {
-              destinatario: { type: 'string' },
-              asunto: { type: 'string' },
-              cuerpo: { type: 'string' },
-            },
-            required: ['destinatario', 'asunto', 'cuerpo'],
-            additionalProperties: false,
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'obtener_agenda',
-          description:
-            'Eventos del día (fecha YYYY-MM-DD): hora, título, descripción, ubicación. Llamar siempre antes de crear_recordatorio para evitar solapes (1 h de duración por defecto).',
-          parameters: {
-            type: 'object',
-            properties: {
-              fecha: { type: 'string', description: 'Fecha YYYY-MM-DD' },
-            },
-            required: ['fecha'],
-            additionalProperties: false,
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'crear_recordatorio',
-          description:
-            'Crear evento en agenda. Usa fecha_relativa (mañana, lunes, etc.) o fecha YYYY-MM-DD. Si no envías titulo, pasa fecha/fecha_relativa y además tipo+cliente (ej. tipo "Cita", cliente "Mendi") para construir el título. Opcional: telefono/direccion del cliente en la tool para enriquecer aunque el título no coincida con la BD. Tras obtener_agenda del mismo día.',
-          parameters: {
-            type: 'object',
-            properties: {
-              titulo: {
-                type: 'string',
-                description:
-                  'Título del evento. Si no viene, el servidor puede armarlo con tipo + " con " + cliente cuando ambos existan.',
-              },
-              tipo: {
-                type: 'string',
-                description: 'Tipo de evento (ej. Cita, Visita, Reunión) si titulo va implícito',
-              },
-              cliente: {
-                type: 'string',
-                description: 'Nombre del cliente o contacto (alternativa: cliente_nombre)',
-              },
-              cliente_nombre: { type: 'string', description: 'Sinónimo de cliente' },
-              telefono: {
-                type: 'string',
-                description: 'Teléfono del cliente (alternativa: cliente_telefono)',
-              },
-              cliente_telefono: { type: 'string', description: 'Sinónimo de telefono' },
-              direccion: {
-                type: 'string',
-                description: 'Dirección del cliente o cita (alternativa: cliente_direccion)',
-              },
-              cliente_direccion: { type: 'string', description: 'Sinónimo de direccion' },
-              fecha: {
-                type: 'string',
-                description:
-                  'Formato YYYY-MM-DD. Obligatorio si no envías fecha_relativa. Si envías ambos, fecha_relativa tiene prioridad.',
-              },
-              fecha_relativa: {
-                type: 'string',
-                description:
-                  "Usa este campo en lugar de fecha cuando el usuario dice 'mañana', 'pasado mañana', 'el lunes', 'el martes', etc. El backend calculará la fecha exacta. Valores válidos: 'mañana', 'pasado mañana', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'",
-              },
-              hora: { type: 'string', description: 'Formato HH:MM (opcional)' },
-              notas: {
-                type: 'string',
-                description: 'Texto libre del usuario para el campo Notas de la descripción',
-              },
-              duracion_minutos: {
-                type: 'integer',
-                description: 'Duración del evento en minutos (15–1440). Por defecto 60.',
-              },
-              minutos_antelacion: {
-                type: 'integer',
-                description:
-                  'Minutos de antelación con los que avisar antes de la hora del evento. Usa 0 si es un recordatorio simple (llevar algo, hacer una llamada). Usa 30 si es una cita, reunión o visita con otra persona. Usa 60 si el usuario lo pide explícitamente o si implica desplazamiento largo.',
-                default: 0,
-              },
-              solo_vista_previa: {
-                type: 'boolean',
-                description:
-                  'Si true, solo devuelve vista previa (sin insertar). Tras confirmación del usuario, llama de nuevo con false u omítelo.',
-              },
-              description: {
-                type: 'string',
-                description:
-                  'Texto completo del campo description si quieres fijarlo tú (si lo envías no vacío, sustituye la plantilla autogenerada del servidor).',
-              },
-              location: {
-                type: 'string',
-                description:
-                  'Dirección o texto de ubicación para GPS; si lo envías no vacío, sustituye la inferida por obra/cliente.',
-              },
-            },
-            required: [],
-            additionalProperties: false,
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'editar_recordatorio',
-          description:
-            'Actualiza recordatorio por id: título, fecha YYYY-MM-DD y/o hora (al menos un campo).',
-          parameters: {
-            type: 'object',
-            properties: {
-              id: { type: 'string', description: 'UUID del evento en agenda' },
-              titulo: { type: 'string', description: 'Nuevo título' },
-              fecha: { type: 'string', description: 'Nueva fecha YYYY-MM-DD' },
-              hora: { type: 'string', description: 'Nueva hora (texto libre) o vacío para quitar' },
-            },
-            required: ['id'],
-            additionalProperties: false,
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'eliminar_recordatorio',
-          description:
-            'Elimina un recordatorio de la agenda por id. SDD: primero solo_vista_previa true (muestra qué se va a borrar, pendiente_confirmacion); tras confirmación explícita del usuario, misma llamada con el mismo id y solo_vista_previa false u omitido para borrar. Si el usuario ya confirmó con sí/vale/ok, no repitas la vista previa.',
-          parameters: {
-            type: 'object',
-            properties: {
-              id: { type: 'string', description: 'UUID del evento en agenda' },
-              solo_vista_previa: {
-                type: 'boolean',
-                description:
-                  'True: solo muestra vista previa del evento (no borra). False u omitido: ejecuta el borrado con id.',
-              },
-            },
-            required: ['id'],
-            additionalProperties: false,
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'calcular_medicion',
-          description:
-            'Cálculo de obra (m², m³, ml, perímetro). Pasa dimensiones y tipo. PROHIBIDO calcular superficies, volúmenes o totales a mano en texto; usa siempre esta tool.',
-          parameters: {
-            type: 'object',
-            properties: {
-              tipo: {
-                type: 'string',
-                enum: ['superficie', 'volumen', 'lineal', 'perimetro'],
-                description:
-                  'superficie: suma de largo×ancho menos huecos; volumen: suma de largo×ancho×alto; lineal: suma de largos; perimetro: suma de 2×(largo+ancho) por cada rectángulo',
-              },
-              dimensiones: {
-                type: 'array',
-                description:
-                  'Lista de piezas o tramos. Para lineal solo se usa largo de cada objeto.',
-                items: {
-                  type: 'object',
-                  properties: {
-                    largo: { type: 'number' },
-                    ancho: { type: 'number' },
-                    alto: {
-                      type: 'number',
-                      description: 'Obligatorio si tipo es volumen',
-                    },
-                  },
-                  required: ['largo', 'ancho'],
-                  additionalProperties: false,
-                },
-              },
-              huecos: {
-                type: 'array',
-                description:
-                  'Opcional. Solo aplica a superficie: resta cantidad × largo × ancho por cada hueco',
-                items: {
-                  type: 'object',
-                  properties: {
-                    cantidad: { type: 'number' },
-                    largo: { type: 'number' },
-                    ancho: { type: 'number' },
-                  },
-                  required: ['cantidad', 'largo', 'ancho'],
-                  additionalProperties: false,
-                },
-              },
-              unidad: {
-                type: 'string',
-                enum: ['m', 'cm'],
-                description: 'Unidad en la que vienen largo, ancho y alto. Por defecto metros.',
-              },
-              descripcion: {
-                type: 'string',
-                description: 'Opcional. Qué elemento se está midiendo (p. ej. "habitación principal")',
-              },
-            },
-            required: ['tipo', 'dimensiones'],
-            additionalProperties: false,
-          },
-        },
-      },
+      ...CORREO_AGENT_TOOLS,
+      ...AGENDA_AGENT_TOOLS,
+      ...CALCULO_AGENT_TOOLS,
       {
         type: 'function',
         function: {
@@ -1148,70 +752,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
         },
       },
       ...GASTOS_AGENT_TOOLS,
-      {
-        type: 'function',
-        function: {
-          name: 'crear_entrada_diario',
-          description:
-            'Entrada en diario de obra: texto y opcionalmente fotos/vídeos. Obligatorio obra_nombre; el servidor resuelve obra_id. Si el usuario adjuntó imágenes en este mensaje, el servidor las gestiona automáticamente: NO pongas nada en el campo fotos, déjalo sin definir. Para URLs o rutas que el usuario pegue manualmente, usa el array fotos. NO inventes URLs. Ejecuta la tool con el obra_nombre que dio el usuario; no pidas aclarar ambigüedad antes — solo si la tool devuelve mensaje de ambigüedad.',
-          parameters: {
-            type: 'object',
-            properties: {
-              obra_nombre: {
-                type: 'string',
-                description:
-                  "Nombre o identificador de la obra (ej: 'Reforma Calle Mayor', 'Casa García')",
-              },
-              obra_id: {
-                type: 'string',
-                description:
-                  'UUID de la obra (opcional). Si no se indica, se detecta por obra_nombre y el mensaje del usuario.',
-              },
-              obra_direccion: {
-                type: 'string',
-                description: 'Dirección física de la obra',
-              },
-              texto: {
-                type: 'string',
-                description:
-                  'Descripción del trabajo realizado, observaciones, materiales usados, etc.',
-              },
-              fotos: {
-                type: 'array',
-                items: { type: 'string' },
-                description:
-                  'Solo rutas/URLs reales del bucket diario-obra si el usuario las pegó manualmente. NUNCA pongas URLs inventadas ni de ejemplo. Si no tienes rutas reales del bucket, omite este campo completamente (no lo incluyas en el JSON). Si el usuario adjuntó imágenes en este mensaje, el servidor las gestiona automáticamente: NO pongas nada en el campo fotos.',
-              },
-              videos: {
-                type: 'array',
-                items: { type: 'string' },
-                description:
-                  'Solo rutas/URLs reales del bucket para vídeos ya subidos; no inventes enlaces.',
-              },
-            },
-            required: ['obra_nombre'],
-            additionalProperties: false,
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'generar_pdf_diario',
-          description: 'PDF con todas las entradas de una obra (por nombre de obra).',
-          parameters: {
-            type: 'object',
-            properties: {
-              obra_nombre: {
-                type: 'string',
-                description: 'Nombre de la obra cuyo diario se quiere exportar',
-              },
-            },
-            required: ['obra_nombre'],
-            additionalProperties: false,
-          },
-        },
-      },
+      ...DIARIO_AGENT_TOOLS,
       {
         type: 'function',
         function: {
@@ -1258,123 +799,9 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
           },
         },
       },
-      {
-        type: 'function',
-        function: {
-          name: 'eliminar_entrada_diario',
-          description:
-            'Elimina una entrada del diario de obra (diario_obra). Busca por nombre de obra y opcionalmente fecha o texto en la descripción. SDD: solo_vista_previa true primero (resumen o candidatos); tras confirmación, solo_vista_previa false con entrada_id. Elimina también fotos/vídeos del bucket Storage.',
-          parameters: {
-            type: 'object',
-            properties: {
-              obra_nombre: {
-                type: 'string',
-                description: 'Nombre o texto para identificar la obra (p. ej. Reforma Paqui)',
-              },
-              obra_id: { type: 'string', description: 'UUID de la obra si se conoce' },
-              fecha: { type: 'string', description: 'Fecha de la entrada YYYY-MM-DD (opcional)' },
-              texto_fragmento: {
-                type: 'string',
-                description: 'Fragmento del texto de la entrada (opcional, búsqueda aproximada)',
-              },
-              entrada_id: { type: 'string', description: 'UUID de la fila diario_obra a eliminar' },
-              solo_vista_previa: {
-                type: 'boolean',
-                description:
-                  'True: solo muestra vista previa o lista de candidatos. False u omitido: ejecuta el borrado con entrada_id.',
-              },
-            },
-            additionalProperties: false,
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'eliminar_evento_agenda',
-          description:
-            'Elimina un evento de agenda buscando por título aproximado y/o fecha. SDD: solo_vista_previa true primero; luego solo_vista_previa false con evento_id. No confundir con eliminar_recordatorio por id si solo se conoce el UUID.',
-          parameters: {
-            type: 'object',
-            properties: {
-              titulo_fragmento: { type: 'string', description: 'Texto del título del recordatorio (búsqueda aproximada)' },
-              fecha: { type: 'string', description: 'Fecha YYYY-MM-DD (opcional)' },
-              evento_id: { type: 'string', description: 'UUID del evento en agenda' },
-              solo_vista_previa: {
-                type: 'boolean',
-                description:
-                  'True: solo muestra vista previa o candidatos. False u omitido: borra con evento_id.',
-              },
-            },
-            additionalProperties: false,
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'modificar_evento_agenda',
-          description:
-            'Modifica un evento de agenda (título, fecha, hora). Busca por ID o por título/fecha. SDD: solo_vista_previa true primero (resumen del cambio); luego solo_vista_previa false con evento_id.',
-          parameters: {
-            type: 'object',
-            properties: {
-              evento_id: { type: 'string', description: 'UUID del evento' },
-              titulo_fragmento: { type: 'string', description: 'Para buscar si no hay evento_id' },
-              fecha: { type: 'string', description: 'Fecha YYYY-MM-DD para buscar' },
-              nuevo_titulo: { type: 'string', description: 'Nuevo título' },
-              nueva_fecha: { type: 'string', description: 'Nueva fecha YYYY-MM-DD' },
-              nueva_hora: { type: 'string', description: 'Nueva hora (texto libre) o vacío para quitar' },
-              solo_vista_previa: {
-                type: 'boolean',
-                description:
-                  'True: solo muestra vista previa o candidatos. False u omitido: aplica cambios con evento_id.',
-              },
-            },
-            additionalProperties: false,
-          },
-        },
-      },
       ...OPERARIOS_AGENT_TOOLS,
       ...PRESUPUESTOS_AGENT_TOOLS,
-      {
-        type: 'function',
-        function: {
-          name: 'mostrar_vista_visual',
-          description:
-            'Panel modal (tabla/canvas). Orden obligatorio: primero ejecuta la tool de listado que corresponda (listar_* o leer_emails_recientes); luego llama a esta con el array completo en datos (p. ej. items). No abras canvas sin datos ni sin petición explícita de vista/tabla/panel. Tras abrir, mensaje breve.',
-          parameters: {
-            type: 'object',
-            properties: {
-              tipo: {
-                type: 'string',
-                enum: [
-                  'presupuestos',
-                  'facturas',
-                  'albaranes',
-                  'clientes',
-                  'emails',
-                  'gastos',
-                  'diario',
-                ],
-                description: 'Tipo de datos a mostrar',
-              },
-              titulo: {
-                type: 'string',
-                description: "Título del panel, ej: 'Últimos presupuestos', 'Emails recientes'",
-              },
-              datos: {
-                type: 'array',
-                description:
-                  'Array completo de filas obtenido en la respuesta de la tool de listado previa (p. ej. todos los elementos de "items"); no debe estar vacío.',
-                items: { type: 'object' },
-              },
-            },
-            required: ['tipo', 'titulo', 'datos'],
-            additionalProperties: false,
-          },
-        },
-      },
+      ...CANVAS_AGENT_TOOLS,
     ];
 
     const textoUsuario =
@@ -1590,6 +1017,18 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
         );
       }
 
+      if (CORREO_HANDLED_TOOLS.has(toolName)) {
+        return handleCorreoAgent(toolName, toolArgs, authUser?.id);
+      }
+
+      if (toolName === 'calcular_medicion') {
+        return handleCalcularMedicion(toolArgs);
+      }
+
+      if (toolName === 'mostrar_vista_visual') {
+        return handleMostrarVistaVisual(toolArgs, bidRun, supabase, runTool);
+      }
+
       switch (toolName) {
         case 'obtener_mensajes_pendientes': {
           const { data: convRows, error: convError } = await supabase
@@ -1646,13 +1085,6 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
               pendiente_de_aprobacion: !r.approved_at && !r.rejected_at,
             })),
           };
-        }
-        case 'leer_emails_recientes':
-          return handleLeerEmailsRecientes(toolArgs, authUser?.id);
-        case 'enviar_email':
-          return handleEnviarEmail(toolArgs);
-        case 'calcular_medicion': {
-          return calcularMedicionObra(toolArgs);
         }
         case 'get_directions': {
           const direccion = String(toolArgs.direccion ?? '').trim();
@@ -1730,210 +1162,6 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
           return {
             ok: true,
             mensaje: r.deleted ? 'Entrada eliminada.' : 'No había entrada con esa clave.',
-          };
-        }
-        case 'mostrar_vista_visual': {
-          const tipoRaw = String(toolArgs.tipo ?? '').trim();
-          const titulo = String(toolArgs.titulo ?? '').trim();
-          const datosRaw = toolArgs.datos;
-          const allowed = new Set([
-            'presupuestos',
-            'facturas',
-            'albaranes',
-            'clientes',
-            'emails',
-            'gastos',
-            'diario',
-          ]);
-          if (!allowed.has(tipoRaw)) {
-            return {
-              error: `tipo inválido; use uno de: ${[...allowed].join(', ')}`,
-            };
-          }
-          if (!titulo) {
-            return { error: 'titulo es obligatorio' };
-          }
-          let datosNorm = normalizarDatosCanvasVista(datosRaw);
-
-          const extraerItems = (r: unknown): unknown[] | null => {
-            if (!r || typeof r !== 'object') return null;
-            const o = r as Record<string, unknown>;
-            if (Array.isArray(o.items)) return o.items;
-            return null;
-          };
-
-          if (datosNorm.length === 0) {
-            switch (tipoRaw) {
-              case 'presupuestos': {
-                const r = await runTool('listar_presupuestos', {});
-                const items = extraerItems(r);
-                if (items) datosNorm = items;
-                else if (r && typeof r === 'object' && 'error' in r) {
-                  console.error(
-                    '[agente] mostrar_vista_visual fallback presupuestos:',
-                    (r as { error: string }).error
-                  );
-                }
-                break;
-              }
-              case 'facturas': {
-                const r = await runTool('listar_facturas', {});
-                const items = extraerItems(r);
-                if (items) datosNorm = items;
-                else if (r && typeof r === 'object' && 'error' in r) {
-                  console.error(
-                    '[agente] mostrar_vista_visual fallback facturas:',
-                    (r as { error: string }).error
-                  );
-                }
-                break;
-              }
-              case 'albaranes': {
-                const r = await runTool('listar_albaranes', {});
-                const items = extraerItems(r);
-                if (items) datosNorm = items;
-                else if (r && typeof r === 'object' && 'error' in r) {
-                  console.error(
-                    '[agente] mostrar_vista_visual fallback albaranes:',
-                    (r as { error: string }).error
-                  );
-                }
-                break;
-              }
-              case 'clientes': {
-                const bidC =
-                  typeof business_id === 'string'
-                    ? business_id
-                    : String(business_id ?? '');
-                if (bidC) {
-                  const { data: clist, error: errCl } = await supabase
-                    .from('clientes')
-                    .select('id, nombre, telefono, email')
-                    .eq('business_id', bidC)
-                    .order('nombre', { ascending: true })
-                    .limit(50);
-                  if (errCl) {
-                    console.error('[agente] mostrar_vista_visual fallback clientes:', errCl);
-                  } else {
-                    const rowsC = clist ?? [];
-                    const idsC = rowsC.map((row: { id: string }) => row.id);
-                    if (idsC.length === 0) {
-                      datosNorm = [];
-                    } else {
-                      const [pC, fC, aC] = await Promise.all([
-                        supabase
-                          .from('presupuestos')
-                          .select('cliente_id')
-                          .eq('business_id', bidC)
-                          .in('cliente_id', idsC),
-                        supabase
-                          .from('facturas')
-                          .select('cliente_id')
-                          .eq('business_id', bidC)
-                          .in('cliente_id', idsC),
-                        supabase
-                          .from('albaranes')
-                          .select('cliente_id')
-                          .eq('business_id', bidC)
-                          .in('cliente_id', idsC),
-                      ]);
-                      const cnt = (rows: { cliente_id: string | null }[] | null) => {
-                        const m = new Map<string, number>();
-                        for (const id0 of idsC) m.set(id0, 0);
-                        for (const row of rows ?? []) {
-                          const cid = row.cliente_id;
-                          if (!cid) continue;
-                          m.set(cid, (m.get(cid) ?? 0) + 1);
-                        }
-                        return m;
-                      };
-                      const mPc = cnt(pC.data as { cliente_id: string | null }[] | null);
-                      const mFc = cnt(fC.data as { cliente_id: string | null }[] | null);
-                      const mAc = cnt(aC.data as { cliente_id: string | null }[] | null);
-                      datosNorm = rowsC.map(
-                        (row: {
-                          id: string;
-                          nombre: string;
-                          telefono: string | null;
-                          email: string | null;
-                        }) => ({
-                          id: row.id,
-                          nombre: row.nombre,
-                          telefono: row.telefono,
-                          email: row.email,
-                          num_documentos:
-                            (mPc.get(row.id) ?? 0) +
-                            (mFc.get(row.id) ?? 0) +
-                            (mAc.get(row.id) ?? 0),
-                        })
-                      );
-                    }
-                  }
-                }
-                break;
-              }
-              case 'emails': {
-                const r = await runTool('leer_emails_recientes', {});
-                const items = extraerItems(r);
-                if (items) datosNorm = items;
-                else if (r && typeof r === 'object' && 'error' in r) {
-                  console.error(
-                    '[agente] mostrar_vista_visual fallback emails:',
-                    (r as { error: string }).error
-                  );
-                }
-                break;
-              }
-              case 'gastos': {
-                const bid =
-                  typeof business_id === 'string'
-                    ? business_id
-                    : String(business_id ?? '');
-                if (!bid) break;
-                const { data, error } = await supabase
-                  .from('gastos')
-                  .select('id, proveedor, importe, iva, importe_total, fecha, descripcion')
-                  .eq('business_id', bid)
-                  .order('fecha', { ascending: false })
-                  .limit(10);
-                if (error) {
-                  console.error('[agente] mostrar_vista_visual fallback gastos:', error);
-                } else {
-                  datosNorm = data ?? [];
-                }
-                break;
-              }
-              case 'diario': {
-                const bid =
-                  typeof business_id === 'string'
-                    ? business_id
-                    : String(business_id ?? '');
-                if (!bid) break;
-                const { data, error } = await supabase
-                  .from('diario_obra')
-                  .select(
-                    'id, obra_nombre, obra_direccion, texto, fotos, videos, fecha, created_at'
-                  )
-                  .eq('business_id', bid)
-                  .order('fecha', { ascending: false })
-                  .limit(10);
-                if (error) {
-                  console.error('[agente] mostrar_vista_visual fallback diario:', error);
-                } else {
-                  datosNorm = data ?? [];
-                }
-                break;
-              }
-              default:
-                break;
-            }
-          }
-
-          return {
-            accion: 'abrir_canvas',
-            tipo: tipoRaw,
-            titulo,
-            datos: datosNorm,
           };
         }
         case 'registrar_jornada': {

@@ -471,7 +471,7 @@ export const AGENDA_HANDLED_TOOLS = new Set([
   'modificar_evento_agenda',
 ]);
 
-export const AGENDA_AGENT_TOOLS = [
+export const AGENDA_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: 'function' as const,
     function: {
@@ -582,7 +582,78 @@ export const AGENDA_AGENT_TOOLS = [
       },
     },
   },
-] as const;
+  {
+    type: 'function' as const,
+    function: {
+      name: 'eliminar_recordatorio',
+      description:
+        'Elimina un recordatorio de la agenda por id. SDD: primero solo_vista_previa true (muestra qué se va a borrar, pendiente_confirmacion); tras confirmación explícita del usuario, misma llamada con el mismo id y solo_vista_previa false u omitido para borrar. Si el usuario ya confirmó con sí/vale/ok, no repitas la vista previa.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'UUID del evento en agenda' },
+          solo_vista_previa: {
+            type: 'boolean',
+            description:
+              'True: solo muestra vista previa del evento (no borra). False u omitido: ejecuta el borrado con id.',
+          },
+        },
+        required: ['id'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'eliminar_evento_agenda',
+      description:
+        'Elimina un evento de agenda buscando por título aproximado y/o fecha. SDD: solo_vista_previa true primero; luego solo_vista_previa false con evento_id. No confundir con eliminar_recordatorio por id si solo se conoce el UUID.',
+      parameters: {
+        type: 'object',
+        properties: {
+          titulo_fragmento: {
+            type: 'string',
+            description: 'Texto del título del recordatorio (búsqueda aproximada)',
+          },
+          fecha: { type: 'string', description: 'Fecha YYYY-MM-DD (opcional)' },
+          evento_id: { type: 'string', description: 'UUID del evento en agenda' },
+          solo_vista_previa: {
+            type: 'boolean',
+            description:
+              'True: solo muestra vista previa o candidatos. False u omitido: borra con evento_id.',
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'modificar_evento_agenda',
+      description:
+        'Modifica un evento de agenda (título, fecha, hora). Busca por ID o por título/fecha. SDD: solo_vista_previa true primero (resumen del cambio); luego solo_vista_previa false con evento_id.',
+      parameters: {
+        type: 'object',
+        properties: {
+          evento_id: { type: 'string', description: 'UUID del evento' },
+          titulo_fragmento: { type: 'string', description: 'Para buscar si no hay evento_id' },
+          fecha: { type: 'string', description: 'Fecha YYYY-MM-DD para buscar' },
+          nuevo_titulo: { type: 'string', description: 'Nuevo título' },
+          nueva_fecha: { type: 'string', description: 'Nueva fecha YYYY-MM-DD' },
+          nueva_hora: { type: 'string', description: 'Nueva hora (texto libre) o vacío para quitar' },
+          solo_vista_previa: {
+            type: 'boolean',
+            description:
+              'True: solo muestra vista previa o candidatos. False u omitido: aplica cambios con evento_id.',
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+];
 
 export const AGENDA_AGENT_SYSTEM_PROMPT = `Tu nombre es Bicho. Si el usuario te llama por tu nombre al inicio de una petición ('Oye Bicho...', 'Bicho escucha...', 'Bicho añade...', 'Eh Bicho...' o similar), ignora el nombre y ejecuta directamente lo que pide a continuación. No respondas al nombre, no lo confirmes, simplemente actúa.
 

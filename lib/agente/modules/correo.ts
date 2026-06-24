@@ -1,4 +1,40 @@
+import type OpenAI from 'openai';
 import { getGmailAccessTokenForUser } from '@/lib/gmail/get-access-token';
+
+export const CORREO_HANDLED_TOOLS = new Set(['leer_emails_recientes', 'enviar_email']);
+
+export const CORREO_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'leer_emails_recientes',
+      description: 'Últimos 5 emails del inbox: remitente, asunto, resumen del cuerpo.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'enviar_email',
+      description:
+        'Crea borrador de email (para, asunto, cuerpo); el usuario aprueba y envía desde el panel, no se envía solo. No aplica el flujo SDD de presupuestos/facturas.',
+      parameters: {
+        type: 'object',
+        properties: {
+          destinatario: { type: 'string' },
+          asunto: { type: 'string' },
+          cuerpo: { type: 'string' },
+        },
+        required: ['destinatario', 'asunto', 'cuerpo'],
+        additionalProperties: false,
+      },
+    },
+  },
+];
 
 export type EmailPendienteAprobacion = {
   tipo: 'email_pendiente_aprobacion';
@@ -99,6 +135,21 @@ export function handleEnviarEmail(
     asunto,
     cuerpo,
   };
+}
+
+export async function handleCorreoAgent(
+  toolName: string,
+  toolArgs: Record<string, unknown>,
+  authUserId: string | undefined
+): Promise<Record<string, unknown>> {
+  switch (toolName) {
+    case 'leer_emails_recientes':
+      return handleLeerEmailsRecientes(toolArgs, authUserId);
+    case 'enviar_email':
+      return handleEnviarEmail(toolArgs);
+    default:
+      return { error: `Tool de correo no soportada: ${toolName}` };
+  }
 }
 
 export function capturarEmailPendiente(toolResult: unknown): EmailPendienteCliente | null {

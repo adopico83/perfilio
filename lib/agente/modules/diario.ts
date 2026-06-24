@@ -35,6 +35,103 @@ export const DIARIO_HANDLED_TOOLS = new Set([
   'generar_pdf_diario',
 ]);
 
+export const DIARIO_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'crear_entrada_diario',
+      description:
+        'Entrada en diario de obra: texto y opcionalmente fotos/vídeos. Obligatorio obra_nombre; el servidor resuelve obra_id. Si el usuario adjuntó imágenes en este mensaje, el servidor las gestiona automáticamente: NO pongas nada en el campo fotos, déjalo sin definir. Para URLs o rutas que el usuario pegue manualmente, usa el array fotos. NO inventes URLs. Ejecuta la tool con el obra_nombre que dio el usuario; no pidas aclarar ambigüedad antes — solo si la tool devuelve mensaje de ambigüedad.',
+      parameters: {
+        type: 'object',
+        properties: {
+          obra_nombre: {
+            type: 'string',
+            description:
+              "Nombre o identificador de la obra (ej: 'Reforma Calle Mayor', 'Casa García')",
+          },
+          obra_id: {
+            type: 'string',
+            description:
+              'UUID de la obra (opcional). Si no se indica, se detecta por obra_nombre y el mensaje del usuario.',
+          },
+          obra_direccion: {
+            type: 'string',
+            description: 'Dirección física de la obra',
+          },
+          texto: {
+            type: 'string',
+            description:
+              'Descripción del trabajo realizado, observaciones, materiales usados, etc.',
+          },
+          fotos: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Solo rutas/URLs reales del bucket diario-obra si el usuario las pegó manualmente. NUNCA pongas URLs inventadas ni de ejemplo. Si no tienes rutas reales del bucket, omite este campo completamente (no lo incluyas en el JSON). Si el usuario adjuntó imágenes en este mensaje, el servidor las gestiona automáticamente: NO pongas nada en el campo fotos.',
+          },
+          videos: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Solo rutas/URLs reales del bucket para vídeos ya subidos; no inventes enlaces.',
+          },
+        },
+        required: ['obra_nombre'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'generar_pdf_diario',
+      description: 'PDF con todas las entradas de una obra (por nombre de obra).',
+      parameters: {
+        type: 'object',
+        properties: {
+          obra_nombre: {
+            type: 'string',
+            description: 'Nombre de la obra cuyo diario se quiere exportar',
+          },
+        },
+        required: ['obra_nombre'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'eliminar_entrada_diario',
+      description:
+        'Elimina una entrada del diario de obra (diario_obra). Busca por nombre de obra y opcionalmente fecha o texto en la descripción. SDD: solo_vista_previa true primero (resumen o candidatos); tras confirmación, solo_vista_previa false con entrada_id. Elimina también fotos/vídeos del bucket Storage.',
+      parameters: {
+        type: 'object',
+        properties: {
+          obra_nombre: {
+            type: 'string',
+            description: 'Nombre o texto para identificar la obra (p. ej. Reforma Paqui)',
+          },
+          obra_id: { type: 'string', description: 'UUID de la obra si se conoce' },
+          fecha: { type: 'string', description: 'Fecha de la entrada YYYY-MM-DD (opcional)' },
+          texto_fragmento: {
+            type: 'string',
+            description: 'Fragmento del texto de la entrada (opcional, búsqueda aproximada)',
+          },
+          entrada_id: { type: 'string', description: 'UUID de la fila diario_obra a eliminar' },
+          solo_vista_previa: {
+            type: 'boolean',
+            description:
+              'True: solo muestra vista previa o lista de candidatos. False u omitido: ejecuta el borrado con entrada_id.',
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+];
+
 export const DIARIO_AGENT_SYSTEM_PROMPT = `Tu nombre es Bicho. Si el usuario te llama por tu nombre al inicio de una petición ('Oye Bicho...', 'Bicho escucha...', 'Bicho añade...', 'Eh Bicho...' o similar), ignora el nombre y ejecuta directamente lo que pide a continuación. No respondas al nombre, no lo confirmes, simplemente actúa.
 
 ERES EL ESPECIALISTA EN DIARIO DE OBRA DE PERFILIO. TU ÚNICO TRABAJO ES REGISTRAR ENTRADAS EN EL DIARIO.
