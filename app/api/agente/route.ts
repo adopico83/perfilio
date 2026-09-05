@@ -77,7 +77,18 @@ import {
   CALCULO_AGENT_TOOLS,
   handleCalcularMedicion,
 } from '@/lib/agente/modules/calculo';
-import { applyPerfilioGuardrails, type PlannedTool } from '@/lib/agente/guardrails';
+import { applyPerfilioGuardrails } from '@/lib/agente/guardrails';
+import {
+  AGENTE_PROSA_TEMPERATURE,
+  AGENTE_TOOLS_TEMPERATURE,
+  buildToolLoopMessages,
+  idsParaPlanEjecutado,
+  logAgenteTurno,
+  pareceAccionQueRequiereTool,
+  plannedToolsFromAssistantToolCalls,
+  resumirToolResultParaLog,
+  type PlanFuente,
+} from '@/lib/agente/orquestacion';
 import { extractDiarioObraObjectPath } from '@/lib/diario-obra';
 import {
   type AgentIntentCategory,
@@ -638,35 +649,30 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
       }
     }
 
-    let intentCategory: AgentIntentCategory;
-    if (hasBorradorActivo) {
-      intentCategory = 'presupuesto';
-    } else {
-      const ultimoAsistenteRouter = [...historialValido]
-        .reverse()
-        .find((m) => m.role === 'assistant' && m.content.trim().length > 0);
+    const ultimoAsistenteRouter = [...historialValido]
+      .reverse()
+      .find((m) => m.role === 'assistant' && m.content.trim().length > 0);
 
-      const routerMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-        { role: 'system', content: routerSystemContent },
-      ];
-      if (ultimoAsistenteRouter) {
-        routerMessages.push({
-          role: 'assistant',
-          content: ultimoAsistenteRouter.content,
-        });
-      }
-      routerMessages.push({ role: 'user', content: userContent });
-
-      const routerCompletion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: routerMessages,
-        max_tokens: 30,
-        temperature: 0,
+    const routerMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      { role: 'system', content: routerSystemContent },
+    ];
+    if (ultimoAsistenteRouter) {
+      routerMessages.push({
+        role: 'assistant',
+        content: ultimoAsistenteRouter.content,
       });
-
-      const intentRaw = routerCompletion.choices[0]?.message?.content ?? '';
-      intentCategory = parseAgentIntentCategory(intentRaw);
     }
+    routerMessages.push({ role: 'user', content: userContent });
+
+    const routerCompletion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: routerMessages,
+      max_tokens: 30,
+      temperature: 0,
+    });
+
+    const intentRaw = routerCompletion.choices[0]?.message?.content ?? '';
+    const intentCategory: AgentIntentCategory = parseAgentIntentCategory(intentRaw);
     const memoriaNegocioBlockNoPresupuestos =
       intentCategory === 'presupuesto' ? '' : memoriaNegocioBlock;
 
@@ -716,6 +722,14 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
       mensajeLower.includes('cierra')
     );
 
+    const parallelToolCallsOpt =
+      intentCategory === 'presupuesto' ||
+      intentCategory === 'diario' ||
+      intentCategory === 'agenda' ||
+      intentCategory === 'gastos'
+        ? { parallel_tool_calls: false as const }
+        : {};
+
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages,
@@ -723,14 +737,44 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
       tool_choice: esConfirmacion
         ? { type: 'function', function: { name: 'confirmar_borrador' } }
         : 'auto',
-      ...(intentCategory === 'presupuesto' || intentCategory === 'diario' || intentCategory === 'agenda' || intentCategory === 'gastos'
-        ? { parallel_tool_calls: false }
-        : {}),
-      temperature: 0.7,
+      ...parallelToolCallsOpt,
+      temperature: AGENTE_TOOLS_TEMPERATURE,
       max_tokens: maxTokensAgente,
     });
 
-    const firstMessage = completion.choices[0]?.message;
+    let firstMessage = completion.choices[0]?.message;
+    let firstToolCalls = firstMessage?.tool_calls;
+    let planFuente: PlanFuente = firstToolCalls?.length ? 'tool_calls_nativos' : 'ninguno';
+
+    if (
+      !firstToolCalls?.length &&
+      !esConfirmacion &&
+      pareceAccionQueRequiereTool(mensajeTrim)
+    ) {
+      const retryMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+        ...messages,
+        {
+          role: 'system',
+          content:
+            'El usuario pide una acción sobre datos del negocio. Debes invocar la herramienta correspondiente en este turno. No respondas solo con texto.',
+        },
+      ];
+      const retryCompletion = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: retryMessages,
+        tools,
+        tool_choice: 'required',
+        ...parallelToolCallsOpt,
+        temperature: AGENTE_TOOLS_TEMPERATURE,
+        max_tokens: maxTokensAgente,
+      });
+      const retryMessage = retryCompletion.choices[0]?.message;
+      if (retryMessage?.tool_calls?.length) {
+        firstMessage = retryMessage;
+        firstToolCalls = retryMessage.tool_calls;
+        planFuente = 'reintento_required';
+      }
+    }
 
     const runTool = async (toolName: string, toolArgs: Record<string, unknown>) => {
       const bidRun =
@@ -1021,117 +1065,34 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
       canvasParaCliente = { tipo, titulo, datos };
     };
 
-    let respuesta = firstMessage?.content ?? '';
+    let respuesta =
+      typeof firstMessage?.content === 'string' ? firstMessage.content : '';
 
-    const parsePlanningPlan = (raw: string): PlannedTool[] | null => {
-      let s = raw.trim();
-      if (!s) return null;
-      if (s.startsWith('```')) {
-        s = s.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
-      }
-      try {
-        const parsed = JSON.parse(s) as unknown;
-        if (!Array.isArray(parsed)) return null;
-        const out: PlannedTool[] = [];
-        for (const item of parsed) {
-          if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
-          const rec = item as Record<string, unknown>;
-          const tool = typeof rec.tool === 'string' ? rec.tool.trim() : '';
-          if (!tool) continue;
-          const argsRaw = rec.args;
-          const args: Record<string, unknown> =
-            argsRaw && typeof argsRaw === 'object' && !Array.isArray(argsRaw)
-              ? (argsRaw as Record<string, unknown>)
-              : {};
-          out.push({ tool, args });
-        }
-        return out;
-      } catch (e) {
-        console.error('[agente] parse planning JSON:', e);
-        return null;
-      }
-    };
+    const ejecutadoResumen: Array<{ tool: string; result: unknown }> = [];
 
-    const plannedToolsFromAssistantToolCalls = (
-      toolCalls: NonNullable<NonNullable<typeof firstMessage>['tool_calls']>
-    ): PlannedTool[] => {
-      const out: PlannedTool[] = [];
-      for (const tc of toolCalls) {
-        if (tc.type !== 'function') continue;
-        let parsedArgs: Record<string, unknown> = {};
-        try {
-          parsedArgs = tc.function.arguments ? JSON.parse(tc.function.arguments) : {};
-        } catch {
-          parsedArgs = {};
-        }
-        out.push({ tool: tc.function.name, args: parsedArgs });
-      }
-      return out;
-    };
-
-    const firstToolCalls = firstMessage?.tool_calls;
     if (firstToolCalls?.length) {
-      const planningToolNamesList = tools
-        .filter((t): t is OpenAI.Chat.Completions.ChatCompletionTool & { type: 'function' } => t.type === 'function')
-        .map((t) => t.function.name);
-
-      const planningSystem = `Eres un planificador de herramientas para el agente de construcción Perfilio.
-Responde ÚNICAMENTE con un array JSON válido (sin markdown fenced blocks, sin texto antes ni después).
-Formato obligatorio: [{"tool":"nombre_exacto","args":{...}}, ...]
-Usa solo nombres de herramientas de esta lista: ${planningToolNamesList.join(', ')}
-Si no necesitas ninguna herramienta, responde exactamente: []
-El campo args debe ser un objeto con los parámetros de cada herramienta.`;
-
-      const toolCallsPreview = firstToolCalls
-        .filter((tc) => tc.type === 'function')
-        .map((tc) => `${tc.function.name}(${tc.function.arguments ?? '{}'})`)
-        .join('\n');
-
-      const planningUser = `Petición del usuario:\n${mensajeTrim}\n\nBorrador de llamadas que el asistente consideró:\n${toolCallsPreview}\n\nDevuelve el plan COMPLETO como JSON array.`;
-
-      let planningText = '';
-      try {
-        const planningCompletion = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: planningSystem },
-            { role: 'user', content: planningUser },
-          ],
-          temperature: 0.2,
-          max_tokens: 2000,
-        });
-        planningText = planningCompletion.choices[0]?.message?.content ?? '';
-      } catch (e) {
-        console.error('[agente] planning completion:', e);
-        planningText = '';
-      }
-
-      let plan = parsePlanningPlan(planningText);
-      if (plan === null && firstToolCalls?.length) {
-        plan = plannedToolsFromAssistantToolCalls(firstToolCalls);
-      }
-      const hasSteps = plan !== null && plan.length > 0;
+      const plan = plannedToolsFromAssistantToolCalls(firstToolCalls);
       const draftAssistant =
         typeof firstMessage?.content === 'string' ? firstMessage.content.trim() : '';
 
-      if (!hasSteps) {
-        if (plan !== null && plan.length === 0) {
-          respuesta = draftAssistant || 'No hay acciones de herramientas para ejecutar.';
-        } else {
-          respuesta =
-            planningText.trim() ||
-            draftAssistant ||
-            'No he podido interpretar el plan. Reformula la petición.';
-        }
+      if (plan.length === 0) {
+        respuesta = draftAssistant || 'No hay acciones de herramientas para ejecutar.';
       } else {
-        const guard = applyPerfilioGuardrails(plan as PlannedTool[], mensajeTrim);
+        const guard = applyPerfilioGuardrails(plan, mensajeTrim);
         if (!guard.ok) {
           respuesta = guard.error;
         } else {
           const validated = guard.plan;
-          const toolSummaries: string[] = [];
-          for (const step of validated) {
-            console.log('[TOOL CALL]', step.tool, JSON.stringify(step.args));
+          const ids = idsParaPlanEjecutado(validated, firstToolCalls);
+          const executed: Array<{
+            id: string;
+            tool: string;
+            args: Record<string, unknown>;
+            result: unknown;
+          }> = [];
+
+          for (let i = 0; i < validated.length; i++) {
+            const step = validated[i];
             let toolResult: unknown;
             try {
               toolResult = await runTool(step.tool, step.args);
@@ -1141,40 +1102,74 @@ El campo args debe ser un objeto con los parámetros de cada herramienta.`;
                 error: e instanceof Error ? e.message : 'Error al ejecutar la herramienta',
               };
             }
-            console.log('[TOOL RESULT]', step.tool, JSON.stringify(toolResult));
             const emailCapturado = capturarEmailPendiente(toolResult);
             if (emailCapturado) emailPendienteParaCliente = emailCapturado;
             capturarCanvas(toolResult);
             const obraCapturada = capturarObraFicha(toolResult);
             if (obraCapturada) obraFichaParaCliente = obraCapturada;
-            toolSummaries.push(`${step.tool}: ${JSON.stringify(toolResult)}`);
+            executed.push({
+              id: ids[i],
+              tool: step.tool,
+              args: step.args,
+              result: toolResult,
+            });
+            ejecutadoResumen.push({
+              tool: step.tool,
+              result: resumirToolResultParaLog(toolResult),
+            });
           }
 
-          const finalUserContent = `Se ejecutó el plan de herramientas (en orden). Genera la respuesta final al usuario en español, breve y útil.\n\n${toolSummaries.join('\n')}`;
-          const finalMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-            ...messages,
-            { role: 'user', content: finalUserContent },
-          ];
+          const finalMessages = buildToolLoopMessages(messages, executed);
           try {
             const finalCompletion = await openai.chat.completions.create({
               model: 'gpt-4o-mini',
               messages: finalMessages,
-              temperature: 0.7,
+              temperature: AGENTE_PROSA_TEMPERATURE,
               max_tokens: maxTokensAgente,
             });
             const finalText = finalCompletion.choices[0]?.message?.content;
             if (typeof finalText === 'string' && finalText.trim()) {
               respuesta = finalText;
             } else {
-              respuesta = toolSummaries.join('\n') || respuesta;
+              respuesta =
+                executed
+                  .map((e) =>
+                    typeof (e.result as { mensaje?: unknown })?.mensaje === 'string'
+                      ? String((e.result as { mensaje: string }).mensaje)
+                      : ''
+                  )
+                  .filter(Boolean)
+                  .join('\n') || respuesta;
             }
           } catch (e) {
             console.error('[agente] final completion:', e);
-            respuesta = toolSummaries.join('\n');
+            respuesta = executed
+              .map((e) =>
+                typeof (e.result as { mensaje?: unknown })?.mensaje === 'string'
+                  ? String((e.result as { mensaje: string }).mensaje)
+                  : `${e.tool} ejecutada`
+              )
+              .join('\n');
           }
         }
       }
     }
+
+    logAgenteTurno({
+      evento: 'agente_turno',
+      intent: intentCategory,
+      tools_pedidas: (firstToolCalls ?? [])
+        .filter((tc) => tc.type === 'function')
+        .map((tc) => tc.function.name),
+      plan: {
+        fuente: planFuente,
+        ejecutado: ejecutadoResumen.map((e) => e.tool),
+      },
+      result: {
+        n: ejecutadoResumen.length,
+        resumen: ejecutadoResumen,
+      },
+    });
 
     if (!String(respuesta ?? '').trim()) {
       respuesta =

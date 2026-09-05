@@ -231,15 +231,6 @@ describe('POST /api/agente', () => {
         choices: [
           {
             message: {
-              content: JSON.stringify([{ tool: 'crear_presupuesto', args: crearPresupuestoArgs }]),
-            },
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        choices: [
-          {
-            message: {
               content: 'Presupuesto:\nTotal: 123,45 €',
             },
           },

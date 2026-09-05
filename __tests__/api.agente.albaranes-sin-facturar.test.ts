@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { toolPayloadFromFinalCompletion } from './helpers/agente-openai';
 import { listarAlbaranesSinFacturar } from '@/lib/albaranes-sin-facturar';
 
 jest.mock('@/lib/supabase/server', () => ({
@@ -117,31 +118,14 @@ describe('POST /api/agente — albaranes_sin_facturar', () => {
     };
   }
 
-  function toolPayloadFromFinalCompletion(toolName: string): unknown {
-    const req = createMock.mock.calls[3]?.[0] as {
-      messages: Array<{ role: string; content?: string | null }>;
-    };
-    const lastUser = [...(req?.messages ?? [])].reverse().find((m) => m.role === 'user');
-    const line = String(lastUser?.content ?? '')
-      .split('\n')
-      .find((l) => l.startsWith(`${toolName}: `));
-    if (!line) throw new Error(`missing tool line ${toolName}`);
-    return JSON.parse(line.slice(toolName.length + 2));
+  function toolPayloadFromFinal(toolName: string): unknown {
+    return toolPayloadFromFinalCompletion(createMock, toolName);
   }
 
   it('albaranes_sin_facturar devuelve mensaje cuando no hay pendientes', async () => {
     createMock
       .mockResolvedValueOnce(mockRouterGeneral())
       .mockResolvedValueOnce(toolCallMessage('albaranes_sin_facturar', '{}'))
-      .mockResolvedValueOnce({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify([{ tool: 'albaranes_sin_facturar', args: {} }]),
-            },
-          },
-        ],
-      })
       .mockResolvedValueOnce({
         choices: [{ message: { content: 'Respuesta final del agente.' } }],
       });
@@ -164,7 +148,7 @@ describe('POST /api/agente — albaranes_sin_facturar', () => {
 
     const res = await POST(req);
     expect(res.status).toBe(200);
-    const parsed = toolPayloadFromFinalCompletion('albaranes_sin_facturar') as { mensaje?: string };
+    const parsed = toolPayloadFromFinal('albaranes_sin_facturar') as { mensaje?: string };
     expect(parsed.mensaje).toBe('No hay albaranes pendientes de facturar.');
     expect(listarAlbaranesSinFacturar).toHaveBeenCalled();
   });
