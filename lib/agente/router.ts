@@ -154,6 +154,8 @@ export const INTENT_TOOL_NAMES_OPERARIOS = new Set([
 export const INTENT_TOOL_NAMES_PRESUPUESTO = new Set([
   ...PRESUPUESTOS_HANDLED_TOOLS,
   'generar_presupuesto_por_dictado',
+  'buscar_cliente',
+  'ver_cliente',
   'mostrar_vista_visual',
   'get_directions',
   'guardar_memoria',

@@ -3,6 +3,15 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { parseEstadoDoc } from '@/lib/agente/modules/documentos';
 import { clienteDesdeObraSiAplica, resolveClienteIdOpcional } from '@/lib/agente/modules/obras-clientes';
 import { resolverObraDocumentoAgente } from '@/lib/obras-context';
+import {
+  extraerNombreClienteDePeticionPresupuesto,
+  failClosed,
+  pareceMutacionSobrePresupuestoExistente,
+  resolverClientesPorNombre,
+  resolverPresupuestosPorTexto,
+  resultadoResolveATool,
+  toolFailDesdePresupuestoResolve,
+} from '@/lib/agente/modules/grounding';
 
 function escapeIlike(s: string): string {
   return s.replace(/[%_]/g, '');
@@ -60,6 +69,7 @@ async function buscarClientePorNombreCaseInsensitive(
 export const PRESUPUESTOS_HANDLED_TOOLS = new Set([
   'listar_presupuestos',
   'obtener_presupuestos_pendientes',
+  'buscar_presupuesto',
   'cambiar_estado_presupuesto',
   'editar_presupuesto',
   'vincular_presupuesto_cliente',
@@ -81,7 +91,7 @@ Eres el especialista en presupuestos de Perfilio. Tu único trabajo es crear y g
 
 REGLAS DE RESPUESTA:
 - REGLA CRÍTICA: Cada vez que el usuario dicte una partida, DEBES llamar a la tool agregar_partida_borrador. Está terminantemente prohibido confirmar una partida en el texto de respuesta si no has recibido el éxito de la ejecución de dicha tool. Sin TOOL RESULT con ok:true, no puedes decir Añadido.
-- REGLA ABSOLUTA: NUNCA respondas 'Añadido' ni confirmes una partida sin haber recibido un TOOL RESULT de agregar_partida_borrador con ok:true. Si no has llamado a la tool o no has recibido ok:true, NO confirmes la partida. Llama a la tool primero, espera el resultado, y solo entonces confirma.
+- REGLA ABSOLUTA: NUNCA respondas 'Añadido' ni confirmes una partida sin haber recibido un TOOL RESULT de agregar_partida_borrador con ok:true. Si no has llamado a la tool o no has recibido ok:true, NO confirmes la partida. Llama a la tool primero, espera el resultado, y solo entonces confirma. Si la tool devuelve ok:false o error, dilo; no narres éxito.
 - Sé extremadamente breve y directo. Formato obligatorio al añadir partida: 'Añadido: [descripción] ([total]€). ¿Siguiente?'
 - Nunca escribas párrafos largos. Pino escucha por voz.
 - Nunca inventes precios. Si no tienes el precio, pregunta: '¿A qué precio va [descripción]?'
@@ -96,13 +106,17 @@ VÍA DE ESCAPE (obligatoria): Si el usuario dice 'cancela el presupuesto', 'olv�
 Ejemplo de cierre: 'Presupuesto cancelado. Ya puedes preguntarme lo que necesites.'
 Esto devuelve el control al orquestador para el siguiente mensaje.
 
-INICIAR BORRADOR (obligatorio):
-- NO uses buscar_cliente ni ninguna tool de clientes antes de iniciar el borrador. No hace falta comprobar si el cliente existe en la base de datos.
-- Llama directamente a iniciar_borrador_presupuesto con cliente_nombre = el nombre tal y como lo dijo el usuario (texto libre).
-- cliente_id es opcional: solo inclúyelo si el usuario da un UUID explícito o dice claramente que quieres vincular a un cliente ya identificado por id; si no, omite cliente_id.
-- Si dice «presupuesto para [nombre]», «presupuesto de [nombre]» o similar, [nombre] va entero como cliente_nombre en la misma llamada, sin pasos previos.
+AÑADIR A PRESUPUESTO EXISTENTE (fail-closed):
+- Si Pino dice «añade/pon una partida al presupuesto de [cliente]» (no pide crear uno nuevo): busca el cliente y el presupuesto reales (buscar_cliente / buscar_presupuesto). Pasa cliente_nombre en agregar_partida_borrador.
+- 1 coincidencia: usa ese ID. Varias: pregunta en castellano cuál. Cero: di que no existe. PROHIBIDO iniciar_borrador, crear_cliente o inventar el presupuesto.
+- NUNCA uses iniciar_borrador_presupuesto como atajo para añadir a un presupuesto que debería existir.
 
-FLUJO:
+INICIAR BORRADOR (presupuesto NUEVO):
+- Solo cuando Pino pide crear o hacer un presupuesto nuevo («haz un presupuesto para…», «nuevo presupuesto»).
+- Llama a iniciar_borrador_presupuesto con cliente_nombre = el nombre tal y como lo dijo (texto libre; no hace falta ficha).
+- cliente_id es opcional: solo si da un UUID explícito. Si dice «presupuesto para [nombre]», [nombre] va entero como cliente_nombre.
+
+FLUJO (presupuesto nuevo):
 1. Al iniciar, llama a obtener_borrador_activo. Si existe: 'Tienes un presupuesto en construcción para [cliente] con [N] partidas. ¿Seguimos?'
 2. Si el usuario quiere crear presupuesto: iniciar_borrador_presupuesto en el mismo turno, solo con cliente_nombre (y opcionalmente obra_id / cliente_id / iva si los dijo explícitamente).
 3. Por cada partida: llama a agregar_partida_borrador
@@ -131,16 +145,39 @@ export const PRESUPUESTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
   {
     type: 'function',
     function: {
-      name: 'cambiar_estado_presupuesto',
+      name: 'buscar_presupuesto',
       description:
-        'Cambia estado del presupuesto por UUID. Estados: pendiente, aceptado, rechazado, facturado, pagado.',
+        'Localiza presupuestos reales por nombre de cliente o UUID. 1 coincidencia, varios o ninguno. No crea nada. Úsala antes de editar, cambiar estado o añadir partidas a un presupuesto existente cuando Pino habla sin IDs.',
       parameters: {
         type: 'object',
         properties: {
-          id: { type: 'string', description: 'UUID del presupuesto' },
+          query: {
+            type: 'string',
+            description: 'Nombre del cliente u otro texto para encontrar el presupuesto',
+          },
+          id: { type: 'string', description: 'UUID del presupuesto si se conoce' },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'cambiar_estado_presupuesto',
+      description:
+        'Cambia estado del presupuesto. Localiza por UUID o por nombre de cliente (query). Estados: pendiente, aceptado, rechazado, facturado, pagado. Si no existe, no inventa ni crea.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'UUID del presupuesto si se conoce' },
+          query: {
+            type: 'string',
+            description: 'Nombre del cliente para localizar el presupuesto si no hay id',
+          },
           estado: { type: 'string' },
         },
-        required: ['id', 'estado'],
+        required: ['estado'],
         additionalProperties: false,
       },
     },
@@ -150,16 +187,19 @@ export const PRESUPUESTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
     function: {
       name: 'editar_presupuesto',
       description:
-        'Actualiza presupuesto por id: cliente_nombre, importe_total y/o texto (presupuesto_generado). Solo campos que cambien.',
+        'Actualiza presupuesto por id o localizándolo por query (nombre de cliente): cliente_nombre, importe_total y/o texto. Solo campos que cambien. No crea el presupuesto si no existe.',
       parameters: {
         type: 'object',
         properties: {
-          id: { type: 'string' },
-          cliente_nombre: { type: 'string' },
+          id: { type: 'string', description: 'UUID si se conoce' },
+          query: {
+            type: 'string',
+            description: 'Nombre del cliente para localizar el presupuesto si no hay id',
+          },
+          cliente_nombre: { type: 'string', description: 'Nuevo nombre de cliente a guardar' },
           importe_total: { type: 'number' },
           descripcion: { type: 'string', description: 'Texto completo (presupuesto_generado)' },
         },
-        required: ['id'],
         additionalProperties: false,
       },
     },
@@ -236,11 +276,16 @@ export const PRESUPUESTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
     function: {
       name: 'agregar_partida_borrador',
       description:
-        'Añade una partida al borrador. Si precio_unitario es 0, intenta resolver con tarifas + GPT o pide precio.',
+        'Añade una partida a un borrador YA existente. Si Pino habla del presupuesto de un cliente, pasa cliente_nombre: se busca el cliente/presupuesto real. Si no existe, falla (ok:false) y NO crea cliente ni presupuesto ni borrador. Si precio_unitario es 0, intenta resolver con tarifas + GPT o pide precio.',
       parameters: {
         type: 'object',
         properties: {
           borrador_id: { type: 'string' },
+          cliente_nombre: {
+            type: 'string',
+            description:
+              'Nombre del cliente cuyo presupuesto debe existir. Obligatorio cuando se añade a un presupuesto existente (no a un borrador que ya está en curso).',
+          },
           descripcion: { type: 'string', description: 'Texto claro de la partida o trabajo a presupuestar.' },
           cantidad: { type: 'number', description: 'Cantidad numérica de la partida, por ejemplo 1, 12 o 2.5.' },
           unidad: { type: 'string', description: 'Unidad de medición de la partida, por ejemplo ud, m2, ml, h o jornal.' },
@@ -515,6 +560,29 @@ function generarTextoPresupuestoDesdeItems(
   return { texto: lines.join('\n'), base, ivaImporte, total };
 }
 
+async function resolverIdPresupuestoExistente(
+  supabase: SupabaseClient,
+  businessId: string,
+  toolArgs: Record<string, unknown>,
+  mensajeUsuario: string
+): Promise<{ ok: true; id: string } | { ok: false; error: string; necesita_aclaracion?: true; candidatos?: Array<{ id: string; etiqueta: string }> }> {
+  const id = String(toolArgs.id ?? toolArgs.presupuesto_id ?? '').trim();
+  const query = String(toolArgs.query ?? '').trim();
+  const etiqueta = query || extraerNombreClienteDePeticionPresupuesto(mensajeUsuario);
+  const resolved = await resolverPresupuestosPorTexto(supabase, businessId, {
+    id: id || undefined,
+    clienteNombre: id ? undefined : etiqueta || undefined,
+  });
+  if (id && resolved.status === 'none') {
+    return failClosed(
+      'No se encontró el presupuesto o no pertenece a este negocio. No he modificado nada.'
+    );
+  }
+  const mapped = toolFailDesdePresupuestoResolve(resolved, etiqueta || id || 'ese presupuesto');
+  if (!mapped.ok) return mapped;
+  return { ok: true, id: mapped.match.id };
+}
+
 export type HandlePresupuestosCtx = {
   mensajeTrim?: string;
 };
@@ -528,11 +596,77 @@ export async function handlePresupuestos(
   openai: OpenAI,
   ctx: HandlePresupuestosCtx = {}
 ): Promise<Record<string, unknown>> {
-  void ctx.mensajeTrim;
+  const mensajeUsuario = String(ctx.mensajeTrim ?? '');
 
-  if (
+  if (toolName === 'agregar_partida_borrador') {
+    const clienteArg = String(toolArgs.cliente_nombre ?? '').trim();
+    const clienteMsg = extraerNombreClienteDePeticionPresupuesto(mensajeUsuario);
+    const clienteRef = clienteArg || clienteMsg;
+    const mutExistente =
+      Boolean(clienteArg) || pareceMutacionSobrePresupuestoExistente(mensajeUsuario);
+
+    if (mutExistente) {
+      if (!clienteRef) {
+        const borradorRes = await resolverBorradorIdActivo(
+          supabase,
+          businessId,
+          userId,
+          toolArgs.borrador_id
+        );
+        if (!borradorRes.ok) {
+          return failClosed(
+            'No encuentro un presupuesto en construcción al que añadir la partida. No he creado uno de paso.'
+          );
+        }
+        toolArgs.borrador_id = borradorRes.id;
+      } else {
+        const cli = await resolverClientesPorNombre(supabase, businessId, clienteRef);
+        const asTool = resultadoResolveATool(cli, clienteRef, 'cliente');
+        if (!asTool.ok) return asTool;
+
+        const rowActivo = userId
+          ? await obtenerBorradorActivoRow(supabase, businessId, userId)
+          : null;
+        const nombreDraft = String(rowActivo?.cliente_nombre ?? '');
+        const idDraftCli = String(rowActivo?.cliente_id ?? '');
+        const draftDeEsteCliente = Boolean(
+          rowActivo?.id &&
+            (idDraftCli === asTool.match.id ||
+              (nombreDraft &&
+                nombreDraft.trim().toLowerCase() ===
+                  String(asTool.match.nombre ?? clienteRef).trim().toLowerCase()))
+        );
+        if (draftDeEsteCliente && rowActivo?.id) {
+          toolArgs.borrador_id = String(rowActivo.id);
+        } else {
+          const pres = await resolverPresupuestosPorTexto(supabase, businessId, {
+            clienteNombre: clienteRef,
+          });
+          if (pres.status === 'many') {
+            return toolFailDesdePresupuestoResolve(pres, clienteRef);
+          }
+          if (pres.status === 'one') {
+            return failClosed(
+              `Encontré el presupuesto de «${pres.match.cliente_nombre ?? clienteRef}» pero no hay un borrador en construcción para añadir partidas. No he añadido nada ni he creado un presupuesto nuevo. Si quieres uno nuevo, dímelo claro.`
+            );
+          }
+          return failClosed(
+            `No encuentro ningún presupuesto para el cliente «${clienteRef}». No he añadido la partida ni he creado cliente ni presupuesto.`
+          );
+        }
+      }
+    } else {
+      const borradorRes = await resolverBorradorIdActivo(
+        supabase,
+        businessId,
+        userId,
+        toolArgs.borrador_id
+      );
+      if (!borradorRes.ok) return failClosed(borradorRes.error);
+      toolArgs.borrador_id = borradorRes.id;
+    }
+  } else if (
     [
-      'agregar_partida_borrador',
       'modificar_partida_borrador',
       'listar_partidas_borrador',
       'confirmar_borrador',
@@ -545,7 +679,7 @@ export async function handlePresupuestos(
       userId,
       toolArgs.borrador_id
     );
-    if (!borradorRes.ok) return { error: borradorRes.error };
+    if (!borradorRes.ok) return failClosed(borradorRes.error);
     toolArgs.borrador_id = borradorRes.id;
   }
 
@@ -595,31 +729,86 @@ export async function handlePresupuestos(
         })),
       };
     }
-    case 'cambiar_estado_presupuesto': {
+    case 'buscar_presupuesto': {
+      const query = String(toolArgs.query ?? '').trim();
       const id = String(toolArgs.id ?? '').trim();
-      const estado = parseEstadoDoc(toolArgs.estado);
-      if (!id) return { error: 'id es obligatorio' };
-      if (!estado) {
+      if (!query && !id) {
+        return failClosed('Indica el nombre del cliente o el id del presupuesto.');
+      }
+      const resolved = await resolverPresupuestosPorTexto(supabase, businessId, {
+        id: id || undefined,
+        clienteNombre: query || undefined,
+      });
+      if (resolved.status === 'none') {
         return {
-          error: 'estado inválido; use uno de: pendiente, aceptado, rechazado, facturado, pagado',
+          ok: false,
+          error: `No encuentro ningún presupuesto para «${query || id}».`,
+          items: [] as const,
+          resolve: 'none' as const,
         };
       }
+      if (resolved.status === 'one') {
+        const p = resolved.match;
+        return {
+          ok: true,
+          resolve: 'one' as const,
+          items: [
+            {
+              id: p.id,
+              cliente_nombre: p.cliente_nombre,
+              estado: p.estado,
+              importe_total: p.importe_total,
+            },
+          ],
+        };
+      }
+      const mapped = toolFailDesdePresupuestoResolve(resolved, query || id);
+      return {
+        ...mapped,
+        resolve: 'many' as const,
+        items: resolved.candidatos.map((p) => ({
+          id: p.id,
+          cliente_nombre: p.cliente_nombre,
+          estado: p.estado,
+          importe_total: p.importe_total,
+        })),
+      };
+    }
+    case 'cambiar_estado_presupuesto': {
+      const estado = parseEstadoDoc(toolArgs.estado);
+      if (!estado) {
+        return failClosed(
+          'estado inválido; use uno de: pendiente, aceptado, rechazado, facturado, pagado'
+        );
+      }
+      const loc = await resolverIdPresupuestoExistente(
+        supabase,
+        businessId,
+        toolArgs,
+        mensajeUsuario
+      );
+      if (!loc.ok) return loc;
       const { data: row, error } = await supabase
         .from('presupuestos')
         .update({ estado })
-        .eq('id', id)
+        .eq('id', loc.id)
         .eq('business_id', businessId)
         .select('id')
         .maybeSingle();
-      if (error) return { error: error.message };
+      if (error) return failClosed(error.message);
       if (!row?.id) {
-        return { error: 'No se encontró el presupuesto o no pertenece a este negocio' };
+        return failClosed('No se encontró el presupuesto o no pertenece a este negocio');
       }
       return { ok: true, id: row.id as string };
     }
     case 'editar_presupuesto': {
-      const id = String(toolArgs.id ?? '').trim();
-      if (!id) return { error: 'id es obligatorio' };
+      const loc = await resolverIdPresupuestoExistente(
+        supabase,
+        businessId,
+        toolArgs,
+        mensajeUsuario
+      );
+      if (!loc.ok) return loc;
       const updates: {
         cliente_nombre?: string;
         importe_total?: number;
@@ -627,32 +816,34 @@ export async function handlePresupuestos(
       } = {};
       if (toolArgs.cliente_nombre !== undefined) {
         const c = String(toolArgs.cliente_nombre ?? '').trim().slice(0, 255);
-        if (!c) return { error: 'cliente_nombre no puede estar vacío' };
+        if (!c) return failClosed('cliente_nombre no puede estar vacío');
         updates.cliente_nombre = c;
       }
       if (toolArgs.importe_total !== undefined) {
         const n = Number(toolArgs.importe_total);
-        if (!Number.isFinite(n)) return { error: 'importe_total debe ser un número válido' };
+        if (!Number.isFinite(n)) return failClosed('importe_total debe ser un número válido');
         updates.importe_total = n;
       }
       if (toolArgs.descripcion !== undefined) {
         const d = String(toolArgs.descripcion ?? '').trim();
-        if (!d) return { error: 'descripcion no puede estar vacía' };
+        if (!d) return failClosed('descripcion no puede estar vacía');
         updates.presupuesto_generado = d;
       }
       if (Object.keys(updates).length === 0) {
-        return { error: 'Indica al menos un campo a actualizar (cliente_nombre, importe_total o descripcion)' };
+        return failClosed(
+          'Indica al menos un campo a actualizar (cliente_nombre, importe_total o descripcion)'
+        );
       }
       const { data: row, error } = await supabase
         .from('presupuestos')
         .update(updates)
-        .eq('id', id)
+        .eq('id', loc.id)
         .eq('business_id', businessId)
         .select('id')
         .maybeSingle();
-      if (error) return { error: error.message };
+      if (error) return failClosed(error.message);
       if (!row?.id) {
-        return { error: 'No se encontró el presupuesto o no pertenece a este negocio' };
+        return failClosed('No se encontró el presupuesto o no pertenece a este negocio');
       }
       return { ok: true, id: row.id as string };
     }
@@ -668,26 +859,20 @@ export async function handlePresupuestos(
         .eq('id', presupuestoId)
         .eq('business_id', businessId)
         .maybeSingle();
-      if (pErr) return { error: pErr.message };
-      if (!pRow?.id) return { error: 'Presupuesto no encontrado' };
+      if (pErr) return failClosed(pErr.message);
+      if (!pRow?.id) return failClosed('Presupuesto no encontrado. No he vinculado nada.');
 
-      const clienteMatch = await buscarClientePorNombreCaseInsensitive(
-        supabase,
-        businessId,
-        clienteNombre
-      );
-      if (clienteMatch.error) return { error: clienteMatch.error };
-      if (!clienteMatch.id) {
-        return {
-          error: `No existe un cliente con nombre «${clienteNombre}» en este negocio.`,
-        };
-      }
+      const cli = await resolverClientesPorNombre(supabase, businessId, clienteNombre);
+      const asTool = resultadoResolveATool(cli, clienteNombre, 'cliente');
+      if (!asTool.ok) return asTool;
+      const clienteId = asTool.match.id;
+      const clienteNombreRes = String(asTool.match.nombre ?? clienteNombre).trim();
 
       const { data: updated, error: updErr } = await supabase
         .from('presupuestos')
         .update({
-          cliente_id: clienteMatch.id,
-          cliente_nombre: clienteMatch.nombre,
+          cliente_id: clienteId,
+          cliente_nombre: clienteNombreRes,
         })
         .eq('id', presupuestoId)
         .eq('business_id', businessId)
@@ -871,9 +1056,31 @@ export async function handlePresupuestos(
       };
     }
     case 'iniciar_borrador_presupuesto': {
-      if (!userId) return { error: 'Usuario no autenticado.' };
+      if (!userId) return failClosed('Usuario no autenticado.');
       const clienteNombre = String(toolArgs.cliente_nombre ?? '').trim().slice(0, 255);
-      if (!clienteNombre) return { error: 'cliente_nombre es obligatorio' };
+      if (!clienteNombre) return failClosed('cliente_nombre es obligatorio');
+
+      if (pareceMutacionSobrePresupuestoExistente(mensajeUsuario)) {
+        const nombre =
+          extraerNombreClienteDePeticionPresupuesto(mensajeUsuario) || clienteNombre;
+        const cli = await resolverClientesPorNombre(supabase, businessId, nombre);
+        const asTool = resultadoResolveATool(cli, nombre, 'cliente');
+        if (!asTool.ok) return asTool;
+        const rowActivoMut = await obtenerBorradorActivoRow(supabase, businessId, userId);
+        if (rowActivoMut?.id) {
+          const sameCli =
+            String(rowActivoMut.cliente_id ?? '') === asTool.match.id ||
+            String(rowActivoMut.cliente_nombre ?? '').trim().toLowerCase() ===
+              String(asTool.match.nombre ?? nombre).trim().toLowerCase();
+          if (sameCli) {
+            return { ok: true, borrador_id: String(rowActivoMut.id), ya_existia: true };
+          }
+        }
+        return failClosed(
+          `No creo un presupuesto nuevo para añadir una partida al de «${nombre}». No hay borrador en construcción. No he añadido nada.`
+        );
+      }
+
       const obraIdRaw =
         typeof toolArgs.obra_id === 'string' && toolArgs.obra_id.trim()
           ? String(toolArgs.obra_id).trim()

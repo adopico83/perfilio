@@ -81,15 +81,20 @@ import { applyPerfilioGuardrails } from '@/lib/agente/guardrails';
 import {
   AGENTE_PROSA_TEMPERATURE,
   AGENTE_TOOLS_TEMPERATURE,
+  anclarProsaAHechos,
+  buildMensajeSistemaProsaAnclada,
   buildToolLoopMessages,
+  hechosMutacionDesdeEjecutado,
   idsParaPlanEjecutado,
   logAgenteTurno,
   pareceAccionQueRequiereTool,
   plannedToolsFromAssistantToolCalls,
+  prosaAncladaDirectaSiAplica,
   resumirToolResultParaLog,
   type PlanFuente,
 } from '@/lib/agente/orquestacion';
 import { extractDiarioObraObjectPath } from '@/lib/diario-obra';
+import { GROUNDING_REGLAS_SISTEMA } from '@/lib/agente/modules/grounding';
 import {
   type AgentIntentCategory,
   PRESUPUESTOS_AGENT_SYSTEM_PROMPT_PREFIX,
@@ -472,6 +477,8 @@ Si faltan datos: pregunta al usuario o usa listar_* / buscar_* según correspond
 Nunca inventes ni simules resultados de base de datos, estados ni IDs.
 Las consultas a datos del negocio requieren invocar tools de listado o búsqueda, no narrar como si ya hubieras consultado.
 
+${GROUNDING_REGLAS_SISTEMA}
+
 Español, profesional, conciso.
 
 Obra ≠ cliente (inconfundibles); no intercambiar nombres. Antes de crear cliente u obra, busca duplicados por nombre.
@@ -691,7 +698,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
 
     const systemPromptEfectivo =
       intentCategory === 'presupuesto'
-        ? `${PRESUPUESTOS_AGENT_SYSTEM_PROMPT_PREFIX}${PRESUPUESTOS_AGENT_SYSTEM_PROMPT}\n\n---\nContexto del negocio (solo referencia; mantén tus reglas de brevedad).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
+        ? `${PRESUPUESTOS_AGENT_SYSTEM_PROMPT_PREFIX}${PRESUPUESTOS_AGENT_SYSTEM_PROMPT}\n\n${GROUNDING_REGLAS_SISTEMA}\n\n---\nContexto del negocio (solo referencia; mantén tus reglas de brevedad).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
         : intentCategory === 'diario'
           ? `${DIARIO_AGENT_SYSTEM_PROMPT}\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
           : intentCategory === 'agenda'
@@ -1119,37 +1126,48 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
             });
           }
 
-          const finalMessages = buildToolLoopMessages(messages, executed);
-          try {
-            const finalCompletion = await openai.chat.completions.create({
-              model: 'gpt-4o-mini',
-              messages: finalMessages,
-              temperature: AGENTE_PROSA_TEMPERATURE,
-              max_tokens: maxTokensAgente,
-            });
-            const finalText = finalCompletion.choices[0]?.message?.content;
-            if (typeof finalText === 'string' && finalText.trim()) {
-              respuesta = finalText;
-            } else {
-              respuesta =
-                executed
-                  .map((e) =>
-                    typeof (e.result as { mensaje?: unknown })?.mensaje === 'string'
-                      ? String((e.result as { mensaje: string }).mensaje)
-                      : ''
-                  )
-                  .filter(Boolean)
-                  .join('\n') || respuesta;
+          const hechos = hechosMutacionDesdeEjecutado(executed);
+          const prosaDirecta = prosaAncladaDirectaSiAplica(hechos);
+          if (prosaDirecta) {
+            respuesta = prosaDirecta;
+          } else {
+            const finalMessages = [
+              ...buildToolLoopMessages(messages, executed),
+              { role: 'system' as const, content: buildMensajeSistemaProsaAnclada(hechos) },
+            ];
+            try {
+              const finalCompletion = await openai.chat.completions.create({
+                model: 'gpt-4o-mini',
+                messages: finalMessages,
+                temperature: AGENTE_PROSA_TEMPERATURE,
+                max_tokens: maxTokensAgente,
+              });
+              const finalText = finalCompletion.choices[0]?.message?.content;
+              if (typeof finalText === 'string' && finalText.trim()) {
+                respuesta = anclarProsaAHechos(finalText, hechos);
+              } else {
+                respuesta =
+                  executed
+                    .map((e) =>
+                      typeof (e.result as { mensaje?: unknown })?.mensaje === 'string'
+                        ? String((e.result as { mensaje: string }).mensaje)
+                        : ''
+                    )
+                    .filter(Boolean)
+                    .join('\n') || respuesta;
+                respuesta = anclarProsaAHechos(respuesta, hechos);
+              }
+            } catch (e) {
+              console.error('[agente] final completion:', e);
+              respuesta = executed
+                .map((e) =>
+                  typeof (e.result as { mensaje?: unknown })?.mensaje === 'string'
+                    ? String((e.result as { mensaje: string }).mensaje)
+                    : `${e.tool} ejecutada`
+                )
+                .join('\n');
+              respuesta = anclarProsaAHechos(respuesta, hechos);
             }
-          } catch (e) {
-            console.error('[agente] final completion:', e);
-            respuesta = executed
-              .map((e) =>
-                typeof (e.result as { mensaje?: unknown })?.mensaje === 'string'
-                  ? String((e.result as { mensaje: string }).mensaje)
-                  : `${e.tool} ejecutada`
-              )
-              .join('\n');
           }
         }
       }
