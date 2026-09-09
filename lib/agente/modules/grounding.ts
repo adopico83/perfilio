@@ -106,7 +106,7 @@ export function colapsarResolve<T extends { id: string; nombre?: string | null }
 }
 
 const RE_CONSULTA_LISTADO_OBRAS =
-  /\b(?:qu[eé]\s+obras?\b|\bobras?\s+(?:tengo|hay|abiertas?|activas?|en\s+curso)\b|\blistar?\s+(?:las\s+)?obras?\b|\bmuestr[aá](?:me)?\s+(?:las\s+)?obras?\b|\bcu[aá]ntas?\s+obras?\b|\bobras?\s+abiertas\b)/i;
+  /\b(?:qu[eé]\s+obras?\b|\bobras?\s+(?:tengo|hay|abiertas?|activas?|en\s+curso)\b|\blistar?\s+(?:las\s+)?obras?\b|\bmu[eé]stra(?:me)?\s+(?:las\s+)?obras?\b|\bcu[aá]ntas?\s+obras?\b|\bobras?\s+abiertas\b)/i;
 
 const RE_ALTA_OBRA =
   /\b(?:crea(?:r)?|nueva|nuevo|actualiza(?:r)?|cierra|cerrar|pausa)\s+(?:una\s+)?obra\b/i;
