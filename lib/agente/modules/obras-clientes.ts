@@ -1,6 +1,7 @@
 import type OpenAI from 'openai';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
+  esQueryListadoObras,
   failClosed,
   resolverClientesPorNombre,
   resolverObrasPorNombre,
@@ -217,13 +218,17 @@ export const OBRAS_CLIENTES_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionT
     type: 'function',
     function: {
       name: 'buscar_obra',
-      description: 'Busca una obra por nombre o cliente.',
+      description:
+        'Busca obras por nombre, o lista las obras abiertas/en curso. Para «qué obras tengo abiertas» llama sin query o con query «abiertas». No crea presupuestos ni borradores.',
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'Texto a buscar' },
+          query: {
+            type: 'string',
+            description:
+              'Nombre de obra a buscar. Vacío, «abiertas» o la pregunta de listado → obras abiertas/en curso.',
+          },
         },
-        required: ['query'],
         additionalProperties: false,
       },
     },
@@ -522,26 +527,55 @@ export async function handleObrasClientesAgent(
         }
         case 'buscar_obra': {
           const qBus = String(toolArgs.query ?? '').trim();
-          if (!qBus) return { error: 'query es obligatorio' };
+          const listarAbiertas = esQueryListadoObras(qBus);
 
-          const safeQ = qBus.replace(/[%_*]/g, '').slice(0, 120);
-          const pat = `%${safeQ}%`;
+          type ObraRow = {
+            id: string;
+            nombre: string;
+            cliente_id: string | null;
+            direccion: string | null;
+            estado: string | null;
+            fecha_inicio: string | null;
+          };
 
-          const { data: obrasRows, error } = await supabase
-            .from('obras')
-            .select('id, nombre, cliente_id, direccion, estado, fecha_inicio, created_at')
-            .eq('business_id', bid)
-            .ilike('nombre', pat)
-            .order('created_at', { ascending: false })
-            .limit(20);
+          let obrasRows: ObraRow[] | null = null;
+          let error: { message: string } | null = null;
+
+          if (listarAbiertas) {
+            const res = await supabase
+              .from('obras')
+              .select('id, nombre, cliente_id, direccion, estado, fecha_inicio, created_at')
+              .eq('business_id', bid)
+              .in('estado', ['abierta', 'en_curso'])
+              .order('created_at', { ascending: false })
+              .limit(20);
+            obrasRows = (res.data ?? []) as ObraRow[];
+            error = res.error;
+          } else {
+            const safeQ = qBus.replace(/[%_*]/g, '').slice(0, 120);
+            if (!safeQ) return { items: [] };
+            const pat = `%${safeQ}%`;
+            const res = await supabase
+              .from('obras')
+              .select('id, nombre, cliente_id, direccion, estado, fecha_inicio, created_at')
+              .eq('business_id', bid)
+              .ilike('nombre', pat)
+              .order('created_at', { ascending: false })
+              .limit(20);
+            obrasRows = (res.data ?? []) as ObraRow[];
+            error = res.error;
+          }
 
           if (error) return { error: error.message };
 
           const obras = obrasRows ?? [];
-          const clienteIds = (obras as Array<{ cliente_id: string | null }>).map((o) => o.cliente_id).filter((id0): id0 is string => Boolean(id0));
+          const clienteIds = obras
+            .map((o) => o.cliente_id)
+            .filter((id0): id0 is string => Boolean(id0));
           if (clienteIds.length === 0) {
             return {
-              items: (obras as Array<{ id: string; nombre: string; direccion: string | null; estado: string | null; fecha_inicio: string | null }>).map((o) => ({
+              listado_abiertas: listarAbiertas,
+              items: obras.map((o) => ({
                 id: o.id,
                 nombre: o.nombre,
                 cliente_nombre: null,
@@ -564,7 +598,8 @@ export async function handleObrasClientesAgent(
           }
 
           return {
-            items: (obras as Array<{ id: string; nombre: string; cliente_id: string | null; direccion: string | null; estado: string | null; fecha_inicio: string | null }>).map((o) => ({
+            listado_abiertas: listarAbiertas,
+            items: obras.map((o) => ({
               id: o.id,
               nombre: o.nombre,
               cliente_nombre: o.cliente_id ? clienteMap.get(o.cliente_id) ?? null : null,

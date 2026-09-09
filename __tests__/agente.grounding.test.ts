@@ -9,9 +9,13 @@ jest.mock('openai', () => ({
 }));
 
 import {
+  GROUNDING_REGLAS_SISTEMA,
   colapsarResolve,
+  esQueryListadoObras,
   extraerNombreClienteDePeticionPresupuesto,
+  pareceConsultaListadoObras,
   pareceMutacionSobrePresupuestoExistente,
+  parecePeticionPresupuestoNuevo,
   resultadoResolveATool,
   scoreNombreMatch,
 } from '@/lib/agente/modules/grounding';
@@ -22,6 +26,7 @@ import {
 } from '@/lib/agente/orquestacion';
 import { handlePresupuestos } from '@/lib/agente/modules/presupuestos';
 import { handleObrasClientesAgent } from '@/lib/agente/modules/obras-clientes';
+import { intentPorSenalExplicita } from '@/lib/agente/router';
 
 const PRUEBA_3 =
   'Añade partida 12.345 € Mármol alienígena al presupuesto del cliente inexistente XYZ-999';
@@ -85,6 +90,26 @@ describe('grounding — lenguaje de calle y resolve 0/1/varios', () => {
       false
     );
     expect(pareceMutacionSobrePresupuestoExistente('Añade 12 m2 de solado')).toBe(false);
+  });
+
+  it('consulta de obras abiertas no es presupuesto nuevo ni mutación sobre existente', () => {
+    const q = '¿Qué obras tengo abiertas?';
+    expect(pareceConsultaListadoObras(q)).toBe(true);
+    expect(pareceConsultaListadoObras('Lista las obras en curso')).toBe(true);
+    expect(pareceConsultaListadoObras('Muéstrame las obras')).toBe(true);
+    expect(pareceConsultaListadoObras('Crea una obra nueva en Getxo')).toBe(false);
+    expect(pareceMutacionSobrePresupuestoExistente(q)).toBe(false);
+    expect(parecePeticionPresupuestoNuevo(q)).toBe(false);
+    expect(parecePeticionPresupuestoNuevo('Haz un presupuesto para Juan')).toBe(true);
+    expect(parecePeticionPresupuestoNuevo(PRUEBA_3)).toBe(false);
+    expect(esQueryListadoObras('')).toBe(true);
+    expect(esQueryListadoObras('abiertas')).toBe(true);
+    expect(esQueryListadoObras(q)).toBe(true);
+    expect(esQueryListadoObras('Reforma Baño García')).toBe(false);
+    expect(intentPorSenalExplicita(q)).toBe('documentos');
+    expect(intentPorSenalExplicita('Haz un presupuesto para Juan')).toBeNull();
+    expect(GROUNDING_REGLAS_SISTEMA).toMatch(/CONSULTAS \/ LISTADOS/i);
+    expect(GROUNDING_REGLAS_SISTEMA).toMatch(/PROHIBIDO iniciar_borrador/i);
   });
 
   it('1 coincidencia exacta resuelve; varias piden aclaración; cero fail-closed', () => {
@@ -222,6 +247,27 @@ describe('handlePresupuestos — fail-closed escritura', () => {
     expect(r.ok).toBe(true);
     expect(insertBorrador).toHaveBeenCalled();
   });
+
+  it('prueba 1: «obras abiertas» no inicia borrador (ni con cliente del contexto)', async () => {
+    const insertBorrador = jest.fn(() => makeChain({ id: 'draft-ocasar' }).chain);
+    const supabase = makeSupabase(
+      { clientes: [{ id: 'c-ocasar', nombre: 'Javier Ocasar' }], presupuestos: [], presupuesto_borrador: [] },
+      { presupuesto_borrador: insertBorrador }
+    );
+
+    const r = await handlePresupuestos(
+      'iniciar_borrador_presupuesto',
+      { cliente_nombre: 'Javier Ocasar' },
+      'biz-1',
+      'user-1',
+      supabase,
+      openaiStub,
+      { mensajeTrim: '¿Qué obras tengo abiertas?' }
+    );
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toMatch(/no he creado|obras abiertas|listado|buscar_obra/i);
+    expect(insertBorrador).not.toHaveBeenCalled();
+  });
 });
 
 describe('handleObrasClientesAgent — resolve 0/1/varios', () => {
@@ -277,5 +323,33 @@ describe('handleObrasClientesAgent — resolve 0/1/varios', () => {
     expect(String((r as { error?: string }).error)).toMatch(/XYZ-999/);
     expect(insertClientes).not.toHaveBeenCalled();
     expect(insertObras).not.toHaveBeenCalled();
+  });
+
+  it('buscar_obra lista abiertas/en curso sin tratar la pregunta como nombre', async () => {
+    const supabase = makeSupabase({
+      obras: [
+        {
+          id: 'o-1',
+          nombre: 'Reforma Ocasar',
+          cliente_id: 'c-1',
+          direccion: 'Irun',
+          estado: 'abierta',
+          fecha_inicio: null,
+        },
+      ],
+      clientes: [{ id: 'c-1', nombre: 'Javier Ocasar' }],
+    });
+    const r = await handleObrasClientesAgent(
+      'buscar_obra',
+      { query: '¿Qué obras tengo abiertas?' },
+      'biz-1',
+      'user-1',
+      supabase
+    );
+    expect((r as { error?: string }).error).toBeUndefined();
+    expect((r as { listado_abiertas?: boolean }).listado_abiertas).toBe(true);
+    const items = (r as { items: Array<{ nombre: string; cliente_nombre: string | null }> }).items;
+    expect(items).toHaveLength(1);
+    expect(items[0]?.nombre).toBe('Reforma Ocasar');
   });
 });

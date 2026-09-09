@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { findOpenAiCallWithTools } from './helpers/agente-openai';
 
 jest.mock('@/lib/supabase/server', () => ({
   createServiceClient: jest.fn(),
@@ -174,5 +175,176 @@ describe('POST /api/agente — Fase A.2 grounding', () => {
     expect(String(json.respuesta)).not.toMatch(/añadido:\s*mármol/i);
     expect(insertBorrador).not.toHaveBeenCalled();
     expect(insertItems).not.toHaveBeenCalled();
+  });
+
+  it('prueba 1: «obras abiertas» no crea borrador aunque el modelo llame iniciar_borrador', async () => {
+    const insertBorrador = jest.fn().mockReturnValue(
+      makeThenableResult({ data: { id: 'draft-ocasar' }, error: null })
+    );
+
+    (createServiceClient as jest.Mock).mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'business_profiles') return businessProfileChain;
+        if (table === 'presupuesto_borrador') {
+          const chain = makeThenableResult({ data: [], error: null });
+          chain.insert = insertBorrador;
+          return chain;
+        }
+        if (table === 'obras') {
+          return makeThenableResult({
+            data: [
+              {
+                id: 'o-1',
+                nombre: 'Reforma Ocasar',
+                cliente_id: 'c-1',
+                direccion: null,
+                estado: 'abierta',
+                fecha_inicio: null,
+              },
+            ],
+            error: null,
+          });
+        }
+        if (table === 'clientes') {
+          return makeThenableResult({
+            data: [{ id: 'c-1', nombre: 'Javier Ocasar' }],
+            error: null,
+          });
+        }
+        return makeThenableResult({ data: [], error: null });
+      }),
+    });
+
+    createMock
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'presupuesto' } }] })
+      .mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                {
+                  id: 'call_1',
+                  type: 'function',
+                  function: {
+                    name: 'iniciar_borrador_presupuesto',
+                    arguments: JSON.stringify({ cliente_nombre: 'Javier Ocasar' }),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: 'He iniciado un presupuesto para Javier Ocasar.',
+            },
+          },
+        ],
+      });
+
+    const req = new NextRequest('http://localhost/api/agente', {
+      method: 'POST',
+      body: JSON.stringify({
+        mensaje: '¿Qué obras tengo abiertas?',
+        business_id: 'biz-1',
+        historial: [],
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(insertBorrador).not.toHaveBeenCalled();
+    expect(String(json.respuesta)).not.toMatch(/he iniciado un presupuesto/i);
+    expect(String(json.respuesta)).toMatch(/no he creado|obras|listado|buscar_obra/i);
+
+    const agentCall = findOpenAiCallWithTools(createMock);
+    const toolNames = (
+      (agentCall?.params.tools as Array<{ function?: { name?: string } }>) ?? []
+    )
+      .map((t) => t.function?.name)
+      .filter(Boolean);
+    expect(toolNames).toContain('buscar_obra');
+    expect(toolNames).not.toContain('iniciar_borrador_presupuesto');
+  });
+
+  it('prueba 1: buscar_obra lista las obras abiertas', async () => {
+    (createServiceClient as jest.Mock).mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'business_profiles') return businessProfileChain;
+        if (table === 'obras') {
+          return makeThenableResult({
+            data: [
+              {
+                id: 'o-1',
+                nombre: 'Reforma Ocasar',
+                cliente_id: 'c-1',
+                direccion: 'Irun',
+                estado: 'abierta',
+                fecha_inicio: null,
+              },
+            ],
+            error: null,
+          });
+        }
+        if (table === 'clientes') {
+          return makeThenableResult({
+            data: [{ id: 'c-1', nombre: 'Javier Ocasar' }],
+            error: null,
+          });
+        }
+        return makeThenableResult({ data: [], error: null });
+      }),
+    });
+
+    createMock
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'presupuesto' } }] })
+      .mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                {
+                  id: 'call_1',
+                  type: 'function',
+                  function: {
+                    name: 'buscar_obra',
+                    arguments: JSON.stringify({ query: 'abiertas' }),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: 'Tienes 1 obra abierta: Reforma Ocasar (Javier Ocasar).',
+            },
+          },
+        ],
+      });
+
+    const req = new NextRequest('http://localhost/api/agente', {
+      method: 'POST',
+      body: JSON.stringify({
+        mensaje: '¿Qué obras tengo abiertas?',
+        business_id: 'biz-1',
+        historial: [],
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(String(json.respuesta)).toMatch(/Reforma Ocasar/i);
+    expect(String(json.respuesta)).not.toMatch(/he iniciado un presupuesto|borrador/i);
   });
 });

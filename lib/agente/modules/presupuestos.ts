@@ -7,6 +7,7 @@ import {
   extraerNombreClienteDePeticionPresupuesto,
   failClosed,
   pareceMutacionSobrePresupuestoExistente,
+  parecePeticionPresupuestoNuevo,
   resolverClientesPorNombre,
   resolverPresupuestosPorTexto,
   resultadoResolveATool,
@@ -102,7 +103,7 @@ REGLAS DE RESPUESTA:
 MODO PRESUPUESTO ACTIVO:
 Cuando hay un borrador en construcción, interpreta TODO como partidas de obra.
 Si el mensaje es ambiguo, pregunta: '¿Es una nueva partida o el precio de la anterior?'
-VÍA DE ESCAPE (obligatoria): Si el usuario dice 'cancela el presupuesto', 'olvídalo', 'déjalo', 'sal del presupuesto', o hace una pregunta completamente ajena al presupuesto actual (como preguntar por operarios, horas, el tiempo, etc.), llama a cancelar_borrador para limpiar el estado y responde con un mensaje amable que cierre el contexto del presupuesto, dejando claro al usuario que ya puede preguntar sobre otros temas.
+VÍA DE ESCAPE (obligatoria): Si el usuario dice 'cancela el presupuesto', 'olvídalo', 'déjalo', 'sal del presupuesto', o hace una pregunta completamente ajena al presupuesto actual (como preguntar por operarios, horas, el tiempo, o listar obras abiertas), llama a cancelar_borrador si había borrador y NO inicies uno nuevo. Para «qué obras tengo abiertas» usa buscar_obra (listado), nunca iniciar_borrador ni un cliente del contexto.
 Ejemplo de cierre: 'Presupuesto cancelado. Ya puedes preguntarme lo que necesites.'
 Esto devuelve el control al orquestador para el siguiente mensaje.
 
@@ -113,6 +114,7 @@ AÑADIR A PRESUPUESTO EXISTENTE (fail-closed):
 
 INICIAR BORRADOR (presupuesto NUEVO):
 - Solo cuando Pino pide crear o hacer un presupuesto nuevo («haz un presupuesto para…», «nuevo presupuesto»).
+- PROHIBIDO iniciar_borrador si pregunta por obras abiertas, listados o cualquier consulta que no sea crear presupuesto. No uses un nombre de CLIENTES REGISTRADOS ni de OBRAS ABIERTAS como cliente_nombre si no lo ha pedido.
 - Llama a iniciar_borrador_presupuesto con cliente_nombre = el nombre tal y como lo dijo (texto libre; no hace falta ficha).
 - cliente_id es opcional: solo si da un UUID explícito. Si dice «presupuesto para [nombre]», [nombre] va entero como cliente_nombre.
 
@@ -257,7 +259,7 @@ export const PRESUPUESTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
     function: {
       name: 'iniciar_borrador_presupuesto',
       description:
-        'Inicia un borrador conversacional de presupuesto (tabla presupuesto_borrador). Solo uno activo por usuario y negocio.',
+        'Inicia un borrador conversacional de presupuesto NUEVO. Solo si Pino pide explícitamente crear/hacer un presupuesto. PROHIBIDO en consultas («qué obras tengo abiertas») o para añadir a un presupuesto existente. Solo uno activo por usuario y negocio.',
       parameters: {
         type: 'object',
         properties: {
@@ -1078,6 +1080,12 @@ export async function handlePresupuestos(
         }
         return failClosed(
           `No creo un presupuesto nuevo para añadir una partida al de «${nombre}». No hay borrador en construcción. No he añadido nada.`
+        );
+      }
+
+      if (!parecePeticionPresupuestoNuevo(mensajeUsuario)) {
+        return failClosed(
+          'No he creado ningún presupuesto ni borrador: no me has pedido uno nuevo. Si querías las obras abiertas, eso es un listado (buscar_obra), no un presupuesto.'
         );
       }
 

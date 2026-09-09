@@ -2,8 +2,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 /** Reglas de grounding para el system prompt (God File solo interpola). */
 export const GROUNDING_REGLAS_SISTEMA = `GROUNDING (obligatorio, lenguaje de calle):
-Pino habla natural, sin UUIDs. Interpreta → busca con buscar_* / nombre real → 1 coincidencia usa ese ID; varias: pregunta en castellano cuál; cero: dilo y no sigas.
-Tools de mutación sobre cliente/obra/presupuesto existente: lookup previo. Si no existe → no inventes, no crees ficha ni documento de paso. Crear solo con tools crear_* (u iniciar_borrador cuando pida un presupuesto NUEVO).
+Pino habla natural, sin UUIDs.
+CONSULTAS / LISTADOS («qué obras tengo abiertas», pendientes, fichas): usa buscar_* / listar_* y responde con lo encontrado. PROHIBIDO iniciar_borrador, crear_presupuesto, crear_obra o crear_cliente si no te lo han pedido. No cojas un cliente del contexto (p. ej. CLIENTES REGISTRADOS) para inventar un presupuesto.
+MUTACIONES sobre cliente/obra/presupuesto existente: interpreta → busca con buscar_* / nombre real → 1 coincidencia usa ese ID; varias: pregunta en castellano cuál; cero: dilo y no sigas. No inventes, no crees ficha ni documento de paso.
+Crear solo con tools crear_* (u iniciar_borrador) cuando pidan explícitamente un alta o un presupuesto NUEVO («haz un presupuesto para…»).
 En la respuesta final SOLO afirma mutaciones que hayan vuelto en un TOOL RESULT con ok:true. Si la tool falló o no encontró, dilo; nunca narres éxito sobre IDs o nombres fantasma.`;
 
 export type CandidatoGrounding = { id: string; etiqueta: string };
@@ -103,6 +105,32 @@ export function colapsarResolve<T extends { id: string; nombre?: string | null }
   return { status: 'many', candidatos: scored.map((x) => x.f) };
 }
 
+const RE_CONSULTA_LISTADO_OBRAS =
+  /\b(?:qu[eé]\s+obras?\b|\bobras?\s+(?:tengo|hay|abiertas?|activas?|en\s+curso)\b|\blistar?\s+(?:las\s+)?obras?\b|\bmuestr[aá](?:me)?\s+(?:las\s+)?obras?\b|\bcu[aá]ntas?\s+obras?\b|\bobras?\s+abiertas\b)/i;
+
+const RE_ALTA_OBRA =
+  /\b(?:crea(?:r)?|nueva|nuevo|actualiza(?:r)?|cierra|cerrar|pausa)\s+(?:una\s+)?obra\b/i;
+
+/** Consulta de listado de obras (no alta, no presupuesto). */
+export function pareceConsultaListadoObras(mensaje: string): boolean {
+  const t = String(mensaje ?? '').trim();
+  if (!t) return false;
+  if (RE_ALTA_OBRA.test(t)) return false;
+  return RE_CONSULTA_LISTADO_OBRAS.test(t);
+}
+
+/** Query de buscar_obra que debe listar abiertas/en curso, no ilike por nombre. */
+export function esQueryListadoObras(query: string): boolean {
+  const raw = String(query ?? '').trim();
+  if (!raw) return true;
+  if (pareceConsultaListadoObras(raw)) return true;
+  const q = normalizarNombreComparable(raw);
+  return (
+    /^(las?\s+)?obras?(\s+(abiertas?|en curso|activas?|todas?))?$/.test(q) ||
+    /^(abiertas?|en curso|en_curso|activas?|todas?)$/.test(q)
+  );
+}
+
 export function pareceMutacionSobrePresupuestoExistente(mensaje: string): boolean {
   const t = String(mensaje ?? '').trim();
   if (!t) return false;
@@ -117,6 +145,22 @@ export function pareceMutacionSobrePresupuestoExistente(mensaje: string): boolea
       t
     );
   return verboAdd && alPresu && !crearNuevo;
+}
+
+/** Solo entonces iniciar_borrador puede crear. Consultas (obras abiertas, etc.) no. */
+export function parecePeticionPresupuestoNuevo(mensaje: string): boolean {
+  const t = String(mensaje ?? '').trim();
+  if (!t) return false;
+  if (pareceConsultaListadoObras(t)) return false;
+  if (pareceMutacionSobrePresupuestoExistente(t)) return false;
+  return (
+    /\b(nuevo\s+presupuesto|presupuesto\s+nuevo)\b/i.test(t) ||
+    /\bhaz(?:me)?\s+(un\s+)?presupuesto\b/i.test(t) ||
+    /\bcrea(?:r)?\s+(un\s+)?presupuesto\b/i.test(t) ||
+    /\binicia(?:r)?\s+(un\s+)?(borrador|presupuesto)\b/i.test(t) ||
+    /\bpresupuesta(?:r|me)?\b/i.test(t) ||
+    /\b(?:un\s+)?presupuesto\s+para\b/i.test(t)
+  );
 }
 
 export function extraerNombreClienteDePeticionPresupuesto(mensaje: string): string | null {

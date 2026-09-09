@@ -98,7 +98,9 @@ import { GROUNDING_REGLAS_SISTEMA } from '@/lib/agente/modules/grounding';
 import {
   type AgentIntentCategory,
   PRESUPUESTOS_AGENT_SYSTEM_PROMPT_PREFIX,
+  ROUTER_BORRADOR_ACTIVO_PREFIX,
   ROUTER_SYSTEM_PROMPT,
+  intentPorSenalExplicita,
   parseAgentIntentCategory,
   toolsForAgentIntent,
 } from '@/lib/agente/router';
@@ -652,7 +654,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
               String((rows as { id?: unknown }).id ?? '').trim().length > 0
           );
       if (hasBorradorActivo) {
-        routerSystemContent = `CONTEXTO: Hay un borrador de presupuesto en construcción (estado en_construccion). Úsalo solo como sesgo hacia intención presupuesto cuando el mensaje del usuario sea ambiguo o siga claramente el hilo del presupuesto/partidas/confirmación del borrador. NO fuerces presupuesto si el mensaje trata de horas de operarios, jornada, control de horas ni de diario de obra, anotaciones en obra o fotos de obra en sentido de registro de obra: en esos casos clasifica operarios o diario.\n\n${ROUTER_SYSTEM_PROMPT}`;
+        routerSystemContent = `${ROUTER_BORRADOR_ACTIVO_PREFIX}${ROUTER_SYSTEM_PROMPT}`;
       }
     }
 
@@ -679,7 +681,8 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
     });
 
     const intentRaw = routerCompletion.choices[0]?.message?.content ?? '';
-    const intentCategory: AgentIntentCategory = parseAgentIntentCategory(intentRaw);
+    const intentCategory: AgentIntentCategory =
+      intentPorSenalExplicita(mensajeTrim) ?? parseAgentIntentCategory(intentRaw);
     const memoriaNegocioBlockNoPresupuestos =
       intentCategory === 'presupuesto' ? '' : memoriaNegocioBlock;
 
