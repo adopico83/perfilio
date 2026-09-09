@@ -123,6 +123,134 @@ export function logAgenteTurno(payload: AgenteTurnoLog): void {
   console.info('[agente]', JSON.stringify(payload));
 }
 
+const PREFIJO_MUTACION =
+  /^(crear_|actualizar_|modificar_|guardar_|registrar_|confirmar_|convertir_|agregar_|editar_|vincular_|asociar_|cambiar_estado_|eliminar_|borrar_|iniciar_)/;
+
+export function esToolMutacion(name: string): boolean {
+  return PREFIJO_MUTACION.test(String(name ?? ''));
+}
+
+export function esResultadoToolExito(result: unknown): boolean {
+  if (result == null || typeof result !== 'object' || Array.isArray(result)) return false;
+  const o = result as Record<string, unknown>;
+  if (o.ok === true) return true;
+  if (o.ok === false) return false;
+  if (typeof o.error === 'string' && o.error.trim()) return false;
+  if (o.necesita_aclaracion === true) return false;
+  if (o.pendiente_precio === true || o.pendiente_confirmacion === true) return false;
+  return true;
+}
+
+export function esResultadoToolFallo(result: unknown): boolean {
+  if (result == null || typeof result !== 'object' || Array.isArray(result)) return false;
+  const o = result as Record<string, unknown>;
+  if (o.ok === false) return true;
+  if (typeof o.error === 'string' && o.error.trim()) return true;
+  return false;
+}
+
+export function esResultadoToolPendiente(result: unknown): boolean {
+  if (result == null || typeof result !== 'object' || Array.isArray(result)) return false;
+  const o = result as Record<string, unknown>;
+  return o.pendiente_precio === true || o.pendiente_confirmacion === true || o.necesita_aclaracion === true;
+}
+
+export type HechoMutacion = { tool: string; result: unknown };
+
+export type HechosMutacion = {
+  exitos: HechoMutacion[];
+  fallos: HechoMutacion[];
+  pendientes: HechoMutacion[];
+};
+
+export function hechosMutacionDesdeEjecutado(
+  executed: Array<{ tool: string; result: unknown }>
+): HechosMutacion {
+  const exitos: HechoMutacion[] = [];
+  const fallos: HechoMutacion[] = [];
+  const pendientes: HechoMutacion[] = [];
+  for (const e of executed) {
+    if (!esToolMutacion(e.tool)) continue;
+    if (esResultadoToolExito(e.result)) exitos.push({ tool: e.tool, result: e.result });
+    else if (esResultadoToolPendiente(e.result)) pendientes.push({ tool: e.tool, result: e.result });
+    else if (esResultadoToolFallo(e.result)) fallos.push({ tool: e.tool, result: e.result });
+  }
+  return { exitos, fallos, pendientes };
+}
+
+function errorDeResultado(result: unknown): string {
+  if (result != null && typeof result === 'object' && !Array.isArray(result)) {
+    const o = result as Record<string, unknown>;
+    if (typeof o.error === 'string' && o.error.trim()) return o.error.trim();
+    if (typeof o.mensaje === 'string' && o.mensaje.trim()) return o.mensaje.trim();
+  }
+  return 'No se pudo completar la acción.';
+}
+
+export function prosaFailClosedDesdeHechos(hechos: HechosMutacion): string {
+  const partes = hechos.fallos.map((f) => errorDeResultado(f.result));
+  const unico = [...new Set(partes.filter(Boolean))];
+  if (unico.length === 0) {
+    return 'No he encontrado ese cliente ni ese presupuesto. No he añadido ninguna partida ni he creado ficha ni presupuesto.';
+  }
+  return unico.join('\n');
+}
+
+/** Si todas las mutaciones fallaron (y no hay pendientes), la prosa no pasa por el modelo. */
+export function prosaFailClosedSiAplica(hechos: HechosMutacion): string | null {
+  if (hechos.fallos.length === 0) return null;
+  if (hechos.exitos.length > 0) return null;
+  if (hechos.pendientes.length > 0) return null;
+  return prosaFailClosedDesdeHechos(hechos);
+}
+
+/** Fail-closed o pregunta de aclaración: no dejar que el modelo invente éxito. */
+export function prosaAncladaDirectaSiAplica(hechos: HechosMutacion): string | null {
+  const fail = prosaFailClosedSiAplica(hechos);
+  if (fail) return fail;
+  if (hechos.exitos.length > 0) return null;
+  if (hechos.pendientes.length === 0) return null;
+  const partes = hechos.pendientes.map((p) => errorDeResultado(p.result));
+  const unico = [...new Set(partes.filter(Boolean))];
+  return unico.length > 0 ? unico.join('\n') : null;
+}
+
+export function buildMensajeSistemaProsaAnclada(hechos: HechosMutacion): string {
+  const exitos = hechos.exitos.map((e) => ({
+    tool: e.tool,
+    ok: true,
+    resumen: resumirToolResultParaLog(e.result),
+  }));
+  const fallos = hechos.fallos.map((e) => ({
+    tool: e.tool,
+    ok: false,
+    error: errorDeResultado(e.result),
+  }));
+  return `ANCLAJE DE PROSA (obligatorio):
+Solo puedes afirmar mutaciones que estén en ÉXITOS (ok:true). Si una tool falló o no encontró la entidad, dilo en castellano. PROHIBIDO narrar que has añadido, creado, editado o vinculado nada que no aparezca en ÉXITOS. No inventes IDs, clientes, obras ni presupuestos.
+ÉXITOS: ${JSON.stringify(exitos)}
+FALLOS: ${JSON.stringify(fallos)}`;
+}
+
+const RE_EXITO_INVENTADO =
+  /\b(a[nñ]adid[oa]|he a[nñ]adido|partida a[nñ]adida|presupuesto creado|cliente creado|listo[,:]?\s+a[nñ]ad)/i;
+
+/**
+ * Red de seguridad: si el modelo afirma éxito y no hay mutación ok:true, sustituye por fail-closed.
+ */
+export function anclarProsaAHechos(prosaModelo: string, hechos: HechosMutacion): string {
+  const t = String(prosaModelo ?? '').trim();
+  const fail = prosaFailClosedSiAplica(hechos);
+  if (fail) return fail;
+  if (hechos.exitos.length === 0 && RE_EXITO_INVENTADO.test(t)) {
+    return (
+      prosaFailClosedDesdeHechos(hechos) ||
+      'No he podido confirmar esa acción en el sistema. No he añadido ni creado nada.'
+    );
+  }
+  return t || prosaModelo;
+}
+
 export function buildToolLoopMessages(
   baseMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
   executed: Array<{

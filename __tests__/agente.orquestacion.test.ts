@@ -1,10 +1,14 @@
 import {
   AGENTE_PROSA_TEMPERATURE,
   AGENTE_TOOLS_TEMPERATURE,
+  anclarProsaAHechos,
   buildToolLoopMessages,
+  esToolMutacion,
+  hechosMutacionDesdeEjecutado,
   idsParaPlanEjecutado,
   pareceAccionQueRequiereTool,
   plannedToolsFromAssistantToolCalls,
+  prosaAncladaDirectaSiAplica,
   resumirToolResultParaLog,
 } from '@/lib/agente/orquestacion';
 import type OpenAI from 'openai';
@@ -89,5 +93,15 @@ describe('orquestación anti-alucinación', () => {
     expect(resumen.items).toBe(3);
     expect(resumen.access_token).toBeUndefined();
     expect(resumen.cuerpo).toBeUndefined();
+  });
+
+  it('ancla la prosa: mutación fallida no se narra como éxito', () => {
+    expect(esToolMutacion('agregar_partida_borrador')).toBe(true);
+    expect(esToolMutacion('listar_presupuestos')).toBe(false);
+    const hechos = hechosMutacionDesdeEjecutado([
+      { tool: 'agregar_partida_borrador', result: { ok: false, error: 'No existe.' } },
+    ]);
+    expect(prosaAncladaDirectaSiAplica(hechos)).toBe('No existe.');
+    expect(anclarProsaAHechos('Añadido: mármol.', hechos)).toBe('No existe.');
   });
 });

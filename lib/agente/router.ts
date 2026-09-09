@@ -1,6 +1,7 @@
 import type OpenAI from 'openai';
 import { DIARIO_HANDLED_TOOLS } from '@/lib/agente/modules/diario';
 import { PRESUPUESTOS_HANDLED_TOOLS } from '@/lib/agente/modules/presupuestos';
+import { pareceConsultaListadoObras } from '@/lib/agente/modules/grounding';
 
 export type AgentIntentCategory =
   | 'documentos'
@@ -19,11 +20,12 @@ export const ROUTER_SYSTEM_PROMPT = `Eres un clasificador de intención (una sol
 PRIORIDAD DE SEÑALES EXPLÍCITAS (aplica la primera categoría coherente; no mezcles con otras salvo ambigüedad real):
 - operarios: registrar o consultar horas de trabajo en obra, control de horas, horas de obra, horas de operarios, parte de horas, fichar jornada, convenio vs horas reales, "cuántas horas llevamos", etc. Incluye frases típicas: "registrar horas", "horas de obra", "control de horas", "jornada" (en sentido laboral en obra).
 - diario: diario de obra, anotar en obra, incidencias o apuntes del día en obra, entrada del diario, "foto de obra" como registro de obra (no ticket de compra), PDF del diario, texto del diario. Incluye: "diario de obra", "anotar en obra", "foto de obra" (contexto obra).
-- presupuesto: presupuesto, partidas, líneas del presupuesto, "añadir al presupuesto", importes por partida, listar o editar presupuestos, pendientes de presupuesto, cambiar estado de presupuesto, convertir presupuesto a albarán, confirmar o cancelar borrador de presupuesto, obtener borrador activo, presupuesto por voz cuando el foco es el importe/partidas (no confundir con horas ni diario).
+- documentos: listar o consultar obras del negocio («qué obras tengo abiertas», obras en curso, obras activas, listar obras). NO es presupuesto ni clientes: no inicies un borrador. Usa buscar_obra.
+- presupuesto: presupuesto, partidas, líneas del presupuesto, "añadir al presupuesto", importes por partida, listar o editar presupuestos, pendientes de presupuesto, cambiar estado de presupuesto, convertir presupuesto a albarán, confirmar o cancelar borrador de presupuesto, obtener borrador activo, presupuesto por voz cuando el foco es el importe/partidas (no confundir con horas, diario ni con listar obras abiertas).
 
 Borrador de presupuesto en construcción (si el sistema te avisa de que existe):
 - Solo debe sesgar hacia presupuesto cuando el mensaje sea ambiguo, muy corto sin tema claro, o siga claramente el hilo del presupuesto (partidas, importes, confirmaciones del borrador).
-- NUNCA fuerces presupuesto por tener borrador activo si el usuario habla de horas/jornada/operarios o de diario de obra/fotos/anotaciones en obra: en esos casos la salida es operarios o diario.
+- NUNCA fuerces presupuesto por tener borrador activo si el usuario habla de horas/jornada/operarios, de diario de obra/fotos/anotaciones en obra, o de listar/consultar obras abiertas («qué obras tengo»): en esos casos la salida es operarios, diario o documentos.
 - "cancelar presupuesto" o "salir del presupuesto" → presupuesto (gestión del flujo de presupuesto).
 
 Mensajes muy cortos (sí, no, vale, ok, adelante, genial, perfecto, etc.):
@@ -32,7 +34,7 @@ Mensajes muy cortos (sí, no, vale, ok, adelante, genial, perfecto, etc.):
 Responde SOLO con una palabra en minúsculas, sin comillas ni puntuación:
 documentos | emails | agenda | gastos | diario | clientes | calculo | operarios | presupuesto | general
 
-documentos: crear obra con cliente nuevo o existente (crear_obra + crear_cliente + actualizar_obra), facturas, albaranes, vincular documentos a una obra (asociar_documentos_a_obra), crear o actualizar obra (crear_obra, actualizar_obra), extras/modificados/imprevistos en obra, dictado de visita y presupuesto estructurado (generar_presupuesto_por_dictado, gestionar_tarifas), crear presupuesto ya redactado (crear_presupuesto), estados de facturas/albaranes, edición de facturas/albaranes, conversiones albarán↔factura, tiempo en obra.
+documentos: listar u consultar obras abiertas/en curso (buscar_obra), crear obra con cliente nuevo o existente (crear_obra + crear_cliente + actualizar_obra), facturas, albaranes, vincular documentos a una obra (asociar_documentos_a_obra), crear o actualizar obra (crear_obra, actualizar_obra), extras/modificados/imprevistos en obra, dictado de visita y presupuesto estructurado (generar_presupuesto_por_dictado, gestionar_tarifas), crear presupuesto ya redactado (crear_presupuesto), estados de facturas/albaranes, edición de facturas/albaranes, conversiones albarán↔factura, tiempo en obra.
 presupuesto: ya detallado arriba cuando el foco es presupuesto/partidas/borrador de presupuesto (no operarios ni diario).
 emails: Gmail, leer bandeja, enviar correo.
 agenda: recordatorios, citas, eventos en calendario, tiempo meteorológico para obras o citas.
@@ -154,11 +156,26 @@ export const INTENT_TOOL_NAMES_OPERARIOS = new Set([
 export const INTENT_TOOL_NAMES_PRESUPUESTO = new Set([
   ...PRESUPUESTOS_HANDLED_TOOLS,
   'generar_presupuesto_por_dictado',
+  'buscar_cliente',
+  'ver_cliente',
+  'buscar_obra',
+  'ver_ficha_obra',
   'mostrar_vista_visual',
   'get_directions',
   'guardar_memoria',
   'eliminar_memoria',
 ]);
+
+/** Sesgo de borrador activo: no pisa listados de obras ni horas/diario. */
+export const ROUTER_BORRADOR_ACTIVO_PREFIX = `CONTEXTO: Hay un borrador de presupuesto en construcción (estado en_construccion). Úsalo solo como sesgo hacia intención presupuesto cuando el mensaje del usuario sea ambiguo o siga claramente el hilo del presupuesto/partidas/confirmación del borrador. NO fuerces presupuesto si el mensaje trata de horas de operarios, jornada, control de horas, diario de obra, anotaciones en obra, fotos de obra en sentido de registro de obra, ni de listar o consultar obras abiertas/en curso («qué obras tengo»): en esos casos clasifica operarios, diario o documentos.
+
+`;
+
+/** Señales que el LLM no debe pisar (p. ej. listar obras ≠ presupuesto). */
+export function intentPorSenalExplicita(mensaje: string): AgentIntentCategory | null {
+  if (pareceConsultaListadoObras(mensaje)) return 'documentos';
+  return null;
+}
 
 /** Prefijo del system prompt de presupuesto (route); el cuerpo viene de presupuestos.ts */
 export const PRESUPUESTOS_AGENT_SYSTEM_PROMPT_PREFIX = `REGLA CRÍTICA — DICTADO COMPLETO:
