@@ -892,13 +892,10 @@ function DashboardContent() {
           if (!obraHoyId) {
             setPresupuestosHoy([]);
           } else {
-            const demoHoy = isDemoReformasTenant({ email: user.email });
             const { data: presHoyRows, error: presHoyErr } = await supabase
               .from('presupuestos')
               .select(
-                demoHoy
-                  ? 'id, fecha, estado, created_at, obra_id, cliente_nombre, importe_total, presupuesto_generado'
-                  : 'id, fecha, estado, created_at, obra_id, cliente_nombre, importe_total'
+                'id, fecha, estado, created_at, obra_id, cliente_nombre, importe_total, presupuesto_generado'
               )
               .eq('business_id', businessId)
               .eq('obra_id', obraHoyId)
@@ -930,7 +927,7 @@ function DashboardContent() {
                     r.importe_total != null && Number.isFinite(Number(r.importe_total))
                       ? Number(r.importe_total)
                       : null,
-                  presupuesto_generado: demoHoy ? r.presupuesto_generado ?? null : undefined,
+                  presupuesto_generado: r.presupuesto_generado ?? null,
                 }))
               );
             }
