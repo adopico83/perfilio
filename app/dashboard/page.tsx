@@ -22,6 +22,7 @@ import { useObraModal } from '@/contexts/obra-modal-context';
 import BichoLivePulse from '@/components/dashboard/BichoLivePulse';
 import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
 import HoyHome from '@/components/dashboard/hoy-home';
+import HoyDemoHome from '@/components/dashboard/hoy-demo-home';
 import NotificationButton from '@/components/pwa/notification-button';
 import { useSession } from '@/components/providers/session-provider';
 import { isDemoReformasTenant } from '@/lib/demo-tenant';
@@ -1291,6 +1292,18 @@ function DashboardContent() {
         }
       />
 
+      {isDemo ? (
+        <main className="max-w-5xl mx-auto px-6 py-8">
+          <HoyDemoHome
+            loading={dashboardLoading}
+            clientes={ultimosClientes}
+            obra={hoy.obra}
+            presupuesto={hoy.presupuesto}
+            cta={hoy.cta}
+            onAbrirObra={abrirObra}
+          />
+        </main>
+      ) : (
       <main className="max-w-7xl mx-auto px-6 py-3 lg:py-4 space-y-3 lg:space-y-3">
         {showPushRecoveryCta ? (
           <section className="rounded-xl border border-amber-400/60 bg-amber-500/10 px-4 py-3">
@@ -1323,11 +1336,7 @@ function DashboardContent() {
           onAbrirObra={abrirObra}
         />
 
-        {isDemo ? (
-          <BichoLivePulse hideWhenEmpty />
-        ) : (
-          <BichoLivePulse />
-        )}
+        <BichoLivePulse />
 
         {!isDemo ? (
         <section>
@@ -2232,6 +2241,7 @@ function DashboardContent() {
           </div>
         )}
       </main>
+      )}
     </div>
   );
 }

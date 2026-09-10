@@ -99,11 +99,12 @@ Si la cabecera muestra el negocio demo pero clientes/obras dicen «No tienes acc
 
 ## 4. Checklist demo 5 min (prospect Orbegozo)
 
-Orden de producto: **Hoy → obra → presupuesto**.
+Orden de producto: **Hoy → obra → presupuesto** (shell con nav izquierda).
 
 1. **Login** con `demo-reformas@perfilio.app` (no Pino).
-2. **Hoy** (`/dashboard`): negocio «Reformas Demo Errenteria»; bloque **Hoy** con la obra «Reforma piso», el presupuesto pendiente y un CTA **Presupuesto de esta obra**. No aparecen ceros de urgentes/Gmail/TicketBAI ni «0 clientes».
-3. **Clientes** (`/clientes`):
+2. **Shell**: barra lateral izquierda con Dashboard / Clientes / Obras / Presupuestos / Agente IA. Top bar mínima (nombre del negocio + salir). El agente **no** ocupa la derecha hasta pulsar Agente IA.
+3. **Hoy** (`/dashboard`): tres cards — clientes, obra en curso («Reforma piso»), presupuesto pendiente — y un CTA **Presupuesto de esta obra**. Sin métricas, urgentes, Gmail ni TicketBAI.
+4. **Clientes** (`/clientes`):
    - Ainhoa Etxeberria (obra + presupuesto).
    - Iker Agirre (solo ficha, para que el listado no quede en uno).
    - Nombres vascos genéricos, teléfonos/emails `@example.com` inventados.

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import Link from 'next/link';
 import ToggleAgenteNavButton from '@/components/dashboard/toggle-agente-nav-button';
+import { useDemoTenant } from '@/lib/use-demo-tenant';
 
 export type DashboardNavActive =
   | 'hoy'
@@ -149,6 +150,9 @@ export default function DashboardMainNav({
   mobileDrawerFooter: ReactNode;
 }) {
   const closeMobile = () => setMenuMovilAbierto(false);
+  const isDemo = useDemoTenant();
+
+  if (isDemo) return null;
 
   const agenteBtnClassCompact =
     'inline-flex shrink-0 items-center px-3 py-1.5 sm:px-3.5 sm:py-1.5 text-xs sm:text-sm font-medium text-[#A04A2F] bg-transparent border border-[#A04A2F] rounded-lg hover:bg-[#A04A2F] hover:text-white transition-colors';
