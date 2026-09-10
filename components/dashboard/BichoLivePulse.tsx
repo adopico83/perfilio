@@ -124,7 +124,7 @@ function BichoPulseSkeleton() {
   );
 }
 
-export default function BichoLivePulse() {
+export default function BichoLivePulse({ hideWhenEmpty = false }: { hideWhenEmpty?: boolean }) {
   const [insights, setInsights] = useState<InsightRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -181,7 +181,9 @@ export default function BichoLivePulse() {
     return deduped;
   }, [insights]);
 
-  if (loading) return <BichoPulseSkeleton />;
+  if (loading) return hideWhenEmpty ? null : <BichoPulseSkeleton />;
+
+  if (hideWhenEmpty && visibleInsights.length === 0) return null;
 
   return (
     <section className="h-auto rounded-xl border border-zinc-400/50 bg-[#E5DFD0]/75 p-2 shadow-lg backdrop-blur-md">

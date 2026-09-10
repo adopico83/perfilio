@@ -21,8 +21,12 @@ import { useEmailModal } from '@/contexts/email-modal-context';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import BichoLivePulse from '@/components/dashboard/BichoLivePulse';
 import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
+import HoyHome from '@/components/dashboard/hoy-home';
+import HoyDemoHome from '@/components/dashboard/hoy-demo-home';
 import NotificationButton from '@/components/pwa/notification-button';
 import { useSession } from '@/components/providers/session-provider';
+import { isDemoReformasTenant } from '@/lib/demo-tenant';
+import { pickHoy } from '@/lib/hoy';
 import { getBusinessIdClient } from '@/lib/supabase/get-business-id';
 
 interface ResumenCounts {
@@ -50,6 +54,8 @@ interface PresupuestoResumen {
   cliente_nombre: string | null;
   obra_nombre: string | null;
   cliente_ficha_nombre: string | null;
+  importe_total: number | null;
+  presupuesto_generado?: string | null;
 }
 
 /** Sublínea del widget: obra si hay vínculo; si no, cliente; nunca mensajes. */
@@ -263,6 +269,7 @@ function DashboardSkeleton() {
 function DashboardContent() {
   const { abrirEmail, abrirUrgentes } = useEmailModal();
   const { abrirObra } = useObraModal();
+  const { user } = useSession();
   const router = useRouter();
   const supabase = useMemo(
     () =>
@@ -304,6 +311,7 @@ function DashboardContent() {
   const [ultimasEntradasDiario, setUltimasEntradasDiario] = useState<DiarioEntradaWidget[]>([]);
   const [ultimosClientes, setUltimosClientes] = useState<UltimoClienteWidget[]>([]);
   const [obrasActivas, setObrasActivas] = useState<ObraActivaWidget[]>([]);
+  const [presupuestosHoy, setPresupuestosHoy] = useState<PresupuestoResumen[]>([]);
 
   const [modalAgendaAbierto, setModalAgendaAbierto] = useState(false);
   /** null hasta montar en cliente: evita desajuste SSR/hidratación con `new Date()` en el render. */
@@ -513,6 +521,15 @@ function DashboardContent() {
     return construirCeldasMes(y, m);
   }, [mesCalendario]);
 
+  const isDemo = isDemoReformasTenant({
+    businessName,
+    email: user?.email,
+  });
+  const hoy = useMemo(
+    () => pickHoy(obrasActivas, presupuestosHoy),
+    [obrasActivas, presupuestosHoy]
+  );
+
   const conectarGmail = async () => {
     if (gmailAccionLoading) return;
     try {
@@ -671,6 +688,7 @@ function DashboardContent() {
         setUltimasEntradasDiario([]);
         setUltimosClientes([]);
         setObrasActivas([]);
+        setPresupuestosHoy([]);
         setEmailsUrgentes([]);
 
         const { data: gmailToken } = await supabase
@@ -700,7 +718,7 @@ function DashboardContent() {
         supabase
           .from('presupuestos')
           .select(
-            'id, fecha, estado, created_at, obra_id, cliente_nombre, obras ( nombre ), clientes ( nombre )'
+            'id, fecha, estado, created_at, obra_id, cliente_nombre, importe_total, obras ( nombre ), clientes ( nombre )'
           )
           .eq('business_id', businessId)
           .order('created_at', { ascending: false })
@@ -746,6 +764,7 @@ function DashboardContent() {
           created_at: string;
           obra_id?: string | null;
           cliente_nombre?: string | null;
+          importe_total?: number | null;
           obras?: { nombre?: string | null } | null;
           clientes?: { nombre?: string | null } | null;
         }>;
@@ -762,6 +781,10 @@ function DashboardContent() {
               cliente_nombre: r.cliente_nombre ?? null,
               obra_nombre: oj ? String(oj.nombre ?? '').trim() || null : null,
               cliente_ficha_nombre: cj ? String(cj.nombre ?? '').trim() || null : null,
+              importe_total:
+                r.importe_total != null && Number.isFinite(Number(r.importe_total))
+                  ? Number(r.importe_total)
+                  : null,
             };
           })
         );
@@ -825,6 +848,7 @@ function DashboardContent() {
         );
         if (!obrasRes.ok) {
           setObrasActivas([]);
+          setPresupuestosHoy([]);
         } else {
           const json = (await obrasRes.json()) as {
             obras?: Array<{
@@ -851,20 +875,67 @@ function DashboardContent() {
               new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
           );
           const top = activas.slice(0, 5);
-          setObrasActivas(
-            top.map((o) => ({
-              id: o.id,
-              nombre: o.nombre,
-              cliente_nombre: o.cliente_nombre ?? null,
-              direccion: o.direccion ?? null,
-              estado: o.estado ?? null,
-              fecha_inicio: o.fecha_inicio ?? null,
-              num_documentos: documentosDesdeObraApi(o),
-            }))
-          );
+          const mapped = top.map((o) => ({
+            id: o.id,
+            nombre: o.nombre,
+            cliente_nombre: o.cliente_nombre ?? null,
+            direccion: o.direccion ?? null,
+            estado: o.estado ?? null,
+            fecha_inicio: o.fecha_inicio ?? null,
+            num_documentos: documentosDesdeObraApi(o),
+          }));
+          setObrasActivas(mapped);
+
+          const obraHoyId =
+            mapped.find((o) => o.nombre.trim().toLowerCase() === 'reforma piso')?.id ??
+            mapped[0]?.id;
+          if (!obraHoyId) {
+            setPresupuestosHoy([]);
+          } else {
+            const { data: presHoyRows, error: presHoyErr } = await supabase
+              .from('presupuestos')
+              .select(
+                'id, fecha, estado, created_at, obra_id, cliente_nombre, importe_total, presupuesto_generado'
+              )
+              .eq('business_id', businessId)
+              .eq('obra_id', obraHoyId)
+              .order('created_at', { ascending: false })
+              .limit(5);
+            if (presHoyErr || !presHoyRows) {
+              setPresupuestosHoy([]);
+            } else {
+              setPresupuestosHoy(
+                (presHoyRows as Array<{
+                  id: string;
+                  fecha: string | null;
+                  estado: string | null;
+                  created_at: string;
+                  obra_id: string | null;
+                  cliente_nombre: string | null;
+                  importe_total: number | null;
+                  presupuesto_generado?: string | null;
+                }>).map((r) => ({
+                  id: r.id,
+                  fecha: r.fecha,
+                  estado: r.estado,
+                  created_at: r.created_at,
+                  obra_id: r.obra_id,
+                  cliente_nombre: r.cliente_nombre,
+                  obra_nombre: null,
+                  cliente_ficha_nombre: null,
+                  importe_total:
+                    r.importe_total != null && Number.isFinite(Number(r.importe_total))
+                      ? Number(r.importe_total)
+                      : null,
+                  presupuesto_generado: r.presupuesto_generado ?? null,
+                }))
+              );
+            }
+          }
         }
       } catch {
         setObrasActivas([]);
+        setPresupuestosHoy([]);
       }
 
       try {
@@ -1157,7 +1228,7 @@ function DashboardContent() {
         }
         menuMovilAbierto={menuMovilAbierto}
         setMenuMovilAbierto={setMenuMovilAbierto}
-        active={null}
+        active="hoy"
         desktopTrailing={
           <>
             {gmailConectado ? (
@@ -1171,7 +1242,7 @@ function DashboardContent() {
               >
                 {gmailAccionLoading ? '…' : 'Gmail conectado ✓'}
               </button>
-            ) : (
+            ) : isDemo ? null : (
               <button
                 type="button"
                 onClick={conectarGmail}
@@ -1202,7 +1273,7 @@ function DashboardContent() {
               >
                 {gmailAccionLoading ? '…' : 'Gmail conectado ✓'}
               </button>
-            ) : (
+            ) : isDemo ? null : (
               <button
                 type="button"
                 onClick={() => {
@@ -1224,6 +1295,18 @@ function DashboardContent() {
         }
       />
 
+      {isDemo ? (
+        <main className="max-w-5xl mx-auto px-6 py-8">
+          <HoyDemoHome
+            loading={dashboardLoading}
+            clientes={ultimosClientes}
+            obra={hoy.obra}
+            presupuesto={hoy.presupuesto}
+            cta={hoy.cta}
+            onAbrirObra={abrirObra}
+          />
+        </main>
+      ) : (
       <main className="max-w-7xl mx-auto px-6 py-3 lg:py-4 space-y-3 lg:space-y-3">
         {showPushRecoveryCta ? (
           <section className="rounded-xl border border-amber-400/60 bg-amber-500/10 px-4 py-3">
@@ -1241,13 +1324,24 @@ function DashboardContent() {
             <span className="text-[#A04A2F]">{businessName}</span>
           </h1>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-            <p className="text-sm text-zinc-900/70">Aquí tienes el resumen de tu negocio</p>
+            <p className="text-sm text-zinc-900/70">
+              {isDemo ? 'Estado de la obra de hoy' : 'Aquí tienes el resumen de tu negocio'}
+            </p>
             {!showPushRecoveryCta ? <NotificationButton /> : null}
           </div>
         </section>
 
+        <HoyHome
+          loading={dashboardLoading}
+          obra={hoy.obra}
+          presupuesto={hoy.presupuesto}
+          cta={hoy.cta}
+          onAbrirObra={abrirObra}
+        />
+
         <BichoLivePulse />
 
+        {!isDemo ? (
         <section>
           <button
             type="button"
@@ -1342,6 +1436,7 @@ function DashboardContent() {
             </div>
           </div>
         </section>
+        ) : null}
 
         <section>
           <button
@@ -1366,6 +1461,7 @@ function DashboardContent() {
           >
             <div className="min-h-0 overflow-hidden">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {!isDemo || importePendienteCobro > 0 ? (
             <button
               type="button"
               onClick={() => setModalMetrica('pendiente')}
@@ -1381,6 +1477,7 @@ function DashboardContent() {
               </div>
               <span className="text-xs text-zinc-900/60">Clic para ver desglose por factura</span>
             </button>
+            ) : null}
             <button
               type="button"
               onClick={() => setModalMetrica('presupuestado')}
@@ -1401,6 +1498,7 @@ function DashboardContent() {
               </div>
               <span className="text-xs text-zinc-900/60">Clic para ver desglose por presupuesto</span>
             </button>
+            {!isDemo || totalMateriales > 0 ? (
             <button
               type="button"
               onClick={() => setModalMetrica('materiales')}
@@ -1416,6 +1514,7 @@ function DashboardContent() {
               </div>
               <span className="text-xs text-zinc-900/60">Clic para ver desglose</span>
             </button>
+            ) : null}
           </div>
             </div>
           </div>
@@ -1443,7 +1542,7 @@ function DashboardContent() {
             }`}
           >
             <div className="min-h-0 overflow-hidden">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-2 lg:items-stretch">
+          <div className={`grid grid-cols-1 gap-3 lg:gap-2 lg:items-stretch ${isDemo ? 'lg:grid-cols-2' : 'lg:grid-cols-3'}`}>
             {/* Columna: Últimos presupuestos */}
             <div className="bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0 max-h-64">
               <div className="flex items-center justify-between shrink-0 mb-2">
@@ -1455,7 +1554,9 @@ function DashboardContent() {
                 {dashboardLoading ? (
                   <p className="text-zinc-900/60 text-xs">Cargando...</p>
                 ) : ultimosPresupuestos.length === 0 ? (
-                  <p className="text-zinc-900/60 text-xs">Aún no hay presupuestos generados.</p>
+                  <p className="text-zinc-900/60 text-xs">
+                    {isDemo ? 'Cuando haya presupuestos, aparecerán aquí.' : 'Aún no hay presupuestos generados.'}
+                  </p>
                 ) : (
                   <ul className="space-y-2 text-xs sm:text-sm">
                     {ultimosPresupuestos.map((p) => {
@@ -1511,7 +1612,9 @@ function DashboardContent() {
                 {dashboardLoading ? (
                   <p className="text-zinc-900/60 text-xs">Cargando...</p>
                 ) : agendaEventos.length === 0 ? (
-                  <p className="text-zinc-900/60 text-xs">Sin eventos próximos</p>
+                  <p className="text-zinc-900/60 text-xs">
+                    {isDemo ? 'Sin citas próximas.' : 'Sin eventos próximos'}
+                  </p>
                 ) : (
                   <ul className="space-y-2 text-xs sm:text-sm">
                     {agendaEventos.map((ev) => {
@@ -1544,7 +1647,8 @@ function DashboardContent() {
               </div>
             </button>
 
-            {/* Columna: Últimos emails */}
+            {/* Columna: Últimos emails — oculto en demo (Gmail/TicketBAI no forman parte del flujo de 5 min) */}
+            {!isDemo ? (
             <div className="bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0 max-h-64">
               <div className="flex items-center justify-between shrink-0 mb-2">
                 <h3 className="text-sm font-semibold text-zinc-900/80 uppercase tracking-wide">
@@ -1619,6 +1723,7 @@ function DashboardContent() {
                 </button>
               </div>
             </div>
+            ) : null}
           </div>
             </div>
           </div>
@@ -1636,7 +1741,9 @@ function DashboardContent() {
                 {dashboardLoading ? (
                   <p className="text-zinc-900/60 text-xs">Cargando...</p>
                 ) : ultimasEntradasDiario.length === 0 ? (
-                  <p className="text-zinc-900/60 text-xs">Sin entradas en el diario todavía</p>
+                  <p className="text-zinc-900/60 text-xs">
+                    {isDemo ? 'Sin notas de obra por ahora.' : 'Sin entradas en el diario todavía'}
+                  </p>
                 ) : (
                   <ul className="space-y-1.5 text-xs sm:text-sm">
                     {ultimasEntradasDiario.map((e) => (
@@ -1687,7 +1794,9 @@ function DashboardContent() {
                   <p className="text-zinc-900/60 text-xs">Cargando...</p>
                 ) : obrasActivas.length === 0 ? (
                   <p className="text-zinc-900/60 text-xs leading-snug">
-                    No hay obras activas. Crea una nueva desde el agente o desde /obras
+                    {isDemo
+                      ? 'Cuando haya una obra abierta, aparecerá aquí.'
+                      : 'No hay obras activas. Crea una nueva desde el agente o desde /obras'}
                   </p>
                 ) : (
                   <ul className="space-y-1.5 text-xs sm:text-sm">
@@ -1757,7 +1866,9 @@ function DashboardContent() {
                 {dashboardLoading ? (
                   <p className="text-zinc-900/60 text-xs">Cargando...</p>
                 ) : ultimosClientes.length === 0 ? (
-                  <p className="text-zinc-900/60 text-xs">Aún no hay clientes registrados</p>
+                  <p className="text-zinc-900/60 text-xs">
+                    {isDemo ? 'Todavía no hay fichas de cliente.' : 'Aún no hay clientes registrados'}
+                  </p>
                 ) : (
                   <ul className="space-y-1.5 text-xs sm:text-sm">
                     {ultimosClientes.map((c) => (
@@ -2133,6 +2244,7 @@ function DashboardContent() {
           </div>
         )}
       </main>
+      )}
     </div>
   );
 }

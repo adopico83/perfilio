@@ -3,8 +3,10 @@
 import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import Link from 'next/link';
 import ToggleAgenteNavButton from '@/components/dashboard/toggle-agente-nav-button';
+import { useDemoTenant } from '@/lib/use-demo-tenant';
 
 export type DashboardNavActive =
+  | 'hoy'
   | 'mensajes'
   | 'presupuestos'
   | 'albaranes'
@@ -16,6 +18,7 @@ export type DashboardNavActive =
   | 'operarios';
 
 const NAV_ITEMS: { key: DashboardNavActive; href: string; label: string }[] = [
+  { key: 'hoy', href: '/dashboard', label: 'Hoy' },
   { key: 'mensajes', href: '/mensajes', label: 'Mensajes' },
   { key: 'presupuestos', href: '/presupuestos', label: 'Presupuestos' },
   { key: 'albaranes', href: '/albaranes', label: 'Albaranes' },
@@ -27,7 +30,7 @@ const NAV_ITEMS: { key: DashboardNavActive; href: string; label: string }[] = [
   { key: 'operarios', href: '/operarios', label: 'Operarios' },
 ];
 
-const PRIMARY_ORDER: DashboardNavActive[] = ['obras', 'operarios', 'diario'];
+const PRIMARY_ORDER: DashboardNavActive[] = ['hoy', 'obras', 'diario'];
 const MORE_KEYS = new Set<DashboardNavActive>([
   'mensajes',
   'presupuestos',
@@ -35,6 +38,7 @@ const MORE_KEYS = new Set<DashboardNavActive>([
   'facturas',
   'gastos',
   'clientes',
+  'operarios',
 ]);
 
 function itemMeta(key: DashboardNavActive) {
@@ -146,6 +150,9 @@ export default function DashboardMainNav({
   mobileDrawerFooter: ReactNode;
 }) {
   const closeMobile = () => setMenuMovilAbierto(false);
+  const isDemo = useDemoTenant();
+
+  if (isDemo) return null;
 
   const agenteBtnClassCompact =
     'inline-flex shrink-0 items-center px-3 py-1.5 sm:px-3.5 sm:py-1.5 text-xs sm:text-sm font-medium text-[#A04A2F] bg-transparent border border-[#A04A2F] rounded-lg hover:bg-[#A04A2F] hover:text-white transition-colors';
