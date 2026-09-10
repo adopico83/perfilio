@@ -63,9 +63,28 @@ Archivo: [`scripts/seed-demo-reformas.sql`](../scripts/seed-demo-reformas.sql).
 
 El SQL Editor corre con privilegios de postgres y **bypasea RLS**. Es el camino previsto: el seed escribe en el `business_id` del user demo, no en el de Pino.
 
-Reejecutar es idempotente sobre **ese** tenant (actualiza perfil, los 2 clientes, la obra y el presupuesto marcados).
+Reejecutar es idempotente sobre **ese** tenant (actualiza perfil, membership `business_users` si aplica, los 2 clientes, la obra y el presupuesto marcados).
 
 Si olvidáis sustituir el UUID, el script falla a propósito. Si el user no existe en `auth.users`, también.
+
+## Incidente prod (hotfix PR #5)
+
+**Síntoma (Ander / El bicho):** login con `demo-reformas@perfilio.app` (UUID `c848c42d-cd40-48c3-a07b-35e06e844e5b`) OK; cabecera «Reformas Demo Errenteria»; **Clientes / Obras** «No tienes acceso a este negocio»; **Presupuestos** vacío.
+
+**Causa:** `getBusinessId*` solo lee `business_profiles` → el header acierta. Las API (`app/api/clientes/route.ts` y clones) tenían un `assertUserOwnsBusiness` local que, si el cliente de Supabase exponía `business_users.select` (siempre en prod), **devolvía false sin mirar el perfil**. El seed original no insertaba `business_users`. El agente ya hacía el fallback correcto (`assertUserCanAccessBusiness`).
+
+**Fix de código:** helper compartido [`lib/supabase/assert-user-owns-business.ts`](../lib/supabase/assert-user-owns-business.ts):
+
+1. `business_users` con fila → true.
+2. Si no hay fila, error, o la tabla no está en el mock → `business_profiles` (`id` + `user_id`).
+
+Las rutas API (clientes, obras, diario, gastos, operarios, push, PDF, presupuestos auxiliares) y el agente importan ese helper. Sin ifs extra en `app/api/agente/route.ts`.
+
+**Fix de datos (prod, ahora):** [`scripts/fix-demo-reformas-access.sql`](../scripts/fix-demo-reformas-access.sql). Pegar en SQL Editor. Solo toca el perfil con marcador `[seed:demo-reformas]` de ese UUID; **no toca Pino**.
+
+Tras el correctivo, recargar `/clientes` y `/obras` (sin cache). Presupuestos lista por RLS cliente; si prod filtra por membership, la fila de `business_users` también desbloquea el listado.
+
+El seed [`scripts/seed-demo-reformas.sql`](../scripts/seed-demo-reformas.sql) ahora inserta `business_users` si la tabla existe (idempotente).
 
 ## 3. Entrar a la demo
 
@@ -75,6 +94,8 @@ Si olvidáis sustituir el UUID, el script falla a propósito. Si el user no exis
 4. Cabecera / perfil: **Reformas Demo Errenteria**, no branding Pino ni `EMPRESA_PINO`.
 
 Si el dashboard sale vacío, el UUID del seed no coincide con el user con el que habéis entrado, o el seed no se ha ejecutado.
+
+Si la cabecera muestra el negocio demo pero clientes/obras dicen «No tienes acceso a este negocio», es el fallo de `assertUserOwnsBusiness` / `business_users` (sección **Incidente prod**). No reejecutéis el seed contra Pino.
 
 ## 4. Checklist demo 5 min (prospect Orbegozo)
 
@@ -104,6 +125,7 @@ No hace falta TicketBAI, visor 3D ni crear documentos nuevos en la demo corta. E
 | Tabla | Filas | Notas |
 |---|---|---|
 | `business_profiles` | 1 | `user_id` = demo Auth; `ciudad` Errenteria; marcador `[seed:demo-reformas]` |
+| `business_users` | 0 o 1 | Membership `demo_user_id` + `business_id` **si la tabla existe** (no está en `supabase/migrations/`). Sin ella, las API devolvían 403. |
 | `clientes` | 2 | Ainhoa Etxeberria, Iker Agirre |
 | `obras` | 1 | «Reforma piso», `estado = abierta`, `cliente_id` = Ainhoa |
 | `presupuestos` | 1 | `obra_id` + `cliente_id`; partidas en `presupuesto_generado` |
@@ -121,6 +143,10 @@ Usadas en `app/api/agente/route.ts`, `get-business-id.ts` y `app/api/pdf/presupu
 `id`, `user_id`, `nombre`, `sector`, `descripcion`, `servicios`, `tarifas` (texto de perfil, no la tabla `tarifas`), `contexto_adicional`, `ciudad`, `direccion`. `logo_url` no se rellena (evita branding Pino).
 
 `ciudad` / `direccion`: migración `20260402150000_business_profiles_ubicacion.sql`.
+
+### `business_users` (prod, no está en migraciones del repo)
+
+El cliente de Supabase en las API hace `.from('business_users').select('business_id').eq('business_id', …).eq('user_id', …)`. Columnas usadas: `business_id`, `user_id`. Si existe `role`, el seed/correctivo insertan `'owner'`. El helper **no** exige esta tabla: sin fila o con error cae a `business_profiles`.
 
 ### `clientes` / `obras` (migraciones)
 
@@ -162,4 +188,5 @@ Si en prod faltara alguna columna opcional (`numero_presupuesto`, `es_extra`), c
 - **No entrar con la cuenta de Pino** en una demo de reformas. El aislamiento es por usuario Auth, no por “modo demo” en la UI.
 - No reutilicéis el UUID de Pino en `demo_user_id`.
 - Clientes y direcciones son ficticios; no sustituir por datos reales del prospecto sin acuerdo.
-- Este cambio no añade features, TicketBAI, 3D ni lógica en `app/api/agente/route.ts`.
+- Este cambio no añade features, TicketBAI ni 3D. El agente solo **reutiliza** el helper de acceso (misma lógica que ya tenía); no se densifica `route.ts` con ifs de demo.
+- **No** borrar ni migrar datos de Pino. El seed y el correctivo abortan si el UUID no es el tenant demo.

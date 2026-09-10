@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { assertUserOwnsBusiness } from '@/lib/supabase/assert-user-owns-business';
 import {
   capturarEmailPendiente,
   CORREO_AGENT_TOOLS,
@@ -22,7 +23,6 @@ import {
   MEMORIA_CATEGORIAS,
   upsertMemoriaNegocio,
 } from '@/lib/memoria-negocio';
-import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   OPERARIOS_AGENT_SYSTEM_PROMPT,
   OPERARIOS_AGENT_TOOLS,
@@ -104,30 +104,6 @@ import {
   parseAgentIntentCategory,
   toolsForAgentIntent,
 } from '@/lib/agente/router';
-
-async function assertUserCanAccessBusiness(
-  supabase: SupabaseClient,
-  userId: string,
-  businessId: string
-): Promise<boolean> {
-  const businessUsersQuery = supabase.from('business_users');
-  if ('select' in businessUsersQuery && typeof businessUsersQuery.select === 'function') {
-    const { data } = await businessUsersQuery
-      .select('business_id')
-      .eq('business_id', businessId)
-      .eq('user_id', userId)
-      .maybeSingle();
-    if (data?.business_id) return true;
-  }
-
-  const { data } = await supabase
-    .from('business_profiles')
-    .select('id')
-    .eq('id', businessId)
-    .eq('user_id', userId)
-    .maybeSingle();
-  return Boolean(data?.id);
-}
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -320,7 +296,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
       }
       const businessIdStr = String(business_id ?? '').trim();
-      const canAccess = await assertUserCanAccessBusiness(supabase, authUser.id, businessIdStr);
+      const canAccess = await assertUserOwnsBusiness(supabase, authUser.id, businessIdStr);
       if (!canAccess) {
         return NextResponse.json(
           { error: 'No tienes acceso a este negocio' },

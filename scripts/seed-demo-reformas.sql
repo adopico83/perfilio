@@ -27,8 +27,8 @@
 --
 -- IDEMPOTENCIA
 --   Reejecutar es seguro: si el user ya tiene el marcador [seed:demo-reformas],
---   actualiza perfil / clientes / obra / presupuesto demo. Si el user ya tiene
---   OTRO negocio (p. ej. Pino), ABORTA sin tocar nada.
+--   actualiza perfil / business_users / clientes / obra / presupuesto demo.
+--   Si el user ya tiene OTRO negocio (p. ej. Pino), ABORTA sin tocar nada.
 --
 -- SUPUESTOS DE SCHEMA (ver docs/demo-tenant-reformas.md)
 --   - business_profiles: no hay CREATE TABLE en migraciones del repo; columnas
@@ -63,6 +63,7 @@ declare
   v_base                numeric := 9755.00;
   v_iva                 numeric := 2048.55;
   v_total               numeric := 11803.55;
+  v_bu_has_role         boolean := false;
 begin
   if demo_user_id = '00000000-0000-0000-0000-000000000000'::uuid then
     raise exception
@@ -167,6 +168,65 @@ begin
       and user_id = demo_user_id;
     raise notice 'business_profiles actualizado: %', v_business_id;
   end if;
+
+  -- Membership: las API de clientes/obras/diario miran business_users ANTES
+  -- que business_profiles. Sin esta fila, el header (getBusinessId* → perfiles)
+  -- funciona y las rutas devuelven 403 «No tienes acceso a este negocio».
+  -- La tabla NO está en supabase/migrations/; se inserta solo si existe.
+  begin
+    if to_regclass('public.business_users') is not null then
+      select exists (
+        select 1
+        from information_schema.columns c
+        where c.table_schema = 'public'
+          and c.table_name = 'business_users'
+          and c.column_name = 'role'
+      ) into v_bu_has_role;
+
+      if not exists (
+        select 1
+        from public.business_users bu
+        where bu.user_id = demo_user_id
+          and bu.business_id = v_business_id
+      ) then
+        begin
+          if v_bu_has_role then
+            execute 'insert into public.business_users (business_id, user_id, role) values ($1, $2, $3)'
+              using v_business_id, demo_user_id, 'owner';
+          else
+            execute 'insert into public.business_users (business_id, user_id) values ($1, $2)'
+              using v_business_id, demo_user_id;
+          end if;
+          raise notice 'business_users creado: user % → business %', demo_user_id, v_business_id;
+        exception
+          when unique_violation then
+            raise notice 'business_users ya existía (unique)';
+          when others then
+            begin
+              execute 'insert into public.business_users (business_id, user_id) values ($1, $2)'
+                using v_business_id, demo_user_id;
+              raise notice 'business_users creado sin role: user % → business %', demo_user_id, v_business_id;
+            exception
+              when unique_violation then
+                raise notice 'business_users ya existía';
+              when others then
+                raise notice
+                  'No se insertó business_users (%). El helper de código cae a business_profiles tras desplegar el hotfix.',
+                  SQLERRM;
+            end;
+        end;
+      else
+        raise notice 'business_users ya existía para este user+negocio';
+      end if;
+    else
+      raise notice 'Tabla public.business_users no existe; acceso vía business_profiles';
+    end if;
+  exception
+    when others then
+      raise notice
+        'business_users: no se pudo comprobar/insertar (%). No se aborta el seed (no se toca Pino).',
+        SQLERRM;
+  end;
 
   -- Cliente 1 (obra + presupuesto)
   select c.id
@@ -337,6 +397,7 @@ begin
   raise notice 'Seed demo reformas OK';
   raise notice 'Auth user: % (%)', demo_user_id, v_auth_email;
   raise notice 'business_id: %', v_business_id;
+  raise notice 'business_users: membership user+negocio (si la tabla existe)';
   raise notice 'clientes: % / %', v_cliente_a_id, v_cliente_b_id;
   raise notice 'obra: %', v_obra_id;
   raise notice 'presupuesto: %  base=%  iva=%  total=%', v_presupuesto_id, v_base, v_iva, v_total;

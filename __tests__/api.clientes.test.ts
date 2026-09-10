@@ -13,6 +13,14 @@ function mockAuthAndBusiness() {
       getUser: jest.fn().mockResolvedValue({ data: { user: { id: 'user-1' } } }),
     },
     from: jest.fn((table: string) => {
+      // Prod: business_users existe y select() está; sin membership debe caer a perfiles.
+      if (table === 'business_users') {
+        return {
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null }),
+        };
+      }
       if (table === 'business_profiles') {
         return {
           select: jest.fn().mockReturnThis(),
@@ -159,5 +167,24 @@ describe('/api/clientes', () => {
     expect(json.clientes[0].num_presupuestos).toBe(1);
     expect(json.clientes[0].num_facturas).toBe(0);
     expect(json.clientes[0].num_albaranes).toBe(2);
+  });
+
+  it('GET 403 si no hay membership ni perfil (no abrir el acceso)', async () => {
+    (createClient as jest.Mock).mockResolvedValue({
+      auth: {
+        getUser: jest.fn().mockResolvedValue({ data: { user: { id: 'user-1' } } }),
+      },
+      from: jest.fn(() => ({
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null }),
+      })),
+    });
+
+    const req = new NextRequest('http://localhost/api/clientes?business_id=biz-1');
+    const res = await GET(req);
+    expect(res.status).toBe(403);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toMatch(/acceso/i);
   });
 });

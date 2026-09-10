@@ -13,6 +13,13 @@ function mockAuthAndBusiness() {
       getUser: jest.fn().mockResolvedValue({ data: { user: { id: 'user-1' } } }),
     },
     from: jest.fn((table: string) => {
+      if (table === 'business_users') {
+        return {
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null }),
+        };
+      }
       if (table === 'business_profiles') {
         return {
           select: jest.fn().mockReturnThis(),
