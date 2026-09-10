@@ -55,6 +55,7 @@ interface PresupuestoResumen {
   obra_nombre: string | null;
   cliente_ficha_nombre: string | null;
   importe_total: number | null;
+  presupuesto_generado?: string | null;
 }
 
 /** Sublínea del widget: obra si hay vínculo; si no, cliente; nunca mensajes. */
@@ -891,10 +892,13 @@ function DashboardContent() {
           if (!obraHoyId) {
             setPresupuestosHoy([]);
           } else {
+            const demoHoy = isDemoReformasTenant({ email: user.email });
             const { data: presHoyRows, error: presHoyErr } = await supabase
               .from('presupuestos')
               .select(
-                'id, fecha, estado, created_at, obra_id, cliente_nombre, importe_total'
+                demoHoy
+                  ? 'id, fecha, estado, created_at, obra_id, cliente_nombre, importe_total, presupuesto_generado'
+                  : 'id, fecha, estado, created_at, obra_id, cliente_nombre, importe_total'
               )
               .eq('business_id', businessId)
               .eq('obra_id', obraHoyId)
@@ -912,6 +916,7 @@ function DashboardContent() {
                   obra_id: string | null;
                   cliente_nombre: string | null;
                   importe_total: number | null;
+                  presupuesto_generado?: string | null;
                 }>).map((r) => ({
                   id: r.id,
                   fecha: r.fecha,
@@ -925,6 +930,7 @@ function DashboardContent() {
                     r.importe_total != null && Number.isFinite(Number(r.importe_total))
                       ? Number(r.importe_total)
                       : null,
+                  presupuesto_generado: demoHoy ? r.presupuesto_generado ?? null : undefined,
                 }))
               );
             }

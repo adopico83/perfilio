@@ -3,7 +3,13 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
-import type { HoyCta, HoyObra, HoyPresupuesto } from '@/lib/hoy';
+import {
+  lineaCalleBarrio,
+  partidasVisiblesHoy,
+  type HoyCta,
+  type HoyObra,
+  type HoyPresupuesto,
+} from '@/lib/hoy';
 
 export type HoyCliente = {
   id: string;
@@ -16,15 +22,6 @@ function estadoObraLabel(estado: string | null | undefined): string {
   if (s === 'cerrada') return 'Cerrada';
   if (s === 'pausada') return 'Pausada';
   return 'Abierta';
-}
-
-function estadoPresupuestoLabel(estado: string | null | undefined): string {
-  const s = (estado ?? '').toLowerCase();
-  if (s === 'pendiente') return 'Pendiente de OK';
-  if (s === 'borrador') return 'Borrador';
-  if (s === 'aceptado' || s === 'aprobado') return 'Aceptado';
-  if (!s) return 'Presupuesto';
-  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function fmtEuros(value: number | null | undefined): string | null {
@@ -62,6 +59,11 @@ export default function HoyDemoHome({
   cta: HoyCta | null;
   onAbrirObra?: (obraId: string) => void;
 }) {
+  const partidas = partidasVisiblesHoy(presupuesto?.presupuesto_generado, 6);
+  const lugar = lineaCalleBarrio(obra?.direccion);
+  const clientePresupuesto = presupuesto?.cliente_nombre?.trim() || obra?.cliente_nombre?.trim() || null;
+  const totalLabel = fmtEuros(presupuesto?.importe_total);
+
   return (
     <section aria-label="Hoy" className="space-y-6">
       <div>
@@ -72,7 +74,7 @@ export default function HoyDemoHome({
       {loading ? (
         <p className="text-sm text-zinc-900/60">Cargando el estado de hoy…</p>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-stretch">
           <Card eyebrow="Clientes">
             {clientes.length === 0 ? (
               <p className="text-sm text-zinc-700">Todavía no hay fichas de cliente.</p>
@@ -103,15 +105,14 @@ export default function HoyDemoHome({
             ) : (
               <>
                 <h2 className="text-xl font-bold text-zinc-900 leading-snug">{obra.nombre}</h2>
-                <p className="mt-2 text-sm text-zinc-800">
-                  {obra.cliente_nombre?.trim() || 'Cliente'}
-                  <span className="text-zinc-500"> · {estadoObraLabel(obra.estado)}</span>
-                </p>
-                {obra.direccion ? (
-                  <p className="mt-1 text-xs text-zinc-600 truncate" title={obra.direccion}>
-                    {obra.direccion}
-                  </p>
+                {obra.direccion?.trim() ? (
+                  <p className="mt-2 text-sm text-zinc-800 leading-snug">{obra.direccion.trim()}</p>
                 ) : null}
+                <p className="mt-3">
+                  <span className="inline-flex items-center rounded-full border border-[#A04A2F]/35 bg-[#A04A2F]/10 px-2.5 py-0.5 text-xs font-semibold text-[#A04A2F]">
+                    {estadoObraLabel(obra.estado)}
+                  </span>
+                </p>
                 {onAbrirObra ? (
                   <button
                     type="button"
@@ -139,11 +140,22 @@ export default function HoyDemoHome({
               <p className="text-sm text-zinc-700">Todavía no hay presupuesto ligado a la obra.</p>
             ) : (
               <>
-                <p className="text-sm font-semibold text-[#A04A2F]">{estadoPresupuestoLabel(presupuesto.estado)}</p>
-                {fmtEuros(presupuesto.importe_total) ? (
-                  <p className="mt-2 text-2xl font-bold tabular-nums text-zinc-900">
-                    {fmtEuros(presupuesto.importe_total)}
-                  </p>
+                {clientePresupuesto ? (
+                  <p className="text-base font-semibold text-zinc-900 leading-snug">{clientePresupuesto}</p>
+                ) : null}
+                {lugar ? <p className="mt-0.5 text-sm text-zinc-600">{lugar}</p> : null}
+                {partidas.length > 0 ? (
+                  <ul className="mt-3 space-y-1.5 text-sm text-zinc-800">
+                    {partidas.map((p, i) => (
+                      <li key={`${p.concepto}-${i}`} className="flex items-baseline justify-between gap-3">
+                        <span className="min-w-0 truncate">{p.concepto}</span>
+                        <span className="shrink-0 tabular-nums text-zinc-700">{fmtEuros(p.importe)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {totalLabel ? (
+                  <p className="mt-3 text-lg font-bold tabular-nums text-zinc-900">Total {totalLabel}</p>
                 ) : null}
                 {cta ? (
                   <Link

@@ -1,3 +1,5 @@
+import { parsePresupuestoGenerado } from '@/lib/pdf/parser';
+
 const ESTADOS_OBRA_ACTIVOS = new Set(['abierta', 'en_curso']);
 const ESTADOS_PRESUPUESTO_ACCION = new Set(['pendiente', 'borrador']);
 
@@ -15,6 +17,12 @@ export type HoyPresupuesto = {
   obra_id: string | null;
   importe_total?: number | null;
   cliente_nombre?: string | null;
+  presupuesto_generado?: string | null;
+};
+
+export type PartidaVisibleHoy = {
+  concepto: string;
+  importe: number;
 };
 
 export type HoyCta = {
@@ -66,4 +74,62 @@ export function pickHoy(obras: HoyObra[], presupuestos: HoyPresupuesto[]) {
   const obra = pickObraHoy(obras);
   const presupuesto = pickPresupuestoHoy(obra, presupuestos);
   return { obra, presupuesto, cta: ctaHoy(obra, presupuesto) };
+}
+
+/** Calle + barrio/pueblo para la card de presupuesto (p. ej. «Calle Beraun · Errenteria»). */
+export function lineaCalleBarrio(direccion: string | null | undefined): string | null {
+  if (!direccion?.trim()) return null;
+  const parts = direccion
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const calleRaw = parts[0] ?? direccion.trim();
+  const calle = calleRaw.replace(/\s+\d+(?:[^\s,]*)?$/, '').trim() || calleRaw;
+  const ultimo = parts[parts.length - 1] ?? '';
+  const ciudad = ultimo.replace(/^\d{4,5}\s*/, '').trim();
+  if (calle && ciudad && calle.toLocaleLowerCase('es') !== ciudad.toLocaleLowerCase('es')) {
+    return `${calle} · ${ciudad}`;
+  }
+  return calle || ciudad || direccion.trim();
+}
+
+function etiquetaPartida(raw: string): string {
+  const cleaned = raw.replace(/^CAP[IÍ]TULO\s+/i, '').trim();
+  if (!cleaned) return raw.trim();
+  const lower = cleaned.toLocaleLowerCase('es');
+  return lower.charAt(0).toLocaleUpperCase('es') + lower.slice(1);
+}
+
+function acortarConcepto(concepto: string): string {
+  const t = concepto.trim();
+  if (t.length <= 36) return t;
+  const corte = t.slice(0, 36);
+  const lastSpace = corte.lastIndexOf(' ');
+  return `${(lastSpace > 12 ? corte.slice(0, lastSpace) : corte).trim()}…`;
+}
+
+/** 4–6 partidas del texto `presupuesto_generado` (formato seed / PDF). */
+export function partidasVisiblesHoy(
+  texto: string | null | undefined,
+  max = 6
+): PartidaVisibleHoy[] {
+  if (!texto?.trim() || max <= 0) return [];
+  const parsed = parsePresupuestoGenerado(texto);
+  const out: PartidaVisibleHoy[] = [];
+  for (const cap of parsed.capitulos) {
+    const labelCap = etiquetaPartida(cap.nombre);
+    if (cap.partidas.length === 1) {
+      out.push({
+        concepto: labelCap || acortarConcepto(cap.partidas[0].concepto),
+        importe: cap.partidas[0].importe,
+      });
+    } else {
+      for (const p of cap.partidas) {
+        out.push({ concepto: acortarConcepto(p.concepto), importe: p.importe });
+        if (out.length >= max) break;
+      }
+    }
+    if (out.length >= max) break;
+  }
+  return out.slice(0, max);
 }

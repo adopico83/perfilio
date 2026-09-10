@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Building2, FileText, LayoutDashboard, Sparkles, Users, X } from 'lucide-react';
 import AgentSidebar from '@/components/dashboard/agent-sidebar';
+import DemoSkyline from '@/components/dashboard/demo-skyline';
 import { useAgentSidebar } from '@/contexts/agent-sidebar-context';
 import LogoutButton from '@/app/dashboard/logout-button';
 
@@ -118,6 +119,7 @@ export default function DemoAppShell({
             onAgente={toggleAgente}
             onNavigate={() => {}}
           />
+          <DemoSkyline />
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
@@ -185,6 +187,7 @@ export default function DemoAppShell({
                 onNavigate={() => setMobileNavOpen(false)}
               />
             </div>
+            <DemoSkyline />
           </div>
         </div>
       ) : null}

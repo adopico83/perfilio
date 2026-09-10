@@ -37,6 +37,7 @@ describe('DemoAppShell', () => {
     expect(nav).toHaveTextContent('Presupuestos');
     expect(nav).toHaveTextContent('Agente IA');
     expect(screen.getByText('contenido hoy')).toBeInTheDocument();
+    expect(screen.getAllByTestId('demo-skyline').length).toBeGreaterThanOrEqual(1);
     await waitFor(() => {
       expect(screen.queryByTestId('agent-panel')).not.toBeInTheDocument();
     });
