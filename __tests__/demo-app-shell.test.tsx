@@ -37,7 +37,10 @@ describe('DemoAppShell', () => {
     expect(nav).toHaveTextContent('Presupuestos');
     expect(nav).toHaveTextContent('Agente IA');
     expect(screen.getByText('contenido hoy')).toBeInTheDocument();
-    expect(screen.getAllByTestId('demo-skyline').length).toBeGreaterThanOrEqual(1);
+    const skyline = screen.getAllByTestId('demo-skyline')[0];
+    expect(skyline).toBeInTheDocument();
+    expect(skyline.querySelector('img')).toHaveAttribute('src', '/demo/skyline-errenteria.png');
+    expect(skyline.querySelector('svg[viewBox="0 0 240 152"]')).toBeNull();
     expect(screen.getAllByText('Datos seguros y privados').length).toBeGreaterThanOrEqual(1);
     await waitFor(() => {
       expect(screen.queryByTestId('agent-panel')).not.toBeInTheDocument();
