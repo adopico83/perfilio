@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { AgentSidebarProvider } from '@/contexts/agent-sidebar-context';
 import { CanvasProvider } from '@/contexts/canvas-context';
 import { EmailModalProvider } from '@/contexts/email-modal-context';
 import { ObraModalProvider } from '@/contexts/obra-modal-context';
@@ -11,16 +12,18 @@ import ObraModal from '@/components/dashboard/obra-modal';
 
 export default function AppShellClient({ children }: { children: ReactNode }) {
   return (
-    <CanvasProvider>
-      <EmailModalProvider>
-        <ObraModalProvider>
-          {children}
-          <CanvasModal />
-          <UrgentesModal />
-          <EmailModal />
-          <ObraModal />
-        </ObraModalProvider>
-      </EmailModalProvider>
-    </CanvasProvider>
+    <AgentSidebarProvider>
+      <CanvasProvider>
+        <EmailModalProvider>
+          <ObraModalProvider>
+            {children}
+            <CanvasModal />
+            <UrgentesModal />
+            <EmailModal />
+            <ObraModal />
+          </ObraModalProvider>
+        </EmailModalProvider>
+      </CanvasProvider>
+    </AgentSidebarProvider>
   );
 }

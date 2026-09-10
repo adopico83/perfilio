@@ -7,6 +7,7 @@ import { useObraModal } from '@/contexts/obra-modal-context';
 import { etiquetaGastoCategoria } from '@/lib/gastos-categoria';
 import { createClient } from '@/lib/supabase/client';
 import DiarioEntradaDeleteDialog from '@/components/dashboard/diario-entrada-delete-dialog';
+import AgenteContextChips, { chipsObra } from '@/components/dashboard/agente-context-chips';
 
 type FichaObraResponse = {
   obra: {
@@ -429,6 +430,19 @@ export default function ObraModal() {
                       <p className="text-sm text-zinc-600 mt-1 whitespace-pre-wrap">{ficha.obra.descripcion}</p>
                     </div>
                   ) : null}
+
+                  <div className="rounded-xl border border-[#A04A2F]/30 bg-[#A04A2F]/5 p-3 space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[#A04A2F]">
+                      Agente
+                    </p>
+                    <AgenteContextChips
+                      chips={chipsObra(ficha.obra.nombre)}
+                      onBeforeSuggest={cerrarObra}
+                    />
+                    <p className="text-[11px] text-zinc-900/55">
+                      Abre el agente con el mensaje listo. Tú pulsas enviar.
+                    </p>
+                  </div>
                 </div>
               ) : null}
 
