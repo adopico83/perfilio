@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { toolPayloadFromFinalCompletion } from './helpers/agente-openai';
 
 jest.mock('@/lib/supabase/server', () => ({
   createServiceClient: jest.fn(),
@@ -101,16 +102,8 @@ describe('POST /api/agente — extras', () => {
     };
   }
 
-  function toolPayloadFromFinalCompletion(toolName: string): unknown {
-    const req = createMock.mock.calls[3]?.[0] as {
-      messages: Array<{ role: string; content?: string | null }>;
-    };
-    const lastUser = [...(req?.messages ?? [])].reverse().find((m) => m.role === 'user');
-    const line = String(lastUser?.content ?? '')
-      .split('\n')
-      .find((l) => l.startsWith(`${toolName}: `));
-    if (!line) throw new Error(`missing tool line ${toolName}`);
-    return JSON.parse(line.slice(toolName.length + 2));
+  function toolPayloadFromFinal(toolName: string): unknown {
+    return toolPayloadFromFinalCompletion(createMock, toolName);
   }
 
   it('registrar_extra devuelve mensaje con descripción e importe', async () => {
@@ -127,15 +120,6 @@ describe('POST /api/agente — extras', () => {
     createMock
       .mockResolvedValueOnce(mockRouterGeneral())
       .mockResolvedValueOnce(toolCallMessage('registrar_extra', JSON.stringify(extraArgs)))
-      .mockResolvedValueOnce({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify([{ tool: 'registrar_extra', args: extraArgs }]),
-            },
-          },
-        ],
-      })
       .mockResolvedValueOnce({
         choices: [{ message: { content: 'Listo.' } }],
       });
@@ -202,7 +186,7 @@ describe('POST /api/agente — extras', () => {
     const res = await POST(req);
     expect(res.status).toBe(200);
 
-    const parsed = toolPayloadFromFinalCompletion('registrar_extra') as { mensaje?: string };
+    const parsed = toolPayloadFromFinal('registrar_extra') as { mensaje?: string };
     expect(parsed.mensaje).toContain('Toma adicional de luz');
     expect(parsed.mensaje).toContain('350.50');
     expect(parsed.mensaje).toContain('Obra Norte');
@@ -217,15 +201,6 @@ describe('POST /api/agente — extras', () => {
     createMock
       .mockResolvedValueOnce(mockRouterGeneral())
       .mockResolvedValueOnce(toolCallMessage('listar_extras', '{}'))
-      .mockResolvedValueOnce({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify([{ tool: 'listar_extras', args: {} }]),
-            },
-          },
-        ],
-      })
       .mockResolvedValueOnce({
         choices: [{ message: { content: 'Aquí tienes los extras.' } }],
       });
@@ -265,7 +240,7 @@ describe('POST /api/agente — extras', () => {
     const res = await POST(req);
     expect(res.status).toBe(200);
 
-    const parsed = toolPayloadFromFinalCompletion('listar_extras') as {
+    const parsed = toolPayloadFromFinal('listar_extras') as {
       items?: Array<{ descripcion?: string | null; importe?: number | null }>;
     };
     expect(parsed.items).toHaveLength(1);

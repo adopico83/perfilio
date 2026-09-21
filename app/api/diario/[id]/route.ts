@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { assertUserOwnsBusiness } from '@/lib/supabase/assert-user-owns-business';
 import {
   collectDiarioObraStoragePathsFromEntry,
   removeDiarioObraStorageObjects,
@@ -7,30 +8,6 @@ import {
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-async function assertUserOwnsBusiness(
-  supabaseAuth: Awaited<ReturnType<typeof createClient>>,
-  userId: string,
-  businessId: string
-): Promise<boolean> {
-  const businessUsersQuery = supabaseAuth.from('business_users');
-  if ('select' in businessUsersQuery && typeof businessUsersQuery.select === 'function') {
-    const { data } = await businessUsersQuery
-      .select('business_id')
-      .eq('business_id', businessId)
-      .eq('user_id', userId)
-      .maybeSingle();
-    return Boolean(data?.business_id);
-  }
-
-  const { data } = await supabaseAuth
-    .from('business_profiles')
-    .select('id')
-    .eq('id', businessId)
-    .eq('user_id', userId)
-    .maybeSingle();
-  return Boolean(data?.id);
-}
 
 export async function DELETE(
   request: NextRequest,

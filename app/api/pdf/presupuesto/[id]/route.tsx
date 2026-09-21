@@ -1,34 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { renderToBuffer } from '@react-pdf/renderer';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { assertUserOwnsBusiness } from '@/lib/supabase/assert-user-owns-business';
 import { parsePresupuestoGenerado } from '@/lib/pdf/parser';
 import { PresupuestoPdfDocument } from '@/lib/pdf/presupuesto';
 
 export const runtime = 'nodejs';
-
-async function assertUserOwnsBusiness(
-  supabaseAuth: Awaited<ReturnType<typeof createClient>>,
-  userId: string,
-  businessId: string
-): Promise<boolean> {
-  const businessUsersQuery = supabaseAuth.from('business_users');
-  if ('select' in businessUsersQuery && typeof businessUsersQuery.select === 'function') {
-    const { data } = await businessUsersQuery
-      .select('business_id')
-      .eq('business_id', businessId)
-      .eq('user_id', userId)
-      .maybeSingle();
-    return Boolean(data?.business_id);
-  }
-
-  const { data } = await supabaseAuth
-    .from('business_profiles')
-    .select('id')
-    .eq('id', businessId)
-    .eq('user_id', userId)
-    .maybeSingle();
-  return Boolean(data?.id);
-}
 
 /** Nº legible desde `mensaje_cliente`: "Pre XX/YY" o "XX/YY"; si no, 8 primeros caracteres del id. */
 function numeroPresupuestoDesdeMensaje(mensaje: string | null | undefined, id: string): string {

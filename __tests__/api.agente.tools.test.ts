@@ -1,6 +1,10 @@
 import { NextRequest } from 'next/server';
 
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import {
+  AGENTE_FINAL_CALL_INDEX,
+  singleToolResultFromFinalCompletion as singleToolFromHelper,
+} from './helpers/agente-openai';
 
 jest.mock('@/lib/supabase/server', () => ({
   createServiceClient: jest.fn(),
@@ -109,52 +113,8 @@ describe('POST /api/agente — tools', () => {
     };
   }
 
-  function planningResponseForTool(toolName: string, toolArgs: string | Record<string, unknown>) {
-    let args: Record<string, unknown>;
-    if (typeof toolArgs === 'string') {
-      try {
-        args = toolArgs && toolArgs.trim() ? JSON.parse(toolArgs) : {};
-      } catch {
-        args = {};
-      }
-    } else {
-      args = toolArgs;
-    }
-    return {
-      choices: [{ message: { content: JSON.stringify([{ tool: toolName, args }]) } }],
-    };
-  }
-
-  /** Índice de la llamada OpenAI final (tras router, agente con tools, planning). */
-  const FINAL_OPENAI_CALL_INDEX = 3;
-
-  function toolResultsMapFromFinalCompletion(): Map<string, unknown> {
-    const req = createMock.mock.calls[FINAL_OPENAI_CALL_INDEX]?.[0] as {
-      messages: Array<{ role: string; content?: string | null }>;
-    };
-    const lastUser = req?.messages ? [...req.messages].reverse().find((m) => m.role === 'user') : undefined;
-    const content = String(lastUser?.content ?? '');
-    const m = new Map<string, unknown>();
-    for (const line of content.split('\n')) {
-      const idx = line.indexOf(': ');
-      if (idx <= 0) continue;
-      const name = line.slice(0, idx).trim();
-      if (!/^[a-z0-9_]+$/.test(name)) continue;
-      try {
-        m.set(name, JSON.parse(line.slice(idx + 2)));
-      } catch {
-        /* línea no es JSON de tool */
-      }
-    }
-    return m;
-  }
-
   function singleToolResultFromFinalCompletion(): unknown {
-    const tr = toolResultsMapFromFinalCompletion();
-    if (tr.size !== 1) {
-      throw new Error(`Expected 1 tool result, got ${tr.size}: ${[...tr.keys()].join(', ')}`);
-    }
-    return [...tr.values()][0];
+    return singleToolFromHelper(createMock, AGENTE_FINAL_CALL_INDEX);
   }
 
   /** Primera llamada OpenAI en /api/agente: clasificador de intención (todas las tools). */
@@ -172,7 +132,6 @@ describe('POST /api/agente — tools', () => {
     createMock
       .mockResolvedValueOnce(mockRouterGeneral())
       .mockResolvedValueOnce(toolCallMessage(toolName, toolArgs))
-      .mockResolvedValueOnce(planningResponseForTool(toolName, toolArgs))
       .mockResolvedValueOnce({
         choices: [{ message: { content: 'Respuesta final del agente.' } }],
       });
@@ -879,15 +838,6 @@ describe('POST /api/agente — tools', () => {
             })
           )
         )
-        .mockResolvedValueOnce(
-          planningResponseForTool('vincular_gasto', {
-            gasto_id: gastoUuid,
-            documentos: [
-              { tipo: 'factura', id: facturaUuid },
-              { tipo: 'albaran', id: albaranUuid },
-            ],
-          })
-        )
         .mockResolvedValueOnce({
           choices: [{ message: { content: 'Respuesta final del agente.' } }],
         });
@@ -960,12 +910,6 @@ describe('POST /api/agente — tools', () => {
             })
           )
         )
-        .mockResolvedValueOnce(
-          planningResponseForTool('vincular_gasto', {
-            gasto_id: gastoUuid,
-            documentos: [{ tipo: 'factura', id: facturaUuid }],
-          })
-        )
         .mockResolvedValueOnce({
           choices: [{ message: { content: 'Listo.' } }],
         });
@@ -1010,12 +954,6 @@ describe('POST /api/agente — tools', () => {
               texto: 'Instalación eléctrica',
             })
           )
-        )
-        .mockResolvedValueOnce(
-          planningResponseForTool('crear_entrada_diario', {
-            obra_nombre: 'Reforma Norte',
-            texto: 'Instalación eléctrica',
-          })
         )
         .mockResolvedValueOnce({
           choices: [{ message: { content: 'Respuesta final del agente.' } }],
@@ -1085,7 +1023,6 @@ describe('POST /api/agente — tools', () => {
       createMock
         .mockResolvedValueOnce(mockRouterGeneral())
         .mockResolvedValueOnce(toolCallMessage('mostrar_vista_visual', args))
-        .mockResolvedValueOnce(planningResponseForTool('mostrar_vista_visual', args))
         .mockResolvedValueOnce({
           choices: [
             {

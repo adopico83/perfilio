@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { renderToBuffer } from '@react-pdf/renderer';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { assertUserOwnsBusiness } from '@/lib/supabase/assert-user-owns-business';
 import {
   FacturaPdfDocument,
   type FacturaPdfProps,
@@ -15,30 +16,6 @@ const EMPRESA_PINO_FALLBACK = {
   telefono: '943 57 49 19',
   email: 'info@pinoalbanileria.com',
 } as const;
-
-async function assertUserOwnsBusiness(
-  supabaseAuth: Awaited<ReturnType<typeof createClient>>,
-  userId: string,
-  businessId: string
-): Promise<boolean> {
-  const businessUsersQuery = supabaseAuth.from('business_users');
-  if ('select' in businessUsersQuery && typeof businessUsersQuery.select === 'function') {
-    const { data } = await businessUsersQuery
-      .select('business_id')
-      .eq('business_id', businessId)
-      .eq('user_id', userId)
-      .maybeSingle();
-    return Boolean(data?.business_id);
-  }
-
-  const { data } = await supabaseAuth
-    .from('business_profiles')
-    .select('id')
-    .eq('id', businessId)
-    .eq('user_id', userId)
-    .maybeSingle();
-  return Boolean(data?.id);
-}
 
 function parseFacturaLineas(raw: unknown): FacturaPdfProps['factura']['lineas'] {
   if (raw == null) return [];

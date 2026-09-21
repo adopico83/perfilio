@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { toolPayloadFromFinalCompletion } from './helpers/agente-openai';
 
 jest.mock('@/lib/supabase/server', () => ({
   createServiceClient: jest.fn(),
@@ -120,16 +121,8 @@ describe('POST /api/agente — dictado y tarifas', () => {
     };
   }
 
-  function toolPayloadFromFinalCompletion(toolName: string): unknown {
-    const req = createMock.mock.calls[3]?.[0] as {
-      messages: Array<{ role: string; content?: string | null }>;
-    };
-    const lastUser = [...(req?.messages ?? [])].reverse().find((m) => m.role === 'user');
-    const line = String(lastUser?.content ?? '')
-      .split('\n')
-      .find((l) => l.startsWith(`${toolName}: `));
-    if (!line) throw new Error(`missing tool line ${toolName}`);
-    return JSON.parse(line.slice(toolName.length + 2));
+  function toolPayloadFromFinal(toolName: string): unknown {
+    return toolPayloadFromFinalCompletion(createMock, toolName);
   }
 
   it('generar_presupuesto_por_dictado devuelve mensaje con borrador', async () => {
@@ -148,15 +141,6 @@ describe('POST /api/agente — dictado y tarifas', () => {
       .mockResolvedValueOnce(
         toolCallMessage('generar_presupuesto_por_dictado', JSON.stringify(dictadoArgs))
       )
-      .mockResolvedValueOnce({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify([{ tool: 'generar_presupuesto_por_dictado', args: dictadoArgs }]),
-            },
-          },
-        ],
-      })
       .mockResolvedValueOnce({
         choices: [{ message: { content: 'Listo.' } }],
       });
@@ -187,7 +171,7 @@ describe('POST /api/agente — dictado y tarifas', () => {
     const res = await POST(req);
     expect(res.status).toBe(200);
 
-    const parsed = toolPayloadFromFinalCompletion('generar_presupuesto_por_dictado') as {
+    const parsed = toolPayloadFromFinal('generar_presupuesto_por_dictado') as {
       mensaje?: string;
     };
     expect(parsed.mensaje).toContain('BORRADOR - Presupuesto de reforma');
@@ -212,15 +196,6 @@ describe('POST /api/agente — dictado y tarifas', () => {
     createMock
       .mockResolvedValueOnce(mockRouterGeneral())
       .mockResolvedValueOnce(toolCallMessage('gestionar_tarifas', JSON.stringify(tarifasArgs)))
-      .mockResolvedValueOnce({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify([{ tool: 'gestionar_tarifas', args: tarifasArgs }]),
-            },
-          },
-        ],
-      })
       .mockResolvedValueOnce({
         choices: [{ message: { content: 'Aquí tienes las tarifas.' } }],
       });
@@ -248,7 +223,7 @@ describe('POST /api/agente — dictado y tarifas', () => {
     const res = await POST(req);
     expect(res.status).toBe(200);
 
-    const parsed = toolPayloadFromFinalCompletion('gestionar_tarifas') as {
+    const parsed = toolPayloadFromFinal('gestionar_tarifas') as {
       items?: Array<{ nombre?: string; precio?: number | null }>;
     };
     expect(parsed.items).toHaveLength(1);

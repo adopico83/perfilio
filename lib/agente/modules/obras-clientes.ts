@@ -1,5 +1,12 @@
 import type OpenAI from 'openai';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  esQueryListadoObras,
+  failClosed,
+  resolverClientesPorNombre,
+  resolverObrasPorNombre,
+  resultadoResolveATool,
+} from '@/lib/agente/modules/grounding';
 
 export type ObraFichaCliente = { obra_id: string; obra_nombre: string };
 
@@ -151,13 +158,11 @@ export const OBRAS_CLIENTES_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionT
           },
           cliente_telefono: {
             type: 'string',
-            description:
-              'Teléfono del cliente (opcional; si no existe el cliente por nombre, se usa al crearlo automáticamente)',
+            description: 'Teléfono del cliente (opcional; no se crea ficha de paso: usa crear_cliente)',
           },
           cliente_email: {
             type: 'string',
-            description:
-              'Email del cliente (opcional; si no existe el cliente por nombre, se usa al crearlo automáticamente)',
+            description: 'Email del cliente (opcional; no se crea ficha de paso: usa crear_cliente)',
           },
           direccion: { type: 'string', description: 'Dirección de la obra' },
           direccion_obra: {
@@ -181,7 +186,7 @@ export const OBRAS_CLIENTES_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionT
     function: {
       name: 'actualizar_obra',
       description:
-        'Actualiza campos de una obra existente en la base de datos. DEBES llamar a esta tool cuando el usuario pida vincular un cliente a una obra, cambiar la dirección, el estado o cualquier dato de la obra. NO uses guardar_memoria para vincular clientes a obras — eso solo guarda texto, no modifica la base de datos. Para vincular un cliente: pasa obra_id (o busca la obra por nombre primero con listar_obras) y cliente_id del cliente.',
+        'Actualiza campos de una obra existente. Localiza por obra_id o obra_nombre: 1 coincidencia usa esa; varias pregunta; cero falla. NO crea obra ni cliente de paso. Para vincular un cliente: pasa cliente_id o cliente_nombre de una ficha que ya exista.',
       parameters: {
         type: 'object',
         properties: {
@@ -213,13 +218,17 @@ export const OBRAS_CLIENTES_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionT
     type: 'function',
     function: {
       name: 'buscar_obra',
-      description: 'Busca una obra por nombre o cliente.',
+      description:
+        'Busca obras por nombre, o lista las obras abiertas/en curso. Para «qué obras tengo abiertas» llama sin query o con query «abiertas». No crea presupuestos ni borradores.',
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'Texto a buscar' },
+          query: {
+            type: 'string',
+            description:
+              'Nombre de obra a buscar. Vacío, «abiertas» o la pregunta de listado → obras abiertas/en curso.',
+          },
         },
-        required: ['query'],
         additionalProperties: false,
       },
     },
@@ -389,59 +398,23 @@ export async function handleObrasClientesAgent(
             }
           }
 
-          let avisoSinCliente = false;
           if (!clienteId) {
             const clienteNombre = String(toolArgs.cliente_nombre ?? '').trim();
             if (clienteNombre) {
-              const safeQ = clienteNombre.replace(/[%_*]/g, '').slice(0, 120);
-              const pat = `%${safeQ}%`;
-              const { data: row } = await supabase
+              const cliRes = await resolverClientesPorNombre(supabase, bid, clienteNombre);
+              const asTool = resultadoResolveATool(cliRes, clienteNombre, 'cliente');
+              if (!asTool.ok) return asTool;
+              clienteId = asTool.match.id;
+              clienteNombreResuelto =
+                String(asTool.match.nombre ?? '').trim() || clienteNombre;
+              const { data: cliRow2 } = await supabase
                 .from('clientes')
-                .select('id, nombre, email, direccion')
+                .select('direccion')
+                .eq('id', clienteId)
                 .eq('business_id', bid)
-                .ilike('nombre', pat)
-                .order('nombre', { ascending: true })
-                .limit(1)
                 .maybeSingle();
-              if (row?.id) {
-                clienteId = String((row as { id: string }).id);
-                clienteNombreResuelto = String((row as { nombre?: string }).nombre ?? '').trim() || clienteNombre;
-                const d = (row as { direccion?: string | null }).direccion;
-                clienteDireccion = d != null && String(d).trim() ? String(d).trim() : null;
-              } else {
-                avisoSinCliente = true;
-              }
-            }
-          }
-
-          if (avisoSinCliente) {
-            const clienteNombre = String(toolArgs.cliente_nombre ?? '').trim();
-            // Si hay datos de cliente disponibles en toolArgs, crearlo automáticamente
-            const telefonoCli =
-              typeof toolArgs.cliente_telefono === 'string'
-                ? toolArgs.cliente_telefono.trim() || null
-                : null;
-            const emailCli =
-              typeof toolArgs.cliente_email === 'string'
-                ? toolArgs.cliente_email.trim() || null
-                : null;
-            const sinDatosCliente =
-              telefonoCli === null && emailCli === null && clienteNombre === '';
-            if (!sinDatosCliente) {
-              const { data: newCli, error: newCliErr } = await supabase
-                .from('clientes')
-                .insert({
-                  business_id: bid,
-                  nombre: clienteNombre,
-                  telefono: telefonoCli,
-                  email: emailCli,
-                })
-                .select('id')
-                .maybeSingle();
-              if (!newCliErr && newCli?.id) {
-                clienteId = String((newCli as { id: string }).id);
-                clienteNombreResuelto = clienteNombre;
-              }
+              const d = (cliRow2 as { direccion?: string | null } | null)?.direccion;
+              clienteDireccion = d != null && String(d).trim() ? String(d).trim() : null;
             }
           }
 
@@ -465,6 +438,7 @@ export async function handleObrasClientesAgent(
           const dirMsg = direccionObraFinal || 'sin dirección';
           const cliMsg = clienteNombreResuelto ?? 'sin cliente';
           return {
+            ok: true,
             mensaje: `Obra '${nombre}' creada para ${cliMsg} en ${dirMsg}. Estado: Abierta.`,
           };
         }
@@ -475,21 +449,12 @@ export async function handleObrasClientesAgent(
 
           if (!obraId) {
             if (!obraNombreBuscar) {
-              return { error: 'obra_id u obra_nombre es obligatorio' };
+              return failClosed('obra_id u obra_nombre es obligatorio');
             }
-            const safeQ = obraNombreBuscar.replace(/[%_*]/g, '').slice(0, 120);
-            const pat = `%${safeQ}%`;
-            const { data: rowObra, error: errObra } = await supabase
-              .from('obras')
-              .select('id')
-              .eq('business_id', bid)
-              .ilike('nombre', pat)
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-            if (errObra) return { error: errObra.message };
-            if (!rowObra?.id) return { error: 'No se encontró la obra' };
-            obraId = rowObra.id;
+            const obraRes = await resolverObrasPorNombre(supabase, bid, obraNombreBuscar);
+            const asObra = resultadoResolveATool(obraRes, obraNombreBuscar, 'obra');
+            if (!asObra.ok) return asObra;
+            obraId = asObra.match.id;
           } else {
             const { data: ex } = await supabase
               .from('obras')
@@ -497,7 +462,7 @@ export async function handleObrasClientesAgent(
               .eq('id', obraId)
               .eq('business_id', bid)
               .maybeSingle();
-            if (!ex?.id) return { error: 'Obra no encontrada' };
+            if (!ex?.id) return failClosed('Obra no encontrada. No he modificado nada.');
           }
 
           let clienteIdUpdate: string | undefined;
@@ -505,25 +470,14 @@ export async function handleObrasClientesAgent(
           const cnameRaw = String(toolArgs.cliente_nombre ?? '').trim();
           if (cidRaw) {
             const cr = await resolveClienteIdOpcional(supabase, bid, cidRaw);
-            if (!cr.ok) return { error: cr.error };
-            if (!cr.id) return { error: 'cliente_id no válido' };
+            if (!cr.ok) return failClosed(cr.error);
+            if (!cr.id) return failClosed('cliente_id no válido');
             clienteIdUpdate = cr.id;
           } else if (cnameRaw) {
-            const safe = cnameRaw.replace(/[%_*]/g, '').slice(0, 120);
-            const pat = `%${safe}%`;
-            const { data: rowC, error: errC } = await supabase
-              .from('clientes')
-              .select('id')
-              .eq('business_id', bid)
-              .ilike('nombre', pat)
-              .order('nombre', { ascending: true })
-              .limit(1)
-              .maybeSingle();
-            if (errC) return { error: errC.message };
-            if (!rowC?.id) {
-              return { error: `No se encontró el cliente "${cnameRaw}"` };
-            }
-            clienteIdUpdate = String((rowC as { id: string }).id);
+            const cliRes = await resolverClientesPorNombre(supabase, bid, cnameRaw);
+            const asCli = resultadoResolveATool(cliRes, cnameRaw, 'cliente');
+            if (!asCli.ok) return asCli;
+            clienteIdUpdate = asCli.match.id;
           }
 
           const updates: Record<string, unknown> = {};
@@ -569,30 +523,59 @@ export async function handleObrasClientesAgent(
             return { error: updErr?.message ?? 'No se pudo actualizar la obra' };
           }
           const nombreFinal = String((updated as { nombre?: string }).nombre ?? '');
-          return { mensaje: `Obra '${nombreFinal}' actualizada correctamente.` };
+          return { ok: true, mensaje: `Obra '${nombreFinal}' actualizada correctamente.` };
         }
         case 'buscar_obra': {
           const qBus = String(toolArgs.query ?? '').trim();
-          if (!qBus) return { error: 'query es obligatorio' };
+          const listarAbiertas = esQueryListadoObras(qBus);
 
-          const safeQ = qBus.replace(/[%_*]/g, '').slice(0, 120);
-          const pat = `%${safeQ}%`;
+          type ObraRow = {
+            id: string;
+            nombre: string;
+            cliente_id: string | null;
+            direccion: string | null;
+            estado: string | null;
+            fecha_inicio: string | null;
+          };
 
-          const { data: obrasRows, error } = await supabase
-            .from('obras')
-            .select('id, nombre, cliente_id, direccion, estado, fecha_inicio, created_at')
-            .eq('business_id', bid)
-            .ilike('nombre', pat)
-            .order('created_at', { ascending: false })
-            .limit(20);
+          let obrasRows: ObraRow[] | null = null;
+          let error: { message: string } | null = null;
+
+          if (listarAbiertas) {
+            const res = await supabase
+              .from('obras')
+              .select('id, nombre, cliente_id, direccion, estado, fecha_inicio, created_at')
+              .eq('business_id', bid)
+              .in('estado', ['abierta', 'en_curso'])
+              .order('created_at', { ascending: false })
+              .limit(20);
+            obrasRows = (res.data ?? []) as ObraRow[];
+            error = res.error;
+          } else {
+            const safeQ = qBus.replace(/[%_*]/g, '').slice(0, 120);
+            if (!safeQ) return { items: [] };
+            const pat = `%${safeQ}%`;
+            const res = await supabase
+              .from('obras')
+              .select('id, nombre, cliente_id, direccion, estado, fecha_inicio, created_at')
+              .eq('business_id', bid)
+              .ilike('nombre', pat)
+              .order('created_at', { ascending: false })
+              .limit(20);
+            obrasRows = (res.data ?? []) as ObraRow[];
+            error = res.error;
+          }
 
           if (error) return { error: error.message };
 
           const obras = obrasRows ?? [];
-          const clienteIds = (obras as Array<{ cliente_id: string | null }>).map((o) => o.cliente_id).filter((id0): id0 is string => Boolean(id0));
+          const clienteIds = obras
+            .map((o) => o.cliente_id)
+            .filter((id0): id0 is string => Boolean(id0));
           if (clienteIds.length === 0) {
             return {
-              items: (obras as Array<{ id: string; nombre: string; direccion: string | null; estado: string | null; fecha_inicio: string | null }>).map((o) => ({
+              listado_abiertas: listarAbiertas,
+              items: obras.map((o) => ({
                 id: o.id,
                 nombre: o.nombre,
                 cliente_nombre: null,
@@ -615,7 +598,8 @@ export async function handleObrasClientesAgent(
           }
 
           return {
-            items: (obras as Array<{ id: string; nombre: string; cliente_id: string | null; direccion: string | null; estado: string | null; fecha_inicio: string | null }>).map((o) => ({
+            listado_abiertas: listarAbiertas,
+            items: obras.map((o) => ({
               id: o.id,
               nombre: o.nombre,
               cliente_nombre: o.cliente_id ? clienteMap.get(o.cliente_id) ?? null : null,

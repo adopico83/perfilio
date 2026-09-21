@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { assertUserOwnsBusiness } from '@/lib/supabase/assert-user-owns-business';
 import { uploadDiarioObraMediaToBucket } from '@/lib/diario-obra';
 
 const BUCKET = 'diario-obra';
@@ -32,30 +33,6 @@ function extFromMime(mime: string): string {
 
 function sanitizeFilename(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120) || 'archivo';
-}
-
-async function assertUserOwnsBusiness(
-  supabaseAuth: Awaited<ReturnType<typeof createClient>>,
-  userId: string,
-  businessId: string
-): Promise<boolean> {
-  const businessUsersQuery = supabaseAuth.from('business_users');
-  if ('select' in businessUsersQuery && typeof businessUsersQuery.select === 'function') {
-    const { data } = await businessUsersQuery
-      .select('business_id')
-      .eq('business_id', businessId)
-      .eq('user_id', userId)
-      .maybeSingle();
-    return Boolean(data?.business_id);
-  }
-
-  const { data } = await supabaseAuth
-    .from('business_profiles')
-    .select('id')
-    .eq('id', businessId)
-    .eq('user_id', userId)
-    .maybeSingle();
-  return Boolean(data?.id);
 }
 
 export async function POST(request: NextRequest) {
