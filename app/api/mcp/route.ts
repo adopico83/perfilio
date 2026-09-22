@@ -3,7 +3,11 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { validateMcpToken } from '@/lib/mcp/auth';
 import { createPerfilioMcpServer } from '@/lib/mcp/server';
 
-export const maxDuration = 30;
+/**
+ * La ingesta de fotos baja hasta 8 URLs en serie (timeout 20s, presupuesto interno 45s).
+ * 60s deja margen para un lote real de 5–6 fotos sin esperar a que todas agoten el timeout.
+ */
+export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   const ctx = await validateMcpToken(request);
