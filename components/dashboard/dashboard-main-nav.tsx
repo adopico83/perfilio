@@ -154,7 +154,7 @@ export default function DashboardMainNav({
 
   return (
     <div className="border-b border-white/10 bg-[#EFEADF]/95 backdrop-blur">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center gap-3 min-w-0">
+      <div className="flex w-full items-center gap-3 min-w-0 px-4 sm:px-6 py-4">
         {brand}
         {betweenBrandAndMenu ?? null}
         <button
@@ -216,7 +216,7 @@ export default function DashboardMainNav({
       </div>
 
       {menuMovilAbierto ? (
-        <div className="md:hidden max-w-7xl mx-auto px-6 pb-4">
+        <div className="md:hidden w-full px-4 sm:px-6 pb-4">
           <div className="bg-[#E5DFD0] border border-white/10 rounded-xl p-4 flex flex-col gap-3">
             {NAV_ITEMS.map((item) => {
               const isActive = active === item.key;

@@ -1087,63 +1087,63 @@ function DashboardContent() {
 
   const mainClass = isOpen
     ? 'max-w-7xl mx-auto px-6 py-3 lg:py-4 space-y-3'
-    : 'w-full max-w-none px-6 py-3 lg:py-2 space-y-3 lg:space-y-1.5';
-  const topBandClass = isOpen
-    ? 'space-y-3'
-    : 'space-y-3 lg:grid lg:grid-cols-12 lg:items-center lg:gap-2 lg:space-y-0';
-  const greetingClass = isOpen ? 'flex flex-col gap-0.5' : 'flex flex-col gap-0.5 lg:col-span-4 min-w-0';
-  const headingClass = isOpen
-    ? 'text-2xl sm:text-3xl font-bold'
-    : 'text-2xl sm:text-3xl lg:text-xl font-bold lg:leading-tight';
-  const bichoClass = isOpen ? '' : 'lg:col-span-8 min-w-0';
+    : 'w-full max-w-none px-4 sm:px-6 py-4 lg:py-5 space-y-4 lg:space-y-5';
+  const topBandClass = 'space-y-3';
+  const greetingClass = 'flex flex-col gap-0.5';
+  const headingClass = 'text-2xl sm:text-3xl font-bold';
+  const bichoClass = '';
   const resumenGridClass = isOpen
     ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2'
-    : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-1.5';
+    : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4';
   const statCardPad = isOpen
     ? 'rounded-xl py-2 px-3 flex flex-col gap-1'
-    : 'rounded-xl py-2 px-3 lg:py-1.5 lg:px-2 flex flex-col gap-1 lg:gap-0.5';
+    : 'rounded-xl py-4 px-4 lg:py-5 lg:px-5 flex flex-col gap-2';
   const statNumberClass = isOpen
     ? 'text-2xl sm:text-3xl font-bold'
-    : 'text-2xl sm:text-3xl lg:text-xl font-bold lg:leading-none';
+    : 'text-3xl sm:text-4xl lg:text-5xl font-bold';
   const facturasNumberClass = isOpen
     ? 'text-3xl font-bold'
-    : 'text-3xl lg:text-xl font-bold lg:leading-none';
+    : 'text-3xl sm:text-4xl lg:text-5xl font-bold';
   const metricGridClass = isOpen
     ? 'grid grid-cols-1 sm:grid-cols-3 gap-2'
-    : 'grid grid-cols-1 sm:grid-cols-3 gap-2 lg:gap-1.5';
+    : 'grid grid-cols-1 sm:grid-cols-3 gap-3 lg:gap-4';
   const metricCardClass = isOpen
     ? 'text-left bg-[#E5DFD0] border border-[#A04A2F]/60 rounded-xl py-2 px-3 flex flex-col gap-1 hover:bg-[#D4CCBC] transition-all duration-150'
-    : 'text-left bg-[#E5DFD0] border border-[#A04A2F]/60 rounded-xl py-2 px-3 lg:py-1.5 lg:px-2 flex flex-col gap-1 lg:gap-0.5 hover:bg-[#D4CCBC] transition-all duration-150';
+    : 'text-left bg-[#E5DFD0] border border-[#A04A2F]/60 rounded-xl py-4 px-4 lg:py-5 lg:px-5 flex flex-col gap-2 hover:bg-[#D4CCBC] transition-all duration-150';
+  const pendienteNumberClass = isOpen
+    ? 'text-2xl font-bold font-mono text-[#A04A2F]'
+    : 'text-3xl sm:text-4xl lg:text-5xl font-bold font-mono text-[#A04A2F]';
+  const basePresupuestoNumberClass = isOpen
+    ? 'text-lg sm:text-xl font-bold font-mono text-[#c97c5a]'
+    : 'text-xl sm:text-2xl lg:text-3xl font-bold font-mono text-[#c97c5a]';
   const ivaNumberClass = isOpen
     ? 'text-2xl sm:text-3xl font-bold font-mono text-[#A04A2F] leading-tight'
-    : 'text-2xl sm:text-3xl lg:text-xl font-bold font-mono text-[#A04A2F] leading-tight';
+    : 'text-3xl sm:text-4xl lg:text-5xl font-bold font-mono text-[#A04A2F] leading-tight';
   const materialesNumberClass = isOpen
     ? 'text-xl sm:text-2xl font-bold font-mono text-[#A04A2F]'
-    : 'text-xl sm:text-2xl lg:text-lg font-bold font-mono text-[#A04A2F] lg:leading-tight';
+    : 'text-2xl sm:text-3xl lg:text-4xl font-bold font-mono text-[#A04A2F]';
   const sectionTitleBtnClass =
-    'flex w-full items-center justify-between gap-2 mb-1.5 text-left sm:pointer-events-none sm:cursor-default' +
-    (isOpen ? '' : ' lg:mb-1');
-  const bottomBandClass = isOpen
-    ? 'space-y-3'
-    : 'space-y-3 lg:grid lg:grid-cols-2 lg:gap-2 lg:space-y-0 lg:items-start';
+    'flex w-full items-center justify-between gap-2 text-left sm:pointer-events-none sm:cursor-default ' +
+    (isOpen ? 'mb-1.5' : 'mb-2 lg:mb-3');
+  const bottomBandClass = isOpen ? 'space-y-3' : 'space-y-4 lg:space-y-5';
   const actividadGridClass = isOpen
     ? 'grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-2 lg:items-stretch'
-    : 'grid grid-cols-1 lg:grid-cols-3 gap-2 lg:gap-1.5 lg:items-stretch';
+    : 'grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-5 lg:items-stretch';
   const actividadCardClass =
-    'bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0 ' +
-    (isOpen ? 'max-h-64' : 'max-h-64 lg:max-h-36 lg:p-2');
+    'bg-[#E5DFD0] border border-white/10 rounded-xl flex flex-col min-h-0 ' +
+    (isOpen ? 'p-2.5 sm:p-3 max-h-64' : 'p-4 lg:p-5 min-h-64 lg:min-h-72 max-h-80');
   const agendaCardClass = isOpen
     ? 'bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 w-full min-h-0 max-h-64 text-left cursor-pointer transition-all hover:border-[#A04A2F]/55 hover:ring-1 hover:ring-[#A04A2F]/25 focus:outline-none focus:ring-2 focus:ring-[#A04A2F]/40 group flex flex-col'
-    : 'bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 lg:p-2 w-full min-h-0 max-h-64 lg:max-h-36 text-left cursor-pointer transition-all hover:border-[#A04A2F]/55 hover:ring-1 hover:ring-[#A04A2F]/25 focus:outline-none focus:ring-2 focus:ring-[#A04A2F]/40 group flex flex-col';
+    : 'bg-[#E5DFD0] border border-white/10 rounded-xl p-4 lg:p-5 w-full min-h-64 lg:min-h-72 max-h-80 text-left cursor-pointer transition-all hover:border-[#A04A2F]/55 hover:ring-1 hover:ring-[#A04A2F]/25 focus:outline-none focus:ring-2 focus:ring-[#A04A2F]/40 group flex flex-col';
   const diarioGridClass = isOpen
     ? 'w-full grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-4 lg:max-w-full'
-    : 'w-full grid grid-cols-1 lg:grid-cols-3 gap-2 lg:gap-1.5 lg:max-w-full';
+    : 'w-full grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-5 lg:max-w-full';
   const diarioListClass = isOpen
     ? 'min-h-0 max-h-40 overflow-y-auto overscroll-contain'
-    : 'min-h-0 max-h-40 lg:max-h-24 overflow-y-auto overscroll-contain';
+    : 'min-h-40 max-h-64 overflow-y-auto overscroll-contain';
   const diarioCardClass = isOpen
     ? 'bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0'
-    : 'bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 lg:p-2 flex flex-col min-h-0';
+    : 'bg-[#E5DFD0] border border-white/10 rounded-xl p-4 lg:p-5 flex flex-col min-h-64 lg:min-h-72';
 
   return (
     <div className="min-h-screen bg-[#EFEADF] text-zinc-900">
@@ -1442,7 +1442,7 @@ function DashboardContent() {
                   💰 Importe pendiente de cobro
                 </span>
               </div>
-              <div className="text-2xl font-bold font-mono text-[#A04A2F]">
+              <div className={pendienteNumberClass}>
                 {dashboardLoading ? '—' : `${importePendienteCobro.toFixed(2)} €`}
               </div>
               <span className="text-xs text-zinc-900/60">Clic para ver desglose por factura</span>
@@ -1458,7 +1458,7 @@ function DashboardContent() {
                 </span>
               </div>
               <div className="text-xs text-zinc-900/80">TOTAL PRESUPUESTADO (base):</div>
-              <div className="text-lg sm:text-xl font-bold font-mono text-[#c97c5a]">
+              <div className={basePresupuestoNumberClass}>
                 {dashboardLoading ? '—' : fmtEurosEs(importeTotalPresupuestado)}
               </div>
               <div className="text-xs text-zinc-900/90 mt-1">TOTAL CON IVA:</div>
