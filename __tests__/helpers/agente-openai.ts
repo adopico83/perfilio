@@ -1,5 +1,5 @@
-/** Índice de la completion final de prosa: router (0) + agente con tools (1) + final (2). */
-export const AGENTE_FINAL_CALL_INDEX = 2;
+/** Índice de la completion final de prosa: agente con tools (0) + final (1). */
+export const AGENTE_FINAL_CALL_INDEX = 1;
 
 type ToolCallLike = {
   id?: string;

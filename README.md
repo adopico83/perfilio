@@ -89,7 +89,7 @@ PWA instalable (dashboard + push de agenda). Paleta crema `#EFEADF` / terracota 
 
 ### Opción B — local (devs)
 
-Hace falta un proyecto Supabase (Auth + tablas) y una `OPENAI_API_KEY`. No hay `.env.example` en el repo.
+Hace falta un proyecto Supabase (Auth + tablas), una `OPENAI_API_KEY` y, para el clasificador de intención, `JEV_API_KEY` (ver `.env.example`).
 
 ```bash
 git clone https://github.com/adopico83/perfilio.git
@@ -134,7 +134,7 @@ flowchart LR
   D --> F[Gmail / PDF / meteo]
 ```
 
-1. El route **clasifica** la intención (`documentos`, `presupuesto`, `gastos`, `diario`, `operarios`…).
+1. El route **clasifica** la intención con TypeSafe Jev (`parseAgentIntentCategory` en `lib/agente/router.ts`): categorías cerradas `presupuesto | factura | diario | horas | gastos | obras | clientes | correo | agenda | general`, mapeadas a los módulos internos. Si Jev no responde o la confianza es menor de 0.7, cae a `general`.
 2. Ejecuta **solo las tools de esa categoría**.
 3. La lógica vive en `lib/agente/modules/*`. El route orquesta.
 
@@ -183,6 +183,7 @@ Crear `.env.local`. **Nunca commitear secretos.**
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Cliente + RLS |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server privilegiado |
 | `OPENAI_API_KEY` | Chat, tools, Whisper, TTS |
+| `JEV_API_KEY` | Clasificador de intención del agente (TypeSafe Jev, `POST /v1/systemone`). Sin key, o si falla, la categoría es `general` |
 | `NEXT_PUBLIC_APP_URL` | Callbacks (p. ej. Gmail) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth2 Gmail |
 | `RESEND_API_KEY` | Emails transaccionales |

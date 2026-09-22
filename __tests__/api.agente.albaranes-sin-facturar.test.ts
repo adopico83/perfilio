@@ -112,19 +112,12 @@ describe('POST /api/agente — albaranes_sin_facturar', () => {
     };
   }
 
-  function mockRouterGeneral() {
-    return {
-      choices: [{ message: { content: 'general' } }],
-    };
-  }
-
   function toolPayloadFromFinal(toolName: string): unknown {
     return toolPayloadFromFinalCompletion(createMock, toolName);
   }
 
   it('albaranes_sin_facturar devuelve mensaje cuando no hay pendientes', async () => {
     createMock
-      .mockResolvedValueOnce(mockRouterGeneral())
       .mockResolvedValueOnce(toolCallMessage('albaranes_sin_facturar', '{}'))
       .mockResolvedValueOnce({
         choices: [{ message: { content: 'Respuesta final del agente.' } }],

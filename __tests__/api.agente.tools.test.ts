@@ -81,6 +81,7 @@ describe('POST /api/agente — tools', () => {
       },
     });
 
+    delete process.env.JEV_API_KEY;
     (globalThis as unknown as { fetch: jest.Mock }).fetch = jest.fn();
   });
 
@@ -117,20 +118,12 @@ describe('POST /api/agente — tools', () => {
     return singleToolFromHelper(createMock, AGENTE_FINAL_CALL_INDEX);
   }
 
-  /** Primera llamada OpenAI en /api/agente: clasificador de intención (todas las tools). */
-  function mockRouterGeneral() {
-    return {
-      choices: [{ message: { content: 'general' } }],
-    };
-  }
-
   async function postWithTool(
     toolName: string,
     handlers: Record<string, ReturnType<typeof makeThenableResult> | typeof businessProfileChain>,
     toolArgs = '{}'
   ) {
     createMock
-      .mockResolvedValueOnce(mockRouterGeneral())
       .mockResolvedValueOnce(toolCallMessage(toolName, toolArgs))
       .mockResolvedValueOnce({
         choices: [{ message: { content: 'Respuesta final del agente.' } }],
@@ -825,7 +818,6 @@ describe('POST /api/agente — tools', () => {
       const insertMockGd = jest.fn().mockResolvedValue({ data: null, error: null });
 
       createMock
-        .mockResolvedValueOnce(mockRouterGeneral())
         .mockResolvedValueOnce(
           toolCallMessage(
             'vincular_gasto',
@@ -900,7 +892,6 @@ describe('POST /api/agente — tools', () => {
       const insertMockGd = jest.fn().mockResolvedValue({ data: null, error: null });
 
       createMock
-        .mockResolvedValueOnce(mockRouterGeneral())
         .mockResolvedValueOnce(
           toolCallMessage(
             'vincular_gasto',
@@ -945,7 +936,6 @@ describe('POST /api/agente — tools', () => {
   describe('crear_entrada_diario', () => {
     it('devuelve mensaje de éxito con nombre de obra y fecha', async () => {
       createMock
-        .mockResolvedValueOnce(mockRouterGeneral())
         .mockResolvedValueOnce(
           toolCallMessage(
             'crear_entrada_diario',
@@ -1021,7 +1011,6 @@ describe('POST /api/agente — tools', () => {
         ],
       });
       createMock
-        .mockResolvedValueOnce(mockRouterGeneral())
         .mockResolvedValueOnce(toolCallMessage('mostrar_vista_visual', args))
         .mockResolvedValueOnce({
           choices: [
