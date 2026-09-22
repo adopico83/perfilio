@@ -1,5 +1,7 @@
 import type { McpContext } from '@/lib/mcp/context';
 import {
+  DIARIO_FOTO_INGEST_MAX_ITEMS,
+  createDiarioObraSignedUpload,
   ingestDiarioObraFotos,
   type DiarioObraFotoSource,
 } from '@/lib/diario-obra-ingest';
@@ -19,6 +21,11 @@ function ymdTodayMadrid(): string {
   const m = parts.find((p) => p.type === 'month')?.value;
   const d = parts.find((p) => p.type === 'day')?.value;
   return `${y}-${m}-${d}`;
+}
+
+function stringList(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null;
+  return raw.map((item) => (typeof item === 'string' ? item.trim() : ''));
 }
 
 function parseYmdOptional(raw: unknown): string | null {
@@ -250,23 +257,68 @@ export async function executeMcpTool(
       if (insErr) return { error: insErr.message };
       return { ok: true, entrada: inserted };
     }
+    case 'crear_upload_firmado_diario': {
+      return createDiarioObraSignedUpload(ctx.supabase, {
+        businessId: ctx.businessId,
+        mimeType: typeof toolArgs.mime_type === 'string' ? toolArgs.mime_type : '',
+        fileName: typeof toolArgs.nombre_archivo === 'string' ? toolArgs.nombre_archivo : undefined,
+        entradaId:
+          typeof toolArgs.entrada_diario_id === 'string' ? toolArgs.entrada_diario_id : undefined,
+      });
+    }
     case 'adjuntar_foto_diario': {
-      if (toolArgs.foto_base64 != null && toolArgs.foto_urls == null) {
+      if (toolArgs.foto_base64 != null) {
         return {
-          error: 'foto_base64 ya no se admite. Envía foto_urls (1 a 8 URLs https).',
+          error:
+            'foto_base64 ya no se admite. Crea una subida firmada con crear_upload_firmado_diario y adjunta storage_paths, o envía foto_urls (1 a 8 URLs https).',
         };
       }
-      if (!Array.isArray(toolArgs.foto_urls)) {
-        return { error: 'foto_urls es obligatorio (array de 1 a 8 URLs https).' };
+      const hasPaths = toolArgs.storage_paths != null;
+      const hasUrls = toolArgs.foto_urls != null;
+      if (hasPaths && hasUrls) {
+        return { error: 'Indica solo storage_paths o solo foto_urls, no ambos.' };
       }
-      const sources: DiarioObraFotoSource[] = toolArgs.foto_urls.map((item) => ({
-        type: 'url',
-        url: typeof item === 'string' ? item.trim() : '',
-      }));
+      if (!hasPaths && !hasUrls) {
+        return {
+          error: `Indica storage_paths (1 a ${DIARIO_FOTO_INGEST_MAX_ITEMS} rutas del bucket diario-obra) o, en integraciones, foto_urls (1 a ${DIARIO_FOTO_INGEST_MAX_ITEMS} URLs https).`,
+        };
+      }
+
+      const entradaId =
+        typeof toolArgs.entrada_diario_id === 'string' ? toolArgs.entrada_diario_id : '';
+      if (hasPaths) {
+        const paths = stringList(toolArgs.storage_paths);
+        if (!paths) {
+          return {
+            error: `storage_paths debe ser un array de 1 a ${DIARIO_FOTO_INGEST_MAX_ITEMS} rutas.`,
+          };
+        }
+        if (paths.length < 1 || paths.length > DIARIO_FOTO_INGEST_MAX_ITEMS) {
+          return {
+            error: `storage_paths admite de 1 a ${DIARIO_FOTO_INGEST_MAX_ITEMS} rutas del bucket diario-obra.`,
+          };
+        }
+        const sources: DiarioObraFotoSource[] = paths.map((path) => ({
+          type: 'storage_path',
+          path,
+        }));
+        return ingestDiarioObraFotos(ctx.supabase, {
+          businessId: ctx.businessId,
+          entradaId,
+          sources,
+        });
+      }
+
+      const urls = stringList(toolArgs.foto_urls);
+      if (!urls) {
+        return {
+          error: `foto_urls es obligatorio (array de 1 a ${DIARIO_FOTO_INGEST_MAX_ITEMS} URLs https).`,
+        };
+      }
+      const sources: DiarioObraFotoSource[] = urls.map((url) => ({ type: 'url', url }));
       return ingestDiarioObraFotos(ctx.supabase, {
         businessId: ctx.businessId,
-        entradaId:
-          typeof toolArgs.entrada_diario_id === 'string' ? toolArgs.entrada_diario_id : '',
+        entradaId,
         sources,
       });
     }

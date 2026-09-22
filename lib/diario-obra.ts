@@ -182,6 +182,136 @@ function sanitizeDiarioUploadStem(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120) || 'archivo';
 }
 
+/** Id de negocio usable como primer segmento de una ruta del bucket. */
+export function isSafeDiarioBusinessId(businessId: string): boolean {
+  if (!businessId || businessId.length > 128) return false;
+  if (/[\s\\/?#%]|[\u0000-\u001f]/.test(businessId)) return false;
+  return !businessId.includes('..');
+}
+
+/**
+ * Ruta relativa dentro de `diario-obra`.
+ * Misma convención que la subida del dashboard: `{businessId}/[{entradaId}/]{ts}_{unique?}{stem}.{ext}`.
+ */
+export function buildDiarioObraObjectPath(params: {
+  businessId: string;
+  contentType: string;
+  stem: string;
+  /** Un solo segmento extra (UUID de la entrada). */
+  subfolder?: string;
+  /** Sufijo para no colisionar si se piden varias URLs en el mismo milisegundo. */
+  unique?: string;
+  now?: number;
+}): string {
+  const ext = extFromMimeDiarioUpload(params.contentType);
+  const base = sanitizeDiarioUploadStem(params.stem);
+  const ts = params.now ?? Date.now();
+  const unique = params.unique ? `${params.unique}_` : '';
+  const fileExt = ext === 'jpeg' ? 'jpg' : ext;
+  const folder = params.subfolder ? `${params.businessId}/${params.subfolder}` : params.businessId;
+  return `${folder}/${ts}_${unique}${base}.${fileExt}`;
+}
+
+/**
+ * Acepta solo una ruta relativa del bucket que cuelga de `{businessId}/`.
+ * Rechaza URLs, otro negocio, `..`, segmentos vacíos y codificación.
+ */
+export function resolveDiarioObraBusinessPath(
+  businessId: string,
+  rawPath: string
+): { path: string } | { error: string } {
+  const business = businessId.trim();
+  if (!business) return { error: 'business_id es obligatorio' };
+  if (!isSafeDiarioBusinessId(business)) return { error: 'business_id no válido' };
+
+  const path = rawPath.trim();
+  if (!path) return { error: 'Ruta de storage vacía.' };
+  if (/^[a-z][a-z0-9+.-]*:/i.test(path) || /[\s\\?#%]|[\u0000-\u001f]/.test(path) || path.startsWith('/')) {
+    return { error: 'Ruta de storage no permitida.' };
+  }
+  try {
+    if (decodeURIComponent(path) !== path) return { error: 'Ruta de storage no permitida.' };
+  } catch {
+    return { error: 'Ruta de storage no permitida.' };
+  }
+  const segments = path.split('/');
+  if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
+    return { error: 'Ruta de storage no permitida.' };
+  }
+  if (!path.startsWith(`${business}/`)) {
+    return { error: 'La ruta no pertenece a este negocio.' };
+  }
+  return { path };
+}
+
+type DiarioStoredInfo = {
+  size?: number;
+  contentType?: string;
+  content_type?: string;
+  metadata?: { size?: number; mimetype?: string } | null;
+};
+
+function storedObjectMeta(
+  data: DiarioStoredInfo
+): { size: number; contentType: string | null } | { error: string } {
+  const size =
+    typeof data.size === 'number'
+      ? data.size
+      : typeof data.metadata?.size === 'number'
+        ? data.metadata.size
+        : Number.NaN;
+  if (!Number.isFinite(size)) {
+    return { error: 'No se pudo comprobar el tamaño de la foto.' };
+  }
+  const contentType =
+    (typeof data.contentType === 'string' && data.contentType) ||
+    (typeof data.content_type === 'string' && data.content_type) ||
+    (typeof data.metadata?.mimetype === 'string' && data.metadata.mimetype) ||
+    null;
+  return { size, contentType };
+}
+
+/**
+ * Metadatos de un objeto ya subido a `diario-obra` (`info`, o `list` si el cliente no lo tiene).
+ * No descarga el archivo.
+ */
+export async function readDiarioObraStoredObject(
+  supabase: SupabaseClient,
+  path: string
+): Promise<{ size: number; contentType: string | null } | { error: string }> {
+  const bucket = supabase.storage.from(DIARIO_OBRA_STORAGE_BUCKET) as {
+    info?: (objectPath: string) => Promise<{
+      data: DiarioStoredInfo | null;
+      error: { message?: string } | null;
+    }>;
+    list: (
+      folder: string,
+      options?: { search?: string; limit?: number }
+    ) => Promise<{
+      data: Array<{ name: string; metadata?: { size?: number; mimetype?: string } | null }> | null;
+      error: { message?: string } | null;
+    }>;
+  };
+
+  if (typeof bucket.info === 'function') {
+    const { data, error } = await bucket.info(path);
+    if (error || !data) return { error: 'No se encontró la foto en el bucket del diario.' };
+    return storedObjectMeta(data);
+  }
+
+  const slash = path.lastIndexOf('/');
+  const folder = slash >= 0 ? path.slice(0, slash) : '';
+  const name = slash >= 0 ? path.slice(slash + 1) : path;
+  const { data, error } = await bucket.list(folder, { search: name, limit: 100 });
+  if (error || !data) return { error: 'No se encontró la foto en el bucket del diario.' };
+  const file = data.find((item) => item.name === name);
+  if (!file) return { error: 'No se encontró la foto en el bucket del diario.' };
+  return storedObjectMeta({
+    size: file.metadata?.size,
+    contentType: file.metadata?.mimetype,
+  });
+}
+
 /**
  * Sube un archivo al bucket `diario-obra` (misma convención que POST /api/diario/upload).
  * Devuelve la ruta relativa al bucket para guardar en `diario_obra.fotos` / `videos`.
@@ -203,10 +333,11 @@ export async function uploadDiarioObraMediaToBucket(
     return { error: 'Tipo de archivo no permitido para el diario de obra.' };
   }
 
-  const ext = extFromMimeDiarioUpload(ct);
-  const base = sanitizeDiarioUploadStem(params.stem);
-  const ts = Date.now();
-  const path = `${params.businessId}/${ts}_${base}.${ext === 'jpeg' ? 'jpg' : ext}`;
+  const path = buildDiarioObraObjectPath({
+    businessId: params.businessId,
+    contentType: ct,
+    stem: params.stem,
+  });
 
   const uploadContentType =
     ct === 'image/png'

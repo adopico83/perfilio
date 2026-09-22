@@ -1,8 +1,13 @@
+import { randomBytes } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   DIARIO_OBRA_STORAGE_BUCKET,
+  buildDiarioObraObjectPath,
+  isSafeDiarioBusinessId,
+  readDiarioObraStoredObject,
   removeDiarioObraStorageObjects,
+  resolveDiarioObraBusinessPath,
   uploadDiarioObraMediaToBucket,
 } from '@/lib/diario-obra';
 
@@ -49,7 +54,8 @@ const IMAGE_MIME = new Set([
 
 export type DiarioObraFotoSource =
   | { type: 'url'; url: string }
-  | { type: 'buffer'; buffer: Buffer; contentType?: string; fileName?: string };
+  | { type: 'buffer'; buffer: Buffer; contentType?: string; fileName?: string }
+  | { type: 'storage_path'; path: string };
 
 export type DiarioObraFotoIngestItem = {
   url?: string;
@@ -59,7 +65,16 @@ export type DiarioObraFotoIngestItem = {
 
 export type DiarioObraFotoIngestError = {
   url?: string;
+  path?: string;
   error: string;
+};
+
+export type DiarioObraSignedUpload = {
+  upload_url: string;
+  path: string;
+  token: string;
+  headers: { 'content-type': string; 'x-upsert': 'false' };
+  max_bytes: number;
 };
 
 export type DiarioObraFotoIngestResult = {
@@ -239,6 +254,12 @@ function detectImageMime(buf: Buffer): string | null {
     if (HEIC_BRANDS.has(brand)) return 'image/heic';
   }
   return null;
+}
+
+function normalizeAllowedImageMime(contentType: string | null | undefined): string | null {
+  const declared = declaredImageMime(contentType);
+  if (!declared || !IMAGE_MIME.has(declared)) return null;
+  return declared;
 }
 
 function declaredImageMime(contentType: string | null | undefined): string | null {
@@ -429,6 +450,53 @@ async function appendFotoPath(
   return error ? error.message : null;
 }
 
+async function commitFotoPath(
+  supabase: SupabaseClient,
+  businessId: string,
+  entradaId: string,
+  path: string,
+  url: string | undefined,
+  items: DiarioObraFotoIngestItem[]
+): Promise<void> {
+  const appendError = await appendFotoPath(supabase, businessId, entradaId, path);
+  if (appendError) {
+    await removeDiarioObraStorageObjects(supabase, [path]);
+    throw new IngestError(appendError);
+  }
+  const signedUrl = await signPath(supabase, path);
+  items.push({
+    ...(url ? { url } : {}),
+    path,
+    ...(signedUrl ? { signedUrl } : {}),
+  });
+}
+
+async function attachStoredFoto(
+  supabase: SupabaseClient,
+  businessId: string,
+  entradaId: string,
+  rawPath: string,
+  items: DiarioObraFotoIngestItem[]
+): Promise<void> {
+  const resolved = resolveDiarioObraBusinessPath(businessId, rawPath);
+  if ('error' in resolved) throw new IngestError(resolved.error);
+  const path = resolved.path;
+
+  const meta = await readDiarioObraStoredObject(supabase, path);
+  if ('error' in meta) throw new IngestError(meta.error);
+  if (meta.size <= 0) throw new IngestError('La imagen está vacía.');
+  if (meta.size > DIARIO_FOTO_INGEST_MAX_BYTES) {
+    await removeDiarioObraStorageObjects(supabase, [path]);
+    throw new IngestError('La foto supera el tamaño máximo permitido (10 MB).');
+  }
+  if (!normalizeAllowedImageMime(meta.contentType)) {
+    await removeDiarioObraStorageObjects(supabase, [path]);
+    throw new IngestError('El archivo no es una imagen jpeg, png, webp, gif o heic.');
+  }
+
+  await commitFotoPath(supabase, businessId, entradaId, path, undefined, items);
+}
+
 async function signPath(
   supabase: SupabaseClient,
   path: string
@@ -445,7 +513,7 @@ async function signPath(
 }
 
 async function bytesForSource(
-  source: DiarioObraFotoSource,
+  source: Exclude<DiarioObraFotoSource, { type: 'storage_path' }>,
   deadline: number
 ): Promise<{ buffer: Buffer; mime: string }> {
   if (source.type === 'url') return fetchPublicImage(source.url, deadline);
@@ -459,11 +527,12 @@ async function bytesForSource(
   return { buffer: source.buffer, mime: mimeFromBytes(source.buffer, source.contentType) };
 }
 
-function errorMessage(error: unknown): string {
+function errorMessage(error: unknown, source: DiarioObraFotoSource): string {
   if (error instanceof IngestError) return error.message;
   if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
     return 'Tiempo de espera agotado al descargar la imagen.';
   }
+  if (source.type === 'storage_path') return 'No se pudo adjuntar la foto.';
   return 'No se pudo descargar la imagen.';
 }
 
@@ -471,10 +540,88 @@ function sourceUrl(source: DiarioObraFotoSource): string | undefined {
   return source.type === 'url' ? source.url : undefined;
 }
 
+function sourcePath(source: DiarioObraFotoSource): string | undefined {
+  return source.type === 'storage_path' ? source.path : undefined;
+}
+
+function batchLimitError(sources: DiarioObraFotoSource[]): string {
+  if (sources.every((source) => source.type === 'storage_path')) {
+    return `storage_paths admite como máximo ${DIARIO_FOTO_INGEST_MAX_ITEMS} fotos.`;
+  }
+  if (sources.every((source) => source.type === 'url')) {
+    return `foto_urls admite como máximo ${DIARIO_FOTO_INGEST_MAX_ITEMS} fotos.`;
+  }
+  return `Admite como máximo ${DIARIO_FOTO_INGEST_MAX_ITEMS} fotos.`;
+}
+
 /**
- * Único camino para adjuntar fotos a una fila de `diario_obra`:
- * valida el origen (URL https pública o buffer), sube con
- * `uploadDiarioObraMediaToBucket` al bucket `diario-obra` y añade la ruta a `fotos`.
+ * URL firmada de subida (PUT) al bucket `diario-obra`, siempre bajo `{businessId}/`.
+ * El cliente envía los bytes a `upload_url`; luego `ingestDiarioObraFotos` adjunta la ruta.
+ */
+export async function createDiarioObraSignedUpload(
+  supabase: SupabaseClient,
+  params: {
+    businessId: string;
+    mimeType: string;
+    fileName?: string;
+    entradaId?: string;
+  }
+): Promise<DiarioObraSignedUpload | { error: string }> {
+  const businessId = params.businessId.trim();
+  if (!businessId) return { error: 'business_id es obligatorio' };
+  if (!isSafeDiarioBusinessId(businessId)) return { error: 'business_id no válido' };
+
+  const mime = normalizeAllowedImageMime(params.mimeType);
+  if (!mime) {
+    return { error: 'Tipo de imagen no permitido. Usa jpeg, png, webp, gif o heic.' };
+  }
+
+  let subfolder: string | undefined;
+  const entradaId = params.entradaId?.trim() ?? '';
+  if (entradaId) {
+    if (!UUID_RE.test(entradaId)) return { error: 'entrada_diario_id debe ser un UUID' };
+    const owned = await loadOwnedEntry(supabase, businessId, entradaId);
+    if ('error' in owned) return { error: owned.error };
+    subfolder = entradaId;
+  }
+
+  const path = buildDiarioObraObjectPath({
+    businessId,
+    contentType: mime,
+    stem: params.fileName?.trim() ? sanitizeStem(params.fileName) : 'diario_foto',
+    subfolder,
+    unique: randomBytes(4).toString('hex'),
+  });
+  const ownedPath = resolveDiarioObraBusinessPath(businessId, path);
+  if ('error' in ownedPath) return { error: ownedPath.error };
+
+  const bucket = supabase.storage.from(DIARIO_OBRA_STORAGE_BUCKET);
+  const { data, error } = await bucket.createSignedUploadUrl(ownedPath.path, { upsert: false });
+  if (error || !data?.signedUrl || !data.token) {
+    return { error: error?.message ?? 'No se pudo crear la URL de subida firmada.' };
+  }
+  if (data.path !== ownedPath.path) {
+    return { error: 'La URL firmada no coincide con la ruta del negocio.' };
+  }
+
+  return {
+    upload_url: data.signedUrl,
+    path: ownedPath.path,
+    token: data.token,
+    headers: {
+      'content-type': mime,
+      'x-upsert': 'false',
+    },
+    max_bytes: DIARIO_FOTO_INGEST_MAX_BYTES,
+  };
+}
+
+/**
+ * Único camino para adjuntar fotos a una fila de `diario_obra`.
+ * Origen URL o buffer: valida la imagen, sube con `uploadDiarioObraMediaToBucket`
+ * al bucket `diario-obra` y añade la ruta a `fotos`.
+ * Origen `storage_path`: la foto ya está en el bucket (PUT firmado); comprueba
+ * prefijo del negocio, tamaño y MIME, y añade la misma ruta a `fotos`.
  * La fila tiene que existir y pertenecer a `businessId`. El lote es best-effort.
  */
 export async function ingestDiarioObraFotos(
@@ -488,17 +635,16 @@ export async function ingestDiarioObraFotos(
   const businessId = params.businessId.trim();
   const entradaId = params.entradaId.trim();
   if (!businessId) return { error: 'business_id es obligatorio' };
+  if (!isSafeDiarioBusinessId(businessId)) return { error: 'business_id no válido' };
   if (!entradaId) return { error: 'entrada_diario_id es obligatorio' };
   if (!UUID_RE.test(entradaId)) return { error: 'entrada_diario_id debe ser un UUID' };
   if (!Array.isArray(params.sources) || params.sources.length === 0) {
     return {
-      error: `foto_urls es obligatorio (array de 1 a ${DIARIO_FOTO_INGEST_MAX_ITEMS} URLs https).`,
+      error: `Indica entre 1 y ${DIARIO_FOTO_INGEST_MAX_ITEMS} fotos.`,
     };
   }
   if (params.sources.length > DIARIO_FOTO_INGEST_MAX_ITEMS) {
-    return {
-      error: `foto_urls admite como máximo ${DIARIO_FOTO_INGEST_MAX_ITEMS} fotos.`,
-    };
+    return { error: batchLimitError(params.sources) };
   }
 
   const owned = await loadOwnedEntry(supabase, businessId, entradaId);
@@ -510,7 +656,12 @@ export async function ingestDiarioObraFotos(
 
   for (const source of params.sources) {
     const url = sourceUrl(source);
+    const rawPath = sourcePath(source);
     try {
+      if (source.type === 'storage_path') {
+        await attachStoredFoto(supabase, businessId, entradaId, source.path, items);
+        continue;
+      }
       if (source.type !== 'url' && source.type !== 'buffer') {
         throw new IngestError('Origen de imagen no válido.');
       }
@@ -525,23 +676,12 @@ export async function ingestDiarioObraFotos(
         stem: stemFor(source),
       });
       if ('error' in up) throw new IngestError(up.error);
-
-      const appendError = await appendFotoPath(supabase, businessId, entradaId, up.path);
-      if (appendError) {
-        await removeDiarioObraStorageObjects(supabase, [up.path]);
-        throw new IngestError(appendError);
-      }
-
-      const signedUrl = await signPath(supabase, up.path);
-      items.push({
-        ...(url ? { url } : {}),
-        path: up.path,
-        ...(signedUrl ? { signedUrl } : {}),
-      });
+      await commitFotoPath(supabase, businessId, entradaId, up.path, url, items);
     } catch (error) {
       errors.push({
         ...(url ? { url } : {}),
-        error: errorMessage(error),
+        ...(rawPath ? { path: rawPath } : {}),
+        error: errorMessage(error, source),
       });
     }
   }
