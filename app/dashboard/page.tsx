@@ -1085,65 +1085,43 @@ function DashboardContent() {
     };
   }, [dashboardLoading, gmailConectado]);
 
+  // Densidad única: el agente abierto/cerrado solo cambia el ancho (main + breakpoint
+  // del grid). La altura no se infla a pantalla completa.
   const mainClass = isOpen
-    ? 'max-w-7xl mx-auto px-6 py-3 lg:py-4 space-y-3'
-    : 'w-full max-w-none px-4 sm:px-6 py-4 lg:py-5 space-y-4 lg:space-y-5';
-  const topBandClass = 'space-y-3';
+    ? 'max-w-7xl mx-auto px-6 py-3 space-y-3'
+    : 'w-full max-w-none px-4 sm:px-6 py-3 space-y-3';
+  const topBandClass = 'space-y-2';
   const greetingClass = 'flex flex-col gap-0.5';
-  const headingClass = 'text-2xl sm:text-3xl font-bold';
+  const headingClass = 'text-xl sm:text-2xl font-bold';
   const bichoClass = '';
   const resumenGridClass = isOpen
     ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2'
-    : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4';
-  const statCardPad = isOpen
-    ? 'rounded-xl py-2 px-3 flex flex-col gap-1'
-    : 'rounded-xl py-4 px-4 lg:py-5 lg:px-5 flex flex-col gap-2';
-  const statNumberClass = isOpen
-    ? 'text-2xl sm:text-3xl font-bold'
-    : 'text-3xl sm:text-4xl lg:text-5xl font-bold';
-  const facturasNumberClass = isOpen
-    ? 'text-3xl font-bold'
-    : 'text-3xl sm:text-4xl lg:text-5xl font-bold';
-  const metricGridClass = isOpen
-    ? 'grid grid-cols-1 sm:grid-cols-3 gap-2'
-    : 'grid grid-cols-1 sm:grid-cols-3 gap-3 lg:gap-4';
-  const metricCardClass = isOpen
-    ? 'text-left bg-[#E5DFD0] border border-[#A04A2F]/60 rounded-xl py-2 px-3 flex flex-col gap-1 hover:bg-[#D4CCBC] transition-all duration-150'
-    : 'text-left bg-[#E5DFD0] border border-[#A04A2F]/60 rounded-xl py-4 px-4 lg:py-5 lg:px-5 flex flex-col gap-2 hover:bg-[#D4CCBC] transition-all duration-150';
-  const pendienteNumberClass = isOpen
-    ? 'text-2xl font-bold font-mono text-[#A04A2F]'
-    : 'text-3xl sm:text-4xl lg:text-5xl font-bold font-mono text-[#A04A2F]';
-  const basePresupuestoNumberClass = isOpen
-    ? 'text-lg sm:text-xl font-bold font-mono text-[#c97c5a]'
-    : 'text-xl sm:text-2xl lg:text-3xl font-bold font-mono text-[#c97c5a]';
-  const ivaNumberClass = isOpen
-    ? 'text-2xl sm:text-3xl font-bold font-mono text-[#A04A2F] leading-tight'
-    : 'text-3xl sm:text-4xl lg:text-5xl font-bold font-mono text-[#A04A2F] leading-tight';
-  const materialesNumberClass = isOpen
-    ? 'text-xl sm:text-2xl font-bold font-mono text-[#A04A2F]'
-    : 'text-2xl sm:text-3xl lg:text-4xl font-bold font-mono text-[#A04A2F]';
+    : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2';
+  const statCardPad = 'rounded-xl py-2 px-3 flex flex-col gap-0.5';
+  const statNumberClass = 'text-2xl sm:text-3xl font-bold leading-none';
+  const metricGridClass = 'grid grid-cols-1 sm:grid-cols-3 gap-2';
+  const metricCardClass =
+    'text-left bg-[#E5DFD0] border border-[#A04A2F]/60 rounded-xl py-2 px-3 flex flex-col gap-0.5 hover:bg-[#D4CCBC] transition-all duration-150';
+  const pendienteNumberClass =
+    'text-2xl sm:text-3xl font-bold font-mono leading-none text-[#A04A2F]';
+  const basePresupuestoNumberClass =
+    'text-lg sm:text-xl font-bold font-mono leading-none text-[#c97c5a]';
+  const ivaNumberClass =
+    'text-2xl sm:text-3xl font-bold font-mono leading-none text-[#A04A2F]';
+  const materialesNumberClass =
+    'text-xl sm:text-2xl font-bold font-mono leading-none text-[#A04A2F]';
   const sectionTitleBtnClass =
-    'flex w-full items-center justify-between gap-2 text-left sm:pointer-events-none sm:cursor-default ' +
-    (isOpen ? 'mb-1.5' : 'mb-2 lg:mb-3');
-  const bottomBandClass = isOpen ? 'space-y-3' : 'space-y-4 lg:space-y-5';
-  const actividadGridClass = isOpen
-    ? 'grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-2 lg:items-stretch'
-    : 'grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-5 lg:items-stretch';
+    'flex w-full items-center justify-between gap-2 text-left sm:pointer-events-none sm:cursor-default mb-1.5';
+  const bottomBandClass = 'space-y-3';
+  const actividadGridClass = 'grid grid-cols-1 lg:grid-cols-3 gap-2 lg:items-stretch';
   const actividadCardClass =
-    'bg-[#E5DFD0] border border-white/10 rounded-xl flex flex-col min-h-0 ' +
-    (isOpen ? 'p-2.5 sm:p-3 max-h-64' : 'p-4 lg:p-5 min-h-64 lg:min-h-72 max-h-80');
-  const agendaCardClass = isOpen
-    ? 'bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 w-full min-h-0 max-h-64 text-left cursor-pointer transition-all hover:border-[#A04A2F]/55 hover:ring-1 hover:ring-[#A04A2F]/25 focus:outline-none focus:ring-2 focus:ring-[#A04A2F]/40 group flex flex-col'
-    : 'bg-[#E5DFD0] border border-white/10 rounded-xl p-4 lg:p-5 w-full min-h-64 lg:min-h-72 max-h-80 text-left cursor-pointer transition-all hover:border-[#A04A2F]/55 hover:ring-1 hover:ring-[#A04A2F]/25 focus:outline-none focus:ring-2 focus:ring-[#A04A2F]/40 group flex flex-col';
-  const diarioGridClass = isOpen
-    ? 'w-full grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-4 lg:max-w-full'
-    : 'w-full grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-5 lg:max-w-full';
-  const diarioListClass = isOpen
-    ? 'min-h-0 max-h-40 overflow-y-auto overscroll-contain'
-    : 'min-h-40 max-h-64 overflow-y-auto overscroll-contain';
-  const diarioCardClass = isOpen
-    ? 'bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0'
-    : 'bg-[#E5DFD0] border border-white/10 rounded-xl p-4 lg:p-5 flex flex-col min-h-64 lg:min-h-72';
+    'bg-[#E5DFD0] border border-white/10 rounded-xl flex flex-col min-h-0 p-2.5 sm:p-3 max-h-52';
+  const agendaCardClass =
+    'bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 w-full min-h-0 max-h-52 text-left cursor-pointer transition-all hover:border-[#A04A2F]/55 hover:ring-1 hover:ring-[#A04A2F]/25 focus:outline-none focus:ring-2 focus:ring-[#A04A2F]/40 group flex flex-col';
+  const diarioGridClass = 'w-full grid grid-cols-1 lg:grid-cols-3 gap-2 lg:max-w-full';
+  const diarioListClass = 'min-h-0 max-h-40 overflow-y-auto overscroll-contain';
+  const diarioCardClass =
+    'bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0';
 
   return (
     <div className="min-h-screen bg-[#EFEADF] text-zinc-900">
@@ -1342,13 +1320,13 @@ function DashboardContent() {
                 <span className="text-xs font-semibold text-zinc-800 uppercase tracking-wide">
                   Mensajes urgentes pendientes
                 </span>
-                <AlertTriangle className="w-5 h-5 text-red-400" />
+                <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
               </div>
               <div className={statNumberClass}>{counts.urgentes}</div>
               <button
                 type="button"
                 onClick={() => abrirUrgentes(emailsUrgentes)}
-                className="inline-flex items-center text-xs text-[#A04A2F] hover:text-[#8a3f28] mt-1 text-left"
+                className="inline-flex items-center text-xs text-[#A04A2F] hover:text-[#8a3f28] text-left"
               >
                 Ver urgentes
                 <ArrowRight className="w-3 h-3 ml-1" />
@@ -1360,12 +1338,12 @@ function DashboardContent() {
                 <span className="text-xs font-semibold text-zinc-800 uppercase tracking-wide">
                   Presupuestos generados
                 </span>
-                <FileText className="w-5 h-5 text-[#A04A2F]" />
+                <FileText className="w-4 h-4 text-[#A04A2F] shrink-0" />
               </div>
               <div className={statNumberClass}>{counts.presupuestos}</div>
               <Link
                 href="/presupuestos"
-                className="inline-flex items-center text-xs text-[#A04A2F] hover:text-[#8a3f28] mt-1"
+                className="inline-flex items-center text-xs text-[#A04A2F] hover:text-[#8a3f28]"
               >
                 Ver presupuestos
                 <ArrowRight className="w-3 h-3 ml-1" />
@@ -1377,12 +1355,12 @@ function DashboardContent() {
                 <span className="text-xs font-semibold text-zinc-800 uppercase tracking-wide">
                   Albaranes pendientes
                 </span>
-                <Package className="w-5 h-5 text-blue-300" />
+                <Package className="w-4 h-4 text-blue-300 shrink-0" />
               </div>
               <div className={statNumberClass}>{counts.albaranesPendientes}</div>
               <Link
                 href="/albaranes"
-                className="inline-flex items-center text-xs text-[#A04A2F] hover:text-[#8a3f28] mt-1"
+                className="inline-flex items-center text-xs text-[#A04A2F] hover:text-[#8a3f28]"
               >
                 Ver albaranes
                 <ArrowRight className="w-3 h-3 ml-1" />
@@ -1395,10 +1373,10 @@ function DashboardContent() {
                   Facturas pendientes de cobro
                 </span>
               </div>
-              <div className={facturasNumberClass}>{counts.facturasPendientes}</div>
+              <div className={statNumberClass}>{counts.facturasPendientes}</div>
               <Link
                 href="/facturas"
-                className="inline-flex items-center text-xs text-[#A04A2F] hover:text-[#8a3f28] mt-1"
+                className="inline-flex items-center text-xs text-[#A04A2F] hover:text-[#8a3f28]"
               >
                 Ver facturas
                 <ArrowRight className="w-3 h-3 ml-1" />
@@ -1461,7 +1439,7 @@ function DashboardContent() {
               <div className={basePresupuestoNumberClass}>
                 {dashboardLoading ? '—' : fmtEurosEs(importeTotalPresupuestado)}
               </div>
-              <div className="text-xs text-zinc-900/90 mt-1">TOTAL CON IVA:</div>
+              <div className="text-xs text-zinc-900/90">TOTAL CON IVA:</div>
               <div className={ivaNumberClass}>
                 {dashboardLoading ? '—' : fmtEurosEs(importeTotalConIva)}
               </div>
@@ -1513,7 +1491,7 @@ function DashboardContent() {
           <div className={actividadGridClass}>
             {/* Columna: Últimos presupuestos */}
             <div className={actividadCardClass}>
-              <div className="flex items-center justify-between shrink-0 mb-2">
+              <div className="flex items-center justify-between shrink-0 mb-1">
                 <h3 className="text-sm font-semibold text-zinc-900/80 uppercase tracking-wide">
                   Últimos presupuestos
                 </h3>
@@ -1563,7 +1541,7 @@ function DashboardContent() {
               onClick={abrirModalAgenda}
               className={agendaCardClass}
             >
-              <div className="flex items-center justify-between gap-2 shrink-0 mb-2">
+              <div className="flex items-center justify-between gap-2 shrink-0 mb-1">
                 <h3 className="text-sm font-semibold text-zinc-900/80 uppercase tracking-wide group-hover:text-zinc-900">
                   Agenda
                 </h3>
@@ -1613,7 +1591,7 @@ function DashboardContent() {
 
             {/* Columna: Últimos emails */}
             <div className={actividadCardClass}>
-              <div className="flex items-center justify-between shrink-0 mb-2">
+              <div className="flex items-center justify-between shrink-0 mb-1">
                 <h3 className="text-sm font-semibold text-zinc-900/80 uppercase tracking-wide">
                   Últimos emails
                 </h3>
@@ -1677,7 +1655,7 @@ function DashboardContent() {
                   </ul>
                 )}
               </div>
-              <div className="shrink-0 mt-2 pt-2 border-t border-white/10">
+              <div className="shrink-0 mt-1.5 pt-1.5 border-t border-white/10">
                 <button
                   type="button"
                   className="text-xs sm:text-sm font-medium text-[#A04A2F] hover:text-[#c97c5a] transition-colors"
@@ -1733,7 +1711,7 @@ function DashboardContent() {
                   </ul>
                 )}
               </div>
-              <div className="shrink-0 mt-2 pt-2 border-t border-white/10">
+              <div className="shrink-0 mt-1.5 pt-1.5 border-t border-white/10">
                 <Link
                   href="/diario"
                   className="inline-flex items-center text-xs sm:text-sm font-medium text-[#A04A2F] hover:text-[#c97c5a] transition-colors"
@@ -1804,7 +1782,7 @@ function DashboardContent() {
                   </ul>
                 )}
               </div>
-              <div className="shrink-0 mt-2 pt-2 border-t border-white/10">
+              <div className="shrink-0 mt-1.5 pt-1.5 border-t border-white/10">
                 <Link
                   href="/obras"
                   className="inline-flex items-center text-xs sm:text-sm font-medium text-[#A04A2F] hover:text-[#c97c5a] transition-colors"
@@ -1850,7 +1828,7 @@ function DashboardContent() {
                   </ul>
                 )}
               </div>
-              <div className="shrink-0 mt-2 pt-2 border-t border-white/10">
+              <div className="shrink-0 mt-1.5 pt-1.5 border-t border-white/10">
                 <Link
                   href="/clientes"
                   className="inline-flex items-center text-xs sm:text-sm font-medium text-[#A04A2F] hover:text-[#c97c5a] transition-colors"
