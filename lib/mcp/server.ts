@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import * as z from 'zod/v4';
 import type { McpContext } from '@/lib/mcp/context';
 import { executeMcpTool } from '@/lib/mcp/execute-tool';
+import { DIARIO_FOTO_INGEST_MAX_ITEMS } from '@/lib/diario-obra-ingest';
 
 function toolTextResult(payload: unknown) {
   return {
@@ -83,17 +84,16 @@ export function createPerfilioMcpServer(ctx: McpContext): McpServer {
     'adjuntar_foto_diario',
     {
       description:
-        'Adjunta una foto (base64) a una entrada existente del diario de obra. Máximo 10 MB; JPEG/PNG/WebP/GIF/HEIC.',
+        'Adjunta de 1 a 8 fotos a una entrada existente del diario a partir de URLs https públicas. El servidor las descarga, comprueba que sean imágenes y las guarda en el bucket diario-obra. No admite base64.',
       inputSchema: {
         entrada_diario_id: z.string().describe('UUID de la fila diario_obra'),
-        foto_base64: z
-          .string()
-          .describe('Imagen en base64 crudo o data-URL (data:*;base64,...)'),
-        mime_type: z
-          .string()
-          .optional()
-          .describe('MIME de la imagen (por defecto image/jpeg)'),
-        nombre_archivo: z.string().optional().describe('Nombre base del archivo (opcional)'),
+        foto_urls: z
+          .array(z.string())
+          .min(1)
+          .max(DIARIO_FOTO_INGEST_MAX_ITEMS)
+          .describe(
+            `URLs https públicas de las fotos (1 a ${DIARIO_FOTO_INGEST_MAX_ITEMS}). El servidor las descarga y las adjunta al diario.`
+          ),
       },
     },
     async (args) => toolTextResult(await executeMcpTool('adjuntar_foto_diario', args, ctx))

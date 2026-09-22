@@ -1,151 +1,90 @@
 import { executeMcpTool } from '@/lib/mcp/execute-tool';
-import { uploadDiarioObraMediaToBucket } from '@/lib/diario-obra';
+import { ingestDiarioObraFotos } from '@/lib/diario-obra-ingest';
 import type { McpContext } from '@/lib/mcp/context';
 
-jest.mock('@/lib/diario-obra', () => {
-  const actual = jest.requireActual('@/lib/diario-obra');
-  return {
-    ...actual,
-    uploadDiarioObraMediaToBucket: jest.fn(),
-  };
-});
+jest.mock('@/lib/diario-obra-ingest', () => ({
+  DIARIO_FOTO_INGEST_MAX_ITEMS: 8,
+  ingestDiarioObraFotos: jest.fn(),
+}));
 
-const uploadMock = uploadDiarioObraMediaToBucket as jest.MockedFunction<
-  typeof uploadDiarioObraMediaToBucket
->;
+const ingestMock = ingestDiarioObraFotos as jest.MockedFunction<typeof ingestDiarioObraFotos>;
 
-const TINY_JPEG_B64 =
-  '/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAb/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCwAA8A/9k=';
+const ENTRADA = '11111111-1111-4111-8111-111111111111';
 
-function makeCtx(overrides?: {
-  maybeSingleResult?: { data: unknown; error: { message: string } | null };
-  updateError?: { message: string } | null;
-  signedUrl?: string | null;
-  signError?: { message: string } | null;
-}): McpContext & { __update: jest.Mock } {
-  const update = jest.fn((payload: unknown) => {
-    const secondEq = jest.fn().mockResolvedValue({
-      data: null,
-      error: overrides?.updateError ?? null,
-    });
-    const firstEq = jest.fn().mockReturnValue({ eq: secondEq });
-    return { eq: firstEq, __payload: payload };
-  });
-
-  const createSignedUrl = jest.fn().mockResolvedValue({
-    data:
-      overrides?.signedUrl === null
-        ? null
-        : { signedUrl: overrides?.signedUrl ?? 'https://signed/foto.jpg' },
-    error: overrides?.signError ?? null,
-  });
-
-  const supabase = {
-    from: jest.fn((table: string) => {
-      if (table !== 'diario_obra') throw new Error(`tabla inesperada: ${table}`);
-      const chain: Record<string, jest.Mock> = {};
-      const self = () => chain;
-      chain.select = jest.fn(self);
-      chain.eq = jest.fn(self);
-      chain.update = update;
-      chain.maybeSingle = jest.fn().mockResolvedValue(
-        overrides?.maybeSingleResult ?? {
-          data: { id: 'entrada-1', fotos: ['biz-1/prev.jpg'] },
-          error: null,
-        }
-      );
-      return chain;
-    }),
-    storage: {
-      from: jest.fn(() => ({ createSignedUrl })),
-    },
-  };
-
+function ctx(): McpContext {
   return {
     businessId: 'biz-1',
     userId: 'user-1',
-    supabase: supabase as unknown as McpContext['supabase'],
-    __update: update,
+    supabase: {} as McpContext['supabase'],
   };
 }
 
 describe('executeMcpTool — adjuntar_foto_diario', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    uploadMock.mockResolvedValue({ path: 'biz-1/123_mcp_foto.jpg' });
   });
 
-  it('sube la foto, la añade a fotos y devuelve path + url firmada', async () => {
-    const ctx = makeCtx();
-    const result = (await executeMcpTool(
-      'adjuntar_foto_diario',
-      {
-        entrada_diario_id: 'entrada-1',
-        foto_base64: `data:image/jpeg;base64,${TINY_JPEG_B64}`,
-        nombre_archivo: 'fachada.jpg',
-      },
-      ctx
-    )) as Record<string, unknown>;
-
-    expect(result).toMatchObject({
+  it('delega el lote de URLs en la ingesta compartida', async () => {
+    const c = ctx();
+    ingestMock.mockResolvedValue({
       ok: true,
-      entrada_id: 'entrada-1',
-      path: 'biz-1/123_mcp_foto.jpg',
-      url: 'https://signed/foto.jpg',
+      entrada_id: ENTRADA,
+      items: [
+        {
+          url: 'https://cdn.example.com/1.jpg',
+          path: 'biz-1/1.jpg',
+          signedUrl: 'https://signed/1.jpg',
+        },
+      ],
+      errors: [{ url: 'https://cdn.example.com/2.jpg', error: 'Solo se admiten URLs https.' }],
     });
-    expect(uploadMock).toHaveBeenCalledWith(
-      ctx.supabase,
-      expect.objectContaining({
-        businessId: 'biz-1',
-        contentType: 'image/jpeg',
-        stem: 'fachada',
-      })
-    );
-    expect(ctx.__update).toHaveBeenCalledWith({
-      fotos: ['biz-1/prev.jpg', 'biz-1/123_mcp_foto.jpg'],
-    });
-  });
 
-  it('falla cerrado si la entrada no pertenece al negocio', async () => {
-    const ctx = makeCtx({
-      maybeSingleResult: { data: null, error: null },
-    });
-    const result = await executeMcpTool(
-      'adjuntar_foto_diario',
-      { entrada_diario_id: 'otra', foto_base64: TINY_JPEG_B64 },
-      ctx
-    );
-    expect(result).toEqual({
-      error: 'Entrada de diario no encontrada o no pertenece a este negocio',
-    });
-    expect(uploadMock).not.toHaveBeenCalled();
-  });
-
-  it('rechaza mime no permitido', async () => {
-    const ctx = makeCtx();
     const result = await executeMcpTool(
       'adjuntar_foto_diario',
       {
-        entrada_diario_id: 'entrada-1',
-        foto_base64: TINY_JPEG_B64,
-        mime_type: 'application/pdf',
+        entrada_diario_id: ENTRADA,
+        foto_urls: ['https://cdn.example.com/1.jpg', '  https://cdn.example.com/2.jpg  '],
       },
-      ctx
+      c
     );
-    expect(result).toEqual({
-      error:
-        'mime_type no permitido. Usa image/jpeg, image/png, image/webp, image/gif o image/heic.',
+
+    expect(ingestMock).toHaveBeenCalledWith(c.supabase, {
+      businessId: 'biz-1',
+      entradaId: ENTRADA,
+      sources: [
+        { type: 'url', url: 'https://cdn.example.com/1.jpg' },
+        { type: 'url', url: 'https://cdn.example.com/2.jpg' },
+      ],
     });
-    expect(uploadMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ ok: true, entrada_id: ENTRADA, items: [{ path: 'biz-1/1.jpg' }] });
   });
 
-  it('rechaza foto vacía', async () => {
-    const ctx = makeCtx();
+  it('rechaza base64 sin tocar storage ni la ingesta', async () => {
     const result = await executeMcpTool(
       'adjuntar_foto_diario',
-      { entrada_diario_id: 'entrada-1', foto_base64: '   ' },
-      ctx
+      {
+        entrada_diario_id: ENTRADA,
+        foto_base64: '/9j/4AAQ',
+        mime_type: 'image/jpeg',
+      },
+      ctx()
     );
-    expect(result).toEqual({ error: 'foto_base64 es obligatorio' });
+
+    expect(result).toEqual({
+      error: 'foto_base64 ya no se admite. Envía foto_urls (1 a 8 URLs https).',
+    });
+    expect(ingestMock).not.toHaveBeenCalled();
+  });
+
+  it('exige foto_urls', async () => {
+    const result = await executeMcpTool(
+      'adjuntar_foto_diario',
+      { entrada_diario_id: ENTRADA },
+      ctx()
+    );
+    expect(result).toEqual({
+      error: 'foto_urls es obligatorio (array de 1 a 8 URLs https).',
+    });
+    expect(ingestMock).not.toHaveBeenCalled();
   });
 });
