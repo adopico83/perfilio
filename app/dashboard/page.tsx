@@ -21,6 +21,7 @@ import { useAgentSidebar } from '@/contexts/agent-sidebar-context';
 import { useEmailModal } from '@/contexts/email-modal-context';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import BichoLivePulse from '@/components/dashboard/BichoLivePulse';
+import { dash, dashMain, dashResumenGrid } from '@/components/dashboard/dashboard-density';
 import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
 import NotificationButton from '@/components/pwa/notification-button';
 import { useSession } from '@/components/providers/session-provider';
@@ -1085,65 +1086,11 @@ function DashboardContent() {
     };
   }, [dashboardLoading, gmailConectado]);
 
-  const mainClass = isOpen
-    ? 'max-w-7xl mx-auto px-6 py-3 lg:py-4 space-y-3'
-    : 'w-full max-w-none px-4 sm:px-6 py-4 lg:py-5 space-y-4 lg:space-y-5';
-  const topBandClass = 'space-y-3';
-  const greetingClass = 'flex flex-col gap-0.5';
-  const headingClass = 'text-2xl sm:text-3xl font-bold';
+  const mainClass = dashMain(isOpen);
+  const resumenGridClass = dashResumenGrid(isOpen);
+  const topBandClass = 'space-y-2';
+  const bottomBandClass = 'space-y-2';
   const bichoClass = '';
-  const resumenGridClass = isOpen
-    ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2'
-    : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4';
-  const statCardPad = isOpen
-    ? 'rounded-xl py-2 px-3 flex flex-col gap-1'
-    : 'rounded-xl py-4 px-4 lg:py-5 lg:px-5 flex flex-col gap-2';
-  const statNumberClass = isOpen
-    ? 'text-2xl sm:text-3xl font-bold'
-    : 'text-3xl sm:text-4xl lg:text-5xl font-bold';
-  const facturasNumberClass = isOpen
-    ? 'text-3xl font-bold'
-    : 'text-3xl sm:text-4xl lg:text-5xl font-bold';
-  const metricGridClass = isOpen
-    ? 'grid grid-cols-1 sm:grid-cols-3 gap-2'
-    : 'grid grid-cols-1 sm:grid-cols-3 gap-3 lg:gap-4';
-  const metricCardClass = isOpen
-    ? 'text-left bg-[#E5DFD0] border border-[#A04A2F]/60 rounded-xl py-2 px-3 flex flex-col gap-1 hover:bg-[#D4CCBC] transition-all duration-150'
-    : 'text-left bg-[#E5DFD0] border border-[#A04A2F]/60 rounded-xl py-4 px-4 lg:py-5 lg:px-5 flex flex-col gap-2 hover:bg-[#D4CCBC] transition-all duration-150';
-  const pendienteNumberClass = isOpen
-    ? 'text-2xl font-bold font-mono text-[#A04A2F]'
-    : 'text-3xl sm:text-4xl lg:text-5xl font-bold font-mono text-[#A04A2F]';
-  const basePresupuestoNumberClass = isOpen
-    ? 'text-lg sm:text-xl font-bold font-mono text-[#c97c5a]'
-    : 'text-xl sm:text-2xl lg:text-3xl font-bold font-mono text-[#c97c5a]';
-  const ivaNumberClass = isOpen
-    ? 'text-2xl sm:text-3xl font-bold font-mono text-[#A04A2F] leading-tight'
-    : 'text-3xl sm:text-4xl lg:text-5xl font-bold font-mono text-[#A04A2F] leading-tight';
-  const materialesNumberClass = isOpen
-    ? 'text-xl sm:text-2xl font-bold font-mono text-[#A04A2F]'
-    : 'text-2xl sm:text-3xl lg:text-4xl font-bold font-mono text-[#A04A2F]';
-  const sectionTitleBtnClass =
-    'flex w-full items-center justify-between gap-2 text-left sm:pointer-events-none sm:cursor-default ' +
-    (isOpen ? 'mb-1.5' : 'mb-2 lg:mb-3');
-  const bottomBandClass = isOpen ? 'space-y-3' : 'space-y-4 lg:space-y-5';
-  const actividadGridClass = isOpen
-    ? 'grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-2 lg:items-stretch'
-    : 'grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-5 lg:items-stretch';
-  const actividadCardClass =
-    'bg-[#E5DFD0] border border-white/10 rounded-xl flex flex-col min-h-0 ' +
-    (isOpen ? 'p-2.5 sm:p-3 max-h-64' : 'p-4 lg:p-5 min-h-64 lg:min-h-72 max-h-80');
-  const agendaCardClass = isOpen
-    ? 'bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 w-full min-h-0 max-h-64 text-left cursor-pointer transition-all hover:border-[#A04A2F]/55 hover:ring-1 hover:ring-[#A04A2F]/25 focus:outline-none focus:ring-2 focus:ring-[#A04A2F]/40 group flex flex-col'
-    : 'bg-[#E5DFD0] border border-white/10 rounded-xl p-4 lg:p-5 w-full min-h-64 lg:min-h-72 max-h-80 text-left cursor-pointer transition-all hover:border-[#A04A2F]/55 hover:ring-1 hover:ring-[#A04A2F]/25 focus:outline-none focus:ring-2 focus:ring-[#A04A2F]/40 group flex flex-col';
-  const diarioGridClass = isOpen
-    ? 'w-full grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-4 lg:max-w-full'
-    : 'w-full grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-5 lg:max-w-full';
-  const diarioListClass = isOpen
-    ? 'min-h-0 max-h-40 overflow-y-auto overscroll-contain'
-    : 'min-h-40 max-h-64 overflow-y-auto overscroll-contain';
-  const diarioCardClass = isOpen
-    ? 'bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0'
-    : 'bg-[#E5DFD0] border border-white/10 rounded-xl p-4 lg:p-5 flex flex-col min-h-64 lg:min-h-72';
 
   return (
     <div className="min-h-screen bg-[#EFEADF] text-zinc-900">
@@ -1298,13 +1245,13 @@ function DashboardContent() {
           </section>
         ) : null}
         <div className={topBandClass}>
-        <section className={greetingClass}>
-          <h1 className={headingClass}>
+        <section className={dash.greetingWrap}>
+          <h1 className={dash.greeting}>
             {saludoBanner ? `${saludoBanner}, ` : ''}
             <span className="text-[#A04A2F]">{businessName}</span>
           </h1>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-            <p className="text-sm text-zinc-900/70">Aquí tienes el resumen de tu negocio</p>
+          <div className={dash.greetingRow}>
+            <p className={dash.greetingSub}>Aquí tienes el resumen de tu negocio</p>
             {!showPushRecoveryCta ? <NotificationButton /> : null}
           </div>
         </section>
@@ -1319,9 +1266,9 @@ function DashboardContent() {
             type="button"
             onClick={toggleSecResumen}
             aria-expanded={secResumenOpen}
-            className={sectionTitleBtnClass}
+            className={dash.sectionToggle}
           >
-            <h2 className="text-sm font-semibold text-zinc-900/60 uppercase tracking-wide">
+            <h2 className={dash.sectionTitle}>
               Resumen de hoy
             </h2>
             {secResumenOpen ? (
@@ -1337,68 +1284,68 @@ function DashboardContent() {
           >
             <div className="min-h-0 overflow-hidden">
           <div className={resumenGridClass}>
-            <div className={`bg-[#E5DFD0] border border-red-500/60 ${statCardPad}`}>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-zinc-800 uppercase tracking-wide">
+            <div className={`${dash.resumenCard} border border-red-500/60`}>
+              <div className={dash.labelRow}>
+                <span className={dash.label}>
                   Mensajes urgentes pendientes
                 </span>
-                <AlertTriangle className="w-5 h-5 text-red-400" />
+                <AlertTriangle className={`${dash.icon} text-red-400`} />
               </div>
-              <div className={statNumberClass}>{counts.urgentes}</div>
+              <div className={dash.stat}>{counts.urgentes}</div>
               <button
                 type="button"
                 onClick={() => abrirUrgentes(emailsUrgentes)}
-                className="inline-flex items-center text-xs text-[#A04A2F] hover:text-[#8a3f28] mt-1 text-left"
+                className={`${dash.link} text-left`}
               >
                 Ver urgentes
                 <ArrowRight className="w-3 h-3 ml-1" />
               </button>
             </div>
 
-            <div className={`bg-[#E5DFD0] border border-[#A04A2F]/60 ${statCardPad}`}>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-zinc-800 uppercase tracking-wide">
+            <div className={`${dash.resumenCard} border border-[#A04A2F]/60`}>
+              <div className={dash.labelRow}>
+                <span className={dash.label}>
                   Presupuestos generados
                 </span>
-                <FileText className="w-5 h-5 text-[#A04A2F]" />
+                <FileText className={`${dash.icon} text-[#A04A2F]`} />
               </div>
-              <div className={statNumberClass}>{counts.presupuestos}</div>
+              <div className={dash.stat}>{counts.presupuestos}</div>
               <Link
                 href="/presupuestos"
-                className="inline-flex items-center text-xs text-[#A04A2F] hover:text-[#8a3f28] mt-1"
+                className={dash.link}
               >
                 Ver presupuestos
                 <ArrowRight className="w-3 h-3 ml-1" />
               </Link>
             </div>
 
-            <div className={`bg-[#E5DFD0] border border-blue-500/60 ${statCardPad}`}>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-zinc-800 uppercase tracking-wide">
+            <div className={`${dash.resumenCard} border border-blue-500/60`}>
+              <div className={dash.labelRow}>
+                <span className={dash.label}>
                   Albaranes pendientes
                 </span>
-                <Package className="w-5 h-5 text-blue-300" />
+                <Package className={`${dash.icon} text-blue-300`} />
               </div>
-              <div className={statNumberClass}>{counts.albaranesPendientes}</div>
+              <div className={dash.stat}>{counts.albaranesPendientes}</div>
               <Link
                 href="/albaranes"
-                className="inline-flex items-center text-xs text-[#A04A2F] hover:text-[#8a3f28] mt-1"
+                className={dash.link}
               >
                 Ver albaranes
                 <ArrowRight className="w-3 h-3 ml-1" />
               </Link>
             </div>
 
-            <div className={`bg-[#E5DFD0] border border-emerald-500/60 ${statCardPad}`}>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-zinc-800 uppercase tracking-wide">
+            <div className={`${dash.resumenCard} border border-emerald-500/60`}>
+              <div className={dash.labelRow}>
+                <span className={dash.label}>
                   Facturas pendientes de cobro
                 </span>
               </div>
-              <div className={facturasNumberClass}>{counts.facturasPendientes}</div>
+              <div className={dash.stat}>{counts.facturasPendientes}</div>
               <Link
                 href="/facturas"
-                className="inline-flex items-center text-xs text-[#A04A2F] hover:text-[#8a3f28] mt-1"
+                className={dash.link}
               >
                 Ver facturas
                 <ArrowRight className="w-3 h-3 ml-1" />
@@ -1414,9 +1361,9 @@ function DashboardContent() {
             type="button"
             onClick={toggleSecMetricas}
             aria-expanded={secMetricasOpen}
-            className={sectionTitleBtnClass}
+            className={dash.sectionToggle}
           >
-            <h2 className="text-sm font-semibold text-zinc-900/60 uppercase tracking-wide">
+            <h2 className={dash.sectionTitle}>
               Métricas económicas
             </h2>
             {secMetricasOpen ? (
@@ -1431,56 +1378,60 @@ function DashboardContent() {
             }`}
           >
             <div className="min-h-0 overflow-hidden">
-          <div className={metricGridClass}>
+          <div className={dash.metricasGrid}>
             <button
               type="button"
               onClick={() => setModalMetrica('pendiente')}
-              className={metricCardClass}
+              className={dash.metricaCard}
             >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-zinc-800 uppercase tracking-wide">
+              <div className={dash.labelRow}>
+                <span className={dash.label}>
                   💰 Importe pendiente de cobro
                 </span>
               </div>
-              <div className={pendienteNumberClass}>
+              <div className={dash.money}>
                 {dashboardLoading ? '—' : `${importePendienteCobro.toFixed(2)} €`}
               </div>
-              <span className="text-xs text-zinc-900/60">Clic para ver desglose por factura</span>
+              <span className={dash.hint}>Clic para ver desglose por factura</span>
             </button>
             <button
               type="button"
               onClick={() => setModalMetrica('presupuestado')}
-              className={metricCardClass}
+              className={dash.metricaCard}
             >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-zinc-800 uppercase tracking-wide">
+              <div className={dash.labelRow}>
+                <span className={dash.label}>
                   📄 Importe total presupuestado
                 </span>
               </div>
-              <div className="text-xs text-zinc-900/80">TOTAL PRESUPUESTADO (base):</div>
-              <div className={basePresupuestoNumberClass}>
-                {dashboardLoading ? '—' : fmtEurosEs(importeTotalPresupuestado)}
+              <div className={dash.metricRow}>
+                <span className={`${dash.subLabel} ${dash.metricRowLabel}`}>TOTAL PRESUPUESTADO (base):</span>
+                <span className={`${dash.moneyBase} ${dash.metricRowValue}`}>
+                  {dashboardLoading ? '—' : fmtEurosEs(importeTotalPresupuestado)}
+                </span>
               </div>
-              <div className="text-xs text-zinc-900/90 mt-1">TOTAL CON IVA:</div>
-              <div className={ivaNumberClass}>
-                {dashboardLoading ? '—' : fmtEurosEs(importeTotalConIva)}
+              <div className={dash.metricRow}>
+                <span className={`${dash.subLabelStrong} ${dash.metricRowLabel}`}>TOTAL CON IVA:</span>
+                <span className={`${dash.money} ${dash.metricRowValue}`}>
+                  {dashboardLoading ? '—' : fmtEurosEs(importeTotalConIva)}
+                </span>
               </div>
-              <span className="text-xs text-zinc-900/60">Clic para ver desglose por presupuesto</span>
+              <span className={dash.hint}>Clic para ver desglose por presupuesto</span>
             </button>
             <button
               type="button"
               onClick={() => setModalMetrica('materiales')}
-              className={metricCardClass}
+              className={dash.metricaCard}
             >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-zinc-800 uppercase tracking-wide">
+              <div className={dash.labelRow}>
+                <span className={dash.label}>
                   🧱 Total materiales
                 </span>
               </div>
-              <div className={materialesNumberClass}>
+              <div className={dash.money}>
                 {dashboardLoading ? '—' : `${totalMateriales.toFixed(2)} €`}
               </div>
-              <span className="text-xs text-zinc-900/60">Clic para ver desglose</span>
+              <span className={dash.hint}>Clic para ver desglose</span>
             </button>
           </div>
             </div>
@@ -1493,9 +1444,9 @@ function DashboardContent() {
             type="button"
             onClick={toggleSecActividad}
             aria-expanded={secActividadOpen}
-            className={sectionTitleBtnClass}
+            className={dash.sectionToggle}
           >
-            <h2 className="text-sm font-semibold text-zinc-900/60 uppercase tracking-wide">
+            <h2 className={dash.sectionTitle}>
               Actividad reciente
             </h2>
             {secActividadOpen ? (
@@ -1510,27 +1461,27 @@ function DashboardContent() {
             }`}
           >
             <div className="min-h-0 overflow-hidden">
-          <div className={actividadGridClass}>
+          <div className={dash.actividadGrid}>
             {/* Columna: Últimos presupuestos */}
-            <div className={actividadCardClass}>
-              <div className="flex items-center justify-between shrink-0 mb-2">
-                <h3 className="text-sm font-semibold text-zinc-900/80 uppercase tracking-wide">
+            <div className={dash.activityCard}>
+              <div className={dash.activityHead}>
+                <h3 className={dash.activityTitle}>
                   Últimos presupuestos
                 </h3>
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+              <div className={dash.activityBody}>
                 {dashboardLoading ? (
                   <p className="text-zinc-900/60 text-xs">Cargando...</p>
                 ) : ultimosPresupuestos.length === 0 ? (
                   <p className="text-zinc-900/60 text-xs">Aún no hay presupuestos generados.</p>
                 ) : (
-                  <ul className="space-y-2 text-xs sm:text-sm">
+                  <ul className={dash.activityList}>
                     {ultimosPresupuestos.map((p) => {
                       const sub = lineaContextoPresupuestoDashboard(p);
                       return (
                       <li
                         key={p.id}
-                        className="flex items-center justify-between gap-2 border-b border-white/10 pb-1.5 last:border-b-0 last:pb-0 rounded-md hover:bg-[#D4CCBC] hover:scale-[1.01] cursor-pointer transition-all duration-150"
+                        className={dash.activityItem}
                       >
                         <div className="min-w-0">
                           <p className="font-medium truncate">
@@ -1561,10 +1512,10 @@ function DashboardContent() {
             <button
               type="button"
               onClick={abrirModalAgenda}
-              className={agendaCardClass}
+              className={`${dash.activityCard} w-full text-left cursor-pointer transition-all hover:border-[#A04A2F]/55 hover:ring-1 hover:ring-[#A04A2F]/25 focus:outline-none focus:ring-2 focus:ring-[#A04A2F]/40 group`}
             >
-              <div className="flex items-center justify-between gap-2 shrink-0 mb-2">
-                <h3 className="text-sm font-semibold text-zinc-900/80 uppercase tracking-wide group-hover:text-zinc-900">
+              <div className={dash.activityHead}>
+                <h3 className={`${dash.activityTitle} group-hover:text-zinc-900`}>
                   Agenda
                 </h3>
                 <span
@@ -1574,13 +1525,13 @@ function DashboardContent() {
                   Ver calendario →
                 </span>
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+              <div className={dash.activityBody}>
                 {dashboardLoading ? (
                   <p className="text-zinc-900/60 text-xs">Cargando...</p>
                 ) : agendaEventos.length === 0 ? (
                   <p className="text-zinc-900/60 text-xs">Sin eventos próximos</p>
                 ) : (
-                  <ul className="space-y-2 text-xs sm:text-sm">
+                  <ul className={dash.activityList}>
                     {agendaEventos.map((ev) => {
                       const [y, mo, d] = ev.fecha.split('-').map(Number);
                       const fechaLabel = Number.isFinite(y) && Number.isFinite(mo) && Number.isFinite(d)
@@ -1594,7 +1545,7 @@ function DashboardContent() {
                       return (
                         <li
                           key={ev.id}
-                          className="flex items-start justify-between gap-2 border-b border-white/10 pb-1.5 last:border-b-0 last:pb-0 rounded-sm hover:bg-[#D4CCBC] cursor-pointer transition-colors duration-150"
+                          className={dash.agendaItem}
                         >
                           <div className="min-w-0">
                             <p className="font-medium leading-snug">{ev.titulo}</p>
@@ -1612,13 +1563,13 @@ function DashboardContent() {
             </button>
 
             {/* Columna: Últimos emails */}
-            <div className={actividadCardClass}>
-              <div className="flex items-center justify-between shrink-0 mb-2">
-                <h3 className="text-sm font-semibold text-zinc-900/80 uppercase tracking-wide">
+            <div className={dash.activityCard}>
+              <div className={dash.activityHead}>
+                <h3 className={dash.activityTitle}>
                   Últimos emails
                 </h3>
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+              <div className={dash.activityBody}>
                 {!gmailConectado ? (
                   <p className="text-zinc-900/70 text-xs leading-snug">
                     Conecta Gmail desde el menú superior para ver la bandeja de entrada.
@@ -1630,11 +1581,11 @@ function DashboardContent() {
                 ) : emailsRecientes.length === 0 ? (
                   <p className="text-zinc-900/60 text-xs">No hay emails recientes.</p>
                 ) : (
-                  <ul className="space-y-1.5">
+                  <ul className={dash.activityList}>
                     {emailsRecientes.map((email, idx) => (
                       <li
                         key={`${email.fechaIso ?? ''}-${idx}`}
-                        className="border-b border-white/10 pb-1.5 last:border-b-0 last:pb-0"
+                        className="border-b border-white/10 pb-1 last:border-b-0 last:pb-0"
                       >
                         <button
                           type="button"
@@ -1677,10 +1628,10 @@ function DashboardContent() {
                   </ul>
                 )}
               </div>
-              <div className="shrink-0 mt-2 pt-2 border-t border-white/10">
+              <div className={dash.widgetFooter}>
                 <button
                   type="button"
-                  className="text-xs sm:text-sm font-medium text-[#A04A2F] hover:text-[#c97c5a] transition-colors"
+                  className={dash.widgetFooterLink}
                 >
                   Ver todos
                 </button>
@@ -1692,20 +1643,20 @@ function DashboardContent() {
         </section>
 
         <section aria-label="Diario de obra y clientes" className={isOpen ? 'w-full' : 'w-full min-w-0'}>
-          <div className={diarioGridClass}>
-            <div className={diarioCardClass}>
-              <div className="flex items-center justify-between shrink-0 mb-1.5">
-                <h3 className="text-sm font-semibold text-zinc-900/80 uppercase tracking-wide">
+          <div className={dash.widgetsGrid}>
+            <div className={dash.widgetCard}>
+              <div className={dash.activityHead}>
+                <h3 className={dash.activityTitle}>
                   ÚLTIMAS ENTRADAS DIARIO
                 </h3>
               </div>
-              <div className={diarioListClass}>
+              <div className={dash.widgetScroll}>
                 {dashboardLoading ? (
                   <p className="text-zinc-900/60 text-xs">Cargando...</p>
                 ) : ultimasEntradasDiario.length === 0 ? (
                   <p className="text-zinc-900/60 text-xs">Sin entradas en el diario todavía</p>
                 ) : (
-                  <ul className="space-y-1.5 text-xs sm:text-sm">
+                  <ul className={dash.widgetList}>
                     {ultimasEntradasDiario.map((e) => (
                       <li key={e.id}>
                         <button
@@ -1715,7 +1666,7 @@ function DashboardContent() {
                               `/diario?obra=${encodeURIComponent(e.obra_nombre)}`
                             )
                           }
-                          className="w-full text-left rounded-md px-1.5 py-1.5 -mx-1.5 -my-0.5 border-b border-white/10 last:border-b-0 hover:bg-[#D4CCBC] hover:scale-[1.01] cursor-pointer transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#A04A2F]/70"
+                          className="w-full text-left rounded-md px-1.5 py-1 -mx-1.5 -my-0.5 border-b border-white/10 last:border-b-0 hover:bg-[#D4CCBC] hover:scale-[1.01] cursor-pointer transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#A04A2F]/70"
                         >
                           <p className="font-bold text-zinc-900 truncate">{e.obra_nombre}</p>
                           <p className="text-[11px] sm:text-xs text-zinc-900/60 tabular-nums mt-0.5">
@@ -1724,7 +1675,7 @@ function DashboardContent() {
                               timeStyle: 'short',
                             })}
                           </p>
-                          <p className="text-zinc-900/80 text-[11px] sm:text-xs mt-0.5 line-clamp-2">
+                          <p className="text-zinc-900/80 text-[11px] sm:text-xs mt-0.5 line-clamp-1">
                             {extractoDiario(e.texto)}
                           </p>
                         </button>
@@ -1733,23 +1684,23 @@ function DashboardContent() {
                   </ul>
                 )}
               </div>
-              <div className="shrink-0 mt-2 pt-2 border-t border-white/10">
+              <div className={dash.widgetFooter}>
                 <Link
                   href="/diario"
-                  className="inline-flex items-center text-xs sm:text-sm font-medium text-[#A04A2F] hover:text-[#c97c5a] transition-colors"
+                  className={dash.widgetFooterLink}
                 >
                   Ver diario completo →
                 </Link>
               </div>
             </div>
 
-            <div className={diarioCardClass}>
-              <div className="flex items-center justify-between shrink-0 mb-1.5">
-                <h3 className="text-sm font-semibold text-zinc-900/80 uppercase tracking-wide">
+            <div className={dash.widgetCard}>
+              <div className={dash.activityHead}>
+                <h3 className={dash.activityTitle}>
                   Obras activas
                 </h3>
               </div>
-              <div className={diarioListClass}>
+              <div className={dash.widgetScroll}>
                 {dashboardLoading ? (
                   <p className="text-zinc-900/60 text-xs">Cargando...</p>
                 ) : obrasActivas.length === 0 ? (
@@ -1757,7 +1708,7 @@ function DashboardContent() {
                     No hay obras activas. Crea una nueva desde el agente o desde /obras
                   </p>
                 ) : (
-                  <ul className="space-y-1.5 text-xs sm:text-sm">
+                  <ul className={dash.widgetList}>
                     {obrasActivas.map((o) => {
                       const eb = estadoObraBadgeClass(o.estado);
                       const dirTrunc =
@@ -1767,12 +1718,12 @@ function DashboardContent() {
                       return (
                       <li
                         key={o.id}
-                        className="border-b border-white/10 pb-1.5 last:border-b-0 last:pb-0"
+                        className="border-b border-white/10 pb-1 last:border-b-0 last:pb-0"
                       >
                         <button
                           type="button"
                           onClick={() => abrirObra(o.id)}
-                          className="w-full text-left rounded-md px-1.5 py-1.5 -m-1 hover:bg-[#D4CCBC] hover:scale-[1.01] cursor-pointer transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#A04A2F]/70"
+                          className="w-full text-left rounded-md px-1.5 py-1 -m-1 hover:bg-[#D4CCBC] hover:scale-[1.01] cursor-pointer transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#A04A2F]/70"
                         >
                           <div className="flex items-start justify-between gap-2">
                             <p className="font-bold text-zinc-900 truncate min-w-0">{o.nombre}</p>
@@ -1804,40 +1755,40 @@ function DashboardContent() {
                   </ul>
                 )}
               </div>
-              <div className="shrink-0 mt-2 pt-2 border-t border-white/10">
+              <div className={dash.widgetFooter}>
                 <Link
                   href="/obras"
-                  className="inline-flex items-center text-xs sm:text-sm font-medium text-[#A04A2F] hover:text-[#c97c5a] transition-colors"
+                  className={dash.widgetFooterLink}
                 >
                   Ver todas →
                 </Link>
               </div>
             </div>
 
-            <div className={diarioCardClass}>
-              <div className="flex items-center justify-between shrink-0 mb-1.5">
-                <h3 className="text-sm font-semibold text-zinc-900/80 uppercase tracking-wide">
+            <div className={dash.widgetCard}>
+              <div className={dash.activityHead}>
+                <h3 className={dash.activityTitle}>
                   CLIENTES
                 </h3>
               </div>
-              <div className={diarioListClass}>
+              <div className={dash.widgetScroll}>
                 {dashboardLoading ? (
                   <p className="text-zinc-900/60 text-xs">Cargando...</p>
                 ) : ultimosClientes.length === 0 ? (
                   <p className="text-zinc-900/60 text-xs">Aún no hay clientes registrados</p>
                 ) : (
-                  <ul className="space-y-1.5 text-xs sm:text-sm">
+                  <ul className={dash.widgetList}>
                     {ultimosClientes.map((c) => (
                       <li
                         key={c.id}
-                        className="border-b border-white/10 pb-1.5 last:border-b-0 last:pb-0"
+                        className="border-b border-white/10 pb-1 last:border-b-0 last:pb-0"
                       >
                         <button
                           type="button"
                           onClick={() =>
                             router.push(`/clientes/${encodeURIComponent(c.id)}`)
                           }
-                          className="w-full text-left rounded-md px-1.5 py-1.5 -m-1 hover:bg-[#D4CCBC] hover:scale-[1.01] cursor-pointer transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#A04A2F]/70"
+                          className="w-full text-left rounded-md px-1.5 py-1 -m-1 hover:bg-[#D4CCBC] hover:scale-[1.01] cursor-pointer transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#A04A2F]/70"
                         >
                           <p className="font-bold text-zinc-900 truncate min-w-0">{c.nombre}</p>
                           <p className="text-[11px] sm:text-xs text-zinc-900/70 mt-0.5">
@@ -1850,10 +1801,10 @@ function DashboardContent() {
                   </ul>
                 )}
               </div>
-              <div className="shrink-0 mt-2 pt-2 border-t border-white/10">
+              <div className={dash.widgetFooter}>
                 <Link
                   href="/clientes"
-                  className="inline-flex items-center text-xs sm:text-sm font-medium text-[#A04A2F] hover:text-[#c97c5a] transition-colors"
+                  className={dash.widgetFooterLink}
                 >
                   Ver todos →
                 </Link>
