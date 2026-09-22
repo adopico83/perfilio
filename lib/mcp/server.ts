@@ -79,5 +79,25 @@ export function createPerfilioMcpServer(ctx: McpContext): McpServer {
     async (args) => toolTextResult(await executeMcpTool('crear_entrada_diario', args, ctx))
   );
 
+  server.registerTool(
+    'adjuntar_foto_diario',
+    {
+      description:
+        'Adjunta una foto (base64) a una entrada existente del diario de obra. Máximo 10 MB; JPEG/PNG/WebP/GIF/HEIC.',
+      inputSchema: {
+        entrada_diario_id: z.string().describe('UUID de la fila diario_obra'),
+        foto_base64: z
+          .string()
+          .describe('Imagen en base64 crudo o data-URL (data:*;base64,...)'),
+        mime_type: z
+          .string()
+          .optional()
+          .describe('MIME de la imagen (por defecto image/jpeg)'),
+        nombre_archivo: z.string().optional().describe('Nombre base del archivo (opcional)'),
+      },
+    },
+    async (args) => toolTextResult(await executeMcpTool('adjuntar_foto_diario', args, ctx))
+  );
+
   return server;
 }
