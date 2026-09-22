@@ -206,9 +206,6 @@ describe('POST /api/agente', () => {
     };
     createMock
       .mockResolvedValueOnce({
-        choices: [{ message: { content: 'documentos' } }],
-      })
-      .mockResolvedValueOnce({
         choices: [
           {
             message: {

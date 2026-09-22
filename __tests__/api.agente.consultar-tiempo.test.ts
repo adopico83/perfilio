@@ -117,12 +117,6 @@ describe('POST /api/agente — consultar_tiempo', () => {
     };
   }
 
-  function mockRouterGeneral() {
-    return {
-      choices: [{ message: { content: 'general' } }],
-    };
-  }
-
   function toolPayloadFromFinal(toolName: string): unknown {
     return toolPayloadFromFinalCompletion(createMock, toolName);
   }
@@ -130,7 +124,6 @@ describe('POST /api/agente — consultar_tiempo', () => {
   it('consultar_tiempo devuelve mensaje con emoji y temperatura', async () => {
     const tiempoArgs = JSON.stringify({ ubicacion: 'Madrid', dias: 1 });
     createMock
-      .mockResolvedValueOnce(mockRouterGeneral())
       .mockResolvedValueOnce(toolCallMessage('consultar_tiempo', tiempoArgs))
       .mockResolvedValueOnce({
         choices: [{ message: { content: 'Listo.' } }],

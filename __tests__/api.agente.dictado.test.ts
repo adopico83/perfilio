@@ -115,12 +115,6 @@ describe('POST /api/agente — dictado y tarifas', () => {
     };
   }
 
-  function mockRouterGeneral() {
-    return {
-      choices: [{ message: { content: 'general' } }],
-    };
-  }
-
   function toolPayloadFromFinal(toolName: string): unknown {
     return toolPayloadFromFinalCompletion(createMock, toolName);
   }
@@ -137,7 +131,6 @@ describe('POST /api/agente — dictado y tarifas', () => {
       direccion_obra: 'Calle Mayor 1',
     };
     createMock
-      .mockResolvedValueOnce(mockRouterGeneral())
       .mockResolvedValueOnce(
         toolCallMessage('generar_presupuesto_por_dictado', JSON.stringify(dictadoArgs))
       )
@@ -194,7 +187,6 @@ describe('POST /api/agente — dictado y tarifas', () => {
 
     const tarifasArgs = { accion: 'listar' };
     createMock
-      .mockResolvedValueOnce(mockRouterGeneral())
       .mockResolvedValueOnce(toolCallMessage('gestionar_tarifas', JSON.stringify(tarifasArgs)))
       .mockResolvedValueOnce({
         choices: [{ message: { content: 'Aquí tienes las tarifas.' } }],

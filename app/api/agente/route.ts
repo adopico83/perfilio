@@ -98,8 +98,6 @@ import { GROUNDING_REGLAS_SISTEMA } from '@/lib/agente/modules/grounding';
 import {
   type AgentIntentCategory,
   PRESUPUESTOS_AGENT_SYSTEM_PROMPT_PREFIX,
-  ROUTER_BORRADOR_ACTIVO_PREFIX,
-  ROUTER_SYSTEM_PROMPT,
   intentPorSenalExplicita,
   parseAgentIntentCategory,
   toolsForAgentIntent,
@@ -611,7 +609,6 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
     }
 
     let hasBorradorActivo = false;
-    let routerSystemContent = ROUTER_SYSTEM_PROMPT;
     if (authUser?.id) {
       const borradorRes = await supabase
         .from('presupuesto_borrador')
@@ -629,36 +626,19 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
               'id' in (rows as object) &&
               String((rows as { id?: unknown }).id ?? '').trim().length > 0
           );
-      if (hasBorradorActivo) {
-        routerSystemContent = `${ROUTER_BORRADOR_ACTIVO_PREFIX}${ROUTER_SYSTEM_PROMPT}`;
-      }
     }
 
     const ultimoAsistenteRouter = [...historialValido]
       .reverse()
       .find((m) => m.role === 'assistant' && m.content.trim().length > 0);
 
-    const routerMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-      { role: 'system', content: routerSystemContent },
-    ];
-    if (ultimoAsistenteRouter) {
-      routerMessages.push({
-        role: 'assistant',
-        content: ultimoAsistenteRouter.content,
-      });
-    }
-    routerMessages.push({ role: 'user', content: userContent });
-
-    const routerCompletion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: routerMessages,
-      max_tokens: 30,
-      temperature: 0,
-    });
-
-    const intentRaw = routerCompletion.choices[0]?.message?.content ?? '';
+    const intentExplicito = intentPorSenalExplicita(mensajeTrim);
     const intentCategory: AgentIntentCategory =
-      intentPorSenalExplicita(mensajeTrim) ?? parseAgentIntentCategory(intentRaw);
+      intentExplicito ??
+      (await parseAgentIntentCategory(textoUsuario, {
+        borradorActivo: hasBorradorActivo,
+        ultimoAsistente: ultimoAsistenteRouter?.content,
+      }));
     const memoriaNegocioBlockNoPresupuestos =
       intentCategory === 'presupuesto' ? '' : memoriaNegocioBlock;
 

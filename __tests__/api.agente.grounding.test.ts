@@ -114,7 +114,6 @@ describe('POST /api/agente — Fase A.2 grounding', () => {
     });
 
     createMock
-      .mockResolvedValueOnce({ choices: [{ message: { content: 'presupuesto' } }] })
       .mockResolvedValueOnce({
         choices: [
           {
@@ -216,7 +215,6 @@ describe('POST /api/agente — Fase A.2 grounding', () => {
     });
 
     createMock
-      .mockResolvedValueOnce({ choices: [{ message: { content: 'presupuesto' } }] })
       .mockResolvedValueOnce({
         choices: [
           {
@@ -302,7 +300,6 @@ describe('POST /api/agente — Fase A.2 grounding', () => {
     });
 
     createMock
-      .mockResolvedValueOnce({ choices: [{ message: { content: 'presupuesto' } }] })
       .mockResolvedValueOnce({
         choices: [
           {
