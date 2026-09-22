@@ -1,7 +1,76 @@
 import type { McpContext } from '@/lib/mcp/context';
+import {
+  DIARIO_OBRA_STORAGE_BUCKET,
+  uploadDiarioObraMediaToBucket,
+} from '@/lib/diario-obra';
+
+const ADJUNTAR_FOTO_MAX_BYTES = 10 * 1024 * 1024;
+const ADJUNTAR_FOTO_ALLOWED_MIME = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/heic',
+  'image/heif',
+]);
+const ADJUNTAR_FOTO_SIGNED_TTL_SEC = 60 * 60 * 24 * 7;
 
 function escapeIlikePattern(s: string): string {
   return s.replace(/[%_*]/g, '');
+}
+
+function normalizeImageMime(raw: string): string {
+  let m = raw.trim().toLowerCase();
+  if (m === 'image/jpg') m = 'image/jpeg';
+  return m;
+}
+
+function sanitizeNombreArchivoStem(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._-]/g, '_').replace(/\.[^.]+$/, '').slice(0, 120) || 'mcp_foto';
+}
+
+/**
+ * Acepta base64 crudo o data-URL; si hay data-URL extrae MIME (salvo override) y el payload.
+ */
+function decodeFotoBase64Input(
+  fotoBase64: string,
+  mimeTypeOverride?: string
+): { buffer: Buffer; mimeType: string } | { error: string } {
+  const raw = fotoBase64.trim();
+  if (!raw) return { error: 'foto_base64 es obligatorio' };
+
+  let mimeType = normalizeImageMime(mimeTypeOverride?.trim() || 'image/jpeg');
+  let b64 = raw;
+
+  const marker = ';base64,';
+  if (raw.startsWith('data:') && raw.includes(marker)) {
+    const mi = raw.indexOf(marker);
+    const headerMime = normalizeImageMime(raw.slice('data:'.length, mi));
+    if (!mimeTypeOverride?.trim() && headerMime) mimeType = headerMime;
+    b64 = raw.slice(mi + marker.length);
+  }
+
+  if (!ADJUNTAR_FOTO_ALLOWED_MIME.has(mimeType)) {
+    return {
+      error:
+        'mime_type no permitido. Usa image/jpeg, image/png, image/webp, image/gif o image/heic.',
+    };
+  }
+
+  const cleaned = b64.replace(/\s/g, '');
+  if (!cleaned) return { error: 'foto_base64 vacío o inválido' };
+
+  let buffer: Buffer;
+  try {
+    buffer = Buffer.from(cleaned, 'base64');
+  } catch {
+    return { error: 'foto_base64 inválido' };
+  }
+  if (buffer.length === 0) return { error: 'foto_base64 vacío o inválido' };
+  if (buffer.length > ADJUNTAR_FOTO_MAX_BYTES) {
+    return { error: 'La foto supera el tamaño máximo permitido (10 MB).' };
+  }
+  return { buffer, mimeType };
 }
 
 function ymdTodayMadrid(): string {
@@ -245,6 +314,67 @@ export async function executeMcpTool(
         .single();
       if (insErr) return { error: insErr.message };
       return { ok: true, entrada: inserted };
+    }
+    case 'adjuntar_foto_diario': {
+      const entradaId = String(toolArgs.entrada_diario_id ?? '').trim();
+      if (!entradaId) return { error: 'entrada_diario_id es obligatorio' };
+
+      const fotoBase64 =
+        typeof toolArgs.foto_base64 === 'string' ? toolArgs.foto_base64 : '';
+      const mimeOverride =
+        typeof toolArgs.mime_type === 'string' ? toolArgs.mime_type : undefined;
+      const decoded = decodeFotoBase64Input(fotoBase64, mimeOverride);
+      if ('error' in decoded) return { error: decoded.error };
+
+      const { data: entry, error: fetchErr } = await ctx.supabase
+        .from('diario_obra')
+        .select('id, fotos')
+        .eq('id', entradaId)
+        .eq('business_id', ctx.businessId)
+        .maybeSingle();
+      if (fetchErr) return { error: fetchErr.message };
+      if (!entry?.id) {
+        return { error: 'Entrada de diario no encontrada o no pertenece a este negocio' };
+      }
+
+      const stem =
+        typeof toolArgs.nombre_archivo === 'string' && toolArgs.nombre_archivo.trim()
+          ? sanitizeNombreArchivoStem(toolArgs.nombre_archivo.trim())
+          : 'mcp_foto';
+
+      const up = await uploadDiarioObraMediaToBucket(ctx.supabase, {
+        businessId: ctx.businessId,
+        buffer: decoded.buffer,
+        contentType: decoded.mimeType,
+        stem,
+      });
+      if ('error' in up) return { error: up.error };
+
+      const fotosPrevias = Array.isArray(entry.fotos)
+        ? (entry.fotos as unknown[]).filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
+        : [];
+      const fotosNuevas = [...fotosPrevias, up.path];
+
+      const { error: updErr } = await ctx.supabase
+        .from('diario_obra')
+        .update({ fotos: fotosNuevas })
+        .eq('id', entradaId)
+        .eq('business_id', ctx.businessId);
+      if (updErr) return { error: updErr.message };
+
+      const { data: signed, error: signErr } = await ctx.supabase.storage
+        .from(DIARIO_OBRA_STORAGE_BUCKET)
+        .createSignedUrl(up.path, ADJUNTAR_FOTO_SIGNED_TTL_SEC);
+      const signedUrl =
+        signed && typeof signed.signedUrl === 'string' ? signed.signedUrl : null;
+
+      return {
+        ok: true,
+        entrada_id: entradaId,
+        path: up.path,
+        ...(signedUrl ? { url: signedUrl } : {}),
+        ...(!signedUrl && signErr ? { warning: signErr.message } : {}),
+      };
     }
     default:
       return { error: `Tool no soportada: ${toolName}` };
