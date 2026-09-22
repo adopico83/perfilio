@@ -2,7 +2,10 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import * as z from 'zod/v4';
 import type { McpContext } from '@/lib/mcp/context';
 import { executeMcpTool } from '@/lib/mcp/execute-tool';
-import { DIARIO_FOTO_INGEST_MAX_ITEMS } from '@/lib/diario-obra-ingest';
+import {
+  DIARIO_FOTO_INGEST_MAX_BYTES,
+  DIARIO_FOTO_INGEST_MAX_ITEMS,
+} from '@/lib/diario-obra-ingest';
 
 function toolTextResult(payload: unknown) {
   return {
@@ -80,19 +83,50 @@ export function createPerfilioMcpServer(ctx: McpContext): McpServer {
     async (args) => toolTextResult(await executeMcpTool('crear_entrada_diario', args, ctx))
   );
 
+  const maxMb = Math.round(DIARIO_FOTO_INGEST_MAX_BYTES / (1024 * 1024));
+
+  server.registerTool(
+    'crear_upload_firmado_diario',
+    {
+      description: `Crea una URL firmada para subir una foto con PUT directo al bucket diario-obra de este negocio (máx. ${maxMb} MB, jpeg/png/webp/gif/heic). Devuelve upload_url, path, token y headers. Después haz PUT de los bytes y llama a adjuntar_foto_diario con storage_paths. No usa base64 ni hosts externos.`,
+      inputSchema: {
+        mime_type: z
+          .string()
+          .describe('MIME de la imagen: image/jpeg, image/png, image/webp, image/gif o image/heic'),
+        nombre_archivo: z
+          .string()
+          .optional()
+          .describe('Nombre de archivo opcional; solo se conserva un stem seguro'),
+        entrada_diario_id: z
+          .string()
+          .optional()
+          .describe('UUID de la entrada, opcional, para colgar la ruta de esa entrada'),
+      },
+    },
+    async (args) => toolTextResult(await executeMcpTool('crear_upload_firmado_diario', args, ctx))
+  );
+
   server.registerTool(
     'adjuntar_foto_diario',
     {
-      description:
-        'Adjunta de 1 a 8 fotos a una entrada existente del diario a partir de URLs https públicas. El servidor las descarga, comprueba que sean imágenes y las guarda en el bucket diario-obra. No admite base64.',
+      description: `Adjunta de 1 a ${DIARIO_FOTO_INGEST_MAX_ITEMS} fotos a una entrada del diario. Camino del bot: storage_paths (rutas devueltas por crear_upload_firmado_diario, ya subidas al bucket diario-obra de este negocio). foto_urls queda solo para integraciones con una URL https pública: el servidor las descarga. No envíes ambos. No admite base64.`,
       inputSchema: {
         entrada_diario_id: z.string().describe('UUID de la fila diario_obra'),
+        storage_paths: z
+          .array(z.string())
+          .min(1)
+          .max(DIARIO_FOTO_INGEST_MAX_ITEMS)
+          .optional()
+          .describe(
+            `Rutas relativas del bucket diario-obra de este negocio (1 a ${DIARIO_FOTO_INGEST_MAX_ITEMS}). Camino principal tras el PUT firmado.`
+          ),
         foto_urls: z
           .array(z.string())
           .min(1)
           .max(DIARIO_FOTO_INGEST_MAX_ITEMS)
+          .optional()
           .describe(
-            `URLs https públicas de las fotos (1 a ${DIARIO_FOTO_INGEST_MAX_ITEMS}). El servidor las descarga y las adjunta al diario.`
+            `Alternativa de integraciones: URLs https públicas (1 a ${DIARIO_FOTO_INGEST_MAX_ITEMS}). No lo uses si ya subiste con crear_upload_firmado_diario.`
           ),
       },
     },

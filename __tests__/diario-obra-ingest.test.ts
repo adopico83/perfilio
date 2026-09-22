@@ -3,7 +3,10 @@ import {
   removeDiarioObraStorageObjects,
   uploadDiarioObraMediaToBucket,
 } from '@/lib/diario-obra';
-import { ingestDiarioObraFotos } from '@/lib/diario-obra-ingest';
+import {
+  createDiarioObraSignedUpload,
+  ingestDiarioObraFotos,
+} from '@/lib/diario-obra-ingest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 jest.mock('node:dns/promises', () => ({
@@ -70,9 +73,14 @@ function createSupabase(opts?: {
   fotos?: string[] | null;
   updateError?: string;
   signedUrl?: string | null;
+  objects?: Record<string, { size: number; contentType: string | null }>;
+  signedUploadPath?: string | null;
+  signedUploadError?: string;
 }) {
   let fotos = opts?.fotos === undefined ? ['biz/prev.jpg'] : opts.fotos;
   const updates: string[][] = [];
+  const infoCalls: string[] = [];
+  const signedUploadCalls: Array<{ bucket: string; path: string; upsert?: boolean }> = [];
   const supabase = {
     from(table: string) {
       if (table !== 'diario_obra') throw new Error(`tabla inesperada: ${table}`);
@@ -133,6 +141,35 @@ function createSupabase(opts?: {
               error: null,
             };
           },
+          async createSignedUploadUrl(path: string, options?: { upsert?: boolean }) {
+            if (bucket !== 'diario-obra') throw new Error(bucket);
+            signedUploadCalls.push({ bucket, path, upsert: options?.upsert });
+            if (opts?.signedUploadError) {
+              return { data: null, error: { message: opts.signedUploadError } };
+            }
+            const echoed = opts?.signedUploadPath === undefined ? path : opts.signedUploadPath;
+            return {
+              data: {
+                signedUrl: `https://upload.example/object/upload/sign/${bucket}/${path}?token=tok-1`,
+                token: 'tok-1',
+                path: echoed,
+              },
+              error: null,
+            };
+          },
+          async info(path: string) {
+            if (bucket !== 'diario-obra') throw new Error(bucket);
+            infoCalls.push(path);
+            if (opts?.objects) {
+              const found = opts.objects[path];
+              if (!found) return { data: null, error: { message: 'not found' } };
+              return {
+                data: { size: found.size, contentType: found.contentType },
+                error: null,
+              };
+            }
+            return { data: { size: 1024, contentType: 'image/jpeg' }, error: null };
+          },
           async remove() {
             return { error: null };
           },
@@ -140,6 +177,8 @@ function createSupabase(opts?: {
       },
     },
     updates: () => updates,
+    infoCalls: () => infoCalls,
+    signedUploadCalls: () => signedUploadCalls,
   };
   return supabase;
 }
@@ -500,5 +539,254 @@ describe('ingestDiarioObraFotos', () => {
 
     expect(result).toEqual({ error: 'foto_urls admite como máximo 8 fotos.' });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('createDiarioObraSignedUpload', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('devuelve una ruta bajo el businessId y la URL firmada del bucket diario-obra', async () => {
+    const supabase = createSupabase();
+    const result = await createDiarioObraSignedUpload(supabase as unknown as SupabaseClient, {
+      businessId: BIZ,
+      mimeType: 'image/jpeg',
+      fileName: 'fachada norte.jpg',
+    });
+
+    expect(result).toEqual({
+      upload_url: expect.stringMatching(/^https:\/\/upload\.example\/object\/upload\/sign\/diario-obra\/biz-1\//),
+      path: expect.stringMatching(/^biz-1\/\d+_[0-9a-f]{8}_fachada_norte\.jpg$/),
+      token: 'tok-1',
+      headers: { 'content-type': 'image/jpeg', 'x-upsert': 'false' },
+      max_bytes: 10 * 1024 * 1024,
+    });
+    expect(supabase.signedUploadCalls()).toEqual([
+      expect.objectContaining({
+        bucket: 'diario-obra',
+        upsert: false,
+        path: (result as { path: string }).path,
+      }),
+    ]);
+  });
+
+  it('cuelga la ruta de la entrada si pertenece al negocio', async () => {
+    const supabase = createSupabase();
+    const result = await createDiarioObraSignedUpload(supabase as unknown as SupabaseClient, {
+      businessId: BIZ,
+      mimeType: 'image/png',
+      entradaId: ENTRADA,
+    });
+
+    expect(result).toMatchObject({
+      path: expect.stringMatching(new RegExp(`^${BIZ}/${ENTRADA}/\\d+_[0-9a-f]{8}_diario_foto\\.png$`)),
+      headers: { 'content-type': 'image/png', 'x-upsert': 'false' },
+    });
+  });
+
+  it('normaliza image/jpg y image/heif', async () => {
+    const supabase = createSupabase();
+    const jpeg = await createDiarioObraSignedUpload(supabase as unknown as SupabaseClient, {
+      businessId: BIZ,
+      mimeType: 'image/jpg',
+    });
+    const heif = await createDiarioObraSignedUpload(supabase as unknown as SupabaseClient, {
+      businessId: BIZ,
+      mimeType: 'image/heif',
+    });
+    expect(jpeg).toMatchObject({
+      path: expect.stringMatching(/\.jpg$/),
+      headers: { 'content-type': 'image/jpeg' },
+    });
+    expect(heif).toMatchObject({
+      path: expect.stringMatching(/\.heic$/),
+      headers: { 'content-type': 'image/heic' },
+    });
+  });
+
+  it('rechaza mime que no es foto y no pide URL firmada', async () => {
+    const supabase = createSupabase();
+    const result = await createDiarioObraSignedUpload(supabase as unknown as SupabaseClient, {
+      businessId: BIZ,
+      mimeType: 'video/mp4',
+    });
+    expect(result).toEqual({
+      error: 'Tipo de imagen no permitido. Usa jpeg, png, webp, gif o heic.',
+    });
+    expect(supabase.signedUploadCalls()).toEqual([]);
+  });
+
+  it('falla cerrado si la entrada no es del negocio', async () => {
+    const supabase = createSupabase({ missing: true });
+    const result = await createDiarioObraSignedUpload(supabase as unknown as SupabaseClient, {
+      businessId: BIZ,
+      mimeType: 'image/webp',
+      entradaId: ENTRADA,
+    });
+    expect(result).toEqual({
+      error: 'Entrada de diario no encontrada o no pertenece a este negocio',
+    });
+    expect(supabase.signedUploadCalls()).toEqual([]);
+  });
+
+  it('rechaza una URL firmada cuya ruta no es la del negocio', async () => {
+    const supabase = createSupabase({ signedUploadPath: 'otro-negocio/foto.jpg' });
+    const result = await createDiarioObraSignedUpload(supabase as unknown as SupabaseClient, {
+      businessId: BIZ,
+      mimeType: 'image/gif',
+    });
+    expect(result).toEqual({ error: 'La URL firmada no coincide con la ruta del negocio.' });
+  });
+});
+
+describe('ingestDiarioObraFotos — storage_paths', () => {
+  const okPath = `${BIZ}/1700000000000_fachada.jpg`;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('adjunta una ruta del negocio sin volver a subir ni descargar', async () => {
+    const supabase = createSupabase({
+      fotos: ['biz/prev.jpg'],
+      objects: { [okPath]: { size: 2048, contentType: 'image/jpeg' } },
+    });
+    const result = await ingestDiarioObraFotos(supabase as unknown as SupabaseClient, {
+      businessId: BIZ,
+      entradaId: ENTRADA,
+      sources: [{ type: 'storage_path', path: `  ${okPath}  ` }],
+    });
+
+    expect(uploadMock).not.toHaveBeenCalled();
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      ok: true,
+      entrada_id: ENTRADA,
+      items: [{ path: okPath, signedUrl: `https://signed.example/${okPath}` }],
+    });
+    expect(supabase.updates()).toEqual([['biz/prev.jpg', okPath]]);
+    expect(supabase.infoCalls()).toEqual([okPath]);
+  });
+
+  it.each([
+    ['otro-negocio/foto.jpg', 'La ruta no pertenece a este negocio.'],
+    [`${BIZ}-evil/foto.jpg`, 'La ruta no pertenece a este negocio.'],
+    [`${BIZ}/../otro/foto.jpg`, 'Ruta de storage no permitida.'],
+    [`../${BIZ}/foto.jpg`, 'Ruta de storage no permitida.'],
+    [`/${BIZ}/foto.jpg`, 'Ruta de storage no permitida.'],
+    [`${BIZ}/%2e%2e/otro.jpg`, 'Ruta de storage no permitida.'],
+    [`https://cdn.example.com/${BIZ}/foto.jpg`, 'Ruta de storage no permitida.'],
+    [`${BIZ}/./foto.jpg`, 'Ruta de storage no permitida.'],
+    [`${BIZ}//foto.jpg`, 'Ruta de storage no permitida.'],
+  ])('rechaza %s', async (path, error) => {
+    const supabase = createSupabase({ fotos: ['biz/prev.jpg'] });
+    const result = await ingestDiarioObraFotos(supabase as unknown as SupabaseClient, {
+      businessId: BIZ,
+      entradaId: ENTRADA,
+      sources: [{ type: 'storage_path', path }],
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      entrada_id: ENTRADA,
+      items: [],
+      errors: [{ path, error }],
+    });
+    expect(supabase.updates()).toEqual([]);
+    expect(supabase.infoCalls()).toEqual([]);
+    expect(removeMock).not.toHaveBeenCalled();
+    expect(uploadMock).not.toHaveBeenCalled();
+  });
+
+  it('es best-effort: una ruta ajena o demasiado grande no impide adjuntar las válidas', async () => {
+    const good = `${BIZ}/ok.jpg`;
+    const huge = `${BIZ}/grande.jpg`;
+    const foreign = 'otro-negocio/x.jpg';
+    const supabase = createSupabase({
+      fotos: [],
+      objects: {
+        [good]: { size: 100, contentType: 'image/jpeg' },
+        [huge]: { size: 10 * 1024 * 1024 + 1, contentType: 'image/jpeg' },
+      },
+    });
+
+    const result = await ingestDiarioObraFotos(supabase as unknown as SupabaseClient, {
+      businessId: BIZ,
+      entradaId: ENTRADA,
+      sources: [
+        { type: 'storage_path', path: good },
+        { type: 'storage_path', path: foreign },
+        { type: 'storage_path', path: huge },
+      ],
+    });
+
+    expect(uploadMock).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      ok: true,
+      entrada_id: ENTRADA,
+      items: [{ path: good, signedUrl: `https://signed.example/${good}` }],
+      errors: [
+        { path: foreign, error: 'La ruta no pertenece a este negocio.' },
+        { path: huge, error: 'La foto supera el tamaño máximo permitido (10 MB).' },
+      ],
+    });
+    expect(supabase.updates()).toEqual([[good]]);
+    expect(removeMock).toHaveBeenCalledTimes(1);
+    expect(removeMock).toHaveBeenCalledWith(supabase, [huge]);
+    expect(supabase.infoCalls()).toEqual([good, huge]);
+  });
+
+  it('rechaza un objeto que no está en el bucket y no toca la fila', async () => {
+    const missing = `${BIZ}/no-esta.jpg`;
+    const supabase = createSupabase({ objects: {} });
+    const result = await ingestDiarioObraFotos(supabase as unknown as SupabaseClient, {
+      businessId: BIZ,
+      entradaId: ENTRADA,
+      sources: [{ type: 'storage_path', path: missing }],
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      entrada_id: ENTRADA,
+      items: [],
+      errors: [{ path: missing, error: 'No se encontró la foto en el bucket del diario.' }],
+    });
+    expect(supabase.updates()).toEqual([]);
+    expect(removeMock).not.toHaveBeenCalled();
+  });
+
+  it('borra y no adjunta un objeto cuyo MIME no es una imagen permitida', async () => {
+    const path = `${BIZ}/nota.txt`;
+    const supabase = createSupabase({
+      objects: { [path]: { size: 20, contentType: 'text/plain' } },
+    });
+    const result = await ingestDiarioObraFotos(supabase as unknown as SupabaseClient, {
+      businessId: BIZ,
+      entradaId: ENTRADA,
+      sources: [{ type: 'storage_path', path }],
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      errors: [{ path, error: 'El archivo no es una imagen jpeg, png, webp, gif o heic.' }],
+    });
+    expect(removeMock).toHaveBeenCalledWith(supabase, [path]);
+    expect(supabase.updates()).toEqual([]);
+  });
+
+  it('rechaza más de 8 rutas antes de leer storage', async () => {
+    const supabase = createSupabase();
+    const result = await ingestDiarioObraFotos(supabase as unknown as SupabaseClient, {
+      businessId: BIZ,
+      entradaId: ENTRADA,
+      sources: Array.from({ length: 9 }, (_, i) => ({
+        type: 'storage_path' as const,
+        path: `${BIZ}/${i}.jpg`,
+      })),
+    });
+
+    expect(result).toEqual({ error: 'storage_paths admite como máximo 8 fotos.' });
+    expect(supabase.infoCalls()).toEqual([]);
   });
 });
