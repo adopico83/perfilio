@@ -48,7 +48,7 @@ describe('DemoAppShell', () => {
     expect(screen.getByText('contenido hoy')).toBeInTheDocument();
     const skyline = screen.getAllByTestId('demo-skyline')[0];
     expect(skyline).toBeInTheDocument();
-    expect(skyline.querySelector('img')).toHaveAttribute('src', '/demo/skyline-errenteria.png');
+    expect(skyline.querySelector('img')).toHaveAttribute('src', '/demo/skyline-errenteria.png?v=mock');
     expect(skyline.querySelector('svg[viewBox="0 0 240 152"]')).toBeNull();
     expect(screen.getAllByText('Datos seguros y privados').length).toBeGreaterThanOrEqual(1);
     await waitFor(() => {
