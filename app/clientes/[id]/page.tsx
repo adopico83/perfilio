@@ -4,9 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import LogoutButton from '@/app/dashboard/logout-button';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
-import ToggleAgenteNavButton from '@/components/dashboard/toggle-agente-nav-button';
 
 type Cliente = {
   id: string;
@@ -69,7 +67,6 @@ export default function ClienteFichaPage() {
   );
 
   const [authChecking, setAuthChecking] = useState(true);
-  const [businessName, setBusinessName] = useState('tu negocio');
   const [cliente, setCliente] = useState<Cliente | null>(null);
   const [presupuestos, setPresupuestos] = useState<PresRow[]>([]);
   const [facturas, setFacturas] = useState<FacRow[]>([]);
@@ -78,7 +75,6 @@ export default function ClienteFichaPage() {
   const [diario, setDiario] = useState<DioRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [menuMovilAbierto, setMenuMovilAbierto] = useState(false);
   const [modalEditar, setModalEditar] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [form, setForm] = useState({
@@ -146,14 +142,6 @@ export default function ClienteFichaPage() {
         return;
       }
       setAuthChecking(false);
-
-      const { data: bp } = await supabase
-        .from('business_profiles')
-        .select('nombre')
-        .eq('user_id', session.user.id)
-        .limit(1)
-        .maybeSingle();
-      if (bp?.nombre) setBusinessName(bp.nombre);
     };
     void run();
   }, [router, supabase]);
@@ -204,121 +192,6 @@ export default function ClienteFichaPage() {
 
   return (
     <div className="min-h-screen bg-[#EFEADF] text-zinc-900">
-      <div className="border-b border-zinc-400/40 bg-[#EFEADF]/95 backdrop-blur">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center gap-3 min-w-0">
-          <Link
-            href="/dashboard"
-            className="text-zinc-900 font-bold text-xl sm:text-2xl truncate shrink-0 min-w-0 max-w-[min(220px,46vw)] sm:max-w-[min(260px,40vw)]"
-          >
-            {businessName}
-          </Link>
-          <button
-            type="button"
-            onClick={() => setMenuMovilAbierto((v) => !v)}
-            className="md:hidden inline-flex items-center justify-center w-10 h-10 shrink-0 rounded-lg border border-zinc-400/50 text-zinc-900 hover:bg-[#E5DFD0] transition-colors ml-auto"
-            aria-label="Abrir menú"
-          >
-            ☰
-          </button>
-          <div className="hidden md:flex flex-1 min-w-0 items-center justify-end gap-2 lg:gap-3">
-            <nav
-              className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain touch-pan-x [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-              aria-label="Secciones"
-            >
-              <div className="flex w-max max-w-full ml-auto flex-nowrap items-center justify-end gap-2 lg:gap-2.5 pr-1">
-                <Link
-                  href="/mensajes"
-                  className="text-xs lg:text-sm text-zinc-700 hover:text-zinc-900 transition-colors shrink-0"
-                >
-                  Mensajes
-                </Link>
-                <Link
-                  href="/presupuestos"
-                  className="text-xs lg:text-sm text-zinc-700 hover:text-zinc-900 transition-colors shrink-0"
-                >
-                  Presupuestos
-                </Link>
-                <Link
-                  href="/albaranes"
-                  className="text-xs lg:text-sm text-zinc-700 hover:text-zinc-900 transition-colors shrink-0"
-                >
-                  Albaranes
-                </Link>
-                <Link
-                  href="/facturas"
-                  className="text-xs lg:text-sm text-zinc-700 hover:text-zinc-900 transition-colors shrink-0"
-                >
-                  Facturas
-                </Link>
-                <Link
-                  href="/diario"
-                  className="text-xs lg:text-sm text-zinc-700 hover:text-zinc-900 transition-colors shrink-0"
-                >
-                  Diario
-                </Link>
-                <Link
-                  href="/obras"
-                  className="text-xs lg:text-sm text-zinc-700 hover:text-zinc-900 transition-colors shrink-0"
-                >
-                  Obras
-                </Link>
-                <Link
-                  href="/clientes"
-                  className="text-xs lg:text-sm font-medium text-[#A04A2F] shrink-0"
-                >
-                  Clientes
-                </Link>
-                <Link
-                  href="/operarios"
-                  className="text-xs lg:text-sm text-zinc-700 hover:text-zinc-900 transition-colors shrink-0"
-                >
-                  Operarios
-                </Link>
-                <ToggleAgenteNavButton className="inline-flex shrink-0 items-center px-3 py-1.5 lg:px-4 lg:py-2 text-xs lg:text-sm font-medium text-[#A04A2F] bg-transparent border border-[#A04A2F] rounded-lg hover:bg-[#A04A2F] hover:text-white transition-colors" />
-              </div>
-            </nav>
-            <div className="flex shrink-0 flex-nowrap items-center gap-2">
-              <LogoutButton />
-            </div>
-          </div>
-        </div>
-
-        {menuMovilAbierto && (
-          <div className="md:hidden max-w-7xl mx-auto px-6 pb-4">
-            <div className="bg-[#E5DFD0] border border-zinc-400/40 rounded-xl p-4 flex flex-col gap-3">
-              <Link href="/mensajes" className="text-sm text-zinc-700 hover:text-zinc-900" onClick={() => setMenuMovilAbierto(false)}>
-                Mensajes
-              </Link>
-              <Link href="/presupuestos" className="text-sm text-zinc-700 hover:text-zinc-900" onClick={() => setMenuMovilAbierto(false)}>
-                Presupuestos
-              </Link>
-              <Link href="/albaranes" className="text-sm text-zinc-700 hover:text-zinc-900" onClick={() => setMenuMovilAbierto(false)}>
-                Albaranes
-              </Link>
-              <Link href="/facturas" className="text-sm text-zinc-700 hover:text-zinc-900" onClick={() => setMenuMovilAbierto(false)}>
-                Facturas
-              </Link>
-              <Link href="/diario" className="text-sm text-zinc-700 hover:text-zinc-900" onClick={() => setMenuMovilAbierto(false)}>
-                Diario
-              </Link>
-              <Link href="/obras" className="text-sm text-zinc-700 hover:text-zinc-900" onClick={() => setMenuMovilAbierto(false)}>
-                Obras
-              </Link>
-              <Link href="/clientes" className="text-sm font-medium text-[#A04A2F]" onClick={() => setMenuMovilAbierto(false)}>
-                Clientes
-              </Link>
-              <Link href="/operarios" className="text-sm text-zinc-700 hover:text-zinc-900" onClick={() => setMenuMovilAbierto(false)}>
-                Operarios
-              </Link>
-              <div onClick={() => setMenuMovilAbierto(false)}>
-                <ToggleAgenteNavButton className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-[#A04A2F] border border-[#A04A2F] rounded-lg" />
-              </div>
-              <LogoutButton />
-            </div>
-          </div>
-        )}
-      </div>
-
       <div className="max-w-7xl mx-auto px-6 pt-3 pb-1">
         <VolverAlDashboard />
       </div>

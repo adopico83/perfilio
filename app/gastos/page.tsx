@@ -3,11 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
-import LogoutButton from '@/app/dashboard/logout-button';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
-import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
 import { GASTO_CATEGORIAS, etiquetaGastoCategoria } from '@/lib/gastos-categoria';
 import { getBusinessIdClient } from '@/lib/supabase/get-business-id';
 
@@ -69,7 +66,6 @@ export default function GastosPage() {
   );
 
   const [authChecking, setAuthChecking] = useState(true);
-  const [businessName, setBusinessName] = useState('tu negocio');
   const [businessId, setBusinessId] = useState<string | null>(null);
   const [mes, setMes] = useState(mesActualYyyyMmMadrid);
   const [porObra, setPorObra] = useState<GastoResumenPorObra[]>([]);
@@ -77,7 +73,6 @@ export default function GastosPage() {
   const [totalMes, setTotalMes] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [menuMovilAbierto, setMenuMovilAbierto] = useState(false);
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
 
   const toggleExpand = useCallback((key: string) => {
@@ -108,12 +103,6 @@ export default function GastosPage() {
       }
 
       setBusinessId(businessId);
-      const { data: bp } = await supabase
-        .from('business_profiles')
-        .select('nombre')
-        .eq('id', businessId)
-        .maybeSingle();
-      if (bp?.nombre) setBusinessName(bp.nombre);
     };
     void run();
   }, [router, supabase]);
@@ -168,22 +157,6 @@ export default function GastosPage() {
 
   return (
     <div className="min-h-screen bg-[#EFEADF] text-zinc-900">
-      <DashboardMainNav
-        brand={
-          <Link
-            href="/dashboard"
-            className="text-zinc-900 font-bold text-xl sm:text-2xl truncate shrink-0 min-w-0 max-w-[min(220px,46vw)] sm:max-w-[min(260px,40vw)]"
-          >
-            {businessName}
-          </Link>
-        }
-        menuMovilAbierto={menuMovilAbierto}
-        setMenuMovilAbierto={setMenuMovilAbierto}
-        active="gastos"
-        desktopTrailing={<LogoutButton />}
-        mobileDrawerFooter={<LogoutButton />}
-      />
-
       <div className="max-w-7xl mx-auto px-6 pt-3 pb-1">
         <VolverAlDashboard />
       </div>

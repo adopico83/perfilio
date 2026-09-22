@@ -3,11 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
-import LogoutButton from '@/app/dashboard/logout-button';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
-import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
 import { getBusinessIdClient } from '@/lib/supabase/get-business-id';
 
 type OperarioResumenPorObra = {
@@ -74,14 +71,12 @@ export default function OperariosPage() {
   );
 
   const [authChecking, setAuthChecking] = useState(true);
-  const [businessName, setBusinessName] = useState('tu negocio');
   const [businessId, setBusinessId] = useState<string | null>(null);
   const [mes, setMes] = useState(mesActualYyyyMmMadrid);
   const [filas, setFilas] = useState<OperarioResumenFila[]>([]);
   const [totales, setTotales] = useState({ horas_reales: 0, horas_convenio: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [menuMovilAbierto, setMenuMovilAbierto] = useState(false);
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
   const [modalDniAbierto, setModalDniAbierto] = useState(false);
   const [operarioEditando, setOperarioEditando] = useState<OperarioResumenFila | null>(null);
@@ -116,12 +111,6 @@ export default function OperariosPage() {
       }
 
       setBusinessId(businessId);
-      const { data: bp } = await supabase
-        .from('business_profiles')
-        .select('nombre')
-        .eq('id', businessId)
-        .maybeSingle();
-      if (bp?.nombre) setBusinessName(bp.nombre);
     };
     void run();
   }, [router, supabase]);
@@ -213,22 +202,6 @@ export default function OperariosPage() {
 
   return (
     <div className="min-h-screen bg-[#EFEADF] text-zinc-900">
-      <DashboardMainNav
-        brand={
-          <Link
-            href="/dashboard"
-            className="text-zinc-900 font-bold text-xl sm:text-2xl truncate shrink-0 min-w-0 max-w-[min(220px,46vw)] sm:max-w-[min(260px,40vw)]"
-          >
-            {businessName}
-          </Link>
-        }
-        menuMovilAbierto={menuMovilAbierto}
-        setMenuMovilAbierto={setMenuMovilAbierto}
-        active="operarios"
-        desktopTrailing={<LogoutButton />}
-        mobileDrawerFooter={<LogoutButton />}
-      />
-
       <div className="max-w-7xl mx-auto px-6 pt-3 pb-1">
         <VolverAlDashboard />
       </div>

@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
-import LogoutButton from '../dashboard/logout-button';
 
 interface AiResponse {
   id: string;
@@ -172,10 +171,7 @@ export default function MensajesPage() {
         <div className="mb-8">
           <div className="flex justify-between items-center mb-4">
             <h1 className="text-2xl font-bold text-zinc-900">Bandeja de mensajes</h1>
-            <div className="flex items-center gap-4">
-              <VolverAlDashboard />
-              <LogoutButton />
-            </div>
+            <VolverAlDashboard />
           </div>
         </div>
 

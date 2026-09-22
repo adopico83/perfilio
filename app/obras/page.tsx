@@ -2,12 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
-import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Pencil } from 'lucide-react';
-import LogoutButton from '@/app/dashboard/logout-button';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
-import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import { getBusinessIdClient } from '@/lib/supabase/get-business-id';
 
@@ -58,14 +55,12 @@ export default function ObrasPage() {
   const autoOpenedObraIdRef = useRef<string | null>(null);
 
   const [authChecking, setAuthChecking] = useState(true);
-  const [businessName, setBusinessName] = useState('tu negocio');
   const [businessId, setBusinessId] = useState<string | null>(null);
   const [obras, setObras] = useState<ObraRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [busqueda, setBusqueda] = useState('');
-  const [menuMovilAbierto, setMenuMovilAbierto] = useState(false);
 
   const [modalNuevo, setModalNuevo] = useState(false);
   const [modalEditar, setModalEditar] = useState<ObraRow | null>(null);
@@ -108,12 +103,6 @@ export default function ObrasPage() {
       }
 
       setBusinessId(businessId);
-      const { data: bp } = await supabase
-        .from('business_profiles')
-        .select('nombre')
-        .eq('id', businessId)
-        .maybeSingle();
-      if (bp?.nombre) setBusinessName(bp.nombre);
 
       const { data: cliList } = await supabase
         .from('clientes')
@@ -342,30 +331,6 @@ export default function ObrasPage() {
 
   return (
     <div className="min-h-screen bg-[#EFEADF] text-zinc-900">
-      <DashboardMainNav
-        brand={
-          <Link
-            href="/dashboard"
-            className="text-zinc-900 font-bold text-xl sm:text-2xl truncate shrink-0 min-w-0 max-w-[min(220px,46vw)] sm:max-w-[min(260px,40vw)]"
-          >
-            {businessName}
-          </Link>
-        }
-        betweenBrandAndMenu={
-          <button
-            type="button"
-            onClick={() => router.refresh()}
-            className="hidden"
-            aria-hidden
-          />
-        }
-        menuMovilAbierto={menuMovilAbierto}
-        setMenuMovilAbierto={setMenuMovilAbierto}
-        active="obras"
-        desktopTrailing={<LogoutButton />}
-        mobileDrawerFooter={<LogoutButton />}
-      />
-
       <div className="max-w-7xl mx-auto px-6 pt-3 pb-1">
         <VolverAlDashboard />
       </div>

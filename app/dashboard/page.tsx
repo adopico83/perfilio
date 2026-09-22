@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import Link from 'next/link';
 import { redirect, useRouter } from 'next/navigation';
-import LogoutButton from './logout-button';
 import {
   AlertTriangle,
   FileText,
@@ -21,7 +20,6 @@ import { useAgentSidebar } from '@/contexts/agent-sidebar-context';
 import { useEmailModal } from '@/contexts/email-modal-context';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import BichoLivePulse from '@/components/dashboard/BichoLivePulse';
-import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
 import NotificationButton from '@/components/pwa/notification-button';
 import { useSession } from '@/components/providers/session-provider';
 import { getBusinessIdClient } from '@/lib/supabase/get-business-id';
@@ -302,7 +300,6 @@ function DashboardContent() {
   const [emailsUrgentes, setEmailsUrgentes] = useState<EmailReciente[]>([]);
   const [emailsLoading, setEmailsLoading] = useState(false);
   const [emailsError, setEmailsError] = useState<string | null>(null);
-  const [menuMovilAbierto, setMenuMovilAbierto] = useState(false);
   const [ultimasEntradasDiario, setUltimasEntradasDiario] = useState<DiarioEntradaWidget[]>([]);
   const [ultimosClientes, setUltimosClientes] = useState<UltimoClienteWidget[]>([]);
   const [obrasActivas, setObrasActivas] = useState<ObraActivaWidget[]>([]);
@@ -1160,132 +1157,6 @@ function DashboardContent() {
           />
         </div>
       ) : null}
-      <DashboardMainNav
-        brand={
-          <a
-            href="/dashboard"
-            className="flex items-center gap-3 min-w-0 shrink-0 max-w-[min(220px,46vw)] sm:max-w-[min(260px,40vw)]"
-          >
-            {businessName === 'Pino Albañilería' ? (
-              <div style={{ display: 'inline-flex', flexDirection: 'column' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(3, 16px)',
-                      gridTemplateRows: 'repeat(2, 16px)',
-                      gap: '2px',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <div style={{ background: '#888' }}></div>
-                    <div style={{ background: '#1a6ec7' }}></div>
-                    <div style={{ background: '#888' }}></div>
-                    <div style={{ background: '#1a6ec7' }}></div>
-                    <div style={{ background: '#888' }}></div>
-                    <div style={{ background: '#1a6ec7' }}></div>
-                  </div>
-                  <span
-                    style={{
-                      color: '#1a6ec7',
-                      fontWeight: 'bold',
-                      fontSize: '34px',
-                      lineHeight: '34px',
-                      letterSpacing: '0px',
-                      padding: '0',
-                      margin: '0',
-                    }}
-                  >
-                    PINO
-                  </span>
-                </div>
-                <span
-                  style={{
-                    color: '#888',
-                    fontSize: '9.5px',
-                    letterSpacing: '8.2px',
-                    marginTop: '1px',
-                  }}
-                >
-                  ALBAÑILERÍA
-                </span>
-              </div>
-            ) : (
-              <span className="text-zinc-900 font-bold text-2xl sm:text-3xl truncate max-w-[min(100vw-8rem,28rem)]">
-                {businessName}
-              </span>
-            )}
-          </a>
-        }
-        menuMovilAbierto={menuMovilAbierto}
-        setMenuMovilAbierto={setMenuMovilAbierto}
-        active={null}
-        desktopTrailing={
-          <>
-            {gmailConectado ? (
-              <button
-                type="button"
-                onClick={desconectarGmail}
-                disabled={gmailAccionLoading}
-                title="Pulsa para desconectar Gmail"
-                aria-label="Gmail conectado. Pulsa para desconectar"
-                className="inline-flex items-center px-3 py-2 sm:px-4 text-sm font-medium text-green-200 bg-green-900/40 border border-green-500/60 rounded-lg hover:bg-green-900/55 transition-colors disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
-              >
-                {gmailAccionLoading ? '…' : 'Gmail conectado ✓'}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={conectarGmail}
-                disabled={gmailAccionLoading}
-                title="Conectar cuenta de Gmail"
-                aria-label="Conectar Gmail"
-                className="inline-flex items-center px-3 py-2 sm:px-4 text-sm font-medium text-red-100 bg-gray-800/80 border border-red-500/45 rounded-lg hover:bg-gray-800 hover:border-red-400/60 transition-colors disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
-              >
-                {gmailAccionLoading ? '…' : 'Conectar Gmail'}
-              </button>
-            )}
-            <LogoutButton />
-          </>
-        }
-        mobileDrawerFooter={
-          <>
-            {gmailConectado ? (
-              <button
-                type="button"
-                onClick={() => {
-                  void desconectarGmail();
-                  setMenuMovilAbierto(false);
-                }}
-                disabled={gmailAccionLoading}
-                title="Pulsa para desconectar Gmail"
-                aria-label="Gmail conectado. Pulsa para desconectar"
-                className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-green-200 bg-green-900/40 border border-green-500/60 rounded-lg hover:bg-green-900/55 transition-colors disabled:opacity-60 disabled:cursor-not-allowed w-full"
-              >
-                {gmailAccionLoading ? '…' : 'Gmail conectado ✓'}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  void conectarGmail();
-                  setMenuMovilAbierto(false);
-                }}
-                disabled={gmailAccionLoading}
-                title="Conectar cuenta de Gmail"
-                aria-label="Conectar Gmail"
-                className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-red-100 bg-gray-800/80 border border-red-500/45 rounded-lg hover:bg-gray-800 hover:border-red-400/60 transition-colors disabled:opacity-60 disabled:cursor-not-allowed w-full"
-              >
-                {gmailAccionLoading ? '…' : 'Conectar Gmail'}
-              </button>
-            )}
-            <div className="pt-1">
-              <LogoutButton />
-            </div>
-          </>
-        }
-      />
-
       <main className={mainClass}>
         {showPushRecoveryCta ? (
           <section className="rounded-xl border border-amber-400/60 bg-amber-500/10 px-4 py-3">
@@ -1303,9 +1174,34 @@ function DashboardContent() {
             {saludoBanner ? `${saludoBanner}, ` : ''}
             <span className="text-[#A04A2F]">{businessName}</span>
           </h1>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
             <p className="text-sm text-zinc-900/70">Aquí tienes el resumen de tu negocio</p>
-            {!showPushRecoveryCta ? <NotificationButton /> : null}
+            <div className="flex flex-wrap items-center gap-2">
+              {gmailConectado ? (
+                <button
+                  type="button"
+                  onClick={desconectarGmail}
+                  disabled={gmailAccionLoading}
+                  title="Pulsa para desconectar Gmail"
+                  aria-label="Gmail conectado. Pulsa para desconectar"
+                  className="inline-flex items-center px-3 py-2 text-sm font-medium text-green-200 bg-green-900/40 border border-green-500/60 rounded-lg hover:bg-green-900/55 transition-colors disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
+                >
+                  {gmailAccionLoading ? '…' : 'Gmail conectado ✓'}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={conectarGmail}
+                  disabled={gmailAccionLoading}
+                  title="Conectar cuenta de Gmail"
+                  aria-label="Conectar Gmail"
+                  className="inline-flex items-center px-3 py-2 text-sm font-medium text-red-100 bg-gray-800/80 border border-red-500/45 rounded-lg hover:bg-gray-800 hover:border-red-400/60 transition-colors disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
+                >
+                  {gmailAccionLoading ? '…' : 'Conectar Gmail'}
+                </button>
+              )}
+              {!showPushRecoveryCta ? <NotificationButton /> : null}
+            </div>
           </div>
         </section>
 
@@ -1621,7 +1517,7 @@ function DashboardContent() {
               <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
                 {!gmailConectado ? (
                   <p className="text-zinc-900/70 text-xs leading-snug">
-                    Conecta Gmail desde el menú superior para ver la bandeja de entrada.
+                    Conecta Gmail para ver la bandeja de entrada.
                   </p>
                 ) : emailsLoading ? (
                   <p className="text-zinc-900/60 text-xs">Cargando correos…</p>

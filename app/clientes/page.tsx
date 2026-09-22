@@ -4,9 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import LogoutButton from '@/app/dashboard/logout-button';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
-import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
 import { getBusinessIdClient } from '@/lib/supabase/get-business-id';
 
 type ClienteRow = {
@@ -31,13 +29,11 @@ export default function ClientesPage() {
   );
 
   const [authChecking, setAuthChecking] = useState(true);
-  const [businessName, setBusinessName] = useState('tu negocio');
   const [businessId, setBusinessId] = useState<string | null>(null);
   const [clientes, setClientes] = useState<ClienteRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busqueda, setBusqueda] = useState('');
-  const [menuMovilAbierto, setMenuMovilAbierto] = useState(false);
   const [modalNuevo, setModalNuevo] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [form, setForm] = useState({
@@ -68,12 +64,6 @@ export default function ClientesPage() {
       }
 
       setBusinessId(businessId);
-      const { data: bp } = await supabase
-        .from('business_profiles')
-        .select('nombre')
-        .eq('id', businessId)
-        .maybeSingle();
-      if (bp?.nombre) setBusinessName(bp.nombre);
 
       try {
         const res = await fetch(`/api/clientes?business_id=${encodeURIComponent(businessId)}`, {
@@ -156,22 +146,6 @@ export default function ClientesPage() {
 
   return (
     <div className="min-h-screen bg-[#EFEADF] text-zinc-900">
-      <DashboardMainNav
-        brand={
-          <Link
-            href="/dashboard"
-            className="text-zinc-900 font-bold text-xl sm:text-2xl truncate shrink-0 min-w-0 max-w-[min(220px,46vw)] sm:max-w-[min(260px,40vw)]"
-          >
-            {businessName}
-          </Link>
-        }
-        menuMovilAbierto={menuMovilAbierto}
-        setMenuMovilAbierto={setMenuMovilAbierto}
-        active="clientes"
-        desktopTrailing={<LogoutButton />}
-        mobileDrawerFooter={<LogoutButton />}
-      />
-
       <div className="max-w-7xl mx-auto px-6 pt-3 pb-1">
         <VolverAlDashboard />
       </div>
