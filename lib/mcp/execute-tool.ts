@@ -365,13 +365,15 @@ export async function executeMcpTool(
       const { data: signed, error: signErr } = await ctx.supabase.storage
         .from(DIARIO_OBRA_STORAGE_BUCKET)
         .createSignedUrl(up.path, ADJUNTAR_FOTO_SIGNED_TTL_SEC);
+      const signedUrl =
+        signed && typeof signed.signedUrl === 'string' ? signed.signedUrl : null;
 
       return {
         ok: true,
         entrada_id: entradaId,
         path: up.path,
-        ...(signed?.signedUrl ? { url: signed.signedUrl } : {}),
-        ...(signErr && !signed?.signedUrl ? { warning: signErr.message } : {}),
+        ...(signedUrl ? { url: signedUrl } : {}),
+        ...(!signedUrl && signErr ? { warning: signErr.message } : {}),
       };
     }
     default:
