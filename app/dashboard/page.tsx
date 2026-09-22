@@ -17,16 +17,16 @@ import {
   Pencil,
   Trash2,
 } from 'lucide-react';
+import { useAgentSidebar } from '@/contexts/agent-sidebar-context';
 import { useEmailModal } from '@/contexts/email-modal-context';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import BichoLivePulse from '@/components/dashboard/BichoLivePulse';
+import { dash, dashMain, dashResumenGrid } from '@/components/dashboard/dashboard-density';
 import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
-import HoyHome from '@/components/dashboard/hoy-home';
-import HoyDemoHome from '@/components/dashboard/hoy-demo-home';
+import DemoHoyPage from '@/components/dashboard/demo-hoy-page';
 import NotificationButton from '@/components/pwa/notification-button';
 import { useSession } from '@/components/providers/session-provider';
 import { isDemoReformasTenant } from '@/lib/demo-tenant';
-import { pickHoy } from '@/lib/hoy';
 import { getBusinessIdClient } from '@/lib/supabase/get-business-id';
 
 interface ResumenCounts {
@@ -54,8 +54,6 @@ interface PresupuestoResumen {
   cliente_nombre: string | null;
   obra_nombre: string | null;
   cliente_ficha_nombre: string | null;
-  importe_total: number | null;
-  presupuesto_generado?: string | null;
 }
 
 /** Sublínea del widget: obra si hay vínculo; si no, cliente; nunca mensajes. */
@@ -269,7 +267,12 @@ function DashboardSkeleton() {
 function DashboardContent() {
   const { abrirEmail, abrirUrgentes } = useEmailModal();
   const { abrirObra } = useObraModal();
-  const { user } = useSession();
+  const { isOpen } = useAgentSidebar();
+  const { user, businessName: sessionBusinessName } = useSession();
+  const isDemo = isDemoReformasTenant({
+    businessName: sessionBusinessName,
+    email: user?.email,
+  });
   const router = useRouter();
   const supabase = useMemo(
     () =>
@@ -311,7 +314,6 @@ function DashboardContent() {
   const [ultimasEntradasDiario, setUltimasEntradasDiario] = useState<DiarioEntradaWidget[]>([]);
   const [ultimosClientes, setUltimosClientes] = useState<UltimoClienteWidget[]>([]);
   const [obrasActivas, setObrasActivas] = useState<ObraActivaWidget[]>([]);
-  const [presupuestosHoy, setPresupuestosHoy] = useState<PresupuestoResumen[]>([]);
 
   const [modalAgendaAbierto, setModalAgendaAbierto] = useState(false);
   /** null hasta montar en cliente: evita desajuste SSR/hidratación con `new Date()` en el render. */
@@ -521,15 +523,6 @@ function DashboardContent() {
     return construirCeldasMes(y, m);
   }, [mesCalendario]);
 
-  const isDemo = isDemoReformasTenant({
-    businessName,
-    email: user?.email,
-  });
-  const hoy = useMemo(
-    () => pickHoy(obrasActivas, presupuestosHoy),
-    [obrasActivas, presupuestosHoy]
-  );
-
   const conectarGmail = async () => {
     if (gmailAccionLoading) return;
     try {
@@ -688,7 +681,6 @@ function DashboardContent() {
         setUltimasEntradasDiario([]);
         setUltimosClientes([]);
         setObrasActivas([]);
-        setPresupuestosHoy([]);
         setEmailsUrgentes([]);
 
         const { data: gmailToken } = await supabase
@@ -718,7 +710,7 @@ function DashboardContent() {
         supabase
           .from('presupuestos')
           .select(
-            'id, fecha, estado, created_at, obra_id, cliente_nombre, importe_total, obras ( nombre ), clientes ( nombre )'
+            'id, fecha, estado, created_at, obra_id, cliente_nombre, obras ( nombre ), clientes ( nombre )'
           )
           .eq('business_id', businessId)
           .order('created_at', { ascending: false })
@@ -764,7 +756,6 @@ function DashboardContent() {
           created_at: string;
           obra_id?: string | null;
           cliente_nombre?: string | null;
-          importe_total?: number | null;
           obras?: { nombre?: string | null } | null;
           clientes?: { nombre?: string | null } | null;
         }>;
@@ -781,10 +772,6 @@ function DashboardContent() {
               cliente_nombre: r.cliente_nombre ?? null,
               obra_nombre: oj ? String(oj.nombre ?? '').trim() || null : null,
               cliente_ficha_nombre: cj ? String(cj.nombre ?? '').trim() || null : null,
-              importe_total:
-                r.importe_total != null && Number.isFinite(Number(r.importe_total))
-                  ? Number(r.importe_total)
-                  : null,
             };
           })
         );
@@ -848,7 +835,6 @@ function DashboardContent() {
         );
         if (!obrasRes.ok) {
           setObrasActivas([]);
-          setPresupuestosHoy([]);
         } else {
           const json = (await obrasRes.json()) as {
             obras?: Array<{
@@ -875,67 +861,20 @@ function DashboardContent() {
               new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
           );
           const top = activas.slice(0, 5);
-          const mapped = top.map((o) => ({
-            id: o.id,
-            nombre: o.nombre,
-            cliente_nombre: o.cliente_nombre ?? null,
-            direccion: o.direccion ?? null,
-            estado: o.estado ?? null,
-            fecha_inicio: o.fecha_inicio ?? null,
-            num_documentos: documentosDesdeObraApi(o),
-          }));
-          setObrasActivas(mapped);
-
-          const obraHoyId =
-            mapped.find((o) => o.nombre.trim().toLowerCase() === 'reforma piso')?.id ??
-            mapped[0]?.id;
-          if (!obraHoyId) {
-            setPresupuestosHoy([]);
-          } else {
-            const { data: presHoyRows, error: presHoyErr } = await supabase
-              .from('presupuestos')
-              .select(
-                'id, fecha, estado, created_at, obra_id, cliente_nombre, importe_total, presupuesto_generado'
-              )
-              .eq('business_id', businessId)
-              .eq('obra_id', obraHoyId)
-              .order('created_at', { ascending: false })
-              .limit(5);
-            if (presHoyErr || !presHoyRows) {
-              setPresupuestosHoy([]);
-            } else {
-              setPresupuestosHoy(
-                (presHoyRows as Array<{
-                  id: string;
-                  fecha: string | null;
-                  estado: string | null;
-                  created_at: string;
-                  obra_id: string | null;
-                  cliente_nombre: string | null;
-                  importe_total: number | null;
-                  presupuesto_generado?: string | null;
-                }>).map((r) => ({
-                  id: r.id,
-                  fecha: r.fecha,
-                  estado: r.estado,
-                  created_at: r.created_at,
-                  obra_id: r.obra_id,
-                  cliente_nombre: r.cliente_nombre,
-                  obra_nombre: null,
-                  cliente_ficha_nombre: null,
-                  importe_total:
-                    r.importe_total != null && Number.isFinite(Number(r.importe_total))
-                      ? Number(r.importe_total)
-                      : null,
-                  presupuesto_generado: r.presupuesto_generado ?? null,
-                }))
-              );
-            }
-          }
+          setObrasActivas(
+            top.map((o) => ({
+              id: o.id,
+              nombre: o.nombre,
+              cliente_nombre: o.cliente_nombre ?? null,
+              direccion: o.direccion ?? null,
+              estado: o.estado ?? null,
+              fecha_inicio: o.fecha_inicio ?? null,
+              num_documentos: documentosDesdeObraApi(o),
+            }))
+          );
         }
       } catch {
         setObrasActivas([]);
-        setPresupuestosHoy([]);
       }
 
       try {
@@ -1154,6 +1093,22 @@ function DashboardContent() {
     };
   }, [dashboardLoading, gmailConectado]);
 
+  const mainClass = dashMain(isOpen);
+  const resumenGridClass = dashResumenGrid(isOpen);
+  const topBandClass = 'space-y-2';
+  const bottomBandClass = 'space-y-2';
+  const bichoClass = '';
+
+  if (isDemo) {
+    return (
+      <div className="min-h-screen bg-[#EFEADF] text-zinc-900">
+        <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
+          <DemoHoyPage onAbrirObra={abrirObra} />
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#EFEADF] text-zinc-900">
       {refreshing ? (
@@ -1228,7 +1183,7 @@ function DashboardContent() {
         }
         menuMovilAbierto={menuMovilAbierto}
         setMenuMovilAbierto={setMenuMovilAbierto}
-        active="hoy"
+        active={null}
         desktopTrailing={
           <>
             {gmailConectado ? (
@@ -1242,7 +1197,7 @@ function DashboardContent() {
               >
                 {gmailAccionLoading ? '…' : 'Gmail conectado ✓'}
               </button>
-            ) : isDemo ? null : (
+            ) : (
               <button
                 type="button"
                 onClick={conectarGmail}
@@ -1273,7 +1228,7 @@ function DashboardContent() {
               >
                 {gmailAccionLoading ? '…' : 'Gmail conectado ✓'}
               </button>
-            ) : isDemo ? null : (
+            ) : (
               <button
                 type="button"
                 onClick={() => {
@@ -1295,19 +1250,7 @@ function DashboardContent() {
         }
       />
 
-      {isDemo ? (
-        <main className="max-w-5xl mx-auto px-6 py-8">
-          <HoyDemoHome
-            loading={dashboardLoading}
-            clientes={ultimosClientes}
-            obra={hoy.obra}
-            presupuesto={hoy.presupuesto}
-            cta={hoy.cta}
-            onAbrirObra={abrirObra}
-          />
-        </main>
-      ) : (
-      <main className="max-w-7xl mx-auto px-6 py-3 lg:py-4 space-y-3 lg:space-y-3">
+      <main className={mainClass}>
         {showPushRecoveryCta ? (
           <section className="rounded-xl border border-amber-400/60 bg-amber-500/10 px-4 py-3">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1318,38 +1261,31 @@ function DashboardContent() {
             </div>
           </section>
         ) : null}
-        <section className="flex flex-col gap-0.5">
-          <h1 className="text-2xl sm:text-3xl font-bold">
+        <div className={topBandClass}>
+        <section className={dash.greetingWrap}>
+          <h1 className={dash.greeting}>
             {saludoBanner ? `${saludoBanner}, ` : ''}
             <span className="text-[#A04A2F]">{businessName}</span>
           </h1>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-            <p className="text-sm text-zinc-900/70">
-              {isDemo ? 'Estado de la obra de hoy' : 'Aquí tienes el resumen de tu negocio'}
-            </p>
+          <div className={dash.greetingRow}>
+            <p className={dash.greetingSub}>Aquí tienes el resumen de tu negocio</p>
             {!showPushRecoveryCta ? <NotificationButton /> : null}
           </div>
         </section>
 
-        <HoyHome
-          loading={dashboardLoading}
-          obra={hoy.obra}
-          presupuesto={hoy.presupuesto}
-          cta={hoy.cta}
-          onAbrirObra={abrirObra}
-        />
+        <div className={bichoClass}>
+          <BichoLivePulse />
+        </div>
+        </div>
 
-        <BichoLivePulse />
-
-        {!isDemo ? (
         <section>
           <button
             type="button"
             onClick={toggleSecResumen}
             aria-expanded={secResumenOpen}
-            className="flex w-full items-center justify-between gap-2 mb-1.5 text-left sm:pointer-events-none sm:cursor-default"
+            className={dash.sectionToggle}
           >
-            <h2 className="text-sm font-semibold text-zinc-900/60 uppercase tracking-wide">
+            <h2 className={dash.sectionTitle}>
               Resumen de hoy
             </h2>
             {secResumenOpen ? (
@@ -1364,69 +1300,69 @@ function DashboardContent() {
             }`}
           >
             <div className="min-h-0 overflow-hidden">
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
-            <div className="bg-[#E5DFD0] border border-red-500/60 rounded-xl py-2 px-3 flex flex-col gap-1">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-zinc-800 uppercase tracking-wide">
+          <div className={resumenGridClass}>
+            <div className={`${dash.resumenCard} border border-red-500/60`}>
+              <div className={dash.labelRow}>
+                <span className={dash.label}>
                   Mensajes urgentes pendientes
                 </span>
-                <AlertTriangle className="w-5 h-5 text-red-400" />
+                <AlertTriangle className={`${dash.icon} text-red-400`} />
               </div>
-              <div className="text-2xl sm:text-3xl font-bold">{counts.urgentes}</div>
+              <div className={dash.stat}>{counts.urgentes}</div>
               <button
                 type="button"
                 onClick={() => abrirUrgentes(emailsUrgentes)}
-                className="inline-flex items-center text-xs text-[#A04A2F] hover:text-[#8a3f28] mt-1 text-left"
+                className={`${dash.link} text-left`}
               >
                 Ver urgentes
                 <ArrowRight className="w-3 h-3 ml-1" />
               </button>
             </div>
 
-            <div className="bg-[#E5DFD0] border border-[#A04A2F]/60 rounded-xl py-2 px-3 flex flex-col gap-1">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-zinc-800 uppercase tracking-wide">
+            <div className={`${dash.resumenCard} border border-[#A04A2F]/60`}>
+              <div className={dash.labelRow}>
+                <span className={dash.label}>
                   Presupuestos generados
                 </span>
-                <FileText className="w-5 h-5 text-[#A04A2F]" />
+                <FileText className={`${dash.icon} text-[#A04A2F]`} />
               </div>
-              <div className="text-2xl sm:text-3xl font-bold">{counts.presupuestos}</div>
+              <div className={dash.stat}>{counts.presupuestos}</div>
               <Link
                 href="/presupuestos"
-                className="inline-flex items-center text-xs text-[#A04A2F] hover:text-[#8a3f28] mt-1"
+                className={dash.link}
               >
                 Ver presupuestos
                 <ArrowRight className="w-3 h-3 ml-1" />
               </Link>
             </div>
 
-            <div className="bg-[#E5DFD0] border border-blue-500/60 rounded-xl py-2 px-3 flex flex-col gap-1">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-zinc-800 uppercase tracking-wide">
+            <div className={`${dash.resumenCard} border border-blue-500/60`}>
+              <div className={dash.labelRow}>
+                <span className={dash.label}>
                   Albaranes pendientes
                 </span>
-                <Package className="w-5 h-5 text-blue-300" />
+                <Package className={`${dash.icon} text-blue-300`} />
               </div>
-              <div className="text-2xl sm:text-3xl font-bold">{counts.albaranesPendientes}</div>
+              <div className={dash.stat}>{counts.albaranesPendientes}</div>
               <Link
                 href="/albaranes"
-                className="inline-flex items-center text-xs text-[#A04A2F] hover:text-[#8a3f28] mt-1"
+                className={dash.link}
               >
                 Ver albaranes
                 <ArrowRight className="w-3 h-3 ml-1" />
               </Link>
             </div>
 
-            <div className="bg-[#E5DFD0] border border-emerald-500/60 rounded-xl py-2 px-3 flex flex-col gap-1">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-zinc-800 uppercase tracking-wide">
+            <div className={`${dash.resumenCard} border border-emerald-500/60`}>
+              <div className={dash.labelRow}>
+                <span className={dash.label}>
                   Facturas pendientes de cobro
                 </span>
               </div>
-              <div className="text-3xl font-bold">{counts.facturasPendientes}</div>
+              <div className={dash.stat}>{counts.facturasPendientes}</div>
               <Link
                 href="/facturas"
-                className="inline-flex items-center text-xs text-[#A04A2F] hover:text-[#8a3f28] mt-1"
+                className={dash.link}
               >
                 Ver facturas
                 <ArrowRight className="w-3 h-3 ml-1" />
@@ -1436,16 +1372,15 @@ function DashboardContent() {
             </div>
           </div>
         </section>
-        ) : null}
 
         <section>
           <button
             type="button"
             onClick={toggleSecMetricas}
             aria-expanded={secMetricasOpen}
-            className="flex w-full items-center justify-between gap-2 mb-1.5 text-left sm:pointer-events-none sm:cursor-default"
+            className={dash.sectionToggle}
           >
-            <h2 className="text-sm font-semibold text-zinc-900/60 uppercase tracking-wide">
+            <h2 className={dash.sectionTitle}>
               Métricas económicas
             </h2>
             {secMetricasOpen ? (
@@ -1460,74 +1395,75 @@ function DashboardContent() {
             }`}
           >
             <div className="min-h-0 overflow-hidden">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            {!isDemo || importePendienteCobro > 0 ? (
+          <div className={dash.metricasGrid}>
             <button
               type="button"
               onClick={() => setModalMetrica('pendiente')}
-              className="text-left bg-[#E5DFD0] border border-[#A04A2F]/60 rounded-xl py-2 px-3 flex flex-col gap-1 hover:bg-[#D4CCBC] transition-all duration-150"
+              className={dash.metricaCard}
             >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-zinc-800 uppercase tracking-wide">
+              <div className={dash.labelRow}>
+                <span className={dash.label}>
                   💰 Importe pendiente de cobro
                 </span>
               </div>
-              <div className="text-2xl font-bold font-mono text-[#A04A2F]">
+              <div className={dash.money}>
                 {dashboardLoading ? '—' : `${importePendienteCobro.toFixed(2)} €`}
               </div>
-              <span className="text-xs text-zinc-900/60">Clic para ver desglose por factura</span>
+              <span className={dash.hint}>Clic para ver desglose por factura</span>
             </button>
-            ) : null}
             <button
               type="button"
               onClick={() => setModalMetrica('presupuestado')}
-              className="text-left bg-[#E5DFD0] border border-[#A04A2F]/60 rounded-xl py-2 px-3 flex flex-col gap-1 hover:bg-[#D4CCBC] transition-all duration-150"
+              className={dash.metricaCard}
             >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-zinc-800 uppercase tracking-wide">
+              <div className={dash.labelRow}>
+                <span className={dash.label}>
                   📄 Importe total presupuestado
                 </span>
               </div>
-              <div className="text-xs text-zinc-900/80">TOTAL PRESUPUESTADO (base):</div>
-              <div className="text-lg sm:text-xl font-bold font-mono text-[#c97c5a]">
-                {dashboardLoading ? '—' : fmtEurosEs(importeTotalPresupuestado)}
+              <div className={dash.metricRow}>
+                <span className={`${dash.subLabel} ${dash.metricRowLabel}`}>TOTAL PRESUPUESTADO (base):</span>
+                <span className={`${dash.moneyBase} ${dash.metricRowValue}`}>
+                  {dashboardLoading ? '—' : fmtEurosEs(importeTotalPresupuestado)}
+                </span>
               </div>
-              <div className="text-xs text-zinc-900/90 mt-1">TOTAL CON IVA:</div>
-              <div className="text-2xl sm:text-3xl font-bold font-mono text-[#A04A2F] leading-tight">
-                {dashboardLoading ? '—' : fmtEurosEs(importeTotalConIva)}
+              <div className={dash.metricRow}>
+                <span className={`${dash.subLabelStrong} ${dash.metricRowLabel}`}>TOTAL CON IVA:</span>
+                <span className={`${dash.money} ${dash.metricRowValue}`}>
+                  {dashboardLoading ? '—' : fmtEurosEs(importeTotalConIva)}
+                </span>
               </div>
-              <span className="text-xs text-zinc-900/60">Clic para ver desglose por presupuesto</span>
+              <span className={dash.hint}>Clic para ver desglose por presupuesto</span>
             </button>
-            {!isDemo || totalMateriales > 0 ? (
             <button
               type="button"
               onClick={() => setModalMetrica('materiales')}
-              className="text-left bg-[#E5DFD0] border border-[#A04A2F]/60 rounded-xl py-2 px-3 flex flex-col gap-1 hover:bg-[#D4CCBC] transition-all duration-150"
+              className={dash.metricaCard}
             >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-zinc-800 uppercase tracking-wide">
+              <div className={dash.labelRow}>
+                <span className={dash.label}>
                   🧱 Total materiales
                 </span>
               </div>
-              <div className="text-xl sm:text-2xl font-bold font-mono text-[#A04A2F]">
+              <div className={dash.money}>
                 {dashboardLoading ? '—' : `${totalMateriales.toFixed(2)} €`}
               </div>
-              <span className="text-xs text-zinc-900/60">Clic para ver desglose</span>
+              <span className={dash.hint}>Clic para ver desglose</span>
             </button>
-            ) : null}
           </div>
             </div>
           </div>
         </section>
 
-        <section aria-label="Presupuestos, agenda y correo">
+        <div className={bottomBandClass}>
+        <section aria-label="Presupuestos, agenda y correo" className={isOpen ? undefined : 'min-w-0'}>
           <button
             type="button"
             onClick={toggleSecActividad}
             aria-expanded={secActividadOpen}
-            className="flex w-full items-center justify-between gap-2 mb-1.5 text-left sm:pointer-events-none sm:cursor-default"
+            className={dash.sectionToggle}
           >
-            <h2 className="text-sm font-semibold text-zinc-900/60 uppercase tracking-wide">
+            <h2 className={dash.sectionTitle}>
               Actividad reciente
             </h2>
             {secActividadOpen ? (
@@ -1542,29 +1478,27 @@ function DashboardContent() {
             }`}
           >
             <div className="min-h-0 overflow-hidden">
-          <div className={`grid grid-cols-1 gap-3 lg:gap-2 lg:items-stretch ${isDemo ? 'lg:grid-cols-2' : 'lg:grid-cols-3'}`}>
+          <div className={dash.actividadGrid}>
             {/* Columna: Últimos presupuestos */}
-            <div className="bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0 max-h-64">
-              <div className="flex items-center justify-between shrink-0 mb-2">
-                <h3 className="text-sm font-semibold text-zinc-900/80 uppercase tracking-wide">
+            <div className={dash.activityCard}>
+              <div className={dash.activityHead}>
+                <h3 className={dash.activityTitle}>
                   Últimos presupuestos
                 </h3>
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+              <div className={dash.activityBody}>
                 {dashboardLoading ? (
                   <p className="text-zinc-900/60 text-xs">Cargando...</p>
                 ) : ultimosPresupuestos.length === 0 ? (
-                  <p className="text-zinc-900/60 text-xs">
-                    {isDemo ? 'Cuando haya presupuestos, aparecerán aquí.' : 'Aún no hay presupuestos generados.'}
-                  </p>
+                  <p className="text-zinc-900/60 text-xs">Aún no hay presupuestos generados.</p>
                 ) : (
-                  <ul className="space-y-2 text-xs sm:text-sm">
+                  <ul className={dash.activityList}>
                     {ultimosPresupuestos.map((p) => {
                       const sub = lineaContextoPresupuestoDashboard(p);
                       return (
                       <li
                         key={p.id}
-                        className="flex items-center justify-between gap-2 border-b border-white/10 pb-1.5 last:border-b-0 last:pb-0 rounded-md hover:bg-[#D4CCBC] hover:scale-[1.01] cursor-pointer transition-all duration-150"
+                        className={dash.activityItem}
                       >
                         <div className="min-w-0">
                           <p className="font-medium truncate">
@@ -1595,10 +1529,10 @@ function DashboardContent() {
             <button
               type="button"
               onClick={abrirModalAgenda}
-              className="bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 w-full min-h-0 max-h-64 text-left cursor-pointer transition-all hover:border-[#A04A2F]/55 hover:ring-1 hover:ring-[#A04A2F]/25 focus:outline-none focus:ring-2 focus:ring-[#A04A2F]/40 group flex flex-col"
+              className={`${dash.activityCard} w-full text-left cursor-pointer transition-all hover:border-[#A04A2F]/55 hover:ring-1 hover:ring-[#A04A2F]/25 focus:outline-none focus:ring-2 focus:ring-[#A04A2F]/40 group`}
             >
-              <div className="flex items-center justify-between gap-2 shrink-0 mb-2">
-                <h3 className="text-sm font-semibold text-zinc-900/80 uppercase tracking-wide group-hover:text-zinc-900">
+              <div className={dash.activityHead}>
+                <h3 className={`${dash.activityTitle} group-hover:text-zinc-900`}>
                   Agenda
                 </h3>
                 <span
@@ -1608,15 +1542,13 @@ function DashboardContent() {
                   Ver calendario →
                 </span>
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+              <div className={dash.activityBody}>
                 {dashboardLoading ? (
                   <p className="text-zinc-900/60 text-xs">Cargando...</p>
                 ) : agendaEventos.length === 0 ? (
-                  <p className="text-zinc-900/60 text-xs">
-                    {isDemo ? 'Sin citas próximas.' : 'Sin eventos próximos'}
-                  </p>
+                  <p className="text-zinc-900/60 text-xs">Sin eventos próximos</p>
                 ) : (
-                  <ul className="space-y-2 text-xs sm:text-sm">
+                  <ul className={dash.activityList}>
                     {agendaEventos.map((ev) => {
                       const [y, mo, d] = ev.fecha.split('-').map(Number);
                       const fechaLabel = Number.isFinite(y) && Number.isFinite(mo) && Number.isFinite(d)
@@ -1630,7 +1562,7 @@ function DashboardContent() {
                       return (
                         <li
                           key={ev.id}
-                          className="flex items-start justify-between gap-2 border-b border-white/10 pb-1.5 last:border-b-0 last:pb-0 rounded-sm hover:bg-[#D4CCBC] cursor-pointer transition-colors duration-150"
+                          className={dash.agendaItem}
                         >
                           <div className="min-w-0">
                             <p className="font-medium leading-snug">{ev.titulo}</p>
@@ -1647,15 +1579,14 @@ function DashboardContent() {
               </div>
             </button>
 
-            {/* Columna: Últimos emails — oculto en demo (Gmail/TicketBAI no forman parte del flujo de 5 min) */}
-            {!isDemo ? (
-            <div className="bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0 max-h-64">
-              <div className="flex items-center justify-between shrink-0 mb-2">
-                <h3 className="text-sm font-semibold text-zinc-900/80 uppercase tracking-wide">
+            {/* Columna: Últimos emails */}
+            <div className={dash.activityCard}>
+              <div className={dash.activityHead}>
+                <h3 className={dash.activityTitle}>
                   Últimos emails
                 </h3>
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+              <div className={dash.activityBody}>
                 {!gmailConectado ? (
                   <p className="text-zinc-900/70 text-xs leading-snug">
                     Conecta Gmail desde el menú superior para ver la bandeja de entrada.
@@ -1667,11 +1598,11 @@ function DashboardContent() {
                 ) : emailsRecientes.length === 0 ? (
                   <p className="text-zinc-900/60 text-xs">No hay emails recientes.</p>
                 ) : (
-                  <ul className="space-y-1.5">
+                  <ul className={dash.activityList}>
                     {emailsRecientes.map((email, idx) => (
                       <li
                         key={`${email.fechaIso ?? ''}-${idx}`}
-                        className="border-b border-white/10 pb-1.5 last:border-b-0 last:pb-0"
+                        className="border-b border-white/10 pb-1 last:border-b-0 last:pb-0"
                       >
                         <button
                           type="button"
@@ -1714,38 +1645,35 @@ function DashboardContent() {
                   </ul>
                 )}
               </div>
-              <div className="shrink-0 mt-2 pt-2 border-t border-white/10">
+              <div className={dash.widgetFooter}>
                 <button
                   type="button"
-                  className="text-xs sm:text-sm font-medium text-[#A04A2F] hover:text-[#c97c5a] transition-colors"
+                  className={dash.widgetFooterLink}
                 >
                   Ver todos
                 </button>
               </div>
             </div>
-            ) : null}
           </div>
             </div>
           </div>
         </section>
 
-        <section aria-label="Diario de obra y clientes" className="w-full">
-          <div className="w-full grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-4 lg:max-w-full">
-            <div className="bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0">
-              <div className="flex items-center justify-between shrink-0 mb-1.5">
-                <h3 className="text-sm font-semibold text-zinc-900/80 uppercase tracking-wide">
+        <section aria-label="Diario de obra y clientes" className={isOpen ? 'w-full' : 'w-full min-w-0'}>
+          <div className={dash.widgetsGrid}>
+            <div className={dash.widgetCard}>
+              <div className={dash.activityHead}>
+                <h3 className={dash.activityTitle}>
                   ÚLTIMAS ENTRADAS DIARIO
                 </h3>
               </div>
-              <div className="min-h-0 max-h-40 overflow-y-auto overscroll-contain">
+              <div className={dash.widgetScroll}>
                 {dashboardLoading ? (
                   <p className="text-zinc-900/60 text-xs">Cargando...</p>
                 ) : ultimasEntradasDiario.length === 0 ? (
-                  <p className="text-zinc-900/60 text-xs">
-                    {isDemo ? 'Sin notas de obra por ahora.' : 'Sin entradas en el diario todavía'}
-                  </p>
+                  <p className="text-zinc-900/60 text-xs">Sin entradas en el diario todavía</p>
                 ) : (
-                  <ul className="space-y-1.5 text-xs sm:text-sm">
+                  <ul className={dash.widgetList}>
                     {ultimasEntradasDiario.map((e) => (
                       <li key={e.id}>
                         <button
@@ -1755,7 +1683,7 @@ function DashboardContent() {
                               `/diario?obra=${encodeURIComponent(e.obra_nombre)}`
                             )
                           }
-                          className="w-full text-left rounded-md px-1.5 py-1.5 -mx-1.5 -my-0.5 border-b border-white/10 last:border-b-0 hover:bg-[#D4CCBC] hover:scale-[1.01] cursor-pointer transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#A04A2F]/70"
+                          className="w-full text-left rounded-md px-1.5 py-1 -mx-1.5 -my-0.5 border-b border-white/10 last:border-b-0 hover:bg-[#D4CCBC] hover:scale-[1.01] cursor-pointer transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#A04A2F]/70"
                         >
                           <p className="font-bold text-zinc-900 truncate">{e.obra_nombre}</p>
                           <p className="text-[11px] sm:text-xs text-zinc-900/60 tabular-nums mt-0.5">
@@ -1764,7 +1692,7 @@ function DashboardContent() {
                               timeStyle: 'short',
                             })}
                           </p>
-                          <p className="text-zinc-900/80 text-[11px] sm:text-xs mt-0.5 line-clamp-2">
+                          <p className="text-zinc-900/80 text-[11px] sm:text-xs mt-0.5 line-clamp-1">
                             {extractoDiario(e.texto)}
                           </p>
                         </button>
@@ -1773,33 +1701,31 @@ function DashboardContent() {
                   </ul>
                 )}
               </div>
-              <div className="shrink-0 mt-2 pt-2 border-t border-white/10">
+              <div className={dash.widgetFooter}>
                 <Link
                   href="/diario"
-                  className="inline-flex items-center text-xs sm:text-sm font-medium text-[#A04A2F] hover:text-[#c97c5a] transition-colors"
+                  className={dash.widgetFooterLink}
                 >
                   Ver diario completo →
                 </Link>
               </div>
             </div>
 
-            <div className="bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0">
-              <div className="flex items-center justify-between shrink-0 mb-1.5">
-                <h3 className="text-sm font-semibold text-zinc-900/80 uppercase tracking-wide">
+            <div className={dash.widgetCard}>
+              <div className={dash.activityHead}>
+                <h3 className={dash.activityTitle}>
                   Obras activas
                 </h3>
               </div>
-              <div className="min-h-0 max-h-40 overflow-y-auto overscroll-contain">
+              <div className={dash.widgetScroll}>
                 {dashboardLoading ? (
                   <p className="text-zinc-900/60 text-xs">Cargando...</p>
                 ) : obrasActivas.length === 0 ? (
                   <p className="text-zinc-900/60 text-xs leading-snug">
-                    {isDemo
-                      ? 'Cuando haya una obra abierta, aparecerá aquí.'
-                      : 'No hay obras activas. Crea una nueva desde el agente o desde /obras'}
+                    No hay obras activas. Crea una nueva desde el agente o desde /obras
                   </p>
                 ) : (
-                  <ul className="space-y-1.5 text-xs sm:text-sm">
+                  <ul className={dash.widgetList}>
                     {obrasActivas.map((o) => {
                       const eb = estadoObraBadgeClass(o.estado);
                       const dirTrunc =
@@ -1809,12 +1735,12 @@ function DashboardContent() {
                       return (
                       <li
                         key={o.id}
-                        className="border-b border-white/10 pb-1.5 last:border-b-0 last:pb-0"
+                        className="border-b border-white/10 pb-1 last:border-b-0 last:pb-0"
                       >
                         <button
                           type="button"
                           onClick={() => abrirObra(o.id)}
-                          className="w-full text-left rounded-md px-1.5 py-1.5 -m-1 hover:bg-[#D4CCBC] hover:scale-[1.01] cursor-pointer transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#A04A2F]/70"
+                          className="w-full text-left rounded-md px-1.5 py-1 -m-1 hover:bg-[#D4CCBC] hover:scale-[1.01] cursor-pointer transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#A04A2F]/70"
                         >
                           <div className="flex items-start justify-between gap-2">
                             <p className="font-bold text-zinc-900 truncate min-w-0">{o.nombre}</p>
@@ -1846,42 +1772,40 @@ function DashboardContent() {
                   </ul>
                 )}
               </div>
-              <div className="shrink-0 mt-2 pt-2 border-t border-white/10">
+              <div className={dash.widgetFooter}>
                 <Link
                   href="/obras"
-                  className="inline-flex items-center text-xs sm:text-sm font-medium text-[#A04A2F] hover:text-[#c97c5a] transition-colors"
+                  className={dash.widgetFooterLink}
                 >
                   Ver todas →
                 </Link>
               </div>
             </div>
 
-            <div className="bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0">
-              <div className="flex items-center justify-between shrink-0 mb-1.5">
-                <h3 className="text-sm font-semibold text-zinc-900/80 uppercase tracking-wide">
+            <div className={dash.widgetCard}>
+              <div className={dash.activityHead}>
+                <h3 className={dash.activityTitle}>
                   CLIENTES
                 </h3>
               </div>
-              <div className="min-h-0 max-h-40 overflow-y-auto overscroll-contain">
+              <div className={dash.widgetScroll}>
                 {dashboardLoading ? (
                   <p className="text-zinc-900/60 text-xs">Cargando...</p>
                 ) : ultimosClientes.length === 0 ? (
-                  <p className="text-zinc-900/60 text-xs">
-                    {isDemo ? 'Todavía no hay fichas de cliente.' : 'Aún no hay clientes registrados'}
-                  </p>
+                  <p className="text-zinc-900/60 text-xs">Aún no hay clientes registrados</p>
                 ) : (
-                  <ul className="space-y-1.5 text-xs sm:text-sm">
+                  <ul className={dash.widgetList}>
                     {ultimosClientes.map((c) => (
                       <li
                         key={c.id}
-                        className="border-b border-white/10 pb-1.5 last:border-b-0 last:pb-0"
+                        className="border-b border-white/10 pb-1 last:border-b-0 last:pb-0"
                       >
                         <button
                           type="button"
                           onClick={() =>
                             router.push(`/clientes/${encodeURIComponent(c.id)}`)
                           }
-                          className="w-full text-left rounded-md px-1.5 py-1.5 -m-1 hover:bg-[#D4CCBC] hover:scale-[1.01] cursor-pointer transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#A04A2F]/70"
+                          className="w-full text-left rounded-md px-1.5 py-1 -m-1 hover:bg-[#D4CCBC] hover:scale-[1.01] cursor-pointer transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#A04A2F]/70"
                         >
                           <p className="font-bold text-zinc-900 truncate min-w-0">{c.nombre}</p>
                           <p className="text-[11px] sm:text-xs text-zinc-900/70 mt-0.5">
@@ -1894,10 +1818,10 @@ function DashboardContent() {
                   </ul>
                 )}
               </div>
-              <div className="shrink-0 mt-2 pt-2 border-t border-white/10">
+              <div className={dash.widgetFooter}>
                 <Link
                   href="/clientes"
-                  className="inline-flex items-center text-xs sm:text-sm font-medium text-[#A04A2F] hover:text-[#c97c5a] transition-colors"
+                  className={dash.widgetFooterLink}
                 >
                   Ver todos →
                 </Link>
@@ -1905,6 +1829,7 @@ function DashboardContent() {
             </div>
           </div>
         </section>
+        </div>
 
         {modalAgendaAbierto && (
           <div
@@ -2244,7 +2169,6 @@ function DashboardContent() {
           </div>
         )}
       </main>
-      )}
     </div>
   );
 }

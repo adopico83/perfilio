@@ -97,6 +97,7 @@ describe('POST /api/agente — Fase A anti-alucinación', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    delete process.env.JEV_API_KEY;
     (createClient as jest.Mock).mockResolvedValue({
       auth: {
         getUser: jest.fn().mockResolvedValue({ data: { user: { id: 'user-1' } } }),
@@ -129,15 +130,27 @@ describe('POST /api/agente — Fase A anti-alucinación', () => {
     return POST(req);
   }
 
-  it('con borrador activo siempre llama al router y no fuerza presupuesto', async () => {
+  it('con borrador activo Jev clasifica horas y no fuerza presupuesto', async () => {
     const borrador = makeThenableResult({
       data: [{ id: 'borrador-1' }],
       error: null,
     });
     mockServiceFrom({ presupuesto_borrador: borrador });
 
+    process.env.JEV_API_KEY = 'jev-test-key';
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          model: 'jev-latest',
+          answers: {
+            intent: { type: 'choice', choice: 'horas', confidence: 0.93 },
+          },
+        }),
+        { status: 200 }
+      )
+    );
+
     createMock
-      .mockResolvedValueOnce({ choices: [{ message: { content: 'operarios' } }] })
       .mockResolvedValueOnce({
         choices: [{ message: { content: '¿De qué operario quieres las horas?' } }],
       })
@@ -148,14 +161,16 @@ describe('POST /api/agente — Fase A anti-alucinación', () => {
     const res = await postAgente('Registra 8 horas de Juan en la obra Norte');
     expect(res.status).toBe(200);
 
+    expect(fetchMock).toHaveBeenCalled();
+    const jevInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const jevBody = JSON.parse(String(jevInit.body));
+    expect(jevBody.questions.intent.type).toBe('choice');
+    expect(jevBody.state).toMatch(/borrador de presupuesto/i);
+
     expect(createMock).toHaveBeenCalled();
-    const routerParams = openaiCallParams(createMock, 0);
-    expect(routerParams.tools).toBeUndefined();
-    expect(routerParams.temperature).toBe(0);
-    const routerSystem = String(
-      (routerParams.messages as Array<{ role: string; content?: string }>)[0]?.content ?? ''
-    );
-    expect(routerSystem).toMatch(/borrador de presupuesto/i);
+    const agentFirst = openaiCallParams(createMock, 0);
+    expect(agentFirst.temperature).toBe(0);
+    expect(Array.isArray(agentFirst.tools)).toBe(true);
 
     const agentCall = findOpenAiCallWithTools(createMock);
     expect(agentCall).not.toBeNull();
@@ -172,7 +187,6 @@ describe('POST /api/agente — Fase A anti-alucinación', () => {
   it('usa temperature 0 en el path con tools y ~0.7 en la prosa final', async () => {
     mockServiceFrom();
     createMock
-      .mockResolvedValueOnce({ choices: [{ message: { content: 'general' } }] })
       .mockResolvedValueOnce(toolCallMessage('listar_operarios', '{}'))
       .mockResolvedValueOnce({
         choices: [{ message: { content: 'Estos son los operarios.' } }],
@@ -191,15 +205,11 @@ describe('POST /api/agente — Fase A anti-alucinación', () => {
     const res = await postAgente('Lista los operarios');
     expect(res.status).toBe(200);
 
-    const routerParams = openaiCallParams(createMock, 0);
-    expect(routerParams.temperature).toBe(0);
-    expect(routerParams.tools).toBeUndefined();
-
     const agentCall = findOpenAiCallWithTools(createMock);
     expect(agentCall?.params.temperature).toBe(AGENTE_TOOLS_TEMPERATURE);
     expect(agentCall?.params.temperature).toBeLessThanOrEqual(0.2);
 
-    const finalParams = openaiCallParams(createMock, 2);
+    const finalParams = openaiCallParams(createMock, 1);
     expect(finalParams.tools).toBeUndefined();
     expect(finalParams.temperature).toBe(AGENTE_PROSA_TEMPERATURE);
   });
@@ -222,7 +232,6 @@ describe('POST /api/agente — Fase A anti-alucinación', () => {
     });
 
     createMock
-      .mockResolvedValueOnce({ choices: [{ message: { content: 'clientes' } }] })
       .mockResolvedValueOnce(
         toolCallMessage('crear_cliente', JSON.stringify({ nombre: 'Cliente Test' }))
       )
@@ -232,7 +241,7 @@ describe('POST /api/agente — Fase A anti-alucinación', () => {
 
     const res = await postAgente('Crea el cliente Cliente Test');
     expect(res.status).toBe(200);
-    expect(createMock).toHaveBeenCalledTimes(3);
+    expect(createMock).toHaveBeenCalledTimes(2);
 
     for (const call of createMock.mock.calls) {
       const params = call[0] as { messages?: Array<{ role: string; content?: unknown }> };
@@ -265,7 +274,6 @@ describe('POST /api/agente — Fase A anti-alucinación', () => {
   it('reintenta una sola vez con tool_choice required si parece acción y no hay tool_calls', async () => {
     mockServiceFrom();
     createMock
-      .mockResolvedValueOnce({ choices: [{ message: { content: 'operarios' } }] })
       .mockResolvedValueOnce({
         choices: [{ message: { content: 'Voy a registrar las horas.' } }],
       })
@@ -286,9 +294,9 @@ describe('POST /api/agente — Fase A anti-alucinación', () => {
 
     const res = await postAgente('Registra las horas de Juan en la obra Norte');
     expect(res.status).toBe(200);
-    expect(createMock).toHaveBeenCalledTimes(4);
+    expect(createMock).toHaveBeenCalledTimes(3);
 
-    const retryParams = openaiCallParams(createMock, 2);
+    const retryParams = openaiCallParams(createMock, 1);
     expect(retryParams.tool_choice).toBe('required');
     expect(retryParams.temperature).toBe(AGENTE_TOOLS_TEMPERATURE);
 
@@ -298,17 +306,15 @@ describe('POST /api/agente — Fase A anti-alucinación', () => {
 
   it('un saludo no dispara tools ni reintento', async () => {
     mockServiceFrom();
-    createMock
-      .mockResolvedValueOnce({ choices: [{ message: { content: 'general' } }] })
-      .mockResolvedValueOnce({
-        choices: [{ message: { content: 'Aupa, ¿en qué te ayudo?' } }],
-      });
+    createMock.mockResolvedValueOnce({
+      choices: [{ message: { content: 'Aupa, ¿en qué te ayudo?' } }],
+    });
 
     const res = await postAgente('Hola');
     expect(res.status).toBe(200);
-    expect(createMock).toHaveBeenCalledTimes(2);
+    expect(createMock).toHaveBeenCalledTimes(1);
 
-    const agentParams = openaiCallParams(createMock, 1);
+    const agentParams = openaiCallParams(createMock, 0);
     expect(agentParams.tool_choice).toBe('auto');
     expect(Array.isArray(agentParams.tools)).toBe(true);
 

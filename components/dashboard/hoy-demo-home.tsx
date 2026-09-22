@@ -3,6 +3,8 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
+import DemoCalendarioCard from '@/components/dashboard/demo-calendario-card';
+import DemoPresupuestoTotalCard from '@/components/dashboard/demo-presupuesto-total-card';
 import {
   lineaCalleBarrio,
   partidasVisiblesHoy,
@@ -171,6 +173,11 @@ export default function HoyDemoHome({
           </Card>
         </div>
       )}
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <DemoPresupuestoTotalCard />
+        <DemoCalendarioCard />
+      </div>
     </section>
   );
 }

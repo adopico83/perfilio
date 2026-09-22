@@ -22,7 +22,7 @@ Documento orientado a mentor técnico: inventario de lo **implementado y operati
 
 ### Agente IA (tools y capacidades)
 
-- **Endpoint principal**: `POST /api/agente` (`app/api/agente/route.ts`) — modelo OpenAI con **router de intención** (una llamada clasifica en `documentos | emails | agenda | gastos | diario | clientes | calculo | general`) y segunda pasada con **subconjunto de tools** según la categoría (reduce tokens y ruido).
+- **Endpoint principal**: `POST /api/agente` (`app/api/agente/route.ts`) — TypeSafe Jev clasifica la intención (`presupuesto | factura | diario | horas | gastos | obras | clientes | correo | agenda | general`; confianza por debajo de 0.7 o fallo → `general`) y el orquestador OpenAI hace una segunda pasada con **subconjunto de tools** según la categoría interna (reduce tokens y ruido).
 - **Contexto en system prompt**: perfil de negocio (Supabase `business_profiles`), fecha/hora, ciudad para meteo, eventos agenda (primer mensaje), bloque **memoria del negocio** (`memoria_negocio`), listados dinámicos de **obras abiertas/en curso** y **últimos clientes** (últimas 10 / 10).
 - **Mensajes multimodales**: texto + **imagen** (data URL / base64) para visión en el turno del usuario (tickets, fotos); compresión en cliente en `agent-sidebar.tsx` para adjuntos.
 - **Historial y persistencia**: `conversation_history` en Supabase; API `app/api/agente/conversaciones/route.ts` para listar conversaciones por usuario/negocio.

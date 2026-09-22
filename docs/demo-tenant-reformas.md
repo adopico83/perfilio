@@ -102,8 +102,8 @@ Si la cabecera muestra el negocio demo pero clientes/obras dicen «No tienes acc
 Orden de producto: **Hoy → obra → presupuesto** (shell con nav izquierda).
 
 1. **Login** con `demo-reformas@perfilio.app` (no Pino).
-2. **Shell**: barra lateral izquierda con Dashboard / Clientes / Obras / Presupuestos / Agente IA. Top bar mínima (nombre del negocio + salir). El agente **no** ocupa la derecha hasta pulsar Agente IA.
-3. **Hoy** (`/dashboard`): tres cards — clientes, obra en curso («Reforma piso»), presupuesto pendiente — y un CTA **Presupuesto de esta obra**. Sin métricas, urgentes, Gmail ni TicketBAI.
+2. **Shell**: barra lateral izquierda con Dashboard y los destinos del nav de Pino (Mensajes, Presupuestos, Albaranes, Facturas, Gastos, Diario, Obras, Clientes, Operarios) más Agente IA. Top bar mínima (nombre del negocio + salir). El agente **no** ocupa la derecha hasta pulsar Agente IA. Pino sigue con el nav superior.
+3. **Hoy** (`/dashboard`): cards de clientes, obra en curso («Reforma piso») y presupuesto pendiente, más **importe total presupuestado** (base / con IVA y desglose) y **agenda** con calendario de reuniones. Sin urgentes, Gmail ni TicketBAI.
 4. **Clientes** (`/clientes`):
    - Ainhoa Etxeberria (obra + presupuesto).
    - Iker Agirre (solo ficha, para que el listado no quede en uno).
@@ -131,8 +131,9 @@ No hace falta TicketBAI, visor 3D ni crear documentos nuevos en la demo corta. E
 | `clientes` | 2 | Ainhoa Etxeberria, Iker Agirre |
 | `obras` | 1 | «Reforma piso», `estado = abierta`, `cliente_id` = Ainhoa |
 | `presupuestos` | 1 | `obra_id` + `cliente_id`; partidas en `presupuesto_generado` |
+| `agenda` | 3 | Visita de obra, mediciones y revisión de presupuesto, fechas relativas a `current_date` |
 
-No inserta facturas, albaranes, gastos, diario, tarifas de tabla `tarifas`, ni `presupuesto_borrador`. No escribe en el negocio de Pino.
+No inserta facturas, albaranes, gastos, diario, tarifas de tabla `tarifas`, ni `presupuesto_borrador`. No escribe en el negocio de Pino. Reejecutar el seed refresca las tres reuniones demo (borra y vuelve a crear solo esos títulos en este negocio).
 
 ## Supuestos de schema (bloqueo declarado)
 

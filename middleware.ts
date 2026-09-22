@@ -17,6 +17,10 @@ export async function middleware(request: NextRequest) {
     return supabaseResponse;
   }
 
+  if (pathname.startsWith('/api/mcp')) {
+    return supabaseResponse;
+  }
+
   if (pathname.startsWith('/api/lista-espera-notificacion')) {
     return supabaseResponse;
   }

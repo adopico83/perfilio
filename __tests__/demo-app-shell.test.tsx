@@ -21,7 +21,7 @@ jest.mock('@/app/dashboard/logout-button', () => ({
 }));
 
 describe('DemoAppShell', () => {
-  it('renderiza nav izquierda del mock (Dashboard, Clientes, Obras, Presupuestos, Agente IA)', async () => {
+  it('renderiza nav izquierda con los destinos de Pino y Agente IA', async () => {
     render(
       <AgentSidebarProvider>
         <DemoAppShell businessName="Reformas Demo Errenteria">
@@ -32,10 +32,19 @@ describe('DemoAppShell', () => {
 
     const nav = screen.getByRole('navigation', { name: 'Demo' });
     expect(nav).toHaveTextContent('Dashboard');
-    expect(nav).toHaveTextContent('Clientes');
-    expect(nav).toHaveTextContent('Obras');
+    expect(nav).toHaveTextContent('Mensajes');
     expect(nav).toHaveTextContent('Presupuestos');
+    expect(nav).toHaveTextContent('Albaranes');
+    expect(nav).toHaveTextContent('Facturas');
+    expect(nav).toHaveTextContent('Gastos');
+    expect(nav).toHaveTextContent('Diario');
+    expect(nav).toHaveTextContent('Obras');
+    expect(nav).toHaveTextContent('Clientes');
+    expect(nav).toHaveTextContent('Operarios');
     expect(nav).toHaveTextContent('Agente IA');
+    expect(screen.getByRole('link', { name: 'Mensajes' })).toHaveAttribute('href', '/mensajes');
+    expect(screen.getByRole('link', { name: 'Albaranes' })).toHaveAttribute('href', '/albaranes');
+    expect(screen.getByRole('link', { name: 'Operarios' })).toHaveAttribute('href', '/operarios');
     expect(screen.getByText('contenido hoy')).toBeInTheDocument();
     const skyline = screen.getAllByTestId('demo-skyline')[0];
     expect(skyline).toBeInTheDocument();

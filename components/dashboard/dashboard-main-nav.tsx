@@ -6,7 +6,6 @@ import ToggleAgenteNavButton from '@/components/dashboard/toggle-agente-nav-butt
 import { useDemoTenant } from '@/lib/use-demo-tenant';
 
 export type DashboardNavActive =
-  | 'hoy'
   | 'mensajes'
   | 'presupuestos'
   | 'albaranes'
@@ -18,7 +17,6 @@ export type DashboardNavActive =
   | 'operarios';
 
 const NAV_ITEMS: { key: DashboardNavActive; href: string; label: string }[] = [
-  { key: 'hoy', href: '/dashboard', label: 'Hoy' },
   { key: 'mensajes', href: '/mensajes', label: 'Mensajes' },
   { key: 'presupuestos', href: '/presupuestos', label: 'Presupuestos' },
   { key: 'albaranes', href: '/albaranes', label: 'Albaranes' },
@@ -30,7 +28,7 @@ const NAV_ITEMS: { key: DashboardNavActive; href: string; label: string }[] = [
   { key: 'operarios', href: '/operarios', label: 'Operarios' },
 ];
 
-const PRIMARY_ORDER: DashboardNavActive[] = ['hoy', 'obras', 'diario'];
+const PRIMARY_ORDER: DashboardNavActive[] = ['obras', 'operarios', 'diario'];
 const MORE_KEYS = new Set<DashboardNavActive>([
   'mensajes',
   'presupuestos',
@@ -38,7 +36,6 @@ const MORE_KEYS = new Set<DashboardNavActive>([
   'facturas',
   'gastos',
   'clientes',
-  'operarios',
 ]);
 
 function itemMeta(key: DashboardNavActive) {
@@ -151,7 +148,6 @@ export default function DashboardMainNav({
 }) {
   const closeMobile = () => setMenuMovilAbierto(false);
   const isDemo = useDemoTenant();
-
   if (isDemo) return null;
 
   const agenteBtnClassCompact =
@@ -161,7 +157,7 @@ export default function DashboardMainNav({
 
   return (
     <div className="border-b border-white/10 bg-[#EFEADF]/95 backdrop-blur">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center gap-3 min-w-0">
+      <div className="flex w-full items-center gap-3 min-w-0 px-4 sm:px-6 py-4">
         {brand}
         {betweenBrandAndMenu ?? null}
         <button
@@ -223,7 +219,7 @@ export default function DashboardMainNav({
       </div>
 
       {menuMovilAbierto ? (
-        <div className="md:hidden max-w-7xl mx-auto px-6 pb-4">
+        <div className="md:hidden w-full px-4 sm:px-6 pb-4">
           <div className="bg-[#E5DFD0] border border-white/10 rounded-xl p-4 flex flex-col gap-3">
             {NAV_ITEMS.map((item) => {
               const isActive = active === item.key;

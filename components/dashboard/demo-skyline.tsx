@@ -5,7 +5,7 @@ export default function DemoSkyline() {
   return (
     <div className="mt-auto w-full px-3 pb-3 pt-6 select-none" data-testid="demo-skyline">
       <img
-        src="/demo/skyline-errenteria.svg"
+        src="/demo/skyline-errenteria.png"
         alt=""
         width={276}
         height={237}

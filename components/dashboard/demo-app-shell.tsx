@@ -3,39 +3,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Building2, FileText, LayoutDashboard, Sparkles, Users, X } from 'lucide-react';
+import { Sparkles, X } from 'lucide-react';
 import AgentSidebar from '@/components/dashboard/agent-sidebar';
+import { DEMO_NAV_ITEMS } from '@/components/dashboard/demo-nav';
 import DemoSkyline from '@/components/dashboard/demo-skyline';
 import { useAgentSidebar } from '@/contexts/agent-sidebar-context';
 import LogoutButton from '@/app/dashboard/logout-button';
-
-const SIDEBAR_ITEMS: { href: string; label: string; icon: typeof LayoutDashboard; match: (path: string) => boolean }[] =
-  [
-    {
-      href: '/dashboard',
-      label: 'Dashboard',
-      icon: LayoutDashboard,
-      match: (p) => p === '/dashboard' || p === '/',
-    },
-    {
-      href: '/clientes',
-      label: 'Clientes',
-      icon: Users,
-      match: (p) => p.startsWith('/clientes'),
-    },
-    {
-      href: '/obras',
-      label: 'Obras',
-      icon: Building2,
-      match: (p) => p.startsWith('/obras'),
-    },
-    {
-      href: '/presupuestos',
-      label: 'Presupuestos',
-      icon: FileText,
-      match: (p) => p.startsWith('/presupuestos'),
-    },
-  ];
 
 function navItemClass(active: boolean): string {
   return [
@@ -58,8 +31,8 @@ function SidebarNav({
   onNavigate: () => void;
 }) {
   return (
-    <nav className="flex flex-col gap-1 px-3" aria-label="Demo">
-      {SIDEBAR_ITEMS.map((item) => {
+    <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-3" aria-label="Demo">
+      {DEMO_NAV_ITEMS.map((item) => {
         const Icon = item.icon;
         const active = item.match(pathname);
         return (
@@ -104,7 +77,7 @@ export default function DemoAppShell({
   return (
     <div className="min-h-screen bg-[#EFEADF] text-zinc-900">
       <div className="flex min-h-screen">
-        <aside className="hidden md:flex w-56 shrink-0 flex-col border-r border-zinc-400/30 bg-[#E5DFD0]">
+        <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-zinc-400/30 bg-[#E5DFD0] md:flex">
           <div className="px-5 py-5">
             <Link href="/dashboard" className="block font-bold text-lg tracking-tight text-zinc-900">
               Perfilio
@@ -164,7 +137,7 @@ export default function DemoAppShell({
             aria-label="Cerrar menú"
             onClick={() => setMobileNavOpen(false)}
           />
-          <div className="absolute left-0 top-0 bottom-0 w-64 bg-[#E5DFD0] shadow-xl flex flex-col">
+          <div className="absolute left-0 top-0 bottom-0 flex w-64 flex-col overflow-hidden bg-[#E5DFD0] shadow-xl">
             <div className="flex items-center justify-between px-4 py-4 border-b border-zinc-400/30">
               <span className="font-bold text-zinc-900">Perfilio</span>
               <button
@@ -176,7 +149,7 @@ export default function DemoAppShell({
                 <X className="size-5" />
               </button>
             </div>
-            <div className="py-3">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden py-3">
               <SidebarNav
                 pathname={pathname}
                 agenteOpen={isOpen}

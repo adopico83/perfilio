@@ -96,12 +96,6 @@ describe('POST /api/agente — extras', () => {
     };
   }
 
-  function mockRouterGeneral() {
-    return {
-      choices: [{ message: { content: 'general' } }],
-    };
-  }
-
   function toolPayloadFromFinal(toolName: string): unknown {
     return toolPayloadFromFinalCompletion(createMock, toolName);
   }
@@ -118,7 +112,6 @@ describe('POST /api/agente — extras', () => {
       presupuesto_parent_id: 'parent-uuid-1',
     };
     createMock
-      .mockResolvedValueOnce(mockRouterGeneral())
       .mockResolvedValueOnce(toolCallMessage('registrar_extra', JSON.stringify(extraArgs)))
       .mockResolvedValueOnce({
         choices: [{ message: { content: 'Listo.' } }],
@@ -199,7 +192,6 @@ describe('POST /api/agente — extras', () => {
 
   it('listar_extras devuelve lista filtrada por es_extra=true', async () => {
     createMock
-      .mockResolvedValueOnce(mockRouterGeneral())
       .mockResolvedValueOnce(toolCallMessage('listar_extras', '{}'))
       .mockResolvedValueOnce({
         choices: [{ message: { content: 'Aquí tienes los extras.' } }],

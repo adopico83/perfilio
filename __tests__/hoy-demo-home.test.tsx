@@ -5,6 +5,24 @@ import '@testing-library/jest-dom';
 import { render, screen } from '@testing-library/react';
 import HoyDemoHome from '@/components/dashboard/hoy-demo-home';
 
+jest.mock('@/components/providers/session-provider', () => ({
+  useSession: () => ({
+    businessId: null,
+    user: null,
+    businessName: 'Reformas Demo Errenteria',
+    loading: false,
+    isAuthenticated: true,
+    isInitialized: true,
+    hasTimeoutError: false,
+  }),
+}));
+
+jest.mock('@/lib/supabase/client', () => ({
+  createClient: () => {
+    throw new Error('la home demo de test no debe consultar Supabase');
+  },
+}));
+
 const SEED_PRESUPUESTO = [
   'PRESUPUESTO PARA Ainhoa Etxeberria',
   '',
@@ -71,7 +89,6 @@ describe('HoyDemoHome', () => {
     expect(screen.getByText('Pintura')).toBeInTheDocument();
     expect(screen.getByText('Cocina y acabados')).toBeInTheDocument();
     expect(screen.getByText('Limpieza')).toBeInTheDocument();
-    expect(screen.getByText(/Total/)).toBeInTheDocument();
     expect(screen.getByText(/11[.\s]?803,55/)).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Presupuesto de esta obra/i })).toHaveAttribute(
@@ -79,5 +96,8 @@ describe('HoyDemoHome', () => {
       '/presupuestos?id=pre-1'
     );
     expect(screen.queryByText(/0 clientes/i)).not.toBeInTheDocument();
+    expect(screen.getByText('Importe total presupuestado')).toBeInTheDocument();
+    expect(screen.getByText('Agenda')).toBeInTheDocument();
+    expect(screen.getByText('Ver calendario')).toBeInTheDocument();
   });
 });

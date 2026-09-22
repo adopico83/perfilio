@@ -15,35 +15,64 @@ export type AgentIntentCategory =
   | 'presupuesto'
   | 'general';
 
-export const ROUTER_SYSTEM_PROMPT = `Eres un clasificador de intención (una sola categoría de salida).
+/** Categorías cerradas que Jev puede elegir. No genera texto. */
+export const JEV_INTENT_CATEGORIES = [
+  'presupuesto',
+  'factura',
+  'diario',
+  'horas',
+  'gastos',
+  'obras',
+  'clientes',
+  'correo',
+  'agenda',
+  'general',
+] as const;
 
-PRIORIDAD DE SEÑALES EXPLÍCITAS (aplica la primera categoría coherente; no mezcles con otras salvo ambigüedad real):
-- operarios: registrar o consultar horas de trabajo en obra, control de horas, horas de obra, horas de operarios, parte de horas, fichar jornada, convenio vs horas reales, "cuántas horas llevamos", etc. Incluye frases típicas: "registrar horas", "horas de obra", "control de horas", "jornada" (en sentido laboral en obra).
-- diario: diario de obra, anotar en obra, incidencias o apuntes del día en obra, entrada del diario, "foto de obra" como registro de obra (no ticket de compra), PDF del diario, texto del diario. Incluye: "diario de obra", "anotar en obra", "foto de obra" (contexto obra).
-- documentos: listar o consultar obras del negocio («qué obras tengo abiertas», obras en curso, obras activas, listar obras). NO es presupuesto ni clientes: no inicies un borrador. Usa buscar_obra.
-- presupuesto: presupuesto, partidas, líneas del presupuesto, "añadir al presupuesto", importes por partida, listar o editar presupuestos, pendientes de presupuesto, cambiar estado de presupuesto, convertir presupuesto a albarán, confirmar o cancelar borrador de presupuesto, obtener borrador activo, presupuesto por voz cuando el foco es el importe/partidas (no confundir con horas, diario ni con listar obras abiertas).
+export type JevIntentCategory = (typeof JEV_INTENT_CATEGORIES)[number];
 
-Borrador de presupuesto en construcción (si el sistema te avisa de que existe):
-- Solo debe sesgar hacia presupuesto cuando el mensaje sea ambiguo, muy corto sin tema claro, o siga claramente el hilo del presupuesto (partidas, importes, confirmaciones del borrador).
-- NUNCA fuerces presupuesto por tener borrador activo si el usuario habla de horas/jornada/operarios, de diario de obra/fotos/anotaciones en obra, o de listar/consultar obras abiertas («qué obras tengo»): en esos casos la salida es operarios, diario o documentos.
-- "cancelar presupuesto" o "salir del presupuesto" → presupuesto (gestión del flujo de presupuesto).
+/**
+ * Jev habla el vocabulario de producto. El orquestador sigue filtrando tools
+ * con las categorías internas que ya existían.
+ */
+export const JEV_TO_AGENT_INTENT: Record<JevIntentCategory, AgentIntentCategory> = {
+  presupuesto: 'presupuesto',
+  factura: 'documentos',
+  diario: 'diario',
+  horas: 'operarios',
+  gastos: 'gastos',
+  obras: 'documentos',
+  clientes: 'clientes',
+  correo: 'emails',
+  agenda: 'agenda',
+  general: 'general',
+};
 
-Mensajes muy cortos (sí, no, vale, ok, adelante, genial, perfecto, etc.):
-- Debes basarte en el ÚLTIMO mensaje del asistente que recibes en el historial inmediato antes del mensaje del usuario. Si el asistente preguntaba por horas u operarios → operarios; si por diario/fotos/anotación en obra → diario; si por presupuesto, partidas o confirmación del borrador → presupuesto. Si no hay pista clara, entonces aplica la regla del borrador activo solo si aplica como mensaje ambiguo.
+export const JEV_SYSTEMONE_URL = 'https://api.typesafe.ai/v1/systemone';
+export const JEV_INTENT_MODEL = 'jev-latest';
+/** Por debajo de este umbral (o si Jev no responde) el agente usa la categoría segura. */
+export const JEV_INTENT_CONFIDENCE_MIN = 0.7;
+const JEV_INTENT_TIMEOUT_MS = 2000;
 
-Responde SOLO con una palabra en minúsculas, sin comillas ni puntuación:
-documentos | emails | agenda | gastos | diario | clientes | calculo | operarios | presupuesto | general
+const JEV_INTENT_CRITERIA: Record<JevIntentCategory, string> = {
+  presupuesto:
+    'Presupuesto, partidas, borrador, confirmar o cancelar un presupuesto, importes por partida. No horas, diario ni listar obras.',
+  factura: 'Facturas o albaranes: listar, estados, editar, crear o convertir entre albarán y factura.',
+  diario: 'Diario de obra, anotaciones, incidencias o foto de registro en obra. No un ticket de compra.',
+  horas: 'Horas de operarios, jornada, fichar, parte de horas o control de horas en obra.',
+  gastos: 'Ticket, gasto, foto de compra, registrar, modificar o vincular un gasto.',
+  obras:
+    'Obras del negocio: listar abiertas, crear, ficha, actualizar o asociar documentos a una obra. No es un presupuesto.',
+  clientes: 'Ficha, búsqueda o historial de un cliente. No crear una obra.',
+  correo: 'Correo electrónico: leer la bandeja o enviar un email.',
+  agenda: 'Recordatorios, citas, calendario o el tiempo meteorológico para una visita.',
+  general: 'Saludo, cálculo de medidas, memoria del negocio, varias áreas a la vez o petición ambigua.',
+};
 
-documentos: listar u consultar obras abiertas/en curso (buscar_obra), crear obra con cliente nuevo o existente (crear_obra + crear_cliente + actualizar_obra), facturas, albaranes, vincular documentos a una obra (asociar_documentos_a_obra), crear o actualizar obra (crear_obra, actualizar_obra), extras/modificados/imprevistos en obra, dictado de visita y presupuesto estructurado (generar_presupuesto_por_dictado, gestionar_tarifas), crear presupuesto ya redactado (crear_presupuesto), estados de facturas/albaranes, edición de facturas/albaranes, conversiones albarán↔factura, tiempo en obra.
-presupuesto: ya detallado arriba cuando el foco es presupuesto/partidas/borrador de presupuesto (no operarios ni diario).
-emails: Gmail, leer bandeja, enviar correo.
-agenda: recordatorios, citas, eventos en calendario, tiempo meteorológico para obras o citas.
-gastos: ticket, OCR, foto de compra, registrar gasto, vincular gasto.
-diario: ya detallado arriba (diario de obra y registro en obra).
-clientes: consultar ficha de cliente, buscar cliente, historial de cliente. NO usar para crear obras ni clientes nuevos.
-calculo: metros cuadrados, m³, perímetro, dimensiones de obra.
-operarios: ya detallado arriba (horas y jornada en obra).
-general: saludos, varias áreas a la vez, mensajes pendientes del negocio, meteorología o tiempo, extras o imprevistos en obra (registrar_extra), vincular documentos a una obra, actualizar datos de obra (cliente, dirección, estado, actualizar_obra), memoria del negocio (guardar_memoria, eliminar_memoria), o petición ambigua sin encaje claro.`;
+export type AgentIntentRouterContext = {
+  borradorActivo?: boolean;
+  ultimoAsistente?: string;
+};
 
 export const INTENT_TOOL_NAMES_DOCUMENTOS = new Set([
   'obtener_facturas_pendientes',
@@ -166,12 +195,7 @@ export const INTENT_TOOL_NAMES_PRESUPUESTO = new Set([
   'eliminar_memoria',
 ]);
 
-/** Sesgo de borrador activo: no pisa listados de obras ni horas/diario. */
-export const ROUTER_BORRADOR_ACTIVO_PREFIX = `CONTEXTO: Hay un borrador de presupuesto en construcción (estado en_construccion). Úsalo solo como sesgo hacia intención presupuesto cuando el mensaje del usuario sea ambiguo o siga claramente el hilo del presupuesto/partidas/confirmación del borrador. NO fuerces presupuesto si el mensaje trata de horas de operarios, jornada, control de horas, diario de obra, anotaciones en obra, fotos de obra en sentido de registro de obra, ni de listar o consultar obras abiertas/en curso («qué obras tengo»): en esos casos clasifica operarios, diario o documentos.
-
-`;
-
-/** Señales que el LLM no debe pisar (p. ej. listar obras ≠ presupuesto). */
+/** Señales que el clasificador no debe pisar (p. ej. listar obras ≠ presupuesto). */
 export function intentPorSenalExplicita(mensaje: string): AgentIntentCategory | null {
   if (pareceConsultaListadoObras(mensaje)) return 'documentos';
   return null;
@@ -197,28 +221,76 @@ export const INTENT_TOOL_NAMES: Record<AgentIntentCategory, Set<string> | null> 
   general: null,
 };
 
-export function parseAgentIntentCategory(raw: string): AgentIntentCategory {
-  const allowed: AgentIntentCategory[] = [
-    'documentos',
-    'emails',
-    'agenda',
-    'gastos',
-    'diario',
-    'clientes',
-    'calculo',
-    'operarios',
-    'presupuesto',
-    'general',
-  ];
-  const trimmed = raw.trim().toLowerCase();
-  const first = trimmed.split(/[\s,.;]+/)[0] ?? '';
-  if (allowed.includes(first as AgentIntentCategory)) {
-    return first as AgentIntentCategory;
+export function mapJevChoiceToAgentIntent(choice: unknown, confidence: unknown): AgentIntentCategory {
+  const score = typeof confidence === 'number' ? confidence : Number.NaN;
+  if (!(score >= JEV_INTENT_CONFIDENCE_MIN)) return 'general';
+  const key = String(choice ?? '').trim().toLowerCase();
+  if (!(JEV_INTENT_CATEGORIES as readonly string[]).includes(key)) return 'general';
+  return JEV_TO_AGENT_INTENT[key as JevIntentCategory];
+}
+
+/** Estado corto: el mensaje y, si el turno ya lo conoce, borrador activo y último asistente. */
+export function buildJevIntentState(mensaje: string, context?: AgentIntentRouterContext): string {
+  const texto = mensaje.trim() || '(sin texto)';
+  const parts = [`Mensaje del usuario:\n${texto}`];
+  if (context?.borradorActivo) {
+    parts.push(
+      'Contexto: hay un borrador de presupuesto en construcción. Sesga a presupuesto solo si el mensaje es ambiguo o sigue ese hilo. No lo hagas si habla de horas, diario de obra o de listar obras.'
+    );
   }
-  for (const c of allowed) {
-    if (trimmed.includes(c)) return c;
+  const ultimo = context?.ultimoAsistente?.trim();
+  if (ultimo) {
+    parts.push(`Último mensaje del asistente:\n${ultimo.slice(0, 500)}`);
   }
-  return 'general';
+  return parts.join('\n\n');
+}
+
+type JevChoiceAnswer = {
+  type?: string;
+  choice?: unknown;
+  confidence?: unknown;
+};
+
+/**
+ * Clasifica el mensaje con TypeSafe Jev (question `choice`).
+ * Fail-closed: sin key, red, HTTP o confidence < 0.7 → `general`.
+ */
+export async function parseAgentIntentCategory(
+  mensaje: string,
+  context?: AgentIntentRouterContext
+): Promise<AgentIntentCategory> {
+  const apiKey = process.env.JEV_API_KEY?.trim() ?? '';
+  if (!apiKey) return 'general';
+
+  try {
+    const res = await fetch(JEV_SYSTEMONE_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: JEV_INTENT_MODEL,
+        state: buildJevIntentState(mensaje, context),
+        questions: {
+          intent: {
+            type: 'choice',
+            instructions:
+              'Elige la única categoría del mensaje de un encargado de obra. Usa solo una de las opciones.',
+            criteria: JEV_INTENT_CRITERIA,
+          },
+        },
+      }),
+      signal: AbortSignal.timeout(JEV_INTENT_TIMEOUT_MS),
+    });
+    if (!res.ok) return 'general';
+    const data = (await res.json()) as { answers?: { intent?: JevChoiceAnswer } };
+    const answer = data.answers?.intent;
+    if (!answer || answer.type !== 'choice') return 'general';
+    return mapJevChoiceToAgentIntent(answer.choice, answer.confidence);
+  } catch {
+    return 'general';
+  }
 }
 
 export function toolsForAgentIntent(

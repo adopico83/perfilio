@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { AlertTriangle, FileText, PauseCircle } from 'lucide-react';
+import { dash } from '@/components/dashboard/dashboard-density';
 
 type InsightRow = {
   id?: string;
@@ -102,21 +103,19 @@ function InsightIcon({ kind }: { kind: InsightKind }) {
 
 function BichoPulseSkeleton() {
   return (
-    <section className="h-auto rounded-xl border border-zinc-400/50 bg-[#E5DFD0]/70 p-2 shadow-lg backdrop-blur-md">
-      <div className="mb-2 flex items-center justify-between gap-2">
+    <section className={dash.pulseSkeleton}>
+      <div className={dash.pulseHead}>
         <div className="h-3 w-28 animate-pulse rounded bg-white/10" />
         <div className="h-3 w-14 animate-pulse rounded-full bg-white/10" />
       </div>
-      <div className="flex gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-3 sm:overflow-visible sm:pb-0">
+      <div className={dash.pulseGrid}>
         {Array.from({ length: 3 }).map((_, idx) => (
           <div
             key={idx}
-            className="min-w-[8.25rem] flex-1 rounded-lg border border-zinc-400/30 bg-white/[0.04] p-2"
+            className="min-w-[8.25rem] flex-1 rounded-md border border-zinc-400/30 bg-white/[0.04] px-2 py-1"
           >
-            <div className="mb-1.5 h-3 w-10 animate-pulse rounded bg-white/10" />
-            <div className="mb-1.5 h-5 w-12 animate-pulse rounded bg-white/10" />
-            <div className="h-2 w-full animate-pulse rounded bg-white/10" />
-            <div className="mt-1 h-2 w-2/3 animate-pulse rounded bg-white/10" />
+            <div className="mb-1 h-3 w-16 animate-pulse rounded bg-white/10" />
+            <div className="h-2.5 w-full animate-pulse rounded bg-white/10" />
           </div>
         ))}
       </div>
@@ -186,25 +185,25 @@ export default function BichoLivePulse({ hideWhenEmpty = false }: { hideWhenEmpt
   if (hideWhenEmpty && visibleInsights.length === 0) return null;
 
   return (
-    <section className="h-auto rounded-xl border border-zinc-400/50 bg-[#E5DFD0]/75 p-2 shadow-lg backdrop-blur-md">
-      <div className="mb-2 flex items-center justify-between gap-2">
+    <section className={dash.pulse}>
+      <div className={dash.pulseHead}>
         <div className="flex min-w-0 items-center gap-1.5">
-          <span className="size-2 shrink-0 rounded-full bg-[#A04A2F] animate-pulse shadow-[0_0_12px_rgba(237,137,54,0.9)]" />
-          <h2 className="truncate text-xs font-semibold uppercase tracking-wide text-zinc-600">
+          <span className="size-1.5 shrink-0 rounded-full bg-[#A04A2F] animate-pulse shadow-[0_0_12px_rgba(237,137,54,0.9)]" />
+          <h2 className={dash.pulseTitle}>
             El Bicho activo
           </h2>
         </div>
-        <span className="shrink-0 rounded-full border border-[#A04A2F]/35 bg-[#A04A2F]/10 px-2 py-0.5 text-xs font-medium text-zinc-900">
+        <span className={dash.pulseBadge}>
           {visibleInsights.length} pendientes
         </span>
       </div>
 
       {visibleInsights.length === 0 ? (
-        <div className="rounded-lg border border-zinc-400/30 bg-white/[0.04] p-2 text-xs text-zinc-600">
+        <div className={dash.pulseEmpty}>
           No hay avisos pendientes ahora mismo.
         </div>
       ) : (
-        <div className="flex gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-3 sm:overflow-visible sm:pb-0">
+        <div className={dash.pulseGrid}>
           {visibleInsights.map((insight, idx) => {
             const kind = insightKind(insight);
             const text = insightText(insight);
@@ -214,14 +213,14 @@ export default function BichoLivePulse({ hideWhenEmpty = false }: { hideWhenEmpt
               <Link
                 key={key}
                 href={insightHref(insight, kind)}
-                className="flex min-w-[8.25rem] flex-1 cursor-pointer flex-col rounded-lg border border-zinc-400/30 bg-white/[0.04] p-2 transition hover:border-[#A04A2F]/40 hover:bg-white/[0.06] hover:brightness-110"
+                className={dash.pulseCard}
               >
-                <div className="mb-1 flex min-w-0 items-center gap-1 text-xs font-semibold text-zinc-700">
+                <div className={dash.pulseKind}>
                   <InsightIcon kind={kind} />
                   <span className="truncate">{kindLabel(kind)}</span>
                 </div>
 
-                <p className="line-clamp-2 text-xs leading-snug text-zinc-600">{text}</p>
+                <p className={dash.pulseText}>{text}</p>
               </Link>
             );
           })}
