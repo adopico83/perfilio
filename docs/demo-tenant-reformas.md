@@ -99,16 +99,17 @@ Si la cabecera muestra el negocio demo pero clientes/obras dicen «No tienes acc
 
 ## 4. Checklist demo 5 min (prospect Orbegozo)
 
-Orden de producto: **cliente → obra → presupuesto**.
+Orden de producto: **Hoy → obra → presupuesto** (shell con nav izquierda).
 
 1. **Login** con `demo-reformas@perfilio.app` (no Pino).
-2. **Dashboard**: negocio «Reformas Demo Errenteria»; aparece 1 obra activa y el presupuesto reciente.
-3. **Clientes** (`/clientes`):
+2. **Shell**: barra lateral izquierda con Dashboard y los destinos del nav de Pino (Mensajes, Presupuestos, Albaranes, Facturas, Gastos, Diario, Obras, Clientes, Operarios) más Agente IA. Top bar mínima (nombre del negocio + salir). El agente **no** ocupa la derecha hasta pulsar Agente IA. Pino sigue con el nav superior.
+3. **Hoy** (`/dashboard`): cards de clientes, obra en curso («Reforma piso») y presupuesto pendiente, más **importe total presupuestado** (base / con IVA y desglose) y **agenda** con calendario de reuniones. Sin urgentes, Gmail ni TicketBAI.
+4. **Clientes** (`/clientes`):
    - Ainhoa Etxeberria (obra + presupuesto).
    - Iker Agirre (solo ficha, para que el listado no quede en uno).
    - Nombres vascos genéricos, teléfonos/emails `@example.com` inventados.
-4. **Obras** (`/obras`): «Reforma piso», estado **abierta**, dirección en Errenteria, cliente Ainhoa.
-5. **Presupuestos** (`/presupuestos`): abrir el de Ainhoa. Partidas:
+4. **Obras** (`/obras` o ficha desde Hoy): «Reforma piso», estado **abierta**, dirección en Errenteria, cliente Ainhoa. Chips del agente: «Añade partida», «Envía presupuesto» (rellenan el chat; no densifican `app/api/agente/route.ts`).
+5. **Presupuestos** (`/presupuestos`): abrir el de Ainhoa (CTA de Hoy o `?id=`). Partidas:
    - Demolición (tabiquería / alicatados)
    - Fontanería (baño)
    - Electricidad (cuadro y puntos)
@@ -116,7 +117,8 @@ Orden de producto: **cliente → obra → presupuesto**.
    - Cocina y acabados
    - Limpieza final
    - Totales: base 9.755,00 € + IVA 21 % 2.048,55 € = **11.803,55 €** (PV orientativo).
-6. Opcional, agente: «lista mis clientes», « enséñame la obra Reforma piso», «presupuesto de Ainhoa». El sector del perfil es reformas, no aluminio.
+   - Mismos chips de agente en el modal.
+6. Opcional, agente: «lista mis clientes», «enséñame la obra Reforma piso», «presupuesto de Ainhoa». El sector del perfil es reformas, no aluminio.
 
 No hace falta TicketBAI, visor 3D ni crear documentos nuevos en la demo corta. El presupuesto ya está en estado `pendiente` para poder mostrarlo (y, si apetece, marcarlo aceptado).
 
@@ -129,8 +131,9 @@ No hace falta TicketBAI, visor 3D ni crear documentos nuevos en la demo corta. E
 | `clientes` | 2 | Ainhoa Etxeberria, Iker Agirre |
 | `obras` | 1 | «Reforma piso», `estado = abierta`, `cliente_id` = Ainhoa |
 | `presupuestos` | 1 | `obra_id` + `cliente_id`; partidas en `presupuesto_generado` |
+| `agenda` | 3 | Visita de obra, mediciones y revisión de presupuesto, fechas relativas a `current_date` |
 
-No inserta facturas, albaranes, gastos, diario, tarifas de tabla `tarifas`, ni `presupuesto_borrador`. No escribe en el negocio de Pino.
+No inserta facturas, albaranes, gastos, diario, tarifas de tabla `tarifas`, ni `presupuesto_borrador`. No escribe en el negocio de Pino. Reejecutar el seed refresca las tres reuniones demo (borra y vuelve a crear solo esos títulos en este negocio).
 
 ## Supuestos de schema (bloqueo declarado)
 

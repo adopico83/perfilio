@@ -17,6 +17,7 @@ import { History, Loader2, Paperclip, Pause, Pencil, Trash2, Video, X } from 'lu
 import ReactMarkdown from 'react-markdown';
 import { isDiarioPdfDownloadLink } from '@/lib/diario-pdf-link';
 import { useCanvas } from '@/contexts/canvas-context';
+import { useAgentSidebar } from '@/contexts/agent-sidebar-context';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import { PresupuestoBorradorCanvas } from '@/components/presupuesto-borrador-canvas';
 import { usePathname } from 'next/navigation';
@@ -542,6 +543,7 @@ function ConversacionListRow({
 
 export default function AgentSidebar() {
   const { abrirCanvas } = useCanvas();
+  const { pendingPrompt, consumePendingPrompt } = useAgentSidebar();
   const pathname = usePathname();
   const { businessId, user, loading: sessionLoading } = useSession();
   const [collapsed, setCollapsed] = useState(false);
@@ -576,6 +578,14 @@ export default function AgentSidebar() {
 
   const [mensaje, setMensaje] = useState('');
   const [historial, setHistorial] = useState<ChatMessage[]>([]);
+
+  useEffect(() => {
+    if (!pendingPrompt) return;
+    setMensaje(pendingPrompt);
+    setCollapsed(false);
+    setMobileOpen(true);
+    consumePendingPrompt();
+  }, [pendingPrompt, consumePendingPrompt]);
   const [conversationId, setConversationId] = useState('');
   const [conversaciones, setConversaciones] = useState<ConversationSummaryItem[]>([]);
   const [panelConversacionesAbierto, setPanelConversacionesAbierto] = useState(false);

@@ -123,7 +123,7 @@ function BichoPulseSkeleton() {
   );
 }
 
-export default function BichoLivePulse() {
+export default function BichoLivePulse({ hideWhenEmpty = false }: { hideWhenEmpty?: boolean }) {
   const [insights, setInsights] = useState<InsightRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -180,7 +180,9 @@ export default function BichoLivePulse() {
     return deduped;
   }, [insights]);
 
-  if (loading) return <BichoPulseSkeleton />;
+  if (loading) return hideWhenEmpty ? null : <BichoPulseSkeleton />;
+
+  if (hideWhenEmpty && visibleInsights.length === 0) return null;
 
   return (
     <section className={dash.pulse}>

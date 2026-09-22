@@ -2,10 +2,22 @@
 
 import type { ReactNode } from 'react';
 import AgentSidebar from './agent-sidebar';
+import DemoAppShell from './demo-app-shell';
 import { useAgentSidebar } from '@/contexts/agent-sidebar-context';
+import { useSession } from '@/components/providers/session-provider';
+import { isDemoReformasTenant } from '@/lib/demo-tenant';
 
 export default function DashboardShell({ children }: { children: ReactNode }) {
   const { isOpen } = useAgentSidebar();
+  const { user, businessName } = useSession();
+  const isDemo = isDemoReformasTenant({
+    businessName,
+    email: user?.email,
+  });
+
+  if (isDemo) {
+    return <DemoAppShell businessName={businessName}>{children}</DemoAppShell>;
+  }
 
   return (
     <div className="min-h-screen bg-[#EFEADF] text-zinc-900">
@@ -27,4 +39,3 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
     </div>
   );
 }
-

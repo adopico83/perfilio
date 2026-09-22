@@ -23,8 +23,10 @@ import { useObraModal } from '@/contexts/obra-modal-context';
 import BichoLivePulse from '@/components/dashboard/BichoLivePulse';
 import { dash, dashMain, dashResumenGrid } from '@/components/dashboard/dashboard-density';
 import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
+import DemoHoyPage from '@/components/dashboard/demo-hoy-page';
 import NotificationButton from '@/components/pwa/notification-button';
 import { useSession } from '@/components/providers/session-provider';
+import { isDemoReformasTenant } from '@/lib/demo-tenant';
 import { getBusinessIdClient } from '@/lib/supabase/get-business-id';
 
 interface ResumenCounts {
@@ -266,6 +268,11 @@ function DashboardContent() {
   const { abrirEmail, abrirUrgentes } = useEmailModal();
   const { abrirObra } = useObraModal();
   const { isOpen } = useAgentSidebar();
+  const { user, businessName: sessionBusinessName } = useSession();
+  const isDemo = isDemoReformasTenant({
+    businessName: sessionBusinessName,
+    email: user?.email,
+  });
   const router = useRouter();
   const supabase = useMemo(
     () =>
@@ -1091,6 +1098,16 @@ function DashboardContent() {
   const topBandClass = 'space-y-2';
   const bottomBandClass = 'space-y-2';
   const bichoClass = '';
+
+  if (isDemo) {
+    return (
+      <div className="min-h-screen bg-[#EFEADF] text-zinc-900">
+        <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
+          <DemoHoyPage onAbrirObra={abrirObra} />
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#EFEADF] text-zinc-900">

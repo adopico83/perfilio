@@ -393,6 +393,44 @@ begin
     raise notice 'presupuesto actualizado: % (total % €)', v_presupuesto_id, v_total;
   end if;
 
+  -- Reuniones próximas para la card de calendario del shell demo.
+  -- Solo columnas del CREATE TABLE de agenda; el resto tiene default en prod.
+  -- Idempotente por título dentro de ESTE negocio (no toca otras agendas).
+  if to_regclass('public.agenda') is not null then
+    delete from public.agenda a
+    where a.business_id = v_business_id
+      and a.titulo in (
+        'Visita de obra — Ainhoa Etxeberria',
+        'Reunión de mediciones — Iker Agirre',
+        'Revisión del presupuesto'
+      );
+
+    insert into public.agenda (business_id, titulo, fecha, hora, completado)
+    values
+      (
+        v_business_id,
+        'Visita de obra — Ainhoa Etxeberria',
+        current_date + 1,
+        '10:00',
+        false
+      ),
+      (
+        v_business_id,
+        'Reunión de mediciones — Iker Agirre',
+        current_date + 3,
+        '17:30',
+        false
+      ),
+      (
+        v_business_id,
+        'Revisión del presupuesto',
+        current_date + 6,
+        '09:30',
+        false
+      );
+    raise notice 'agenda demo: 3 reuniones a partir de %', current_date;
+  end if;
+
   raise notice '---';
   raise notice 'Seed demo reformas OK';
   raise notice 'Auth user: % (%)', demo_user_id, v_auth_email;

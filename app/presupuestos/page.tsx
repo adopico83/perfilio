@@ -7,6 +7,7 @@ import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import ReactMarkdown from 'react-markdown';
 import { X } from 'lucide-react';
 import { useObraModal } from '@/contexts/obra-modal-context';
+import AgenteContextChips, { chipsPresupuesto } from '@/components/dashboard/agente-context-chips';
 import { type ObrasNombreJoin, nombreObraDesdeJoin } from '@/lib/obras-nombre-join';
 
 interface Presupuesto {
@@ -378,6 +379,12 @@ function PresupuestosPageContent() {
               >
                 {modalItem.presupuesto_generado ?? ''}
               </ReactMarkdown>
+            </div>
+            <div className="px-4 pb-2">
+              <AgenteContextChips
+                chips={chipsPresupuesto(modalObraNombre)}
+                onBeforeSuggest={cerrarModal}
+              />
             </div>
             <div className="p-4 border-t border-zinc-400/40 flex flex-wrap gap-2">
               {(modalItem.estado ?? 'borrador') === 'borrador' && (
