@@ -102,16 +102,16 @@ function InsightIcon({ kind }: { kind: InsightKind }) {
 
 function BichoPulseSkeleton() {
   return (
-    <section className="h-auto rounded-xl border border-zinc-400/50 bg-[#E5DFD0]/70 p-2 shadow-lg backdrop-blur-md">
-      <div className="mb-2 flex items-center justify-between gap-2">
+    <section className="h-auto rounded-xl border border-zinc-400/50 bg-[#E5DFD0]/70 p-1.5 shadow-lg backdrop-blur-md">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
         <div className="h-3 w-28 animate-pulse rounded bg-white/10" />
         <div className="h-3 w-14 animate-pulse rounded-full bg-white/10" />
       </div>
-      <div className="flex gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-3 sm:overflow-visible sm:pb-0">
+      <div className="flex gap-1.5 overflow-x-auto pb-0.5 sm:grid sm:grid-cols-3 sm:overflow-visible sm:pb-0">
         {Array.from({ length: 3 }).map((_, idx) => (
           <div
             key={idx}
-            className="min-w-[8.25rem] flex-1 rounded-lg border border-zinc-400/30 bg-white/[0.04] p-2"
+            className="min-w-[8.25rem] flex-1 rounded-lg border border-zinc-400/30 bg-white/[0.04] p-1.5"
           >
             <div className="mb-1.5 h-3 w-10 animate-pulse rounded bg-white/10" />
             <div className="mb-1.5 h-5 w-12 animate-pulse rounded bg-white/10" />
@@ -184,8 +184,8 @@ export default function BichoLivePulse() {
   if (loading) return <BichoPulseSkeleton />;
 
   return (
-    <section className="h-auto rounded-xl border border-zinc-400/50 bg-[#E5DFD0]/75 p-2 shadow-lg backdrop-blur-md">
-      <div className="mb-2 flex items-center justify-between gap-2">
+    <section className="h-auto rounded-xl border border-zinc-400/50 bg-[#E5DFD0]/75 p-1.5 shadow-lg backdrop-blur-md">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1.5">
           <span className="size-2 shrink-0 rounded-full bg-[#A04A2F] animate-pulse shadow-[0_0_12px_rgba(237,137,54,0.9)]" />
           <h2 className="truncate text-xs font-semibold uppercase tracking-wide text-zinc-600">
@@ -198,11 +198,11 @@ export default function BichoLivePulse() {
       </div>
 
       {visibleInsights.length === 0 ? (
-        <div className="rounded-lg border border-zinc-400/30 bg-white/[0.04] p-2 text-xs text-zinc-600">
+        <div className="rounded-lg border border-zinc-400/30 bg-white/[0.04] p-1.5 text-xs text-zinc-600">
           No hay avisos pendientes ahora mismo.
         </div>
       ) : (
-        <div className="flex gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-3 sm:overflow-visible sm:pb-0">
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5 sm:grid sm:grid-cols-3 sm:overflow-visible sm:pb-0">
           {visibleInsights.map((insight, idx) => {
             const kind = insightKind(insight);
             const text = insightText(insight);
@@ -212,7 +212,7 @@ export default function BichoLivePulse() {
               <Link
                 key={key}
                 href={insightHref(insight, kind)}
-                className="flex min-w-[8.25rem] flex-1 cursor-pointer flex-col rounded-lg border border-zinc-400/30 bg-white/[0.04] p-2 transition hover:border-[#A04A2F]/40 hover:bg-white/[0.06] hover:brightness-110"
+                className="flex min-w-[8.25rem] flex-1 cursor-pointer flex-col rounded-lg border border-zinc-400/30 bg-white/[0.04] p-1.5 transition hover:border-[#A04A2F]/40 hover:bg-white/[0.06] hover:brightness-110"
               >
                 <div className="mb-1 flex min-w-0 items-center gap-1 text-xs font-semibold text-zinc-700">
                   <InsightIcon kind={kind} />
