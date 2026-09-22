@@ -9,20 +9,20 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-[#EFEADF] text-zinc-900">
-      <div className="flex min-h-screen">
-        <div className="flex-1 min-w-0">{children}</div>
-        {isOpen && (
-          <div className="hidden lg:block w-[25%] min-w-[320px] max-w-[420px]">
+      <div className="flex w-full min-h-screen">
+        <div className={isOpen ? 'min-w-0 flex-1' : 'min-w-0 w-full flex-1'}>{children}</div>
+        {isOpen ? (
+          <div className="hidden lg:block shrink-0 w-[25%] min-w-[320px] max-w-[420px]">
             <div className="sticky top-0 h-screen">
               <AgentSidebar />
             </div>
           </div>
-        )}
-        {isOpen && (
+        ) : null}
+        {isOpen ? (
           <div className="lg:hidden">
             <AgentSidebar />
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
