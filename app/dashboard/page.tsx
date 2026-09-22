@@ -17,6 +17,7 @@ import {
   Pencil,
   Trash2,
 } from 'lucide-react';
+import { useAgentSidebar } from '@/contexts/agent-sidebar-context';
 import { useEmailModal } from '@/contexts/email-modal-context';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import BichoLivePulse from '@/components/dashboard/BichoLivePulse';
@@ -263,6 +264,7 @@ function DashboardSkeleton() {
 function DashboardContent() {
   const { abrirEmail, abrirUrgentes } = useEmailModal();
   const { abrirObra } = useObraModal();
+  const { isOpen } = useAgentSidebar();
   const router = useRouter();
   const supabase = useMemo(
     () =>
@@ -1083,6 +1085,66 @@ function DashboardContent() {
     };
   }, [dashboardLoading, gmailConectado]);
 
+  const mainClass = isOpen
+    ? 'max-w-7xl mx-auto px-6 py-3 lg:py-4 space-y-3'
+    : 'w-full max-w-none px-6 py-3 lg:py-2 space-y-3 lg:space-y-1.5';
+  const topBandClass = isOpen
+    ? 'space-y-3'
+    : 'space-y-3 lg:grid lg:grid-cols-12 lg:items-center lg:gap-2 lg:space-y-0';
+  const greetingClass = isOpen ? 'flex flex-col gap-0.5' : 'flex flex-col gap-0.5 lg:col-span-4 min-w-0';
+  const headingClass = isOpen
+    ? 'text-2xl sm:text-3xl font-bold'
+    : 'text-2xl sm:text-3xl lg:text-xl font-bold lg:leading-tight';
+  const bichoClass = isOpen ? '' : 'lg:col-span-8 min-w-0';
+  const resumenGridClass = isOpen
+    ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2'
+    : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-1.5';
+  const statCardPad = isOpen
+    ? 'rounded-xl py-2 px-3 flex flex-col gap-1'
+    : 'rounded-xl py-2 px-3 lg:py-1.5 lg:px-2 flex flex-col gap-1 lg:gap-0.5';
+  const statNumberClass = isOpen
+    ? 'text-2xl sm:text-3xl font-bold'
+    : 'text-2xl sm:text-3xl lg:text-xl font-bold lg:leading-none';
+  const facturasNumberClass = isOpen
+    ? 'text-3xl font-bold'
+    : 'text-3xl lg:text-xl font-bold lg:leading-none';
+  const metricGridClass = isOpen
+    ? 'grid grid-cols-1 sm:grid-cols-3 gap-2'
+    : 'grid grid-cols-1 sm:grid-cols-3 gap-2 lg:gap-1.5';
+  const metricCardClass = isOpen
+    ? 'text-left bg-[#E5DFD0] border border-[#A04A2F]/60 rounded-xl py-2 px-3 flex flex-col gap-1 hover:bg-[#D4CCBC] transition-all duration-150'
+    : 'text-left bg-[#E5DFD0] border border-[#A04A2F]/60 rounded-xl py-2 px-3 lg:py-1.5 lg:px-2 flex flex-col gap-1 lg:gap-0.5 hover:bg-[#D4CCBC] transition-all duration-150';
+  const ivaNumberClass = isOpen
+    ? 'text-2xl sm:text-3xl font-bold font-mono text-[#A04A2F] leading-tight'
+    : 'text-2xl sm:text-3xl lg:text-xl font-bold font-mono text-[#A04A2F] leading-tight';
+  const materialesNumberClass = isOpen
+    ? 'text-xl sm:text-2xl font-bold font-mono text-[#A04A2F]'
+    : 'text-xl sm:text-2xl lg:text-lg font-bold font-mono text-[#A04A2F] lg:leading-tight';
+  const sectionTitleBtnClass =
+    'flex w-full items-center justify-between gap-2 mb-1.5 text-left sm:pointer-events-none sm:cursor-default' +
+    (isOpen ? '' : ' lg:mb-1');
+  const bottomBandClass = isOpen
+    ? 'space-y-3'
+    : 'space-y-3 lg:grid lg:grid-cols-2 lg:gap-2 lg:space-y-0 lg:items-start';
+  const actividadGridClass = isOpen
+    ? 'grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-2 lg:items-stretch'
+    : 'grid grid-cols-1 lg:grid-cols-3 gap-2 lg:gap-1.5 lg:items-stretch';
+  const actividadCardClass =
+    'bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0 ' +
+    (isOpen ? 'max-h-64' : 'max-h-64 lg:max-h-36 lg:p-2');
+  const agendaCardClass = isOpen
+    ? 'bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 w-full min-h-0 max-h-64 text-left cursor-pointer transition-all hover:border-[#A04A2F]/55 hover:ring-1 hover:ring-[#A04A2F]/25 focus:outline-none focus:ring-2 focus:ring-[#A04A2F]/40 group flex flex-col'
+    : 'bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 lg:p-2 w-full min-h-0 max-h-64 lg:max-h-36 text-left cursor-pointer transition-all hover:border-[#A04A2F]/55 hover:ring-1 hover:ring-[#A04A2F]/25 focus:outline-none focus:ring-2 focus:ring-[#A04A2F]/40 group flex flex-col';
+  const diarioGridClass = isOpen
+    ? 'w-full grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-4 lg:max-w-full'
+    : 'w-full grid grid-cols-1 lg:grid-cols-3 gap-2 lg:gap-1.5 lg:max-w-full';
+  const diarioListClass = isOpen
+    ? 'min-h-0 max-h-40 overflow-y-auto overscroll-contain'
+    : 'min-h-0 max-h-40 lg:max-h-24 overflow-y-auto overscroll-contain';
+  const diarioCardClass = isOpen
+    ? 'bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0'
+    : 'bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 lg:p-2 flex flex-col min-h-0';
+
   return (
     <div className="min-h-screen bg-[#EFEADF] text-zinc-900">
       {refreshing ? (
@@ -1224,7 +1286,7 @@ function DashboardContent() {
         }
       />
 
-      <main className="max-w-7xl mx-auto px-6 py-3 lg:py-4 space-y-3 lg:space-y-3">
+      <main className={mainClass}>
         {showPushRecoveryCta ? (
           <section className="rounded-xl border border-amber-400/60 bg-amber-500/10 px-4 py-3">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1235,8 +1297,9 @@ function DashboardContent() {
             </div>
           </section>
         ) : null}
-        <section className="flex flex-col gap-0.5">
-          <h1 className="text-2xl sm:text-3xl font-bold">
+        <div className={topBandClass}>
+        <section className={greetingClass}>
+          <h1 className={headingClass}>
             {saludoBanner ? `${saludoBanner}, ` : ''}
             <span className="text-[#A04A2F]">{businessName}</span>
           </h1>
@@ -1246,14 +1309,17 @@ function DashboardContent() {
           </div>
         </section>
 
-        <BichoLivePulse />
+        <div className={bichoClass}>
+          <BichoLivePulse />
+        </div>
+        </div>
 
         <section>
           <button
             type="button"
             onClick={toggleSecResumen}
             aria-expanded={secResumenOpen}
-            className="flex w-full items-center justify-between gap-2 mb-1.5 text-left sm:pointer-events-none sm:cursor-default"
+            className={sectionTitleBtnClass}
           >
             <h2 className="text-sm font-semibold text-zinc-900/60 uppercase tracking-wide">
               Resumen de hoy
@@ -1270,15 +1336,15 @@ function DashboardContent() {
             }`}
           >
             <div className="min-h-0 overflow-hidden">
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
-            <div className="bg-[#E5DFD0] border border-red-500/60 rounded-xl py-2 px-3 flex flex-col gap-1">
+          <div className={resumenGridClass}>
+            <div className={`bg-[#E5DFD0] border border-red-500/60 ${statCardPad}`}>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-zinc-800 uppercase tracking-wide">
                   Mensajes urgentes pendientes
                 </span>
                 <AlertTriangle className="w-5 h-5 text-red-400" />
               </div>
-              <div className="text-2xl sm:text-3xl font-bold">{counts.urgentes}</div>
+              <div className={statNumberClass}>{counts.urgentes}</div>
               <button
                 type="button"
                 onClick={() => abrirUrgentes(emailsUrgentes)}
@@ -1289,14 +1355,14 @@ function DashboardContent() {
               </button>
             </div>
 
-            <div className="bg-[#E5DFD0] border border-[#A04A2F]/60 rounded-xl py-2 px-3 flex flex-col gap-1">
+            <div className={`bg-[#E5DFD0] border border-[#A04A2F]/60 ${statCardPad}`}>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-zinc-800 uppercase tracking-wide">
                   Presupuestos generados
                 </span>
                 <FileText className="w-5 h-5 text-[#A04A2F]" />
               </div>
-              <div className="text-2xl sm:text-3xl font-bold">{counts.presupuestos}</div>
+              <div className={statNumberClass}>{counts.presupuestos}</div>
               <Link
                 href="/presupuestos"
                 className="inline-flex items-center text-xs text-[#A04A2F] hover:text-[#8a3f28] mt-1"
@@ -1306,14 +1372,14 @@ function DashboardContent() {
               </Link>
             </div>
 
-            <div className="bg-[#E5DFD0] border border-blue-500/60 rounded-xl py-2 px-3 flex flex-col gap-1">
+            <div className={`bg-[#E5DFD0] border border-blue-500/60 ${statCardPad}`}>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-zinc-800 uppercase tracking-wide">
                   Albaranes pendientes
                 </span>
                 <Package className="w-5 h-5 text-blue-300" />
               </div>
-              <div className="text-2xl sm:text-3xl font-bold">{counts.albaranesPendientes}</div>
+              <div className={statNumberClass}>{counts.albaranesPendientes}</div>
               <Link
                 href="/albaranes"
                 className="inline-flex items-center text-xs text-[#A04A2F] hover:text-[#8a3f28] mt-1"
@@ -1323,13 +1389,13 @@ function DashboardContent() {
               </Link>
             </div>
 
-            <div className="bg-[#E5DFD0] border border-emerald-500/60 rounded-xl py-2 px-3 flex flex-col gap-1">
+            <div className={`bg-[#E5DFD0] border border-emerald-500/60 ${statCardPad}`}>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-zinc-800 uppercase tracking-wide">
                   Facturas pendientes de cobro
                 </span>
               </div>
-              <div className="text-3xl font-bold">{counts.facturasPendientes}</div>
+              <div className={facturasNumberClass}>{counts.facturasPendientes}</div>
               <Link
                 href="/facturas"
                 className="inline-flex items-center text-xs text-[#A04A2F] hover:text-[#8a3f28] mt-1"
@@ -1348,7 +1414,7 @@ function DashboardContent() {
             type="button"
             onClick={toggleSecMetricas}
             aria-expanded={secMetricasOpen}
-            className="flex w-full items-center justify-between gap-2 mb-1.5 text-left sm:pointer-events-none sm:cursor-default"
+            className={sectionTitleBtnClass}
           >
             <h2 className="text-sm font-semibold text-zinc-900/60 uppercase tracking-wide">
               Métricas económicas
@@ -1365,11 +1431,11 @@ function DashboardContent() {
             }`}
           >
             <div className="min-h-0 overflow-hidden">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className={metricGridClass}>
             <button
               type="button"
               onClick={() => setModalMetrica('pendiente')}
-              className="text-left bg-[#E5DFD0] border border-[#A04A2F]/60 rounded-xl py-2 px-3 flex flex-col gap-1 hover:bg-[#D4CCBC] transition-all duration-150"
+              className={metricCardClass}
             >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-zinc-800 uppercase tracking-wide">
@@ -1384,7 +1450,7 @@ function DashboardContent() {
             <button
               type="button"
               onClick={() => setModalMetrica('presupuestado')}
-              className="text-left bg-[#E5DFD0] border border-[#A04A2F]/60 rounded-xl py-2 px-3 flex flex-col gap-1 hover:bg-[#D4CCBC] transition-all duration-150"
+              className={metricCardClass}
             >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-zinc-800 uppercase tracking-wide">
@@ -1396,7 +1462,7 @@ function DashboardContent() {
                 {dashboardLoading ? '—' : fmtEurosEs(importeTotalPresupuestado)}
               </div>
               <div className="text-xs text-zinc-900/90 mt-1">TOTAL CON IVA:</div>
-              <div className="text-2xl sm:text-3xl font-bold font-mono text-[#A04A2F] leading-tight">
+              <div className={ivaNumberClass}>
                 {dashboardLoading ? '—' : fmtEurosEs(importeTotalConIva)}
               </div>
               <span className="text-xs text-zinc-900/60">Clic para ver desglose por presupuesto</span>
@@ -1404,14 +1470,14 @@ function DashboardContent() {
             <button
               type="button"
               onClick={() => setModalMetrica('materiales')}
-              className="text-left bg-[#E5DFD0] border border-[#A04A2F]/60 rounded-xl py-2 px-3 flex flex-col gap-1 hover:bg-[#D4CCBC] transition-all duration-150"
+              className={metricCardClass}
             >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-zinc-800 uppercase tracking-wide">
                   🧱 Total materiales
                 </span>
               </div>
-              <div className="text-xl sm:text-2xl font-bold font-mono text-[#A04A2F]">
+              <div className={materialesNumberClass}>
                 {dashboardLoading ? '—' : `${totalMateriales.toFixed(2)} €`}
               </div>
               <span className="text-xs text-zinc-900/60">Clic para ver desglose</span>
@@ -1421,12 +1487,13 @@ function DashboardContent() {
           </div>
         </section>
 
-        <section aria-label="Presupuestos, agenda y correo">
+        <div className={bottomBandClass}>
+        <section aria-label="Presupuestos, agenda y correo" className={isOpen ? undefined : 'min-w-0'}>
           <button
             type="button"
             onClick={toggleSecActividad}
             aria-expanded={secActividadOpen}
-            className="flex w-full items-center justify-between gap-2 mb-1.5 text-left sm:pointer-events-none sm:cursor-default"
+            className={sectionTitleBtnClass}
           >
             <h2 className="text-sm font-semibold text-zinc-900/60 uppercase tracking-wide">
               Actividad reciente
@@ -1443,9 +1510,9 @@ function DashboardContent() {
             }`}
           >
             <div className="min-h-0 overflow-hidden">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-2 lg:items-stretch">
+          <div className={actividadGridClass}>
             {/* Columna: Últimos presupuestos */}
-            <div className="bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0 max-h-64">
+            <div className={actividadCardClass}>
               <div className="flex items-center justify-between shrink-0 mb-2">
                 <h3 className="text-sm font-semibold text-zinc-900/80 uppercase tracking-wide">
                   Últimos presupuestos
@@ -1494,7 +1561,7 @@ function DashboardContent() {
             <button
               type="button"
               onClick={abrirModalAgenda}
-              className="bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 w-full min-h-0 max-h-64 text-left cursor-pointer transition-all hover:border-[#A04A2F]/55 hover:ring-1 hover:ring-[#A04A2F]/25 focus:outline-none focus:ring-2 focus:ring-[#A04A2F]/40 group flex flex-col"
+              className={agendaCardClass}
             >
               <div className="flex items-center justify-between gap-2 shrink-0 mb-2">
                 <h3 className="text-sm font-semibold text-zinc-900/80 uppercase tracking-wide group-hover:text-zinc-900">
@@ -1545,7 +1612,7 @@ function DashboardContent() {
             </button>
 
             {/* Columna: Últimos emails */}
-            <div className="bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0 max-h-64">
+            <div className={actividadCardClass}>
               <div className="flex items-center justify-between shrink-0 mb-2">
                 <h3 className="text-sm font-semibold text-zinc-900/80 uppercase tracking-wide">
                   Últimos emails
@@ -1624,15 +1691,15 @@ function DashboardContent() {
           </div>
         </section>
 
-        <section aria-label="Diario de obra y clientes" className="w-full">
-          <div className="w-full grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-4 lg:max-w-full">
-            <div className="bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0">
+        <section aria-label="Diario de obra y clientes" className={isOpen ? 'w-full' : 'w-full min-w-0'}>
+          <div className={diarioGridClass}>
+            <div className={diarioCardClass}>
               <div className="flex items-center justify-between shrink-0 mb-1.5">
                 <h3 className="text-sm font-semibold text-zinc-900/80 uppercase tracking-wide">
                   ÚLTIMAS ENTRADAS DIARIO
                 </h3>
               </div>
-              <div className="min-h-0 max-h-40 overflow-y-auto overscroll-contain">
+              <div className={diarioListClass}>
                 {dashboardLoading ? (
                   <p className="text-zinc-900/60 text-xs">Cargando...</p>
                 ) : ultimasEntradasDiario.length === 0 ? (
@@ -1676,13 +1743,13 @@ function DashboardContent() {
               </div>
             </div>
 
-            <div className="bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0">
+            <div className={diarioCardClass}>
               <div className="flex items-center justify-between shrink-0 mb-1.5">
                 <h3 className="text-sm font-semibold text-zinc-900/80 uppercase tracking-wide">
                   Obras activas
                 </h3>
               </div>
-              <div className="min-h-0 max-h-40 overflow-y-auto overscroll-contain">
+              <div className={diarioListClass}>
                 {dashboardLoading ? (
                   <p className="text-zinc-900/60 text-xs">Cargando...</p>
                 ) : obrasActivas.length === 0 ? (
@@ -1747,13 +1814,13 @@ function DashboardContent() {
               </div>
             </div>
 
-            <div className="bg-[#E5DFD0] border border-white/10 rounded-xl p-2.5 sm:p-3 flex flex-col min-h-0">
+            <div className={diarioCardClass}>
               <div className="flex items-center justify-between shrink-0 mb-1.5">
                 <h3 className="text-sm font-semibold text-zinc-900/80 uppercase tracking-wide">
                   CLIENTES
                 </h3>
               </div>
-              <div className="min-h-0 max-h-40 overflow-y-auto overscroll-contain">
+              <div className={diarioListClass}>
                 {dashboardLoading ? (
                   <p className="text-zinc-900/60 text-xs">Cargando...</p>
                 ) : ultimosClientes.length === 0 ? (
@@ -1794,6 +1861,7 @@ function DashboardContent() {
             </div>
           </div>
         </section>
+        </div>
 
         {modalAgendaAbierto && (
           <div
