@@ -11,6 +11,53 @@ function registeredTools(server: ReturnType<typeof createPerfilioMcpServer>): Re
   return bag._registeredTools ?? {};
 }
 
+describe('MCP agenda', () => {
+  it('registra crear_cita y ver_citas sin business_id en la entrada', () => {
+    const server = createPerfilioMcpServer({
+      businessId: 'biz-1',
+      userId: 'user-1',
+      supabase: {} as McpContext['supabase'],
+    });
+    const tools = registeredTools(server);
+    const crear = tools.crear_cita;
+    const ver = tools.ver_citas;
+    expect(crear).toBeDefined();
+    expect(ver).toBeDefined();
+    expect(crear.description ?? '').toMatch(/Europe\/Madrid/);
+    expect(crear.description ?? '').toMatch(/google_calendar_hint/);
+    expect(crear.description ?? '').toMatch(/no llama a Google/i);
+    expect(ver.description ?? '').toMatch(/próximas citas/i);
+
+    const crearShape = crear.inputSchema?.shape ?? {};
+    expect(Object.keys(crearShape).sort()).toEqual([
+      'asunto',
+      'fecha',
+      'hora_fin',
+      'hora_inicio',
+      'lugar',
+      'notas',
+    ]);
+    expect(crearShape).not.toHaveProperty('business_id');
+
+    const parsed = crear.inputSchema as unknown as {
+      safeParse?: (value: unknown) => { success: boolean };
+    };
+    expect(parsed.safeParse?.({}).success).toBe(false);
+    expect(
+      parsed.safeParse?.({
+        asunto: 'Cita con Mendi',
+        fecha: 'mañana',
+        hora_inicio: '10:00',
+        lugar: 'Obra',
+      }).success
+    ).toBe(true);
+
+    const verShape = ver.inputSchema?.shape ?? {};
+    expect(Object.keys(verShape).sort()).toEqual(['desde', 'hasta', 'limite']);
+    expect(verShape).not.toHaveProperty('business_id');
+  });
+});
+
 describe('MCP adjuntar_foto_diario', () => {
   it('registra storage_paths como camino principal y foto_urls como alternativa, sin base64', () => {
     const server = createPerfilioMcpServer({
