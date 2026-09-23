@@ -39,16 +39,6 @@
 
 <p align="center"><sub>Agente IA: briefing del día → “Crea un presupuesto…” → borrador con IVA. Fotogramas reales de <code>public/demo_nueva.mp4</code>.</sub></p>
 
-<!-- Huecos para Ander (ver docs/readme/ASSETS.md)
-<p align="center">
-  <img src="docs/readme/landing.png" width="720" alt="Landing Perfilio" />
-</p>
-<p align="center">
-  <img src="docs/readme/dashboard.png" width="360" alt="Dashboard" />
-  <img src="docs/readme/gasto.png" width="360" alt="Gasto desde foto" />
-</p>
--->
-
 ---
 
 ## El problema
@@ -74,8 +64,29 @@ Perfilio **no es un ERP con un chat encima**. Es un agente que **ejecuta**: voz,
 - **Correo con freno humano** — Gmail OAuth2; el agente redacta, tú apruebas el envío.
 - **Briefing del día** — agenda, pendientes, albaranes sin facturar, tiempo en obra (OpenWeather).
 - **Avisos de fondo (“El Bicho”)** — insights de inactividad, rentabilidad y facturación sobre obras activas.
+- **Grok Bot por MCP** — un agente externo puede operar el negocio desde fuera del chat de la app. Habla con Perfilio en `/api/mcp`. Tools actuales: `crear_presupuesto`, `crear_cita`, `ver_citas`, `crear_entrada_diario`, `registrar_horas`, `ver_obras_activas`, `ver_facturas_pendientes`, y fotos de diario (`crear_upload_firmado_diario` + `adjuntar_foto_diario`).
+- **Presupuesto dictado desde Grok Bot** — voz o texto. El bot guarda el documento con `crear_presupuesto` (el texto queda en `presupuesto_generado`). El PDF lo pinta la plantilla oficial de Perfilio (`/api/pdf/presupuesto/[id]`, `PresupuestoPdfDocument`).
+- **Citas** — `crear_cita` guarda la cita en la agenda de Perfilio y `ver_citas` la lista. Si el cliente quiere el mismo evento en Google Calendar, con el recordatorio nativo de 15 minutos, eso lo hace el Grok Bot del cliente a partir de `google_calendar_hint`. Perfilio no llama a Google ni guarda OAuth de Calendar.
 
 PWA instalable (dashboard + push de agenda). Paleta crema `#EFEADF` / terracota `#A04A2F`.
+
+---
+
+## La demo: nav izquierda y home Hoy
+
+El tenant **Reformas Demo Errenteria** ya entra con otra cáscara: barra lateral (Dashboard, Mensajes, Presupuestos, Albaranes, Facturas, Gastos, Diario, Obras, Clientes, Operarios y Agente IA) y una home **Hoy** con clientes, obra en curso, presupuesto pendiente, importe y agenda.
+
+Es la experiencia enriquecida de la **demo** y la **dirección candidata** del dashboard principal. El panel de un cliente en producción puede seguir con el nav de arriba: este shell no está en todos los tenants.
+
+<p align="center">
+  <img src="docs/readme/dashboard-nav.png" width="920" alt="Demo Reformas Demo Errenteria: navegación izquierda y home Hoy" />
+</p>
+<p align="center"><sub>Home Hoy del tenant demo, con la navegación a la izquierda. Dirección candidata del dashboard; el cliente en producción puede verse distinto.</sub></p>
+
+<p align="center">
+  <img src="docs/readme/dashboard-cards.png" width="920" alt="Cards de Hoy: clientes, obra, presupuesto, importe y agenda" />
+</p>
+<p align="center"><sub>Cards de Hoy: clientes, obra en curso, presupuesto pendiente, importe total y agenda. Datos de la demo, no de un cliente real.</sub></p>
 
 ---
 
@@ -85,7 +96,7 @@ PWA instalable (dashboard + push de agenda). Paleta crema `#EFEADF` / terracota 
 
 1. Abre **[perfilio.vercel.app](https://perfilio.vercel.app)** (landing pública).
 2. Pide acceso: **[WhatsApp](https://wa.me/34697613884?text=Hola%2C%20he%20visto%20Perfilio%20y%20quiero%20acceso%20a%20la%20beta)**. La beta es cerrada; no hay registro self-service.
-3. Con cuenta, entra en `/login` → `/dashboard`.
+3. Con cuenta, entra en `/login` → `/dashboard`. La cuenta demo abre el shell de la sección anterior (nav izquierda + Hoy). El resto de cuentas puede seguir con el nav de arriba.
 
 ### Opción B — local (devs)
 
@@ -102,7 +113,7 @@ npm run dev
 Abre [http://localhost:3000](http://localhost:3000). Crea el usuario en el panel de Supabase Auth (ver `AUTH_SETUP.md`).
 
 ```bash
-npm test          # 100 tests en 26 ficheros
+npm test          # 234 tests en 43 ficheros
 npm run build && npm start
 ```
 
@@ -144,6 +155,8 @@ flowchart LR
 
 Módulos actuales: `presupuestos`, `documentos`, `obras-clientes`, `gastos`, `diario`, `operarios`, `agenda`, `correo`, `canvas`, `calculo`. Apoyo: `router.ts`, `guardrails.ts`, `orquestacion.ts`.
 
+`POST /api/mcp` autentica con Bearer (`MCP_API_TOKEN`). Las tools leen y escriben solo el negocio de `MCP_BUSINESS_ID`.
+
 ### Dónde está cada cosa
 
 ```
@@ -152,7 +165,9 @@ app/login/                Auth
 app/dashboard/            Panel
 app/{obras,clientes,presupuestos,albaranes,facturas,gastos,diario,operarios}/
 app/api/agente/           Orquestador + conversaciones
+app/api/mcp/              MCP para Grok Bot y otros agentes
 lib/agente/modules/       Dominio extraído
+lib/mcp/                  Tools MCP (presupuesto, citas, diario, horas)
 components/dashboard/     Sidebar agente, canvas, modales
 supabase/migrations/      Esquema + políticas RLS
 ```
@@ -190,6 +205,8 @@ Crear `.env.local`. **Nunca commitear secretos.**
 | `OPENWEATHER_API_KEY` | Tiempo en obra |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Push PWA |
 | `CRON_SECRET` | Protege `/api/cron/*` |
+| `MCP_API_TOKEN` | Bearer de `/api/mcp` |
+| `MCP_BUSINESS_ID` | Negocio que operan las tools de esa conexión |
 
 Opcionales: `RESEND_FROM`, `NOTIFICATION_EMAIL`, `VAPID_MAILTO`, `ALERT_EMAIL`.
 
@@ -197,6 +214,7 @@ Opcionales: `RESEND_FROM`, `NOTIFICATION_EMAIL`, `VAPID_MAILTO`, `ALERT_EMAIL`.
 
 ## Roadmap
 
+- [ ] **MCP y playbook de Grok Bot** — madurar las tools y el guion del bot externo: dictado de presupuesto hacia la plantilla PDF oficial, citas en la agenda de Perfilio y copia opcional a Google Calendar (recordatorio de 15 minutos en el bot del cliente, sin OAuth de Calendar en el servidor)
 - [ ] **TicketBAI** — facturación Euskadi ([ticketbaiws.eus](https://ticketbaiws.eus)); las facturas se generan, la conexión Hacienda no está cerrada
 - [ ] **Outlook / Microsoft Graph** — email paralelo a Gmail
 - [ ] **Profit Protector** — gasto real vs presupuestado por obra
