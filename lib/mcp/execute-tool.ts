@@ -5,6 +5,7 @@ import {
   ingestDiarioObraFotos,
   type DiarioObraFotoSource,
 } from '@/lib/diario-obra-ingest';
+import { insertarPresupuestoConNumeroCorrelativo } from '@/lib/presupuestos/numero';
 
 function escapeIlikePattern(s: string): string {
   return s.replace(/[%_*]/g, '');
@@ -123,39 +124,23 @@ export async function executeMcpTool(
         obraId = obraRow.id as string;
       }
 
-      const { data: lastPres, error: lastPresErr } = await ctx.supabase
-        .from('presupuestos')
-        .select('numero_presupuesto')
-        .eq('business_id', ctx.businessId)
-        .order('numero_presupuesto', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (lastPresErr) return { error: lastPresErr.message };
-      const numeroPresupuesto =
-        (Number((lastPres as { numero_presupuesto?: number | null } | null)?.numero_presupuesto) ||
-          0) + 1;
-
-      const { data: inserted, error: insErr } = await ctx.supabase
-        .from('presupuestos')
-        .insert({
-          business_id: ctx.businessId,
-          numero_presupuesto: numeroPresupuesto,
+      // presupuesto_generado queda tal cual llega en `descripcion`.
+      // El maquetado del PDF es aparte y no debe reescribirse aquí.
+      const creado = await insertarPresupuestoConNumeroCorrelativo(
+        ctx.supabase,
+        ctx.businessId,
+        {
           cliente_nombre: clienteNombre,
           presupuesto_generado: descripcion,
           importe_total: total,
           fecha: ymdTodayMadrid(),
           estado: 'borrador',
           ...(obraId ? { obra_id: obraId } : {}),
-        })
-        .select('id, numero_presupuesto, cliente_nombre, importe_total, estado, fecha')
-        .single();
-      if (insErr) {
-        if (insErr.code === '23505') {
-          return { error: 'Colisión al generar número de presupuesto. Inténtalo de nuevo.' };
-        }
-        return { error: insErr.message };
-      }
-      return { ok: true, presupuesto: inserted };
+        },
+        'id, numero_presupuesto, cliente_nombre, importe_total, estado, fecha'
+      );
+      if (!creado.ok) return { error: creado.error };
+      return { ok: true, presupuesto: creado.data };
     }
     case 'registrar_horas': {
       const operarioNombre = String(toolArgs.operario_nombre ?? '').trim();

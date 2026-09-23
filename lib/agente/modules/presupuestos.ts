@@ -13,6 +13,7 @@ import {
   resultadoResolveATool,
   toolFailDesdePresupuestoResolve,
 } from '@/lib/agente/modules/grounding';
+import { insertarPresupuestoConNumeroCorrelativo } from '@/lib/presupuestos/numero';
 
 function escapeIlike(s: string): string {
   return s.replace(/[%_]/g, '');
@@ -1534,22 +1535,10 @@ export async function handlePresupuestos(
         if (!presUpd?.id) return { error: 'No se encontró el presupuesto vinculado para actualizar.' };
         presId = String(presupuestoIdExistente);
       } else {
-        const { data: lastPres, error: lastPresErr } = await supabase
-          .from('presupuestos')
-          .select('numero_presupuesto')
-          .eq('business_id', businessId)
-          .order('numero_presupuesto', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (lastPresErr) return { error: lastPresErr.message };
-        const numeroPresupuesto =
-          (Number((lastPres as { numero_presupuesto?: number | null } | null)?.numero_presupuesto) || 0) + 1;
-
-        const { data: pres, error: pInsErr } = await supabase
-          .from('presupuestos')
-          .insert({
-            business_id: businessId,
-            numero_presupuesto: numeroPresupuesto,
+        const creado = await insertarPresupuestoConNumeroCorrelativo(
+          supabase,
+          businessId,
+          {
             presupuesto_generado: textoGenerado,
             importe_total: baseImponible,
             fecha: new Date().toISOString().split('T')[0],
@@ -1558,16 +1547,11 @@ export async function handlePresupuestos(
             ...(clienteNombreFinal ? { cliente_nombre: clienteNombreFinal } : {}),
             ...(clienteIdFinal ? { cliente_id: clienteIdFinal } : {}),
             ...(br.row.obra_id ? { obra_id: br.row.obra_id as string } : {}),
-          })
-          .select('id')
-          .single();
-        if (pInsErr) {
-          if (pInsErr.code === '23505') {
-            return { error: 'Colisión al generar número de presupuesto. Inténtalo de nuevo.' };
-          }
-          return { error: pInsErr.message };
-        }
-        presId = (pres as { id: string }).id;
+          },
+          'id'
+        );
+        if (!creado.ok) return { error: creado.error };
+        presId = String(creado.data.id);
       }
       const { error: upB } = await supabase
         .from('presupuesto_borrador')
