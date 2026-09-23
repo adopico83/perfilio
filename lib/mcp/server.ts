@@ -25,6 +25,49 @@ export function createPerfilioMcpServer(ctx: McpContext): McpServer {
   );
 
   server.registerTool(
+    'crear_cita',
+    {
+      description:
+        'Crea una cita o reunión en la agenda del negocio de esta conexión. Interpreta la fecha y las horas en Europe/Madrid y las guarda como día (fecha) y hora local HH:MM, sin pasarlas a UTC. El asunto, el día y la hora de inicio son obligatorios.',
+      inputSchema: {
+        asunto: z.string().describe('Asunto o título de la cita, tal como se dicta'),
+        fecha: z
+          .string()
+          .describe(
+            'Día en Europe/Madrid: AAAA-MM-DD, DD/MM/AAAA, hoy, mañana, pasado mañana, un día de la semana o «24 de septiembre»'
+          ),
+        hora_inicio: z
+          .string()
+          .describe('Hora de inicio en Europe/Madrid, por ejemplo 10:00 o «a las 10 de la mañana»'),
+        hora_fin: z
+          .string()
+          .optional()
+          .describe('Hora de fin opcional, mismo formato. La tabla no tiene columna de fin: se anota en la descripción'),
+        lugar: z.string().optional().describe('Lugar o dirección, opcional'),
+        notas: z.string().optional().describe('Notas libres, opcional'),
+      },
+    },
+    async (args) => toolTextResult(await executeMcpTool('crear_cita', args, ctx))
+  );
+
+  server.registerTool(
+    'ver_citas',
+    {
+      description:
+        'Lista las próximas citas sin completar del negocio, desde hoy en Europe/Madrid. Hasta 10 por defecto.',
+      inputSchema: {
+        desde: z
+          .string()
+          .optional()
+          .describe('Día inicial inclusive. Por defecto, hoy en Europe/Madrid. Mismos formatos que crear_cita'),
+        hasta: z.string().optional().describe('Día final inclusive, opcional'),
+        limite: z.number().optional().describe('Cuántas citas devolver, entre 1 y 20. Por defecto 10'),
+      },
+    },
+    async (args) => toolTextResult(await executeMcpTool('ver_citas', args, ctx))
+  );
+
+  server.registerTool(
     'ver_obras_activas',
     {
       description: 'Lista hasta 10 obras activas del negocio (estado distinto de cerrada).',

@@ -5,6 +5,7 @@ import {
   ingestDiarioObraFotos,
   type DiarioObraFotoSource,
 } from '@/lib/diario-obra-ingest';
+import { crearCitaAgenda, listarCitasAgenda } from '@/lib/mcp/citas';
 import { insertarPresupuestoConNumeroCorrelativo } from '@/lib/presupuestos/numero';
 
 function escapeIlikePattern(s: string): string {
@@ -75,6 +76,10 @@ export async function executeMcpTool(
   ctx: McpContext
 ): Promise<unknown> {
   switch (toolName) {
+    case 'crear_cita':
+      return crearCitaAgenda(ctx, toolArgs);
+    case 'ver_citas':
+      return listarCitasAgenda(ctx, toolArgs);
     case 'ver_obras_activas': {
       const { data, error } = await ctx.supabase
         .from('obras')
