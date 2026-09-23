@@ -28,7 +28,7 @@ export function createPerfilioMcpServer(ctx: McpContext): McpServer {
     'crear_cita',
     {
       description:
-        'Crea una cita o reunión en la agenda del negocio de esta conexión. Interpreta la fecha y las horas en Europe/Madrid y las guarda como día (fecha) y hora local HH:MM, sin pasarlas a UTC. El asunto, el día y la hora de inicio son obligatorios.',
+        'Crea una cita o reunión en la agenda de Perfilio del negocio de esta conexión. No llama a Google. Interpreta la fecha y las horas en Europe/Madrid y las guarda como día (fecha) y hora local HH:MM. Si ok es true, la respuesta trae starts_at, ends_at y google_calendar_hint (recordatorio de 15 minutos) para copiar el mismo evento al Google Calendar del usuario, salvo que haya pedido solo Perfilio. El asunto, el día y la hora de inicio son obligatorios.',
       inputSchema: {
         asunto: z.string().describe('Asunto o título de la cita, tal como se dicta'),
         fecha: z

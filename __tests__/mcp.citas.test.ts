@@ -173,10 +173,25 @@ describe('crearCitaAgenda', () => {
       ok: true,
       id: 'cita-1',
       titulo: 'Cita con Mendi',
+      asunto: 'Cita con Mendi',
       fecha: '2026-09-24',
       hora: '10:00',
       hora_fin: '11:30',
+      starts_at: '2026-09-24T10:00:00+02:00',
+      ends_at: '2026-09-24T11:30:00+02:00',
+      duracion_minutos: 90,
+      time_zone: 'Europe/Madrid',
       lugar: 'Calle Mayor 3',
+      notas: 'Llevar el plano',
+      obra_id: null,
+      google_calendar_hint: {
+        summary: 'Cita con Mendi',
+        start: '2026-09-24T10:00:00+02:00',
+        end: '2026-09-24T11:30:00+02:00',
+        location: 'Calle Mayor 3',
+        description: 'Llevar el plano',
+        reminder_minutes: 15,
+      },
     });
     expect(result).toMatchObject({
       cuando: expect.stringMatching(/24 de septiembre de 2026, de 10:00 a 11:30/),
@@ -216,7 +231,22 @@ describe('crearCitaAgenda', () => {
       AHORA
     );
 
-    expect(result).toMatchObject({ ok: true, duplicado: true, id: 'ya' });
+    expect(result).toMatchObject({
+      ok: true,
+      duplicado: true,
+      id: 'ya',
+      titulo: 'Cita con Mendi',
+      starts_at: '2026-09-24T10:00:00+02:00',
+      ends_at: '2026-09-24T11:00:00+02:00',
+      duracion_minutos: 60,
+      obra_id: null,
+      google_calendar_hint: {
+        summary: 'Cita con Mendi',
+        start: '2026-09-24T10:00:00+02:00',
+        end: '2026-09-24T11:00:00+02:00',
+        reminder_minutes: 15,
+      },
+    });
     expect(db.inserts).toHaveLength(0);
   });
 
@@ -287,7 +317,37 @@ describe('crearCitaAgenda', () => {
       { asunto: 'Visita', fecha: '2026-09-24', hora_inicio: '10:30', hora_fin: '11:00' },
       AHORA
     );
-    expect(result).toMatchObject({ ok: true, hora: '10:30', hora_fin: '11:00' });
+    expect(result).toMatchObject({
+      ok: true,
+      hora: '10:30',
+      hora_fin: '11:00',
+      starts_at: '2026-09-24T10:30:00+02:00',
+      ends_at: '2026-09-24T11:00:00+02:00',
+      duracion_minutos: 30,
+    });
+  });
+
+  it('usa el desfase de invierno y una hora de fin por defecto de 60 minutos', async () => {
+    const db = agendaDb();
+    const result = await crearCitaAgenda(
+      ctx(db),
+      { asunto: 'Visita', fecha: '2026-01-15', hora_inicio: '23:30' },
+      AHORA
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      hora_fin: null,
+      starts_at: '2026-01-15T23:30:00+01:00',
+      ends_at: '2026-01-16T00:30:00+01:00',
+      duracion_minutos: 60,
+      google_calendar_hint: {
+        start: '2026-01-15T23:30:00+01:00',
+        end: '2026-01-16T00:30:00+01:00',
+        location: '',
+        description: '',
+        reminder_minutes: 15,
+      },
+    });
   });
 
   it('exige asunto, fecha y hora de inicio', async () => {

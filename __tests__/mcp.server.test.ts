@@ -24,6 +24,8 @@ describe('MCP agenda', () => {
     expect(crear).toBeDefined();
     expect(ver).toBeDefined();
     expect(crear.description ?? '').toMatch(/Europe\/Madrid/);
+    expect(crear.description ?? '').toMatch(/google_calendar_hint/);
+    expect(crear.description ?? '').toMatch(/no llama a Google/i);
     expect(ver.description ?? '').toMatch(/próximas citas/i);
 
     const crearShape = crear.inputSchema?.shape ?? {};

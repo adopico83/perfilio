@@ -31,22 +31,43 @@ const DIAS_SEMANA: Record<string, number> = {
   sabado: 6,
 };
 
+const RECORDATORIO_GOOGLE_MIN = 15;
+
 type AgendaOcupada = {
   id: string;
   titulo: string | null;
   hora: string | null;
   description: string | null;
+  location: string | null;
+};
+
+/** Pista para que el agente copie la cita al Google Calendar del usuario. Este servidor no llama a Google. */
+export type GoogleCalendarHint = {
+  summary: string;
+  start: string;
+  end: string;
+  location: string;
+  description: string;
+  reminder_minutes: 15;
 };
 
 export type CitaGuardada = {
   ok: true;
   id: string;
   titulo: string;
+  asunto: string;
   cuando: string;
   fecha: string;
   hora: string;
   hora_fin: string | null;
+  starts_at: string;
+  ends_at: string;
+  duracion_minutos: number;
+  time_zone: typeof TZ_MADRID;
   lugar: string | null;
+  notas: string;
+  obra_id: null;
+  google_calendar_hint: GoogleCalendarHint;
   duplicado?: true;
   mensaje?: string;
 };
@@ -235,6 +256,113 @@ export function formatearCuando(fecha: string, hora: string | null, horaFin: str
   return dia;
 }
 
+function offsetMadridMinutos(instante: Date): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ_MADRID,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(instante);
+  const n = (tipo: Intl.DateTimeFormatPartTypes) => Number(parts.find((p) => p.type === tipo)?.value);
+  let hora = n('hour');
+  let dia = n('day');
+  if (hora === 24) {
+    hora = 0;
+    dia += 1;
+  }
+  const comoUtc = Date.UTC(n('year'), n('month') - 1, dia, hora, n('minute'), n('second'));
+  return Math.round((comoUtc - instante.getTime()) / 60000);
+}
+
+/** Instante local de Madrid en ISO 8601 con desfase, p. ej. 2026-09-24T10:00:00+02:00. */
+export function isoMadrid(fecha: string, hora: string): string {
+  const [y, mo, d] = fecha.split('-').map(Number);
+  const [hh, mm] = hora.split(':').map(Number);
+  const paredComoUtc = Date.UTC(y, mo - 1, d, hh, mm, 0);
+  let offset = offsetMadridMinutos(new Date(paredComoUtc));
+  const offsetReal = offsetMadridMinutos(new Date(paredComoUtc - offset * 60_000));
+  if (offsetReal !== offset) offset = offsetReal;
+  const signo = offset >= 0 ? '+' : '-';
+  const abs = Math.abs(offset);
+  const oh = String(Math.floor(abs / 60)).padStart(2, '0');
+  const om = String(abs % 60).padStart(2, '0');
+  return `${fecha}T${hora}:00${signo}${oh}:${om}`;
+}
+
+function finCalculado(
+  fecha: string,
+  hora: string,
+  horaFin: string | null
+): { fecha: string; hora: string; minutos: number } {
+  const inicio = horaAMinutos(hora)!;
+  if (horaFin) {
+    return { fecha, hora: horaFin, minutos: horaAMinutos(horaFin)! - inicio };
+  }
+  const total = inicio + DURACION_DEFECTO_MIN;
+  const dias = Math.floor(total / (24 * 60));
+  return {
+    fecha: sumarDias(fecha, dias),
+    hora: minutosAHora(total % (24 * 60)),
+    minutos: DURACION_DEFECTO_MIN,
+  };
+}
+
+function notasLimpias(description: string | null | undefined): string {
+  if (!description) return '';
+  return description
+    .split('\n')
+    .filter((linea) => !/^Hora de fin:\s*\d{2}:\d{2}\s*$/.test(linea.trim()))
+    .join('\n')
+    .trim();
+}
+
+function citaGuardada(input: {
+  id: string;
+  titulo: string;
+  fecha: string;
+  hora: string;
+  horaFin: string | null;
+  lugar: string | null;
+  notas: string;
+  duplicado?: true;
+  mensaje?: string;
+}): CitaGuardada {
+  const fin = finCalculado(input.fecha, input.hora, input.horaFin);
+  const startsAt = isoMadrid(input.fecha, input.hora);
+  const endsAt = isoMadrid(fin.fecha, fin.hora);
+  const hint: GoogleCalendarHint = {
+    summary: input.titulo,
+    start: startsAt,
+    end: endsAt,
+    location: input.lugar ?? '',
+    description: input.notas,
+    reminder_minutes: RECORDATORIO_GOOGLE_MIN,
+  };
+  return {
+    ok: true,
+    id: input.id,
+    titulo: input.titulo,
+    asunto: input.titulo,
+    cuando: formatearCuando(input.fecha, input.hora, input.horaFin),
+    fecha: input.fecha,
+    hora: input.hora,
+    hora_fin: input.horaFin,
+    starts_at: startsAt,
+    ends_at: endsAt,
+    duracion_minutos: fin.minutos,
+    time_zone: TZ_MADRID,
+    lugar: input.lugar,
+    notas: input.notas,
+    obra_id: null,
+    google_calendar_hint: hint,
+    ...(input.duplicado ? { duplicado: true as const, mensaje: input.mensaje } : {}),
+  };
+}
+
 function horaFinEnDescripcion(description: string | null | undefined): string | null {
   if (!description) return null;
   const m = description.match(/Hora de fin:\s*(\d{2}:\d{2})/);
@@ -325,7 +453,7 @@ export async function crearCitaAgenda(
 
   const { data: mismoDia, error: errDia } = await ctx.supabase
     .from('agenda')
-    .select('id, titulo, hora, description')
+    .select('id, titulo, hora, description, location')
     .eq('business_id', ctx.businessId)
     .eq('fecha', fecha);
 
@@ -339,18 +467,20 @@ export async function crearCitaAgenda(
   });
   if (ya?.id) {
     const finYa = horaFinEnDescripcion(ya.description) ?? horaFin;
-    return {
-      ok: true,
-      duplicado: true,
+    const lugarYa = String(ya.location ?? '').trim() || lugar || null;
+    const notasYa = notasLimpias(ya.description) || notas;
+    const tituloYa = String(ya.titulo ?? '').trim() || titulo;
+    return citaGuardada({
       id: ya.id,
-      titulo,
+      titulo: tituloYa,
       fecha,
       hora,
-      hora_fin: finYa,
-      lugar: lugar || null,
-      cuando: formatearCuando(fecha, hora, finYa),
+      horaFin: finYa,
+      lugar: lugarYa,
+      notas: notasYa,
+      duplicado: true,
       mensaje: 'Esa cita ya estaba en la agenda.',
-    };
+    });
   }
 
   const ocupados: Array<{ inicio: number; fin: number }> = [];
@@ -394,16 +524,15 @@ export async function crearCitaAgenda(
     return { error: error?.message ?? 'No se pudo crear la cita.' };
   }
 
-  return {
-    ok: true,
+  return citaGuardada({
     id: row.id as string,
     titulo: String(row.titulo ?? titulo),
     fecha: String(row.fecha ?? fecha).slice(0, 10),
     hora: parseHoraCita(String(row.hora ?? hora)) ?? hora,
-    hora_fin: horaFin,
+    horaFin,
     lugar: lugar || null,
-    cuando: formatearCuando(fecha, hora, horaFin),
-  };
+    notas,
+  });
 }
 
 export async function listarCitasAgenda(
