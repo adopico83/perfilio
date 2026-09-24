@@ -7,6 +7,7 @@ import {
   Text,
   View,
 } from '@react-pdf/renderer';
+import type { EmpresaEmisor } from './empresa';
 import { formatEuro } from './parser';
 
 export interface FacturaPdfProps {
@@ -31,26 +32,10 @@ export interface FacturaPdfProps {
     observaciones?: string;
   };
   logoUrl?: string | null;
-  empresa: {
-    nombre: string;
-    nif: string;
-    direccion: string;
-    telefono?: string;
-    email?: string;
-  };
+  empresa: EmpresaEmisor;
   /** Porcentaje IVA aplicado al documento (p. ej. 21). */
   porcentajeIva: number;
 }
-
-/** Datos emisor Pino (TicketBAI); hardcoded según especificación. */
-const PINO_EMISOR = {
-  nif: 'B-75207308',
-  nombre: 'AL&CA Pino Gutiérrez Albañilería en General S.L.',
-  direccion: 'C/ Bartolomé de Urdinso Nº 15 Local 1 Bis',
-  cpCiudad: '20301 Irún (Guipúzcoa)',
-  telefono: '943 57 49 19',
-  email: 'info@pinoalbanileria.com',
-} as const;
 
 const NAVY = '#1a365d';
 const GRIS_FONDO = '#f5f5f5';
@@ -299,8 +284,7 @@ function splitDirCiudad(full: string | undefined): { dir: string; ciudad: string
 }
 
 export function FacturaPdfDocument(props: FacturaPdfProps) {
-  const { factura, logoUrl, porcentajeIva, empresa: _empresa } = props;
-  void _empresa;
+  const { factura, logoUrl, porcentajeIva, empresa } = props;
   const pct = Number.isFinite(porcentajeIva) ? porcentajeIva : 21;
   const fechaOp = factura.fecha_operacion?.trim() ? factura.fecha_operacion : '—';
   const { dir: clienteDir, ciudad: clienteCiudad } = splitDirCiudad(factura.cliente_direccion);
@@ -357,22 +341,32 @@ export function FacturaPdfDocument(props: FacturaPdfProps) {
         {/* Sección 2 — emisor + cliente */}
         <View style={styles.seccion2}>
           <View style={styles.cajaGris}>
-            <View style={styles.emisorNifNombre} wrap={false}>
-              <Text style={styles.emisorNif}>{PINO_EMISOR.nif}</Text>
-              <Text style={styles.emisorNombre}>{PINO_EMISOR.nombre}</Text>
-            </View>
-            <Text>{PINO_EMISOR.direccion}</Text>
-            <Text>{PINO_EMISOR.cpCiudad}</Text>
-            <View style={styles.telEmailRow} wrap={false}>
-              <Text style={styles.telBlock}>
-                <Text style={{ fontWeight: 'bold' }}>Tel.: </Text>
-                {PINO_EMISOR.telefono}
-              </Text>
-              <Text>
-                <Text style={{ fontWeight: 'bold' }}>Email: </Text>
-                {PINO_EMISOR.email}
-              </Text>
-            </View>
+            {empresa.nif || empresa.razonSocial ? (
+              <View style={styles.emisorNifNombre} wrap={false}>
+                {empresa.nif ? <Text style={styles.emisorNif}>{empresa.nif}</Text> : null}
+                {empresa.razonSocial ? (
+                  <Text style={styles.emisorNombre}>{empresa.razonSocial}</Text>
+                ) : null}
+              </View>
+            ) : null}
+            {empresa.direccion ? <Text>{empresa.direccion}</Text> : null}
+            {empresa.localidad ? <Text>{empresa.localidad}</Text> : null}
+            {empresa.telefono || empresa.email ? (
+              <View style={styles.telEmailRow} wrap={false}>
+                {empresa.telefono ? (
+                  <Text style={styles.telBlock}>
+                    <Text style={{ fontWeight: 'bold' }}>Tel.: </Text>
+                    {empresa.telefono}
+                  </Text>
+                ) : null}
+                {empresa.email ? (
+                  <Text>
+                    <Text style={{ fontWeight: 'bold' }}>Email: </Text>
+                    {empresa.email}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
           </View>
           <View style={styles.cajaGrisCliente}>
             <Text style={styles.tituloCliente}>BEZEROA / CLIENTE</Text>
@@ -495,13 +489,16 @@ export function FacturaPdfDocument(props: FacturaPdfProps) {
         ) : null}
 
         {/* Sección 5 */}
-        <View style={styles.bancos}>
-          <Text style={styles.bancosTitle}>Cuentas bancarias</Text>
-          <Text>KUTXABANK: ES63 2095 5086 1091 2060 8015</Text>
-          <Text>BANCO SABADELL: ES40 0081 4332 4000 0111 1021</Text>
-        </View>
+        {empresa.cuentasBancarias.length > 0 ? (
+          <View style={styles.bancos}>
+            <Text style={styles.bancosTitle}>Cuentas bancarias</Text>
+            {empresa.cuentasBancarias.map((cuenta, index) => (
+              <Text key={`cta-${index}`}>{cuenta}</Text>
+            ))}
+          </View>
+        ) : null}
 
-        <Text style={styles.pie}>www.pinoalbanileria.net</Text>
+        {empresa.web ? <Text style={styles.pie}>{empresa.web}</Text> : null}
         <Text style={styles.pieSoft}>Software: Perfilio</Text>
       </Page>
     </Document>

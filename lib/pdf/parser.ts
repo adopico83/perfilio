@@ -76,7 +76,7 @@ function fillMissingFooter(parsed: PresupuestoGeneradoParseado): PresupuestoGene
 }
 
 /**
- * Interpreta el texto almacenado en `presupuestos.presupuesto_generado` (formato Pino / partidas).
+ * Interpreta el texto almacenado en `presupuestos.presupuesto_generado` (partidas).
  */
 export function parsePresupuestoGenerado(texto: string): PresupuestoGeneradoParseado {
   const raw = (texto ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');

@@ -2,20 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { renderToBuffer } from '@react-pdf/renderer';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { assertUserOwnsBusiness } from '@/lib/supabase/assert-user-owns-business';
+import { loadEmpresaEmisor } from '@/lib/pdf/empresa';
 import {
   FacturaPdfDocument,
   type FacturaPdfProps,
 } from '@/lib/pdf/factura';
 
 export const runtime = 'nodejs';
-
-const EMPRESA_PINO_FALLBACK = {
-  nombre: 'AL&CA Pino Gutiérrez Albañilería en General S.L.',
-  nif: 'B-75207308',
-  direccion: 'C/ Bartolomé de Urdinso Nº 15 Local 1 Bis, C.P. 20.301 Irún (Guipúzcoa)',
-  telefono: '943 57 49 19',
-  email: 'info@pinoalbanileria.com',
-} as const;
 
 function parseFacturaLineas(raw: unknown): FacturaPdfProps['factura']['lineas'] {
   if (raw == null) return [];
@@ -101,46 +94,10 @@ export async function GET(
       return NextResponse.json({ error: 'No tienes acceso' }, { status: 403 });
     }
 
-    const { data: profile, error: profErr } = await supabase
-      .from('business_profiles')
-      .select('nombre, direccion, ciudad, logo_url')
-      .eq('id', businessId)
-      .maybeSingle();
-
-    if (profErr) {
-      return NextResponse.json({ error: profErr.message }, { status: 500 });
+    const emisor = await loadEmpresaEmisor(supabase, businessId);
+    if (!emisor.ok) {
+      return NextResponse.json({ error: emisor.error }, { status: 500 });
     }
-
-    const prof = profile as {
-      nombre?: string | null;
-      direccion?: string | null;
-      ciudad?: string | null;
-      logo_url?: string | null;
-    } | null;
-
-    let logoUrl: string | null = null;
-    const logoPath = prof?.logo_url?.trim();
-    if (logoPath) {
-      const path = logoPath.replace(/^\/+/, '');
-      const { data: signed, error: signErr } = await supabase.storage
-        .from('business-assets')
-        .createSignedUrl(path, 3600);
-      if (!signErr && signed?.signedUrl) {
-        logoUrl = signed.signedUrl;
-      }
-    }
-
-    const dirParts = [prof?.direccion?.trim(), prof?.ciudad?.trim()].filter(Boolean);
-    const direccionEmpresa =
-      dirParts.length > 0 ? dirParts.join(', ') : EMPRESA_PINO_FALLBACK.direccion;
-
-    const empresa = {
-      nombre: prof?.nombre?.trim() || EMPRESA_PINO_FALLBACK.nombre,
-      nif: EMPRESA_PINO_FALLBACK.nif,
-      direccion: direccionEmpresa,
-      telefono: EMPRESA_PINO_FALLBACK.telefono,
-      email: EMPRESA_PINO_FALLBACK.email,
-    };
 
     const fechaRaw = (fac as { fecha?: string | null }).fecha;
     const createdAt = (fac as { created_at?: string }).created_at;
@@ -177,8 +134,8 @@ export async function GET(
     const buffer = await renderToBuffer(
       <FacturaPdfDocument
         factura={facturaPayload}
-        logoUrl={logoUrl}
-        empresa={empresa}
+        logoUrl={emisor.logoUrl}
+        empresa={emisor.empresa}
         porcentajeIva={porcentajeIva}
       />
     );

@@ -1,5 +1,7 @@
 /** Tipos compartidos para documentos PDF generados en el servidor. */
 
+import type { EmpresaEmisor } from './empresa';
+
 export type PartidaPresupuestoPdf = {
   concepto: string;
   cantidad: number;
@@ -23,9 +25,10 @@ export type PresupuestoGeneradoParseado = {
   total: number;
 };
 
-/** Props del documento PDF de presupuesto (Pino). */
+/** Props del documento PDF de presupuesto. */
 export type PresupuestoPdfProps = {
   logoUrl: string | null;
+  empresa: EmpresaEmisor;
   numeroPresupuesto: string;
   referencia: string;
   fecha: string;
