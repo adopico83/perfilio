@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { renderToBuffer } from '@react-pdf/renderer';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { assertUserOwnsBusiness } from '@/lib/supabase/assert-user-owns-business';
+import { loadEmpresaEmisor } from '@/lib/pdf/empresa';
 import { parsePresupuestoGenerado } from '@/lib/pdf/parser';
 import { PresupuestoPdfDocument } from '@/lib/pdf/presupuesto';
 
@@ -58,26 +59,9 @@ export async function GET(
       return NextResponse.json({ error: 'No tienes acceso' }, { status: 403 });
     }
 
-    const { data: profile, error: profErr } = await supabase
-      .from('business_profiles')
-      .select('logo_url')
-      .eq('id', businessId)
-      .maybeSingle();
-
-    if (profErr) {
-      return NextResponse.json({ error: profErr.message }, { status: 500 });
-    }
-
-    let logoUrl: string | null = null;
-    const logoPath = (profile as { logo_url?: string | null } | null)?.logo_url?.trim();
-    if (logoPath) {
-      const path = logoPath.replace(/^\/+/, '');
-      const { data: signed, error: signErr } = await supabase.storage
-        .from('business-assets')
-        .createSignedUrl(path, 3600);
-      if (!signErr && signed?.signedUrl) {
-        logoUrl = signed.signedUrl;
-      }
+    const emisor = await loadEmpresaEmisor(supabase, businessId);
+    if (!emisor.ok) {
+      return NextResponse.json({ error: emisor.error }, { status: 500 });
     }
 
     const texto = String((pres as { presupuesto_generado?: string | null }).presupuesto_generado ?? '');
@@ -107,7 +91,8 @@ export async function GET(
 
     const buffer = await renderToBuffer(
       <PresupuestoPdfDocument
-        logoUrl={logoUrl}
+        logoUrl={emisor.logoUrl}
+        empresa={emisor.empresa}
         numeroPresupuesto={numero}
         referencia={referencia}
         fecha={fecha}

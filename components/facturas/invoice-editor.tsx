@@ -2,16 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
-
-/** Emisor Pino (alineado con `lib/pdf/factura.tsx` — TicketBAI). */
-const PINO_EMISOR = {
-  nif: 'B-75207308',
-  nombre: 'AL&CA Pino Gutiérrez Albañilería en General S.L.',
-  direccion: 'C/ Bartolomé de Urdinso Nº 15 Local 1 Bis',
-  cpCiudad: '20301 Irún (Guipúzcoa)',
-  telefono: '943 57 49 19',
-  email: 'info@pinoalbanileria.com',
-} as const;
+import type { EmpresaEmisor } from '@/lib/pdf/empresa';
 
 const NAVY = '#1a365d';
 const PERFILIO_LINEAS_MARKER = '__PERFILIO_LINEAS_JSON__\n';
@@ -187,6 +178,8 @@ export type InvoiceEditorSavePayload = {
 
 export type InvoiceEditorProps = {
   factura: FacturaEditorSource;
+  empresa: EmpresaEmisor;
+  logoUrl?: string | null;
   onClose: () => void;
   onSave: (payload: InvoiceEditorSavePayload) => Promise<void>;
   saving?: boolean;
@@ -196,6 +189,8 @@ export type InvoiceEditorProps = {
 
 export function InvoiceEditor({
   factura,
+  empresa,
+  logoUrl = null,
   onClose,
   onSave,
   saving = false,
@@ -209,6 +204,10 @@ export function InvoiceEditor({
   const [localError, setLocalError] = useState('');
   const prevTotalsKey = useRef<string | null>(null);
   const skipFirstTotalsEffect = useRef(true);
+
+  useEffect(() => {
+    setLogoFailed(false);
+  }, [logoUrl]);
 
   const subtotal = useMemo(() => {
     const sum = items.reduce((s, it) => s + lineImporte(it.cantidad, it.precio_unitario), 0);
@@ -310,9 +309,9 @@ export function InvoiceEditor({
             <div className="mb-4 flex flex-row items-start gap-2">
               <div className="w-[22%] shrink-0">
                 <div className="relative flex h-16 w-[120px] items-center justify-center">
-                  {!logoFailed ? (
+                  {logoUrl && !logoFailed ? (
                     <img
-                      src="/logo-pino.png"
+                      src={logoUrl}
                       alt="Logo"
                       width={120}
                       height={64}
@@ -320,9 +319,7 @@ export function InvoiceEditor({
                       onError={() => setLogoFailed(true)}
                     />
                   ) : (
-                    <span className="text-[9px] font-bold" style={{ color: NAVY }}>
-                      PINO
-                    </span>
+                    <span className="block h-12 w-[120px]" />
                   )}
                 </div>
               </div>
@@ -356,18 +353,34 @@ export function InvoiceEditor({
               <div
                 className="min-w-0 flex-1 border border-neutral-300 bg-[#f5f5f5] p-2 text-[9px] leading-[1.35]"
               >
-                <p className="mb-1">
-                  <span className="font-bold">{PINO_EMISOR.nif}</span>
-                  <span className="mx-2 font-bold">{PINO_EMISOR.nombre}</span>
-                </p>
-                <p>{PINO_EMISOR.direccion}</p>
-                <p>{PINO_EMISOR.cpCiudad}</p>
-                <p className="mt-1">
-                  <span className="font-bold">Tel.: </span>
-                  {PINO_EMISOR.telefono}
-                  <span className="ml-3 font-bold">Email: </span>
-                  {PINO_EMISOR.email}
-                </p>
+                {empresa.nif || empresa.razonSocial ? (
+                  <p className="mb-1">
+                    {empresa.nif ? <span className="font-bold">{empresa.nif}</span> : null}
+                    {empresa.razonSocial ? (
+                      <span className="mx-2 font-bold">{empresa.razonSocial}</span>
+                    ) : null}
+                  </p>
+                ) : null}
+                {empresa.direccion ? <p>{empresa.direccion}</p> : null}
+                {empresa.localidad ? <p>{empresa.localidad}</p> : null}
+                {empresa.telefono || empresa.email ? (
+                  <p className="mt-1">
+                    {empresa.telefono ? (
+                      <>
+                        <span className="font-bold">Tel.: </span>
+                        {empresa.telefono}
+                      </>
+                    ) : null}
+                    {empresa.email ? (
+                      <>
+                        <span className={empresa.telefono ? 'ml-3 font-bold' : 'font-bold'}>
+                          Email:{' '}
+                        </span>
+                        {empresa.email}
+                      </>
+                    ) : null}
+                  </p>
+                ) : null}
               </div>
               <div
                 className="min-w-0 flex-1 border border-neutral-300 bg-[#f5f5f5] p-2 text-[9px] leading-[1.35]"
@@ -517,12 +530,17 @@ export function InvoiceEditor({
               </div>
             </div>
 
-            <div className="mt-4 border-t border-neutral-200 pt-3 text-[8.5px] leading-snug">
-              <p className="mb-1 font-bold text-[10px]">Cuentas bancarias</p>
-              <p>KUTXABANK: ES63 2095 5086 1091 2060 8015</p>
-              <p>BANCO SABADELL: ES40 0081 4332 4000 0111 1021</p>
-            </div>
-            <p className="mt-4 text-center text-[8.5px] font-bold">www.pinoalbanileria.net</p>
+            {empresa.cuentasBancarias.length > 0 ? (
+              <div className="mt-4 border-t border-neutral-200 pt-3 text-[8.5px] leading-snug">
+                <p className="mb-1 font-bold text-[10px]">Cuentas bancarias</p>
+                {empresa.cuentasBancarias.map((cuenta, index) => (
+                  <p key={`cta-${index}`}>{cuenta}</p>
+                ))}
+              </div>
+            ) : null}
+            {empresa.web ? (
+              <p className="mt-4 text-center text-[8.5px] font-bold">{empresa.web}</p>
+            ) : null}
             <p className="text-center text-[8.5px] text-neutral-600">Software: Perfilio</p>
 
             {error || localError ? (

@@ -7,6 +7,7 @@ import {
   Text,
   View,
 } from '@react-pdf/renderer';
+import { lineasPresupuestoEmisor } from './empresa';
 import type { PresupuestoPdfProps } from './types';
 import { formatEuro } from './parser';
 
@@ -38,6 +39,9 @@ const styles = StyleSheet.create({
   logoPlaceholder: {
     width: 120,
     height: 48,
+  },
+  empresaSpacer: {
+    flex: 1,
   },
   empresaBox: {
     flex: 1,
@@ -186,7 +190,9 @@ function esCapituloGenerico(nombre: string): boolean {
 }
 
 export function PresupuestoPdfDocument(props: PresupuestoPdfProps) {
-  const { logoUrl, numeroPresupuesto, referencia, fecha, parsed, textoPlanoFallback } = props;
+  const { logoUrl, empresa, numeroPresupuesto, referencia, fecha, parsed, textoPlanoFallback } =
+    props;
+  const lineasEmisor = lineasPresupuestoEmisor(empresa);
   const showTabla = parsed.capitulos.length > 0;
   const showPie =
     parsed.baseImponible > 0 || parsed.importeIva > 0 || parsed.total > 0;
@@ -203,14 +209,15 @@ export function PresupuestoPdfDocument(props: PresupuestoPdfProps) {
           ) : (
             <View style={styles.logoPlaceholder} />
           )}
-          <View style={styles.empresaBox}>
-            <Text>AL&CA Pino Gutiérrez Albañilería en General S.L.</Text>
-            <Text>C/ Bartolomé de Urdinso Nº 15 Local 1 Bis</Text>
-            <Text>C.P. 20.301 Irún (Guipúzcoa)</Text>
-            <Text>NIF: B-75207308  R.E.A. 15/20/0014364</Text>
-            <Text>Oficina: 943 57 49 19  E-mail: info@pinoalbanileria.com</Text>
-            <Text>Instagram: @pinoalbanileria</Text>
-          </View>
+          {lineasEmisor.length > 0 ? (
+            <View style={styles.empresaBox}>
+              {lineasEmisor.map((linea, index) => (
+                <Text key={`emisor-${index}`}>{linea}</Text>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.empresaSpacer} />
+          )}
         </View>
 
         <View style={styles.metaRow}>
@@ -298,7 +305,7 @@ export function PresupuestoPdfDocument(props: PresupuestoPdfProps) {
           </View>
         </View>
 
-        <Text style={styles.web}>www.pinoalbanileria.net</Text>
+        {empresa.web ? <Text style={styles.web}>{empresa.web}</Text> : null}
       </Page>
     </Document>
   );

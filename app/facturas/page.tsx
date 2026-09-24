@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import { useRouter } from 'next/navigation';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
@@ -11,6 +11,11 @@ import {
   InvoiceEditor,
   type InvoiceEditorSavePayload,
 } from '@/components/facturas/invoice-editor';
+import {
+  empresaVacia,
+  loadEmpresaEmisor,
+  type EmpresaEmisor,
+} from '@/lib/pdf/empresa';
 
 interface Factura {
   id: string;
@@ -54,6 +59,11 @@ export default function FacturasPage() {
   const [editError, setEditError] = useState('');
   const [facturaGuardadaId, setFacturaGuardadaId] = useState<string | null>(null);
   const [editorDataRevision, setEditorDataRevision] = useState(0);
+  const [emisor, setEmisor] = useState<{
+    empresa: EmpresaEmisor;
+    logoUrl: string | null;
+  } | null>(null);
+  const emisorReq = useRef(0);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -101,6 +111,17 @@ export default function FacturasPage() {
     setEditError('');
     setFacturaGuardadaId(null);
     setEditorDataRevision((n) => n + 1);
+    if (!modoEdicion) return;
+    const req = ++emisorReq.current;
+    setEmisor(null);
+    void loadEmpresaEmisor(supabase, factura.business_id).then((res) => {
+      if (emisorReq.current !== req) return;
+      if (res.ok) {
+        setEmisor({ empresa: res.empresa, logoUrl: res.logoUrl });
+        return;
+      }
+      setEmisor({ empresa: empresaVacia(), logoUrl: null });
+    });
   };
 
   const cerrarDetalle = () => {
@@ -317,10 +338,25 @@ export default function FacturasPage() {
         )}
       </div>
 
-      {detalleItem && editandoDetalle ? (
+      {detalleItem && editandoDetalle && !emisor ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#0b1220]/95">
+          <button
+            type="button"
+            onClick={cerrarDetalle}
+            className="absolute right-3 top-3 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/90"
+          >
+            Cerrar
+          </button>
+          <p className="text-sm text-white/80">Cargando factura…</p>
+        </div>
+      ) : null}
+
+      {detalleItem && editandoDetalle && emisor ? (
         <InvoiceEditor
           key={`${detalleItem.id}-${editorDataRevision}`}
           factura={detalleItem}
+          empresa={emisor.empresa}
+          logoUrl={emisor.logoUrl}
           onClose={cerrarDetalle}
           onSave={(payload) => guardarDesdeEditor(detalleItem, payload)}
           saving={guardandoEdicion}
