@@ -4,6 +4,10 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { toolPayloadFromFinalCompletion } from './helpers/agente-openai';
 import { listarAlbaranesSinFacturar } from '@/lib/albaranes-sin-facturar';
 
+jest.mock('@/lib/supabase/assert-user-owns-business', () => ({
+  assertUserOwnsBusiness: jest.fn().mockResolvedValue(true),
+}));
+
 jest.mock('@/lib/supabase/server', () => ({
   createServiceClient: jest.fn(),
   createClient: jest.fn(),
