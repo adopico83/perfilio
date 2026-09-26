@@ -52,17 +52,13 @@ function normalizePartida(raw: Record<string, unknown>, index: number): PartidaP
   if (!Number.isFinite(precio_unitario) || precio_unitario < 0) {
     throw new Error(`Partida ${index + 1}: precio_unitario inválido`);
   }
-  const totalRaw = Number(raw.total);
-  const total =
-    Number.isFinite(totalRaw) && totalRaw > 0
-      ? round2(totalRaw)
-      : round2(cantidad * precio_unitario);
+  const precioRedondeado = round2(precio_unitario);
   return {
     descripcion: descripcion || `Partida ${index + 1}`,
     cantidad,
     unidad,
-    precio_unitario: round2(precio_unitario),
-    total,
+    precio_unitario: precioRedondeado,
+    total: round2(cantidad * precioRedondeado),
     categoria,
   };
 }

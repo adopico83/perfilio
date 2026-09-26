@@ -1397,7 +1397,6 @@ export async function handleDocumentosAgent(
           concepto: p.descripcion,
           cantidad: p.cantidad,
           precio: p.precio_unitario,
-          importe: p.total,
         })),
         IVA_DICTADO
       );

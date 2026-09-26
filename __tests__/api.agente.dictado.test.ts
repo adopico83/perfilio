@@ -235,7 +235,7 @@ describe('POST /api/agente — dictado y tarifas', () => {
     expect(pdf.total).toBe(847);
   });
 
-  it('generar_presupuesto_por_dictado no inserta si el importe no es cantidad x precio', async () => {
+  it('generar_presupuesto_por_dictado guarda el importe calculado aunque el total de la partida venga mal', async () => {
     estructurarDictadoMock().mockResolvedValueOnce([
       {
         descripcion: 'Solado de gres',
@@ -256,10 +256,13 @@ describe('POST /api/agente — dictado y tarifas', () => {
     const parsed = toolPayloadFromFinal('generar_presupuesto_por_dictado') as {
       error?: string;
       presupuesto_id?: string;
+      importe_total?: number;
     };
-    expect(parsed.error).toMatch(/no coincide con cantidad × precio/);
-    expect(parsed.presupuesto_id).toBeUndefined();
-    expect(insertMock).not.toHaveBeenCalled();
+    expect(parsed.error).toBeUndefined();
+    expect(parsed.presupuesto_id).toBe('pres-1');
+    expect(parsed.importe_total).toBe(847);
+    const payload = insertMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(parsePresupuestoGenerado(String(payload.presupuesto_generado)).baseImponible).toBe(700);
   });
 
   it('generar_presupuesto_por_dictado rechaza cantidades no finitas o negativas antes del insert', async () => {
