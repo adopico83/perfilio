@@ -1,6 +1,11 @@
 import { NextRequest } from 'next/server';
 
+import { assertUserOwnsBusiness } from '@/lib/supabase/assert-user-owns-business';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+
+jest.mock('@/lib/supabase/assert-user-owns-business', () => ({
+  assertUserOwnsBusiness: jest.fn().mockResolvedValue(true),
+}));
 
 jest.mock('@/lib/supabase/server', () => ({
   createServiceClient: jest.fn(),
@@ -68,7 +73,7 @@ describe('POST /api/agente', () => {
 
     (createClient as jest.Mock).mockResolvedValue({
       auth: {
-        getUser: jest.fn().mockResolvedValue({ data: { user: null } }),
+        getUser: jest.fn().mockResolvedValue({ data: { user: { id: 'user-1' } } }),
       },
     });
 
@@ -118,6 +123,40 @@ describe('POST /api/agente', () => {
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toMatch(/mensaje|imagen/i);
+  });
+
+  it('devuelve 403 si el business_id no pertenece al usuario y no llega a leer ni escribir', async () => {
+    (assertUserOwnsBusiness as jest.Mock).mockResolvedValueOnce(false);
+    const serviceFrom = (createServiceClient as jest.Mock)().from as jest.Mock;
+    serviceFrom.mockClear();
+
+    const req = new NextRequest('http://localhost/api/agente', {
+      method: 'POST',
+      body: JSON.stringify({ mensaje: 'Hola', business_id: 'biz-ajeno', historial: [] }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(403);
+    expect(assertUserOwnsBusiness).toHaveBeenCalledWith(expect.anything(), 'user-1', 'biz-ajeno');
+    expect(serviceFrom).not.toHaveBeenCalled();
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it('devuelve 401 sin sesión', async () => {
+    (createClient as jest.Mock).mockResolvedValueOnce({
+      auth: { getUser: jest.fn().mockResolvedValue({ data: { user: null } }) },
+    });
+
+    const req = new NextRequest('http://localhost/api/agente', {
+      method: 'POST',
+      body: JSON.stringify({ mensaje: 'Hola', business_id: 'biz1', historial: [] }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(401);
+    expect(createMock).not.toHaveBeenCalled();
   });
 
   /** JPEG 1×1 válido (data URL) */

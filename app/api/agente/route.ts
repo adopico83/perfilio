@@ -271,6 +271,14 @@ export async function POST(request: NextRequest) {
     const {
       data: { user: authUser },
     } = await supabaseAuth.auth.getUser();
+    if (!authUser?.id) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
+    const businessIdStr = String(business_id ?? '').trim();
+    const canAccess = await assertUserOwnsBusiness(supabase, authUser.id, businessIdStr);
+    if (!canAccess) {
+      return NextResponse.json({ error: 'No tienes acceso a este negocio' }, { status: 403 });
+    }
     const { data: profile, error: profileError } = await supabase
       .from('business_profiles')
       .select(
@@ -289,17 +297,6 @@ export async function POST(request: NextRequest) {
     if (directToolName) {
       if (directToolName !== 'editar_factura') {
         return NextResponse.json({ error: 'tool no permitida' }, { status: 400 });
-      }
-      if (!authUser?.id) {
-        return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-      }
-      const businessIdStr = String(business_id ?? '').trim();
-      const canAccess = await assertUserOwnsBusiness(supabase, authUser.id, businessIdStr);
-      if (!canAccess) {
-        return NextResponse.json(
-          { error: 'No tienes acceso a este negocio' },
-          { status: 403 }
-        );
       }
       const result = await editar_factura(supabase, businessIdStr, directToolArgs);
       if ('error' in result) {

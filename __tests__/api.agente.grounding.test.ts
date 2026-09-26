@@ -3,6 +3,10 @@ import { NextRequest } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { findOpenAiCallWithTools } from './helpers/agente-openai';
 
+jest.mock('@/lib/supabase/assert-user-owns-business', () => ({
+  assertUserOwnsBusiness: jest.fn().mockResolvedValue(true),
+}));
+
 jest.mock('@/lib/supabase/server', () => ({
   createServiceClient: jest.fn(),
   createClient: jest.fn(),

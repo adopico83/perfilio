@@ -10,6 +10,8 @@ import {
   formatearBorradorPresupuestoDictado,
   type TarifaReferencia,
 } from '@/lib/dictado-presupuesto';
+import { insertarPresupuestoConNumeroCorrelativo } from '@/lib/presupuestos/numero';
+import { generarTextoCanonico } from '@/lib/presupuestos/texto-canonico';
 import { TARIFAS_BASE_ALBANILERIA } from '@/lib/tarifas-base';
 import { resolverObraDocumentoAgente } from '@/lib/obras-context';
 import {
@@ -1389,8 +1391,25 @@ export async function handleDocumentosAgent(
         return { error: e instanceof Error ? e.message : 'Error al estructurar el dictado' };
       }
 
-      const { texto, totalConIva } = formatearBorradorPresupuestoDictado(
-        partidas,
+      const IVA_DICTADO = 21;
+      const canon = generarTextoCanonico(
+        partidas.map((p) => ({
+          concepto: p.descripcion,
+          cantidad: p.cantidad,
+          precio: p.precio_unitario,
+        })),
+        IVA_DICTADO
+      );
+      if (!canon.ok) return { error: canon.error };
+
+      const partidasValidadas = partidas.map((p, i) => ({
+        ...p,
+        cantidad: canon.partidas[i].cantidad,
+        precio_unitario: canon.partidas[i].precio,
+        total: canon.partidas[i].importe,
+      }));
+      const { texto: textoVistaPrevia } = formatearBorradorPresupuestoDictado(
+        partidasValidadas,
         clienteNombreParaDoc,
         direccionObra
       );
@@ -1403,32 +1422,36 @@ export async function handleDocumentosAgent(
       const soloVista = toolArgs.solo_vista_previa === true;
       if (soloVista) {
         return {
-          mensaje: `Borrador (sin guardar aún):\n\n${texto}`,
-          partidas,
-          importe_total: totalConIva,
+          mensaje: `Borrador (sin guardar aún):\n\n${textoVistaPrevia}`,
+          partidas: partidasValidadas,
+          importe_total: canon.total,
           pendiente_confirmacion: true,
         };
       }
 
-      const { error: insErr } = await supabase.from('presupuestos').insert({
-        business_id: businessId,
-        presupuesto_generado: texto,
-        importe_total: totalConIva,
-        fecha: new Date().toISOString().split('T')[0],
-        estado: 'borrador',
-        mensaje_cliente: mensajeClienteDictado,
-        ...(clienteNombreParaDoc.length > 0 && { cliente_nombre: clienteNombreParaDoc }),
-        ...(clienteIdFinal != null && { cliente_id: clienteIdFinal }),
-        ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
-      });
-
-      if (insErr) return { error: insErr.message };
+      const creado = await insertarPresupuestoConNumeroCorrelativo(
+        supabase,
+        businessId,
+        {
+          presupuesto_generado: canon.texto,
+          importe_total: canon.total,
+          fecha: new Date().toISOString().split('T')[0],
+          estado: 'borrador',
+          mensaje_cliente: mensajeClienteDictado,
+          ...(clienteNombreParaDoc.length > 0 && { cliente_nombre: clienteNombreParaDoc }),
+          ...(clienteIdFinal != null && { cliente_id: clienteIdFinal }),
+          ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
+        },
+        'id'
+      );
+      if (!creado.ok) return { error: creado.error };
 
       return {
         mensaje:
-          `Borrador generado y guardado (revisa importes y textos).\n\n${texto}`,
-        partidas,
-        importe_total: totalConIva,
+          `Borrador generado y guardado (revisa importes y textos).\n\n${textoVistaPrevia}`,
+        presupuesto_id: String(creado.data.id),
+        partidas: partidasValidadas,
+        importe_total: canon.total,
       };
     }
     case 'gestionar_tarifas': {

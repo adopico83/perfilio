@@ -14,6 +14,7 @@ import {
   toolFailDesdePresupuestoResolve,
 } from '@/lib/agente/modules/grounding';
 import { insertarPresupuestoConNumeroCorrelativo } from '@/lib/presupuestos/numero';
+import { fmtImporteLinea, generarTextoCanonico } from '@/lib/presupuestos/texto-canonico';
 
 function escapeIlike(s: string): string {
   return s.replace(/[%_]/g, '');
@@ -35,14 +36,6 @@ function scoreDescripcionMatch(desc: string, needle: string): number {
 }
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
-
-function fmtImporteLinea(n: number): string {
-  return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function fmtCantidadLinea(n: number): string {
-  return n.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 4 });
-}
 
 async function buscarClientePorNombreCaseInsensitive(
   supabase: SupabaseClient,
@@ -513,54 +506,6 @@ async function elegirTarifaConGpt(
   } catch {
     return null;
   }
-}
-
-function generarTextoPresupuestoDesdeItems(
-  items: Array<{
-    descripcion: string;
-    cantidad: number;
-    unidad: string;
-    precio_unitario: number;
-    importe: number;
-    capitulo: string | null;
-  }>,
-  ivaPct: number
-): { texto: string; base: number; ivaImporte: number; total: number } {
-  const capOrder: string[] = [];
-  const byCap = new Map<string, typeof items>();
-  for (const it of items) {
-    const c = (it.capitulo ?? '').trim() || 'GENERAL';
-    if (!byCap.has(c)) {
-      byCap.set(c, []);
-      capOrder.push(c);
-    }
-    byCap.get(c)!.push(it);
-  }
-  let base = 0;
-  for (const it of items) base += it.importe;
-  base = r2(base);
-  const ivaImporte = r2((base * ivaPct) / 100);
-  const total = r2(base + ivaImporte);
-
-  const lines: string[] = [];
-  let n = 1;
-  for (const cap of capOrder) {
-    const list = byCap.get(cap)!;
-    lines.push(`CAPÍTULO ${cap}`);
-    let sumCap = 0;
-    for (const it of list) {
-      sumCap = r2(sumCap + it.importe);
-      lines.push(
-        `${n}. ${it.descripcion} | Cantidad: ${fmtCantidadLinea(it.cantidad)} | Precio: ${fmtImporteLinea(it.precio_unitario)} € | Importe: ${fmtImporteLinea(it.importe)} €`
-      );
-      n += 1;
-    }
-    lines.push(`TOTAL ${cap}: ${fmtImporteLinea(sumCap)} €`);
-  }
-  lines.push(
-    `BASE IMPONIBLE: ${fmtImporteLinea(base)} € | IVA (${ivaPct}%): ${fmtImporteLinea(ivaImporte)} € | TOTAL: ${fmtImporteLinea(total)} €`
-  );
-  return { texto: lines.join('\n'), base, ivaImporte, total };
 }
 
 async function resolverIdPresupuestoExistente(
@@ -1483,15 +1428,18 @@ export async function handlePresupuestos(
       if (list.length === 0) return { error: 'No hay partidas en el borrador.' };
       const ivaPct = Number(br.row.iva_porcentaje ?? 21);
       const ivaNum = Number.isFinite(ivaPct) ? ivaPct : 21;
-      const { texto, base, ivaImporte, total } = generarTextoPresupuestoDesdeItems(
+      const canon = generarTextoCanonico(
         list.map((r) => ({
-          ...r,
+          concepto: r.descripcion,
           cantidad: Number(r.cantidad),
-          precio_unitario: Number(r.precio_unitario),
+          precio: Number(r.precio_unitario),
           importe: Number(r.importe),
+          capitulo: r.capitulo,
         })),
         ivaNum
       );
+      if (!canon.ok) return { error: canon.error };
+      const { texto, base, ivaImporte, total } = canon;
       let textoFinal = texto;
       if (observaciones) {
         textoFinal += `\n\nObservaciones: ${observaciones}`;
