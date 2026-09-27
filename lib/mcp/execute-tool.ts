@@ -12,7 +12,14 @@ import {
   guardarPreviewPresupuesto,
   confirmarPreviewPresupuesto,
   type PreviewPresupuestoInput,
+  type AvisoPreview,
 } from '@/lib/presupuestos/preview';
+import { parsePresupuestoGenerado } from '@/lib/pdf/parser';
+import {
+  generarTextoCanonico,
+  TOLERANCIA_IMPORTE,
+  type PartidaCanonicaEntrada,
+} from '@/lib/presupuestos/texto-canonico';
 
 function escapeIlikePattern(s: string): string {
   return s.replace(/[%_*]/g, '');
@@ -132,11 +139,7 @@ export async function executeMcpTool(
     }
     case 'crear_presupuesto': {
       const clienteNombre = String(toolArgs.cliente_nombre ?? '').trim().slice(0, 255);
-      const descripcion = String(toolArgs.descripcion ?? '').trim();
-      const total = Number(toolArgs.total);
       if (!clienteNombre) return { error: 'cliente_nombre es obligatorio' };
-      if (!descripcion) return { error: 'descripcion es obligatoria' };
-      if (!Number.isFinite(total)) return { error: 'total debe ser un número válido' };
 
       const obraIdRaw =
         typeof toolArgs.obra_id === 'string' && toolArgs.obra_id.trim()
@@ -146,15 +149,101 @@ export async function executeMcpTool(
       if (!obraResuelta.ok) return { error: obraResuelta.error };
       const obraId = obraResuelta.obraId;
 
-      // presupuesto_generado queda tal cual llega en `descripcion`.
-      // El maquetado del PDF es aparte y no debe reescribirse aquí.
+      const tieneCapitulos = Array.isArray(toolArgs.capitulos) && toolArgs.capitulos.length > 0;
+
+      if (tieneCapitulos) {
+        // --- Camino nuevo: mismo cálculo que previsualizar_presupuesto, pero
+        // guarda la preview y la confirma en la misma llamada (atajo sin
+        // revisión humana).
+        const input: PreviewPresupuestoInput = {
+          cliente_nombre: clienteNombre,
+          obra_id: obraId,
+          iva_porcentaje: typeof toolArgs.iva_porcentaje === 'number' ? toolArgs.iva_porcentaje : undefined,
+          capitulos: toolArgs.capitulos as PreviewPresupuestoInput['capitulos'],
+          total_declarado: typeof toolArgs.total === 'number' ? toolArgs.total : undefined,
+        };
+        const resultado = calcularPreviewPresupuesto(input);
+        if (!resultado.ok) return { error: resultado.error };
+        if (!resultado.confirmable) {
+          return {
+            error:
+              'No se puede crear: hay partidas sin precio. Usa previsualizar_presupuesto para revisarlas.',
+          };
+        }
+        const guardado = await guardarPreviewPresupuesto(
+          ctx.supabase,
+          ctx.businessId,
+          ctx.userId,
+          input,
+          resultado,
+          new Date()
+        );
+        if (!guardado.ok) return { error: guardado.error };
+        const confirmado = await confirmarPreviewPresupuesto(
+          ctx.supabase,
+          ctx.businessId,
+          guardado.previewId,
+          new Date()
+        );
+        if (!confirmado.ok) return { error: confirmado.error };
+        return {
+          ok: true,
+          presupuesto: {
+            id: confirmado.presupuestoId,
+            numero_presupuesto: confirmado.numeroPresupuesto,
+            cliente_nombre: confirmado.clienteNombre,
+            importe_total: confirmado.total,
+            estado: confirmado.estado,
+            fecha: confirmado.fecha,
+          },
+          avisos: resultado.avisos,
+        };
+      }
+
+      // --- Camino legacy: descripcion + total sueltos.
+      const descripcion = String(toolArgs.descripcion ?? '').trim();
+      if (!descripcion) return { error: 'descripcion o capitulos es obligatorio' };
+
+      const parsed = parsePresupuestoGenerado(descripcion);
+      const partidasEncontradas = parsed.capitulos.flatMap((c) => c.partidas);
+      if (partidasEncontradas.length === 0) {
+        return {
+          ok: false,
+          code: 'validacion',
+          error:
+            'No se pudieron interpretar partidas en descripcion (texto libre ya no se acepta). Usa previsualizar_presupuesto con capitulos estructurados.',
+        };
+      }
+
+      // Recalcula desde las partidas ya interpretadas; nunca confía en el total suelto.
+      const partidasCanonicas: PartidaCanonicaEntrada[] = parsed.capitulos.flatMap((cap) =>
+        cap.partidas.map((p) => ({
+          concepto: p.concepto,
+          cantidad: p.cantidad,
+          precio: p.precio,
+          capitulo: cap.nombre.replace(/^CAP[IÍ]TULO\s+/i, ''),
+        }))
+      );
+      const ivaPct = parsed.porcentajeIva > 0 ? parsed.porcentajeIva : 21;
+      const recalculo = generarTextoCanonico(partidasCanonicas, ivaPct);
+      if (!recalculo.ok) return { error: recalculo.error };
+
+      const avisos: AvisoPreview[] = [];
+      const totalDeclarado = Number(toolArgs.total);
+      if (
+        Number.isFinite(totalDeclarado) &&
+        Math.abs(totalDeclarado - recalculo.total) > TOLERANCIA_IMPORTE + 1e-9
+      ) {
+        avisos.push({ tipo: 'total_corregido', declarado: totalDeclarado, calculado: recalculo.total });
+      }
+
       const creado = await insertarPresupuestoConNumeroCorrelativo(
         ctx.supabase,
         ctx.businessId,
         {
           cliente_nombre: clienteNombre,
-          presupuesto_generado: descripcion,
-          importe_total: total,
+          presupuesto_generado: recalculo.texto,
+          importe_total: recalculo.total,
           fecha: ymdTodayMadrid(),
           estado: 'borrador',
           ...(obraId ? { obra_id: obraId } : {}),
@@ -162,7 +251,7 @@ export async function executeMcpTool(
         'id, numero_presupuesto, cliente_nombre, importe_total, estado, fecha'
       );
       if (!creado.ok) return { error: creado.error };
-      return { ok: true, presupuesto: creado.data };
+      return { ok: true, presupuesto: creado.data, avisos };
     }
     case 'previsualizar_presupuesto': {
       const obraIdRaw =

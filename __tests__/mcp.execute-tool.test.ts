@@ -5,6 +5,7 @@ import {
 } from '@/lib/diario-obra-ingest';
 import type { McpContext } from '@/lib/mcp/context';
 import { parsePresupuestoGenerado } from '@/lib/pdf/parser';
+import { generarTextoCanonico } from '@/lib/presupuestos/texto-canonico';
 
 jest.mock('@/lib/diario-obra-ingest', () => ({
   DIARIO_FOTO_INGEST_MAX_ITEMS: 8,
@@ -331,13 +332,19 @@ function presupuestoSupabase(seed: Array<number | null>) {
 }
 
 describe('executeMcpTool — crear_presupuesto', () => {
-  const descripcion = 'Pintura salón\n- 2 manos\nTotal acordado en visita';
+  const canon = generarTextoCanonico([{ concepto: 'Pintura salón', cantidad: 2, precio: 750 }], 21);
+  if (!canon.ok) throw new Error('setup inválido');
+  const descripcion = canon.texto;
+  const canonTotal = canon.total;
+
+  const canon2 = generarTextoCanonico([{ concepto: 'Reforma baño', cantidad: 1, precio: 800 }], 21);
+  if (!canon2.ok) throw new Error('setup inválido');
 
   function args(extra?: Record<string, unknown>) {
     return {
       cliente_nombre: 'Pino',
       descripcion,
-      total: 1500,
+      total: canonTotal,
       ...extra,
     };
   }
@@ -349,20 +356,25 @@ describe('executeMcpTool — crear_presupuesto', () => {
     const primero = await executeMcpTool('crear_presupuesto', args(), c);
     const segundo = await executeMcpTool(
       'crear_presupuesto',
-      args({ cliente_nombre: 'Ana', total: 800, descripcion: 'Segundo tal cual' }),
+      args({ cliente_nombre: 'Ana', total: canon2.total, descripcion: canon2.texto }),
       c
     );
 
     expect(primero).toMatchObject({
       ok: true,
-      presupuesto: { numero_presupuesto: 2, cliente_nombre: 'Pino', importe_total: 1500, estado: 'borrador' },
+      presupuesto: {
+        numero_presupuesto: 2,
+        cliente_nombre: 'Pino',
+        importe_total: canon.total,
+        estado: 'borrador',
+      },
     });
     expect(segundo).toMatchObject({
       ok: true,
-      presupuesto: { numero_presupuesto: 3, cliente_nombre: 'Ana', importe_total: 800 },
+      presupuesto: { numero_presupuesto: 3, cliente_nombre: 'Ana', importe_total: canon2.total },
     });
     expect(db.rows.find((r) => r.numero_presupuesto === 2)?.presupuesto_generado).toBe(descripcion);
-    expect(db.rows.find((r) => r.numero_presupuesto === 3)?.presupuesto_generado).toBe('Segundo tal cual');
+    expect(db.rows.find((r) => r.numero_presupuesto === 3)?.presupuesto_generado).toBe(canon2.texto);
     expect(db.reads.every((r) => r.notNull && r.nullsFirst === false && r.ascending === false)).toBe(true);
   });
 
@@ -612,6 +624,96 @@ function capitulosPreviewBasico() {
     },
   ];
 }
+
+describe('executeMcpTool — crear_presupuesto con capitulos', () => {
+  it('guarda el total calculado por el servidor, no el total falso declarado, y avisa de la diferencia', async () => {
+    const db = previewFakeSupabase();
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+
+    const result = await executeMcpTool(
+      'crear_presupuesto',
+      {
+        cliente_nombre: 'Pino',
+        total: 99999,
+        capitulos: [
+          { partidas: [{ descripcion: 'Alicatado', cantidad: 20, precio_unitario: 35 }] },
+        ],
+      },
+      c
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      presupuesto: { importe_total: 847 },
+      avisos: expect.arrayContaining([
+        { tipo: 'total_corregido', declarado: 99999, calculado: 847 },
+      ]),
+    });
+    expect(db.presupuestos).toHaveLength(1);
+  });
+
+  it('no crea nada si alguna partida no tiene precio', async () => {
+    const db = previewFakeSupabase();
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+
+    const result = await executeMcpTool(
+      'crear_presupuesto',
+      {
+        cliente_nombre: 'Pino',
+        capitulos: [{ partidas: [{ descripcion: 'Sin precio', cantidad: 1 }] }],
+      },
+      c
+    );
+
+    expect(result).toMatchObject({
+      error: expect.stringContaining('previsualizar_presupuesto'),
+    });
+    expect(db.presupuestos).toHaveLength(0);
+  });
+});
+
+describe('executeMcpTool — crear_presupuesto legacy', () => {
+  it('recalcula desde una descripcion ya canónica en vez de confiar en ella', async () => {
+    const canon = generarTextoCanonico(
+      [{ concepto: 'Pintura salón', cantidad: 2, precio: 750 }],
+      21
+    );
+    if (!canon.ok) throw new Error('setup inválido');
+
+    const db = presupuestoSupabase([]);
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+
+    const result = await executeMcpTool(
+      'crear_presupuesto',
+      { cliente_nombre: 'Pino', descripcion: canon.texto },
+      c
+    );
+
+    expect(result).toMatchObject({ ok: true, presupuesto: { importe_total: canon.total } });
+    const guardado = db.rows.find((r) => typeof r.presupuesto_generado === 'string');
+    const releido = parsePresupuestoGenerado(String(guardado?.presupuesto_generado ?? ''));
+    expect(releido.baseImponible).toBe(canon.base);
+    expect(releido.importeIva).toBe(canon.ivaImporte);
+    expect(releido.total).toBe(canon.total);
+    const partidas = releido.capitulos.flatMap((cap) => cap.partidas);
+    expect(partidas).toHaveLength(1);
+    expect(partidas[0]).toMatchObject({ concepto: 'Pintura salón', cantidad: 2, precio: 750, importe: 1500 });
+  });
+
+  it('rechaza texto libre sin partidas interpretables y no inserta nada', async () => {
+    const db = presupuestoSupabase([]);
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+
+    const result = await executeMcpTool(
+      'crear_presupuesto',
+      { cliente_nombre: 'Pino', descripcion: 'Pintura salón a ojo, ya veremos el precio' },
+      c
+    );
+
+    expect(result).toMatchObject({ ok: false, code: 'validacion' });
+    expect(db.insertAttempts()).toBe(0);
+  });
+});
 
 describe('executeMcpTool — previsualizar_presupuesto', () => {
   it('no toca presupuestos e inserta la previsualización con el business_id del contexto', async () => {
