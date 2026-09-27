@@ -7,6 +7,12 @@ import {
 } from '@/lib/diario-obra-ingest';
 import { crearCitaAgenda, listarCitasAgenda } from '@/lib/mcp/citas';
 import { insertarPresupuestoConNumeroCorrelativo } from '@/lib/presupuestos/numero';
+import {
+  calcularPreviewPresupuesto,
+  guardarPreviewPresupuesto,
+  confirmarPreviewPresupuesto,
+  type PreviewPresupuestoInput,
+} from '@/lib/presupuestos/preview';
 
 function escapeIlikePattern(s: string): string {
   return s.replace(/[%_*]/g, '');
@@ -70,6 +76,28 @@ async function buscarObraPorNombre(
   };
 }
 
+/**
+ * Valida un obra_id opcional contra la tabla `obras` del negocio. Devuelve
+ * `obraId: null` si no se pasó ninguno; error si no existe o es de otro negocio.
+ */
+async function resolverObraId(
+  ctx: McpContext,
+  obraIdRaw: string | null
+): Promise<{ ok: true; obraId: string | null } | { ok: false; error: string }> {
+  if (!obraIdRaw) return { ok: true, obraId: null };
+  const { data: obraRow, error: obraErr } = await ctx.supabase
+    .from('obras')
+    .select('id')
+    .eq('business_id', ctx.businessId)
+    .eq('id', obraIdRaw)
+    .maybeSingle();
+  if (obraErr) return { ok: false, error: obraErr.message };
+  if (!obraRow?.id) {
+    return { ok: false, error: 'obra_id no existe o no pertenece a este negocio' };
+  }
+  return { ok: true, obraId: obraRow.id as string };
+}
+
 export async function executeMcpTool(
   toolName: string,
   toolArgs: Record<string, unknown>,
@@ -110,24 +138,13 @@ export async function executeMcpTool(
       if (!descripcion) return { error: 'descripcion es obligatoria' };
       if (!Number.isFinite(total)) return { error: 'total debe ser un número válido' };
 
-      let obraId: string | null = null;
       const obraIdRaw =
         typeof toolArgs.obra_id === 'string' && toolArgs.obra_id.trim()
           ? toolArgs.obra_id.trim()
           : null;
-      if (obraIdRaw) {
-        const { data: obraRow, error: obraErr } = await ctx.supabase
-          .from('obras')
-          .select('id')
-          .eq('business_id', ctx.businessId)
-          .eq('id', obraIdRaw)
-          .maybeSingle();
-        if (obraErr) return { error: obraErr.message };
-        if (!obraRow?.id) {
-          return { error: 'obra_id no existe o no pertenece a este negocio' };
-        }
-        obraId = obraRow.id as string;
-      }
+      const obraResuelta = await resolverObraId(ctx, obraIdRaw);
+      if (!obraResuelta.ok) return { error: obraResuelta.error };
+      const obraId = obraResuelta.obraId;
 
       // presupuesto_generado queda tal cual llega en `descripcion`.
       // El maquetado del PDF es aparte y no debe reescribirse aquí.
@@ -146,6 +163,96 @@ export async function executeMcpTool(
       );
       if (!creado.ok) return { error: creado.error };
       return { ok: true, presupuesto: creado.data };
+    }
+    case 'previsualizar_presupuesto': {
+      const obraIdRaw =
+        typeof toolArgs.obra_id === 'string' && toolArgs.obra_id.trim()
+          ? toolArgs.obra_id.trim()
+          : null;
+      const obraResuelta = await resolverObraId(ctx, obraIdRaw);
+      if (!obraResuelta.ok) return { ok: false, code: 'validacion', error: obraResuelta.error };
+
+      const input: PreviewPresupuestoInput = {
+        cliente_nombre: typeof toolArgs.cliente_nombre === 'string' ? toolArgs.cliente_nombre : '',
+        obra_id: obraResuelta.obraId,
+        iva_porcentaje: typeof toolArgs.iva_porcentaje === 'number' ? toolArgs.iva_porcentaje : undefined,
+        observaciones: typeof toolArgs.observaciones === 'string' ? toolArgs.observaciones : undefined,
+        capitulos: Array.isArray(toolArgs.capitulos)
+          ? (toolArgs.capitulos as PreviewPresupuestoInput['capitulos'])
+          : [],
+        total_declarado:
+          typeof toolArgs.total_declarado === 'number' ? toolArgs.total_declarado : undefined,
+      };
+
+      const resultado = calcularPreviewPresupuesto(input);
+      if (!resultado.ok) {
+        return { ok: false, code: 'validacion', error: resultado.error };
+      }
+
+      const base = {
+        ok: true as const,
+        confirmable: resultado.confirmable,
+        avisos: resultado.avisos,
+        capitulos: resultado.capitulos,
+        base_imponible: resultado.base_imponible,
+        iva_importe: resultado.iva_importe,
+        total: resultado.total,
+        texto_canonico: resultado.texto_canonico,
+        cliente_nombre: input.cliente_nombre,
+        obra_id: input.obra_id,
+        iva_porcentaje: input.iva_porcentaje ?? 21,
+      };
+
+      if (!resultado.confirmable) {
+        return {
+          ...base,
+          preview_id: null,
+          expires_at: null,
+          siguiente_paso:
+            'Corrige los avisos (falta precio en alguna partida) antes de poder previsualizar de nuevo.',
+        };
+      }
+
+      const guardado = await guardarPreviewPresupuesto(
+        ctx.supabase,
+        ctx.businessId,
+        ctx.userId,
+        input,
+        resultado,
+        new Date()
+      );
+      if (!guardado.ok) {
+        return { ok: false, code: 'validacion', error: guardado.error };
+      }
+
+      return {
+        ...base,
+        preview_id: guardado.previewId,
+        expires_at: guardado.expiresAt,
+        siguiente_paso:
+          'Enseña este resumen (capítulos, avisos y total) al usuario. Si lo aprueba explícitamente, llama a confirmar_presupuesto con este preview_id.',
+      };
+    }
+    case 'confirmar_presupuesto': {
+      const previewId = typeof toolArgs.preview_id === 'string' ? toolArgs.preview_id.trim() : '';
+      if (!previewId) {
+        return { ok: false, code: 'validacion', error: 'preview_id es obligatorio' };
+      }
+      const r = await confirmarPreviewPresupuesto(ctx.supabase, ctx.businessId, previewId, new Date());
+      if (!r.ok) {
+        return { ok: false, code: r.code, error: r.error };
+      }
+      return {
+        ok: true,
+        presupuesto_id: r.presupuestoId,
+        numero_presupuesto: r.numeroPresupuesto,
+        cliente_nombre: r.clienteNombre,
+        base_imponible: r.baseImponible,
+        iva_importe: r.ivaImporte,
+        total: r.total,
+        estado: r.estado,
+        fecha: r.fecha,
+      };
     }
     case 'registrar_horas': {
       const operarioNombre = String(toolArgs.operario_nombre ?? '').trim();

@@ -4,6 +4,7 @@ import {
   ingestDiarioObraFotos,
 } from '@/lib/diario-obra-ingest';
 import type { McpContext } from '@/lib/mcp/context';
+import { parsePresupuestoGenerado } from '@/lib/pdf/parser';
 
 jest.mock('@/lib/diario-obra-ingest', () => ({
   DIARIO_FOTO_INGEST_MAX_ITEMS: 8,
@@ -408,5 +409,326 @@ describe('executeMcpTool — crear_presupuesto', () => {
 
     expect(result).toEqual({ error: 'timeout' });
     expect(db.insertAttempts()).toBe(0);
+  });
+});
+
+// --- Fake de Supabase para previsualizar_presupuesto / confirmar_presupuesto ---
+// Soporta las tablas 'presupuestos', 'presupuesto_previews' y 'obras' con el
+// mismo estilo encadenable que presupuestoSupabase, pero en memoria compartida
+// entre llamadas (varios `from()` sobre las mismas filas).
+
+type PreviewRow = {
+  id: string;
+  business_id: string;
+  creado_por: string | null;
+  cliente_nombre: string;
+  obra_id: string | null;
+  iva_porcentaje: number;
+  partidas: unknown;
+  texto_canonico: string;
+  base_imponible: number | null;
+  iva_importe: number | null;
+  total: number;
+  avisos: unknown;
+  observaciones: string | null;
+  estado: string;
+  presupuesto_id: string | null;
+  expires_at: string;
+  created_at: string;
+  confirmed_at: string | null;
+};
+
+type PresRow = {
+  id: string;
+  business_id: string;
+  numero_presupuesto: number | null;
+  cliente_nombre?: unknown;
+  presupuesto_generado?: unknown;
+  importe_total?: unknown;
+  estado?: unknown;
+  fecha?: unknown;
+  obra_id?: unknown;
+};
+
+type ObraRow = { id: string; business_id: string };
+
+function previewFakeSupabase(opts?: { obras?: ObraRow[] }) {
+  const previews: PreviewRow[] = [];
+  const presupuestos: PresRow[] = [];
+  const obras: ObraRow[] = opts?.obras ?? [];
+  const fromCalls: string[] = [];
+  let seq = 0;
+
+  function matches(row: Record<string, unknown>, filters: Array<[string, unknown]>): boolean {
+    return filters.every(([k, v]) => row[k] === v);
+  }
+
+  const supabase = {
+    from(table: string) {
+      fromCalls.push(table);
+      const filters: Array<[string, unknown]> = [];
+      let pendingInsert: Record<string, unknown> | null = null;
+      let pendingUpdate: Record<string, unknown> | null = null;
+      let isNumeroRead = false;
+
+      const chain = {
+        select() {
+          return chain;
+        },
+        insert(row: Record<string, unknown>) {
+          pendingInsert = row;
+          return chain;
+        },
+        update(row: Record<string, unknown>) {
+          pendingUpdate = row;
+          return chain;
+        },
+        eq(col: string, val: unknown) {
+          filters.push([col, val]);
+          return chain;
+        },
+        not(col: string) {
+          if (col === 'numero_presupuesto') isNumeroRead = true;
+          return chain;
+        },
+        order() {
+          isNumeroRead = true;
+          return chain;
+        },
+        limit() {
+          return chain;
+        },
+        async maybeSingle() {
+          if (table === 'presupuestos') {
+            if (isNumeroRead) {
+              const rows = presupuestos.filter(
+                (r) => matches(r, filters) && r.numero_presupuesto != null
+              );
+              const max = rows.reduce<number | null>(
+                (acc, r) =>
+                  typeof r.numero_presupuesto === 'number' && (acc == null || r.numero_presupuesto > acc)
+                    ? r.numero_presupuesto
+                    : acc,
+                null
+              );
+              return { data: max == null ? null : { numero_presupuesto: max }, error: null };
+            }
+            const row = presupuestos.find((r) => matches(r, filters));
+            return { data: row ?? null, error: null };
+          }
+          if (table === 'presupuesto_previews') {
+            if (pendingUpdate) {
+              const idx = previews.findIndex((r) => matches(r as unknown as Record<string, unknown>, filters));
+              if (idx === -1) return { data: null, error: null };
+              previews[idx] = { ...previews[idx], ...pendingUpdate } as PreviewRow;
+              return { data: { id: previews[idx].id }, error: null };
+            }
+            const row = previews.find((r) => matches(r as unknown as Record<string, unknown>, filters));
+            return { data: row ?? null, error: null };
+          }
+          if (table === 'obras') {
+            const row = obras.find((r) => matches(r as unknown as Record<string, unknown>, filters));
+            return { data: row ?? null, error: null };
+          }
+          throw new Error(`tabla inesperada: ${table}`);
+        },
+        async single() {
+          if (table === 'presupuestos') {
+            const id = `pres-${seq++}`;
+            const numero = pendingInsert!.numero_presupuesto as number;
+            const stored: PresRow = {
+              id,
+              business_id: pendingInsert!.business_id as string,
+              numero_presupuesto: numero,
+              cliente_nombre: pendingInsert!.cliente_nombre,
+              presupuesto_generado: pendingInsert!.presupuesto_generado,
+              importe_total: pendingInsert!.importe_total,
+              estado: pendingInsert!.estado,
+              fecha: pendingInsert!.fecha,
+              obra_id: pendingInsert!.obra_id ?? null,
+            };
+            presupuestos.push(stored);
+            return {
+              data: {
+                id,
+                numero_presupuesto: numero,
+                cliente_nombre: stored.cliente_nombre,
+                importe_total: stored.importe_total,
+                estado: stored.estado,
+                fecha: stored.fecha,
+              },
+              error: null,
+            };
+          }
+          if (table === 'presupuesto_previews') {
+            const id = `prev-${seq++}`;
+            const stored: PreviewRow = {
+              id,
+              business_id: pendingInsert!.business_id as string,
+              creado_por: (pendingInsert!.creado_por as string) ?? null,
+              cliente_nombre: pendingInsert!.cliente_nombre as string,
+              obra_id: (pendingInsert!.obra_id as string | null) ?? null,
+              iva_porcentaje: pendingInsert!.iva_porcentaje as number,
+              partidas: pendingInsert!.partidas,
+              texto_canonico: pendingInsert!.texto_canonico as string,
+              base_imponible: (pendingInsert!.base_imponible as number | null) ?? null,
+              iva_importe: (pendingInsert!.iva_importe as number | null) ?? null,
+              total: pendingInsert!.total as number,
+              avisos: pendingInsert!.avisos,
+              observaciones: (pendingInsert!.observaciones as string | null) ?? null,
+              estado: (pendingInsert!.estado as string) ?? 'pendiente',
+              presupuesto_id: null,
+              expires_at: pendingInsert!.expires_at as string,
+              created_at: pendingInsert!.created_at as string,
+              confirmed_at: null,
+            };
+            previews.push(stored);
+            return { data: { id: stored.id, expires_at: stored.expires_at }, error: null };
+          }
+          throw new Error(`tabla inesperada para single(): ${table}`);
+        },
+      };
+      return chain;
+    },
+  };
+
+  return {
+    supabase: supabase as unknown as McpContext['supabase'],
+    previews,
+    presupuestos,
+    obras,
+    fromCalls,
+  };
+}
+
+function capitulosPreviewBasico() {
+  return [
+    {
+      nombre: 'Cocina',
+      partidas: [
+        { descripcion: 'Alicatado', cantidad: 20, precio_unitario: 35 },
+        { descripcion: 'Grifería', cantidad: 1, precio_unitario: 120 },
+      ],
+    },
+  ];
+}
+
+describe('executeMcpTool — previsualizar_presupuesto', () => {
+  it('no toca presupuestos e inserta la previsualización con el business_id del contexto', async () => {
+    const db = previewFakeSupabase();
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+
+    const result = await executeMcpTool(
+      'previsualizar_presupuesto',
+      { cliente_nombre: 'Pino', capitulos: capitulosPreviewBasico() },
+      c
+    );
+
+    expect(db.fromCalls).not.toContain('presupuestos');
+    expect(result).toMatchObject({ ok: true, confirmable: true });
+    const r = result as { preview_id: string; expires_at: string };
+    expect(r.preview_id).toBeTruthy();
+    expect(r.expires_at).toBeTruthy();
+    expect(db.previews).toHaveLength(1);
+    expect(db.previews[0].business_id).toBe('biz-1');
+    expect(db.previews[0].id).toBe(r.preview_id);
+  });
+});
+
+describe('executeMcpTool — confirmar_presupuesto', () => {
+  async function previsualizarYObtenerId(db: ReturnType<typeof previewFakeSupabase>, businessId = 'biz-1') {
+    const c: McpContext = { businessId, userId: 'user-1', supabase: db.supabase };
+    const result = (await executeMcpTool(
+      'previsualizar_presupuesto',
+      { cliente_nombre: 'Pino', capitulos: capitulosPreviewBasico() },
+      c
+    )) as { ok: true; preview_id: string; base_imponible: number; iva_importe: number; total: number };
+    return { result, previewId: result.preview_id };
+  }
+
+  it('crea el presupuesto con número correlativo y el texto guardado es releíble', async () => {
+    const db = previewFakeSupabase();
+    const { result: preview, previewId } = await previsualizarYObtenerId(db);
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+
+    const confirmado = await executeMcpTool('confirmar_presupuesto', { preview_id: previewId }, c);
+
+    expect(confirmado).toMatchObject({ ok: true });
+    const conf = confirmado as { ok: true; presupuesto_id: string; numero_presupuesto: number };
+    expect(typeof conf.numero_presupuesto).toBe('number');
+
+    const guardado = db.presupuestos.find((p) => p.id === conf.presupuesto_id);
+    expect(guardado).toBeDefined();
+    const parseado = parsePresupuestoGenerado(String(guardado?.presupuesto_generado ?? ''));
+    expect(parseado.baseImponible).toBe(preview.base_imponible);
+    expect(parseado.importeIva).toBe(preview.iva_importe);
+    expect(parseado.total).toBe(preview.total);
+    const todasPartidas = parseado.capitulos.flatMap((cap) => cap.partidas);
+    expect(todasPartidas).toHaveLength(2);
+  });
+
+  it('confirmar dos veces devuelve el mismo presupuesto y solo hay un insert', async () => {
+    const db = previewFakeSupabase();
+    const { previewId } = await previsualizarYObtenerId(db);
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+
+    const primera = (await executeMcpTool('confirmar_presupuesto', { preview_id: previewId }, c)) as {
+      presupuesto_id: string;
+      numero_presupuesto: number;
+    };
+    const segunda = (await executeMcpTool('confirmar_presupuesto', { preview_id: previewId }, c)) as {
+      presupuesto_id: string;
+      numero_presupuesto: number;
+    };
+
+    expect(segunda.presupuesto_id).toBe(primera.presupuesto_id);
+    expect(segunda.numero_presupuesto).toBe(primera.numero_presupuesto);
+    expect(db.presupuestos).toHaveLength(1);
+  });
+
+  it('devuelve preview_caducada si expires_at ya pasó, sin crear presupuesto', async () => {
+    const db = previewFakeSupabase();
+    const { previewId } = await previsualizarYObtenerId(db);
+    db.previews[0].expires_at = new Date(Date.now() - 1000).toISOString();
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+
+    const result = await executeMcpTool('confirmar_presupuesto', { preview_id: previewId }, c);
+
+    expect(result).toMatchObject({ ok: false, code: 'preview_caducada' });
+    expect(db.presupuestos).toHaveLength(0);
+  });
+
+  it('devuelve preview_ajena si la previsualización es de otro negocio', async () => {
+    const db = previewFakeSupabase();
+    const { previewId } = await previsualizarYObtenerId(db, 'biz-1');
+    const otro: McpContext = { businessId: 'biz-2', userId: 'user-2', supabase: db.supabase };
+
+    const result = await executeMcpTool('confirmar_presupuesto', { preview_id: previewId }, otro);
+
+    expect(result).toMatchObject({ ok: false, code: 'preview_ajena' });
+    expect(db.presupuestos).toHaveLength(0);
+  });
+
+  it('devuelve no_encontrado si el preview_id no existe', async () => {
+    const db = previewFakeSupabase();
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+
+    const result = await executeMcpTool('confirmar_presupuesto', { preview_id: 'no-existe' }, c);
+
+    expect(result).toMatchObject({ ok: false, code: 'no_encontrado' });
+  });
+
+  it('devuelve en_curso si otra confirmación ya reclamó la previsualización', async () => {
+    const db = previewFakeSupabase();
+    const { previewId } = await previsualizarYObtenerId(db);
+    // Simula que otra llamada concurrente ya movió la fila a 'confirmando'
+    // antes del reclamo atómico de esta llamada.
+    db.previews[0].estado = 'confirmando';
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+
+    const result = await executeMcpTool('confirmar_presupuesto', { preview_id: previewId }, c);
+
+    expect(result).toMatchObject({ ok: false, code: 'en_curso' });
+    expect(db.presupuestos).toHaveLength(0);
   });
 });
