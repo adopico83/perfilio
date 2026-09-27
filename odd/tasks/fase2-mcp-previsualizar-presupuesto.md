@@ -16,7 +16,7 @@ Modo: ON (test primero, rojo observado, código mínimo, refactor). Runner: Jest
 
 ## Tareas
 
-- [ ] T1 — Dominio puro `lib/presupuestos/preview.ts`: `calcularPreviewPresupuesto`.
+- [x] T1 — Dominio puro `lib/presupuestos/preview.ts`: `calcularPreviewPresupuesto`.
       Tests: `__tests__/presupuestos.preview.test.ts` (casos 1-6 del encargo: IVA 21%/10%,
       redondeo decimal, redondeo por línea antes de sumar, avisos importe/total_declarado,
       falta_precio → confirmable:false). Ruta: delegada (writer, 2 archivos no triviales).
@@ -58,6 +58,24 @@ Modo: ON (test primero, rojo observado, código mínimo, refactor). Runner: Jest
 - `59b0ce0` feat(mcp): tools previsualizar_presupuesto y confirmar_presupuesto
 - `11e847f` feat(mcp): crear_presupuesto acepta capitulos y recalcula el legacy
 - `677ba7b` docs: actualizar tools MCP de presupuesto en README
+- `9e87cb8` docs(odd): documento de tareas de la Fase 2 MCP previsualizar/confirmar
+
+## Revisión PR #22 (correcciones)
+- `8e96cf0` fix(db): RLS de presupuesto_previews via business_users y preview_id en presupuestos
+  — quita insert/update/delete `authenticated` de `presupuesto_previews` (solo escribe
+  el service role del MCP), deja solo un `select` basado en `business_users` (no
+  `business_profiles.user_id`), políticas con `drop policy if exists`. Añade migración
+  nueva `20260928090000_presupuestos_preview_id.sql` (columna `preview_id` + índice
+  único parcial en `presupuestos`, sin aplicar).
+- `8ec3940` fix(mcp): autorreparo de confirmacion atomica, IVA 0% y errores {ok,code}
+  — `confirmarPreviewPresupuesto` se autorrepara si el insert tuvo éxito pero el
+  marcado final falló (busca por `preview_id` en vez de reintentar el insert); el
+  reclamo exige `expires_at > now`; `revertirAPendiente` y la relectura idempotente
+  filtran por `business_id`; corrige IVA 0% legado que se convertía en 21%; errores
+  del camino `capitulos` de `crear_presupuesto` usan `{ok:false, code}`;
+  `previsualizar_presupuesto` exige `cliente_nombre` y lo trunca a 255.
+- Verificación tras la revisión: `npm test` 47 suites/284 tests verde, `npx tsc --noEmit`
+  limpio, `npm run build` verde (`sw.js` revertido).
 
 ## Choques con el código real
 Ninguno bloqueante (ver verificación previa, memoria Engram
