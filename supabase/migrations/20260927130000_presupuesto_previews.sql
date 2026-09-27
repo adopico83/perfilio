@@ -29,6 +29,16 @@ create index if not exists idx_presupuesto_previews_business_expires
 
 alter table public.presupuesto_previews enable row level security;
 
+-- Solo lectura para usuarios autenticados, vía membresía (business_users),
+-- igual que el resto de tablas de negocio (ver lib/supabase/assert-user-owns-business.ts).
+-- No hay políticas de insert/update/delete: esta tabla solo la escribe el
+-- cliente de service role del MCP (lib/mcp/auth.ts), que salta RLS; no hace
+-- falta ampliar la superficie de escritura a usuarios autenticados.
+drop policy if exists "presupuesto_previews_select_own_business" on public.presupuesto_previews;
+drop policy if exists "presupuesto_previews_insert_own_business" on public.presupuesto_previews;
+drop policy if exists "presupuesto_previews_update_own_business" on public.presupuesto_previews;
+drop policy if exists "presupuesto_previews_delete_own_business" on public.presupuesto_previews;
+
 create policy "presupuesto_previews_select_own_business"
   on public.presupuesto_previews
   for select
@@ -36,55 +46,8 @@ create policy "presupuesto_previews_select_own_business"
   using (
     exists (
       select 1
-      from public.business_profiles bp
-      where bp.id = presupuesto_previews.business_id
-        and bp.user_id = auth.uid()
-    )
-  );
-
-create policy "presupuesto_previews_insert_own_business"
-  on public.presupuesto_previews
-  for insert
-  to authenticated
-  with check (
-    exists (
-      select 1
-      from public.business_profiles bp
-      where bp.id = presupuesto_previews.business_id
-        and bp.user_id = auth.uid()
-    )
-  );
-
-create policy "presupuesto_previews_update_own_business"
-  on public.presupuesto_previews
-  for update
-  to authenticated
-  using (
-    exists (
-      select 1
-      from public.business_profiles bp
-      where bp.id = presupuesto_previews.business_id
-        and bp.user_id = auth.uid()
-    )
-  )
-  with check (
-    exists (
-      select 1
-      from public.business_profiles bp
-      where bp.id = presupuesto_previews.business_id
-        and bp.user_id = auth.uid()
-    )
-  );
-
-create policy "presupuesto_previews_delete_own_business"
-  on public.presupuesto_previews
-  for delete
-  to authenticated
-  using (
-    exists (
-      select 1
-      from public.business_profiles bp
-      where bp.id = presupuesto_previews.business_id
-        and bp.user_id = auth.uid()
+      from public.business_users bu
+      where bu.business_id = presupuesto_previews.business_id
+        and bu.user_id = auth.uid()
     )
   );
