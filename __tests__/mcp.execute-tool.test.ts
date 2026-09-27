@@ -460,6 +460,7 @@ type PresRow = {
   estado?: unknown;
   fecha?: unknown;
   obra_id?: unknown;
+  preview_id?: string | null;
 };
 
 type ObraRow = { id: string; business_id: string };
@@ -475,10 +476,15 @@ function previewFakeSupabase(opts?: { obras?: ObraRow[] }) {
     return filters.every(([k, v]) => row[k] === v);
   }
 
+  function matchesGt(row: Record<string, unknown>, gtFilters: Array<[string, unknown]>): boolean {
+    return gtFilters.every(([k, v]) => (row[k] as string) > (v as string));
+  }
+
   const supabase = {
     from(table: string) {
       fromCalls.push(table);
       const filters: Array<[string, unknown]> = [];
+      const gtFilters: Array<[string, unknown]> = [];
       let pendingInsert: Record<string, unknown> | null = null;
       let pendingUpdate: Record<string, unknown> | null = null;
       let isNumeroRead = false;
@@ -497,6 +503,10 @@ function previewFakeSupabase(opts?: { obras?: ObraRow[] }) {
         },
         eq(col: string, val: unknown) {
           filters.push([col, val]);
+          return chain;
+        },
+        gt(col: string, val: unknown) {
+          gtFilters.push([col, val]);
           return chain;
         },
         not(col: string) {
@@ -530,12 +540,20 @@ function previewFakeSupabase(opts?: { obras?: ObraRow[] }) {
           }
           if (table === 'presupuesto_previews') {
             if (pendingUpdate) {
-              const idx = previews.findIndex((r) => matches(r as unknown as Record<string, unknown>, filters));
+              const idx = previews.findIndex(
+                (r) =>
+                  matches(r as unknown as Record<string, unknown>, filters) &&
+                  matchesGt(r as unknown as Record<string, unknown>, gtFilters)
+              );
               if (idx === -1) return { data: null, error: null };
               previews[idx] = { ...previews[idx], ...pendingUpdate } as PreviewRow;
               return { data: { id: previews[idx].id }, error: null };
             }
-            const row = previews.find((r) => matches(r as unknown as Record<string, unknown>, filters));
+            const row = previews.find(
+              (r) =>
+                matches(r as unknown as Record<string, unknown>, filters) &&
+                matchesGt(r as unknown as Record<string, unknown>, gtFilters)
+            );
             return { data: row ?? null, error: null };
           }
           if (table === 'obras') {
@@ -558,6 +576,7 @@ function previewFakeSupabase(opts?: { obras?: ObraRow[] }) {
               estado: pendingInsert!.estado,
               fecha: pendingInsert!.fecha,
               obra_id: pendingInsert!.obra_id ?? null,
+              preview_id: (pendingInsert!.preview_id as string | null) ?? null,
             };
             presupuestos.push(stored);
             return {
@@ -665,9 +684,7 @@ describe('executeMcpTool — crear_presupuesto con capitulos', () => {
       c
     );
 
-    expect(result).toMatchObject({
-      error: expect.stringContaining('previsualizar_presupuesto'),
-    });
+    expect(result).toMatchObject({ ok: false, code: 'validacion' });
     expect(db.presupuestos).toHaveLength(0);
   });
 });
@@ -713,6 +730,26 @@ describe('executeMcpTool — crear_presupuesto legacy', () => {
     expect(result).toMatchObject({ ok: false, code: 'validacion' });
     expect(db.insertAttempts()).toBe(0);
   });
+
+  it('respeta IVA 0% en el camino legacy, no lo convierte en 21%', async () => {
+    const canon = generarTextoCanonico([{ concepto: 'Servicio exento', cantidad: 1, precio: 500 }], 0);
+    if (!canon.ok) throw new Error('setup inválido');
+
+    const db = presupuestoSupabase([]);
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+
+    const result = await executeMcpTool(
+      'crear_presupuesto',
+      { cliente_nombre: 'Pino', descripcion: canon.texto },
+      c
+    );
+
+    expect(result).toMatchObject({ ok: true, presupuesto: { importe_total: canon.total } });
+    const guardado = db.rows.find((r) => typeof r.presupuesto_generado === 'string');
+    const releido = parsePresupuestoGenerado(String(guardado?.presupuesto_generado ?? ''));
+    expect(releido.porcentajeIva).toBe(0);
+    expect(releido.total).toBe(canon.total); // sin IVA, total === base
+  });
 });
 
 describe('executeMcpTool — previsualizar_presupuesto', () => {
@@ -734,6 +771,29 @@ describe('executeMcpTool — previsualizar_presupuesto', () => {
     expect(db.previews).toHaveLength(1);
     expect(db.previews[0].business_id).toBe('biz-1');
     expect(db.previews[0].id).toBe(r.preview_id);
+  });
+
+  it('exige cliente_nombre', async () => {
+    const db = previewFakeSupabase();
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+    const result = await executeMcpTool(
+      'previsualizar_presupuesto',
+      { cliente_nombre: '   ', capitulos: capitulosPreviewBasico() },
+      c
+    );
+    expect(result).toMatchObject({ ok: false, code: 'validacion' });
+  });
+
+  it('trunca cliente_nombre a 255 caracteres', async () => {
+    const db = previewFakeSupabase();
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+    const largo = 'A'.repeat(300);
+    const result = await executeMcpTool(
+      'previsualizar_presupuesto',
+      { cliente_nombre: largo, capitulos: capitulosPreviewBasico() },
+      c
+    );
+    expect((result as { cliente_nombre: string }).cliente_nombre).toHaveLength(255);
   });
 });
 
@@ -832,5 +892,35 @@ describe('executeMcpTool — confirmar_presupuesto', () => {
 
     expect(result).toMatchObject({ ok: false, code: 'en_curso' });
     expect(db.presupuestos).toHaveLength(0);
+  });
+
+  it('si el paso final se quedó a medias, la siguiente confirmación repara sin duplicar', async () => {
+    const db = previewFakeSupabase();
+    const { previewId } = await previsualizarYObtenerId(db);
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+
+    // Simula: el insert en presupuestos tuvo éxito pero el marcado final falló
+    // o el proceso se cayó justo ahí. La preview quedó en 'confirmando' y ya
+    // existe un presupuesto con ese preview_id, pero la preview no se actualizó.
+    db.previews[0].estado = 'confirmando';
+    db.presupuestos.push({
+      id: 'pres-atascado',
+      business_id: 'biz-1',
+      numero_presupuesto: 99,
+      cliente_nombre: 'Pino',
+      presupuesto_generado: 'texto',
+      importe_total: 155,
+      estado: 'borrador',
+      fecha: '2026-01-01',
+      obra_id: null,
+      preview_id: previewId,
+    });
+
+    const result = await executeMcpTool('confirmar_presupuesto', { preview_id: previewId }, c);
+
+    expect(result).toMatchObject({ ok: true, presupuesto_id: 'pres-atascado', numero_presupuesto: 99 });
+    expect(db.presupuestos).toHaveLength(1); // no se insertó uno nuevo
+    expect(db.previews[0].estado).toBe('confirmado');
+    expect(db.previews[0].presupuesto_id).toBe('pres-atascado');
   });
 });

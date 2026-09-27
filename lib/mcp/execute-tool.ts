@@ -163,9 +163,11 @@ export async function executeMcpTool(
           total_declarado: typeof toolArgs.total === 'number' ? toolArgs.total : undefined,
         };
         const resultado = calcularPreviewPresupuesto(input);
-        if (!resultado.ok) return { error: resultado.error };
+        if (!resultado.ok) return { ok: false, code: 'validacion', error: resultado.error };
         if (!resultado.confirmable) {
           return {
+            ok: false,
+            code: 'validacion',
             error:
               'No se puede crear: hay partidas sin precio. Usa previsualizar_presupuesto para revisarlas.',
           };
@@ -178,14 +180,14 @@ export async function executeMcpTool(
           resultado,
           new Date()
         );
-        if (!guardado.ok) return { error: guardado.error };
+        if (!guardado.ok) return { ok: false, code: 'validacion', error: guardado.error };
         const confirmado = await confirmarPreviewPresupuesto(
           ctx.supabase,
           ctx.businessId,
           guardado.previewId,
           new Date()
         );
-        if (!confirmado.ok) return { error: confirmado.error };
+        if (!confirmado.ok) return { ok: false, code: confirmado.code, error: confirmado.error };
         return {
           ok: true,
           presupuesto: {
@@ -224,7 +226,7 @@ export async function executeMcpTool(
           capitulo: cap.nombre.replace(/^CAP[IÍ]TULO\s+/i, ''),
         }))
       );
-      const ivaPct = parsed.porcentajeIva > 0 ? parsed.porcentajeIva : 21;
+      const ivaPct = parsed.porcentajeIva;
       const recalculo = generarTextoCanonico(partidasCanonicas, ivaPct);
       if (!recalculo.ok) return { error: recalculo.error };
 
@@ -254,6 +256,9 @@ export async function executeMcpTool(
       return { ok: true, presupuesto: creado.data, avisos };
     }
     case 'previsualizar_presupuesto': {
+      const clienteNombre = String(toolArgs.cliente_nombre ?? '').trim().slice(0, 255);
+      if (!clienteNombre) return { ok: false, code: 'validacion', error: 'cliente_nombre es obligatorio' };
+
       const obraIdRaw =
         typeof toolArgs.obra_id === 'string' && toolArgs.obra_id.trim()
           ? toolArgs.obra_id.trim()
@@ -262,7 +267,7 @@ export async function executeMcpTool(
       if (!obraResuelta.ok) return { ok: false, code: 'validacion', error: obraResuelta.error };
 
       const input: PreviewPresupuestoInput = {
-        cliente_nombre: typeof toolArgs.cliente_nombre === 'string' ? toolArgs.cliente_nombre : '',
+        cliente_nombre: clienteNombre,
         obra_id: obraResuelta.obraId,
         iva_porcentaje: typeof toolArgs.iva_porcentaje === 'number' ? toolArgs.iva_porcentaje : undefined,
         observaciones: typeof toolArgs.observaciones === 'string' ? toolArgs.observaciones : undefined,

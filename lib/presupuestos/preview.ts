@@ -378,13 +378,48 @@ type PreviewRowLeida = {
   expires_at: string;
 };
 
-async function revertirAPendiente(supabase: SupabaseClient, previewId: string): Promise<void> {
+async function revertirAPendiente(
+  supabase: SupabaseClient,
+  businessId: string,
+  previewId: string
+): Promise<void> {
   await supabase
     .from('presupuesto_previews')
     .update({ estado: 'pendiente' })
     .eq('id', previewId)
+    .eq('business_id', businessId)
+    .eq('estado', 'confirmando')
     .select('id')
     .maybeSingle();
+}
+
+type PresupuestoResumen = {
+  id: string;
+  numero_presupuesto: number;
+  cliente_nombre: string;
+  importe_total: number;
+  estado: string;
+  fecha: string;
+};
+
+/**
+ * Busca un presupuesto ya creado a partir de su preview_id: permite detectar,
+ * al reintentar una confirmación que se quedó a medias (insert ok pero el
+ * marcado final de la preview falló o el proceso se cayó justo ahí), que el
+ * presupuesto ya existe en vez de reintentar el insert (que lo duplicaría).
+ */
+async function buscarPresupuestoPorPreviewId(
+  supabase: SupabaseClient,
+  businessId: string,
+  previewId: string
+): Promise<PresupuestoResumen | null> {
+  const { data } = await supabase
+    .from('presupuestos')
+    .select('id, numero_presupuesto, cliente_nombre, importe_total, estado, fecha')
+    .eq('preview_id', previewId)
+    .eq('business_id', businessId)
+    .maybeSingle();
+  return (data as PresupuestoResumen | null) ?? null;
 }
 
 /**
@@ -432,6 +467,7 @@ export async function confirmarPreviewPresupuesto(
       .from('presupuestos')
       .select('id, numero_presupuesto, cliente_nombre, importe_total, estado, fecha')
       .eq('id', row.presupuesto_id)
+      .eq('business_id', businessId)
       .maybeSingle();
     if (presError || !presData) {
       return { ok: false, code: 'validacion', error: 'No se pudo releer el presupuesto ya confirmado.' };
@@ -457,6 +493,35 @@ export async function confirmarPreviewPresupuesto(
     };
   }
 
+  if (row.estado === 'confirmando') {
+    // Reintento tras un fallo en el paso final (insert ok, marcar confirmado
+    // falló o el proceso se cayó ahí): si ya existe un presupuesto con este
+    // preview_id, esta llamada lo completa y lo devuelve en vez de quedarse
+    // bloqueada o reintentar el insert (que duplicaría el presupuesto).
+    const existente = await buscarPresupuestoPorPreviewId(supabase, businessId, previewId);
+    if (existente) {
+      await supabase
+        .from('presupuesto_previews')
+        .update({ estado: 'confirmado', presupuesto_id: existente.id, confirmed_at: now.toISOString() })
+        .eq('id', previewId)
+        .eq('business_id', businessId)
+        .select('id')
+        .maybeSingle();
+      return {
+        ok: true,
+        presupuestoId: existente.id,
+        numeroPresupuesto: existente.numero_presupuesto,
+        clienteNombre: existente.cliente_nombre,
+        baseImponible: row.base_imponible,
+        ivaImporte: row.iva_importe,
+        total: existente.importe_total,
+        estado: existente.estado,
+        fecha: existente.fecha,
+      };
+    }
+    return { ok: false, code: 'en_curso', error: 'Otra confirmación de esta previsualización está en curso.' };
+  }
+
   if (new Date(row.expires_at).getTime() < now.getTime()) {
     return { ok: false, code: 'preview_caducada', error: 'La previsualización ha caducado, pide una nueva.' };
   }
@@ -467,6 +532,7 @@ export async function confirmarPreviewPresupuesto(
     .eq('id', previewId)
     .eq('business_id', businessId)
     .eq('estado', 'pendiente')
+    .gt('expires_at', now.toISOString())
     .select('id')
     .maybeSingle();
 
@@ -476,7 +542,7 @@ export async function confirmarPreviewPresupuesto(
 
   const recalculo = generarTextoCanonico(row.partidas, row.iva_porcentaje);
   if (!recalculo.ok || Math.abs(recalculo.total - row.total) > TOLERANCIA_IMPORTE + 1e-9) {
-    await revertirAPendiente(supabase, previewId);
+    await revertirAPendiente(supabase, businessId, previewId);
     return {
       ok: false,
       code: 'validacion',
@@ -497,13 +563,14 @@ export async function confirmarPreviewPresupuesto(
       importe_total: row.total,
       fecha,
       estado: 'borrador',
+      preview_id: previewId,
       ...(row.obra_id ? { obra_id: row.obra_id } : {}),
     },
     'id, numero_presupuesto, cliente_nombre, importe_total, estado, fecha'
   );
 
   if (!creado.ok) {
-    await revertirAPendiente(supabase, previewId);
+    await revertirAPendiente(supabase, businessId, previewId);
     return { ok: false, code: 'validacion', error: creado.error };
   }
 
