@@ -457,6 +457,7 @@ async function marcarPreviewConfirmadaDesdeExistente(
     .update({ estado: 'confirmado', presupuesto_id: presupuestoId, confirmed_at: now.toISOString() })
     .eq('id', previewId)
     .eq('business_id', businessId)
+    .eq('estado', 'confirmando')
     .select('id')
     .maybeSingle();
 }
@@ -551,6 +552,8 @@ async function continuarConfirmacion(
     .from('presupuesto_previews')
     .update({ estado: 'confirmado', presupuesto_id: presupuesto.id, confirmed_at: now.toISOString() })
     .eq('id', previewId)
+    .eq('business_id', businessId)
+    .eq('estado', 'confirmando')
     .select('id')
     .maybeSingle();
 

@@ -139,14 +139,14 @@ export async function executeMcpTool(
     }
     case 'crear_presupuesto': {
       const clienteNombre = String(toolArgs.cliente_nombre ?? '').trim().slice(0, 255);
-      if (!clienteNombre) return { error: 'cliente_nombre es obligatorio' };
+      if (!clienteNombre) return { ok: false, code: 'validacion', error: 'cliente_nombre es obligatorio' };
 
       const obraIdRaw =
         typeof toolArgs.obra_id === 'string' && toolArgs.obra_id.trim()
           ? toolArgs.obra_id.trim()
           : null;
       const obraResuelta = await resolverObraId(ctx, obraIdRaw);
-      if (!obraResuelta.ok) return { error: obraResuelta.error };
+      if (!obraResuelta.ok) return { ok: false, code: 'validacion', error: obraResuelta.error };
       const obraId = obraResuelta.obraId;
 
       const tieneCapitulos = Array.isArray(toolArgs.capitulos) && toolArgs.capitulos.length > 0;

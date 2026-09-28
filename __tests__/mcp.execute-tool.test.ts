@@ -785,6 +785,34 @@ describe('executeMcpTool — crear_presupuesto legacy', () => {
   });
 });
 
+describe('executeMcpTool — crear_presupuesto validación', () => {
+  it('cliente_nombre ausente devuelve {ok:false, code:validacion}', async () => {
+    const db = previewFakeSupabase();
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+
+    const result = await executeMcpTool(
+      'crear_presupuesto',
+      { capitulos: capitulosPreviewBasico() },
+      c
+    );
+
+    expect(result).toEqual({ ok: false, code: 'validacion', error: 'cliente_nombre es obligatorio' });
+  });
+
+  it('obra_id inexistente devuelve {ok:false, code:validacion}', async () => {
+    const db = previewFakeSupabase();
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+
+    const result = await executeMcpTool(
+      'crear_presupuesto',
+      { cliente_nombre: 'Pino', obra_id: 'no-existe', capitulos: capitulosPreviewBasico() },
+      c
+    );
+
+    expect(result).toMatchObject({ ok: false, code: 'validacion' });
+  });
+});
+
 describe('executeMcpTool — previsualizar_presupuesto', () => {
   it('no toca presupuestos e inserta la previsualización con el business_id del contexto', async () => {
     const db = previewFakeSupabase();
