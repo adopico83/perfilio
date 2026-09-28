@@ -133,3 +133,45 @@ describe('MCP crear_upload_firmado_diario', () => {
     ).toBe(true);
   });
 });
+
+describe('MCP previsualizar_presupuesto / confirmar_presupuesto', () => {
+  it('registra las dos tools sin business_id, con descripciones de previsualizar antes de confirmar', () => {
+    const server = createPerfilioMcpServer({
+      businessId: 'biz-1',
+      userId: 'user-1',
+      supabase: {} as McpContext['supabase'],
+    });
+    const tools = registeredTools(server);
+    const previsualizar = tools.previsualizar_presupuesto;
+    const confirmar = tools.confirmar_presupuesto;
+    expect(previsualizar).toBeDefined();
+    expect(confirmar).toBeDefined();
+
+    expect(previsualizar.description ?? '').toMatch(/previsualiza/i);
+    expect(previsualizar.description ?? '').toMatch(/aprobaci[oó]n/i);
+    expect(confirmar.description ?? '').toMatch(/aprobado/i);
+    expect(confirmar.description ?? '').toMatch(/idempotente|dos veces/i);
+
+    const previsualizarShape = previsualizar.inputSchema?.shape ?? {};
+    expect(previsualizarShape).not.toHaveProperty('business_id');
+    const confirmarShape = confirmar.inputSchema?.shape ?? {};
+    expect(confirmarShape).not.toHaveProperty('business_id');
+
+    const parsedConfirmar = confirmar.inputSchema as unknown as {
+      safeParse?: (value: unknown) => { success: boolean };
+    };
+    expect(parsedConfirmar.safeParse?.({}).success).toBe(false);
+    expect(parsedConfirmar.safeParse?.({ preview_id: 'x' }).success).toBe(true);
+
+    const parsedPrevisualizar = previsualizar.inputSchema as unknown as {
+      safeParse?: (value: unknown) => { success: boolean };
+    };
+    expect(parsedPrevisualizar.safeParse?.({}).success).toBe(false);
+    expect(
+      parsedPrevisualizar.safeParse?.({
+        cliente_nombre: 'Pino',
+        capitulos: [{ partidas: [{ descripcion: 'Alicatado', cantidad: 20, precio_unitario: 35 }] }],
+      }).success
+    ).toBe(true);
+  });
+});

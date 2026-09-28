@@ -7,6 +7,19 @@ import {
 } from '@/lib/diario-obra-ingest';
 import { crearCitaAgenda, listarCitasAgenda } from '@/lib/mcp/citas';
 import { insertarPresupuestoConNumeroCorrelativo } from '@/lib/presupuestos/numero';
+import {
+  calcularPreviewPresupuesto,
+  guardarPreviewPresupuesto,
+  confirmarPreviewPresupuesto,
+  type PreviewPresupuestoInput,
+  type AvisoPreview,
+} from '@/lib/presupuestos/preview';
+import { parsePresupuestoGenerado } from '@/lib/pdf/parser';
+import {
+  generarTextoCanonico,
+  TOLERANCIA_IMPORTE,
+  type PartidaCanonicaEntrada,
+} from '@/lib/presupuestos/texto-canonico';
 
 function escapeIlikePattern(s: string): string {
   return s.replace(/[%_*]/g, '');
@@ -70,6 +83,28 @@ async function buscarObraPorNombre(
   };
 }
 
+/**
+ * Valida un obra_id opcional contra la tabla `obras` del negocio. Devuelve
+ * `obraId: null` si no se pasó ninguno; error si no existe o es de otro negocio.
+ */
+async function resolverObraId(
+  ctx: McpContext,
+  obraIdRaw: string | null
+): Promise<{ ok: true; obraId: string | null } | { ok: false; error: string }> {
+  if (!obraIdRaw) return { ok: true, obraId: null };
+  const { data: obraRow, error: obraErr } = await ctx.supabase
+    .from('obras')
+    .select('id')
+    .eq('business_id', ctx.businessId)
+    .eq('id', obraIdRaw)
+    .maybeSingle();
+  if (obraErr) return { ok: false, error: obraErr.message };
+  if (!obraRow?.id) {
+    return { ok: false, error: 'obra_id no existe o no pertenece a este negocio' };
+  }
+  return { ok: true, obraId: obraRow.id as string };
+}
+
 export async function executeMcpTool(
   toolName: string,
   toolArgs: Record<string, unknown>,
@@ -104,40 +139,113 @@ export async function executeMcpTool(
     }
     case 'crear_presupuesto': {
       const clienteNombre = String(toolArgs.cliente_nombre ?? '').trim().slice(0, 255);
-      const descripcion = String(toolArgs.descripcion ?? '').trim();
-      const total = Number(toolArgs.total);
-      if (!clienteNombre) return { error: 'cliente_nombre es obligatorio' };
-      if (!descripcion) return { error: 'descripcion es obligatoria' };
-      if (!Number.isFinite(total)) return { error: 'total debe ser un número válido' };
+      if (!clienteNombre) return { ok: false, code: 'validacion', error: 'cliente_nombre es obligatorio' };
 
-      let obraId: string | null = null;
       const obraIdRaw =
         typeof toolArgs.obra_id === 'string' && toolArgs.obra_id.trim()
           ? toolArgs.obra_id.trim()
           : null;
-      if (obraIdRaw) {
-        const { data: obraRow, error: obraErr } = await ctx.supabase
-          .from('obras')
-          .select('id')
-          .eq('business_id', ctx.businessId)
-          .eq('id', obraIdRaw)
-          .maybeSingle();
-        if (obraErr) return { error: obraErr.message };
-        if (!obraRow?.id) {
-          return { error: 'obra_id no existe o no pertenece a este negocio' };
+      const obraResuelta = await resolverObraId(ctx, obraIdRaw);
+      if (!obraResuelta.ok) return { ok: false, code: 'validacion', error: obraResuelta.error };
+      const obraId = obraResuelta.obraId;
+
+      const tieneCapitulos = Array.isArray(toolArgs.capitulos) && toolArgs.capitulos.length > 0;
+
+      if (tieneCapitulos) {
+        // --- Camino nuevo: mismo cálculo que previsualizar_presupuesto, pero
+        // guarda la preview y la confirma en la misma llamada (atajo sin
+        // revisión humana).
+        const input: PreviewPresupuestoInput = {
+          cliente_nombre: clienteNombre,
+          obra_id: obraId,
+          iva_porcentaje: typeof toolArgs.iva_porcentaje === 'number' ? toolArgs.iva_porcentaje : undefined,
+          capitulos: toolArgs.capitulos as PreviewPresupuestoInput['capitulos'],
+          total_declarado: typeof toolArgs.total === 'number' ? toolArgs.total : undefined,
+        };
+        const resultado = calcularPreviewPresupuesto(input);
+        if (!resultado.ok) return { ok: false, code: 'validacion', error: resultado.error };
+        if (!resultado.confirmable) {
+          return {
+            ok: false,
+            code: 'validacion',
+            error:
+              'No se puede crear: hay partidas sin precio. Usa previsualizar_presupuesto para revisarlas.',
+          };
         }
-        obraId = obraRow.id as string;
+        const guardado = await guardarPreviewPresupuesto(
+          ctx.supabase,
+          ctx.businessId,
+          ctx.userId,
+          input,
+          resultado,
+          new Date()
+        );
+        if (!guardado.ok) return { ok: false, code: 'validacion', error: guardado.error };
+        const confirmado = await confirmarPreviewPresupuesto(
+          ctx.supabase,
+          ctx.businessId,
+          guardado.previewId,
+          new Date()
+        );
+        if (!confirmado.ok) return { ok: false, code: confirmado.code, error: confirmado.error };
+        return {
+          ok: true,
+          presupuesto: {
+            id: confirmado.presupuestoId,
+            numero_presupuesto: confirmado.numeroPresupuesto,
+            cliente_nombre: confirmado.clienteNombre,
+            importe_total: confirmado.total,
+            estado: confirmado.estado,
+            fecha: confirmado.fecha,
+          },
+          avisos: resultado.avisos,
+        };
       }
 
-      // presupuesto_generado queda tal cual llega en `descripcion`.
-      // El maquetado del PDF es aparte y no debe reescribirse aquí.
+      // --- Camino legacy: descripcion + total sueltos.
+      const descripcion = String(toolArgs.descripcion ?? '').trim();
+      if (!descripcion) return { error: 'descripcion o capitulos es obligatorio' };
+
+      const parsed = parsePresupuestoGenerado(descripcion);
+      const partidasEncontradas = parsed.capitulos.flatMap((c) => c.partidas);
+      if (partidasEncontradas.length === 0) {
+        return {
+          ok: false,
+          code: 'validacion',
+          error:
+            'No se pudieron interpretar partidas en descripcion (texto libre ya no se acepta). Usa previsualizar_presupuesto con capitulos estructurados.',
+        };
+      }
+
+      // Recalcula desde las partidas ya interpretadas; nunca confía en el total suelto.
+      const partidasCanonicas: PartidaCanonicaEntrada[] = parsed.capitulos.flatMap((cap) =>
+        cap.partidas.map((p) => ({
+          concepto: p.concepto,
+          cantidad: p.cantidad,
+          precio: p.precio,
+          capitulo: cap.nombre.replace(/^CAP[IÍ]TULO\s+/i, ''),
+        }))
+      );
+      const ivaPct = parsed.porcentajeIva;
+      const recalculo = generarTextoCanonico(partidasCanonicas, ivaPct);
+      if (!recalculo.ok) return { error: recalculo.error };
+
+      const avisos: AvisoPreview[] = [];
+      const totalDeclarado = Number(toolArgs.total);
+      if (
+        Number.isFinite(totalDeclarado) &&
+        Math.abs(totalDeclarado - recalculo.total) > TOLERANCIA_IMPORTE + 1e-9
+      ) {
+        avisos.push({ tipo: 'total_corregido', declarado: totalDeclarado, calculado: recalculo.total });
+      }
+
       const creado = await insertarPresupuestoConNumeroCorrelativo(
         ctx.supabase,
         ctx.businessId,
         {
           cliente_nombre: clienteNombre,
-          presupuesto_generado: descripcion,
-          importe_total: total,
+          presupuesto_generado: recalculo.texto,
+          importe_total: recalculo.total,
           fecha: ymdTodayMadrid(),
           estado: 'borrador',
           ...(obraId ? { obra_id: obraId } : {}),
@@ -145,7 +253,100 @@ export async function executeMcpTool(
         'id, numero_presupuesto, cliente_nombre, importe_total, estado, fecha'
       );
       if (!creado.ok) return { error: creado.error };
-      return { ok: true, presupuesto: creado.data };
+      return { ok: true, presupuesto: creado.data, avisos };
+    }
+    case 'previsualizar_presupuesto': {
+      const clienteNombre = String(toolArgs.cliente_nombre ?? '').trim().slice(0, 255);
+      if (!clienteNombre) return { ok: false, code: 'validacion', error: 'cliente_nombre es obligatorio' };
+
+      const obraIdRaw =
+        typeof toolArgs.obra_id === 'string' && toolArgs.obra_id.trim()
+          ? toolArgs.obra_id.trim()
+          : null;
+      const obraResuelta = await resolverObraId(ctx, obraIdRaw);
+      if (!obraResuelta.ok) return { ok: false, code: 'validacion', error: obraResuelta.error };
+
+      const input: PreviewPresupuestoInput = {
+        cliente_nombre: clienteNombre,
+        obra_id: obraResuelta.obraId,
+        iva_porcentaje: typeof toolArgs.iva_porcentaje === 'number' ? toolArgs.iva_porcentaje : undefined,
+        observaciones: typeof toolArgs.observaciones === 'string' ? toolArgs.observaciones : undefined,
+        capitulos: Array.isArray(toolArgs.capitulos)
+          ? (toolArgs.capitulos as PreviewPresupuestoInput['capitulos'])
+          : [],
+        total_declarado:
+          typeof toolArgs.total_declarado === 'number' ? toolArgs.total_declarado : undefined,
+      };
+
+      const resultado = calcularPreviewPresupuesto(input);
+      if (!resultado.ok) {
+        return { ok: false, code: 'validacion', error: resultado.error };
+      }
+
+      const base = {
+        ok: true as const,
+        confirmable: resultado.confirmable,
+        avisos: resultado.avisos,
+        capitulos: resultado.capitulos,
+        base_imponible: resultado.base_imponible,
+        iva_importe: resultado.iva_importe,
+        total: resultado.total,
+        texto_canonico: resultado.texto_canonico,
+        cliente_nombre: input.cliente_nombre,
+        obra_id: input.obra_id,
+        iva_porcentaje: input.iva_porcentaje ?? 21,
+      };
+
+      if (!resultado.confirmable) {
+        return {
+          ...base,
+          preview_id: null,
+          expires_at: null,
+          siguiente_paso:
+            'Corrige los avisos (falta precio en alguna partida) antes de poder previsualizar de nuevo.',
+        };
+      }
+
+      const guardado = await guardarPreviewPresupuesto(
+        ctx.supabase,
+        ctx.businessId,
+        ctx.userId,
+        input,
+        resultado,
+        new Date()
+      );
+      if (!guardado.ok) {
+        return { ok: false, code: 'validacion', error: guardado.error };
+      }
+
+      return {
+        ...base,
+        preview_id: guardado.previewId,
+        expires_at: guardado.expiresAt,
+        siguiente_paso:
+          'Enseña este resumen (capítulos, avisos y total) al usuario. Si lo aprueba explícitamente, llama a confirmar_presupuesto con este preview_id.',
+      };
+    }
+    case 'confirmar_presupuesto': {
+      const previewId = typeof toolArgs.preview_id === 'string' ? toolArgs.preview_id.trim() : '';
+      if (!previewId) {
+        return { ok: false, code: 'validacion', error: 'preview_id es obligatorio' };
+      }
+      const r = await confirmarPreviewPresupuesto(ctx.supabase, ctx.businessId, previewId, new Date());
+      if (!r.ok) {
+        return { ok: false, code: r.code, error: r.error };
+      }
+      return {
+        ok: true,
+        presupuesto_id: r.presupuestoId,
+        numero_presupuesto: r.numeroPresupuesto,
+        cliente_nombre: r.clienteNombre,
+        base_imponible: r.baseImponible,
+        iva_importe: r.ivaImporte,
+        total: r.total,
+        estado: r.estado,
+        fecha: r.fecha,
+      };
     }
     case 'registrar_horas': {
       const operarioNombre = String(toolArgs.operario_nombre ?? '').trim();

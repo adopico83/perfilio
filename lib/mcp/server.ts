@@ -88,15 +88,109 @@ export function createPerfilioMcpServer(ctx: McpContext): McpServer {
   server.registerTool(
     'crear_presupuesto',
     {
-      description: 'Crea un presupuesto en borrador con numeración correlativa.',
+      description:
+        'Atajo sin revisión humana: calcula y crea el presupuesto en un solo paso. Con descripcion en texto libre sin partidas estructuradas ya no funciona: usa previsualizar_presupuesto y confirmar_presupuesto para que el usuario revise el cálculo antes de guardar.',
       inputSchema: {
         cliente_nombre: z.string().describe('Nombre del cliente'),
-        descripcion: z.string().describe('Texto del presupuesto'),
-        total: z.number().describe('Importe total'),
+        descripcion: z
+          .string()
+          .optional()
+          .describe(
+            'Texto ya canónico (con partidas «Cantidad: ... | Precio: ... € | Importe: ... €») para recalcular sin revisión previa; ignora total si difiere. No admite texto libre.'
+          ),
+        total: z
+          .number()
+          .optional()
+          .describe('Solo para comparar con lo calculado y avisar si no coincide; nunca se usa como total final'),
         obra_id: z.string().optional().describe('UUID de la obra (opcional)'),
+        capitulos: z
+          .array(
+            z.object({
+              nombre: z.string().optional().describe('Nombre del capítulo, opcional (por defecto GENERAL)'),
+              partidas: z
+                .array(
+                  z.object({
+                    descripcion: z.string(),
+                    cantidad: z.number(),
+                    unidad: z.string().optional(),
+                    precio_unitario: z
+                      .number()
+                      .optional()
+                      .describe('Si falta, la partida queda marcada como incompleta y no se puede confirmar'),
+                    importe_declarado: z
+                      .number()
+                      .optional()
+                      .describe('Importe que dijo el cliente/operario para esta línea, solo para comparar y avisar'),
+                  })
+                )
+                .describe('Partidas de este capítulo'),
+            })
+          )
+          .optional()
+          .describe(
+            'De 1 a 100 partidas en total entre todos los capítulos. Si se omite, se usa el camino legacy con descripcion.'
+          ),
+        iva_porcentaje: z.number().optional().describe('Porcentaje de IVA entero, por defecto 21'),
       },
     },
     async (args) => toolTextResult(await executeMcpTool('crear_presupuesto', args, ctx))
+  );
+
+  server.registerTool(
+    'previsualizar_presupuesto',
+    {
+      description:
+        'Calcula y guarda una previsualización de presupuesto (base, IVA, total, avisos) sin escribir en presupuestos. Enséñasela al usuario y llama a confirmar_presupuesto solo con su aprobación explícita. Nunca calcules tú los importes: el servidor recalcula siempre desde cantidad y precio unitario.',
+      inputSchema: {
+        cliente_nombre: z.string().describe('Nombre del cliente'),
+        obra_id: z.string().optional().describe('UUID de la obra (opcional)'),
+        iva_porcentaje: z.number().optional().describe('Porcentaje de IVA entero, por defecto 21'),
+        observaciones: z.string().optional().describe('Observaciones libres, opcional'),
+        total_declarado: z
+          .number()
+          .optional()
+          .describe(
+            'Total que dijo el cliente/operario, solo para comparar y avisar si no cuadra; nunca se usa como total final'
+          ),
+        capitulos: z
+          .array(
+            z.object({
+              nombre: z.string().optional().describe('Nombre del capítulo, opcional (por defecto GENERAL)'),
+              partidas: z
+                .array(
+                  z.object({
+                    descripcion: z.string(),
+                    cantidad: z.number(),
+                    unidad: z.string().optional(),
+                    precio_unitario: z
+                      .number()
+                      .optional()
+                      .describe('Si falta, la partida queda marcada como incompleta y no se puede confirmar'),
+                    importe_declarado: z
+                      .number()
+                      .optional()
+                      .describe('Importe que dijo el cliente/operario para esta línea, solo para comparar y avisar'),
+                  })
+                )
+                .describe('Partidas de este capítulo'),
+            })
+          )
+          .describe('De 1 a 100 partidas en total entre todos los capítulos'),
+      },
+    },
+    async (args) => toolTextResult(await executeMcpTool('previsualizar_presupuesto', args, ctx))
+  );
+
+  server.registerTool(
+    'confirmar_presupuesto',
+    {
+      description:
+        'Confirma una previsualización ya aprobada por el usuario y crea el presupuesto definitivo con numeración correlativa. Solo acepta un preview_id que el usuario haya aprobado explícitamente; nunca le pases un total ni partidas aquí, se ignorarían. Confirmar la misma previsualización dos veces devuelve el mismo presupuesto ya creado, no crea uno nuevo.',
+      inputSchema: {
+        preview_id: z.string().describe('El preview_id devuelto por previsualizar_presupuesto'),
+      },
+    },
+    async (args) => toolTextResult(await executeMcpTool('confirmar_presupuesto', args, ctx))
   );
 
   server.registerTool(
