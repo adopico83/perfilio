@@ -570,6 +570,36 @@ export async function confirmarPreviewPresupuesto(
   );
 
   if (!creado.ok) {
+    // El insert pudo chocar con el índice único de preview_id (otra llamada ya
+    // creó el presupuesto) o con un error ambiguo tras el cual, por la razón
+    // que sea, el presupuesto ya existe (p. ej. se creó pero la respuesta se
+    // perdió). En ambos casos, antes de revertir a 'pendiente', comprobamos si
+    // ya hay un presupuesto para este preview_id y, si lo hay, lo adoptamos en
+    // vez de perder el trabajo ya hecho.
+    const existente = await buscarPresupuestoPorPreviewId(supabase, businessId, previewId);
+    if (existente) {
+      await supabase
+        .from('presupuesto_previews')
+        .update({ estado: 'confirmado', presupuesto_id: existente.id, confirmed_at: now.toISOString() })
+        .eq('id', previewId)
+        .eq('business_id', businessId)
+        .select('id')
+        .maybeSingle();
+      return {
+        ok: true,
+        presupuestoId: existente.id,
+        numeroPresupuesto: existente.numero_presupuesto,
+        clienteNombre: existente.cliente_nombre,
+        baseImponible: row.base_imponible,
+        ivaImporte: row.iva_importe,
+        total: existente.importe_total,
+        estado: existente.estado,
+        fecha: existente.fecha,
+      };
+    }
+    if (creado.conflictoPreview) {
+      return { ok: false, code: 'en_curso', error: 'Otra confirmación de esta previsualización está en curso.' };
+    }
     await revertirAPendiente(supabase, businessId, previewId);
     return { ok: false, code: 'validacion', error: creado.error };
   }

@@ -471,6 +471,7 @@ function previewFakeSupabase(opts?: { obras?: ObraRow[] }) {
   const obras: ObraRow[] = opts?.obras ?? [];
   const fromCalls: string[] = [];
   let seq = 0;
+  let forcedPresupuestoInsertError: { code?: string; message: string } | null = null;
 
   function matches(row: Record<string, unknown>, filters: Array<[string, unknown]>): boolean {
     return filters.every(([k, v]) => row[k] === v);
@@ -564,6 +565,11 @@ function previewFakeSupabase(opts?: { obras?: ObraRow[] }) {
         },
         async single() {
           if (table === 'presupuestos') {
+            if (forcedPresupuestoInsertError) {
+              const err = forcedPresupuestoInsertError;
+              forcedPresupuestoInsertError = null;
+              return { data: null, error: err };
+            }
             const id = `pres-${seq++}`;
             const numero = pendingInsert!.numero_presupuesto as number;
             const stored: PresRow = {
@@ -629,6 +635,9 @@ function previewFakeSupabase(opts?: { obras?: ObraRow[] }) {
     presupuestos,
     obras,
     fromCalls,
+    forcePresupuestoInsertError(err: { code?: string; message: string }) {
+      forcedPresupuestoInsertError = err;
+    },
   };
 }
 
@@ -922,5 +931,65 @@ describe('executeMcpTool — confirmar_presupuesto', () => {
     expect(db.presupuestos).toHaveLength(1); // no se insertó uno nuevo
     expect(db.previews[0].estado).toBe('confirmado');
     expect(db.previews[0].presupuesto_id).toBe('pres-atascado');
+  });
+
+  it('si el insert choca con el índice único de preview_id y ya existe presupuesto, lo adopta sin duplicar', async () => {
+    const db = previewFakeSupabase();
+    const { previewId } = await previsualizarYObtenerId(db);
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+
+    // Ya existe un presupuesto con este preview_id (p. ej. creado por otra
+    // llamada concurrente) y el próximo insert choca con el índice único
+    // parcial de preview_id, no con el de numero_presupuesto.
+    db.presupuestos.push({
+      id: 'pres-existente',
+      business_id: 'biz-1',
+      numero_presupuesto: 5,
+      cliente_nombre: 'Pino',
+      presupuesto_generado: 'texto',
+      importe_total: 847,
+      estado: 'borrador',
+      fecha: '2026-01-01',
+      obra_id: null,
+      preview_id: previewId,
+    });
+    db.forcePresupuestoInsertError({
+      code: '23505',
+      message: 'duplicate key value violates unique constraint "idx_presupuestos_preview_id_unique"',
+    });
+
+    const result = await executeMcpTool('confirmar_presupuesto', { preview_id: previewId }, c);
+
+    expect(result).toMatchObject({ ok: true, presupuesto_id: 'pres-existente', numero_presupuesto: 5 });
+    expect(db.presupuestos).toHaveLength(1);
+    expect(db.previews[0].estado).toBe('confirmado');
+    expect(db.previews[0].presupuesto_id).toBe('pres-existente');
+  });
+
+  it('si el insert falla con un error ambiguo pero ya existe presupuesto, lo adopta sin revertir a pendiente', async () => {
+    const db = previewFakeSupabase();
+    const { previewId } = await previsualizarYObtenerId(db);
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+
+    db.presupuestos.push({
+      id: 'pres-existente-2',
+      business_id: 'biz-1',
+      numero_presupuesto: 7,
+      cliente_nombre: 'Pino',
+      presupuesto_generado: 'texto',
+      importe_total: 847,
+      estado: 'borrador',
+      fecha: '2026-01-01',
+      obra_id: null,
+      preview_id: previewId,
+    });
+    db.forcePresupuestoInsertError({ message: 'timeout de conexión inesperado' });
+
+    const result = await executeMcpTool('confirmar_presupuesto', { preview_id: previewId }, c);
+
+    expect(result).toMatchObject({ ok: true, presupuesto_id: 'pres-existente-2', numero_presupuesto: 7 });
+    expect(db.presupuestos).toHaveLength(1);
+    expect(db.previews[0].estado).toBe('confirmado');
+    expect(db.previews[0].presupuesto_id).toBe('pres-existente-2');
   });
 });
