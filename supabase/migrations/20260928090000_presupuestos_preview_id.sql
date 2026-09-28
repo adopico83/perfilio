@@ -9,3 +9,8 @@ alter table public.presupuestos
 create unique index if not exists idx_presupuestos_preview_id_unique
   on public.presupuestos (preview_id)
   where preview_id is not null;
+
+-- Marca desde cuándo una preview está en 'confirmando': permite distinguir un
+-- reclamo activo de uno abandonado (proceso caído a medias) para poder
+-- reactivarlo pasados unos minutos en vez de dejarlo bloqueado para siempre.
+alter table public.presupuesto_previews add column if not exists confirmando_desde timestamptz;

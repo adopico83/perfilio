@@ -448,6 +448,7 @@ type PreviewRow = {
   expires_at: string;
   created_at: string;
   confirmed_at: string | null;
+  confirmando_desde: string | null;
 };
 
 type PresRow = {
@@ -481,11 +482,27 @@ function previewFakeSupabase(opts?: { obras?: ObraRow[] }) {
     return gtFilters.every(([k, v]) => (row[k] as string) > (v as string));
   }
 
+  // Emula PostgREST `.or('col.is.null,col.lt.valor')`: cada condición separada
+  // por coma se evalúa con OR entre sí (solo se necesitan los operadores `is`
+  // y `lt` para el reclamo de previews abandonadas en 'confirmando').
+  function matchesOr(row: Record<string, unknown>, orExpr: string | null): boolean {
+    if (!orExpr) return true;
+    return orExpr.split(',').some((cond) => {
+      const [col, op, ...rest] = cond.split('.');
+      const val = rest.join('.');
+      const rowVal = row[col];
+      if (op === 'is' && val === 'null') return rowVal === null || rowVal === undefined;
+      if (op === 'lt') return typeof rowVal === 'string' && rowVal < val;
+      return false;
+    });
+  }
+
   const supabase = {
     from(table: string) {
       fromCalls.push(table);
       const filters: Array<[string, unknown]> = [];
       const gtFilters: Array<[string, unknown]> = [];
+      let orExpr: string | null = null;
       let pendingInsert: Record<string, unknown> | null = null;
       let pendingUpdate: Record<string, unknown> | null = null;
       let isNumeroRead = false;
@@ -508,6 +525,10 @@ function previewFakeSupabase(opts?: { obras?: ObraRow[] }) {
         },
         gt(col: string, val: unknown) {
           gtFilters.push([col, val]);
+          return chain;
+        },
+        or(expr: string) {
+          orExpr = expr;
           return chain;
         },
         not(col: string) {
@@ -544,7 +565,8 @@ function previewFakeSupabase(opts?: { obras?: ObraRow[] }) {
               const idx = previews.findIndex(
                 (r) =>
                   matches(r as unknown as Record<string, unknown>, filters) &&
-                  matchesGt(r as unknown as Record<string, unknown>, gtFilters)
+                  matchesGt(r as unknown as Record<string, unknown>, gtFilters) &&
+                  matchesOr(r as unknown as Record<string, unknown>, orExpr)
               );
               if (idx === -1) return { data: null, error: null };
               previews[idx] = { ...previews[idx], ...pendingUpdate } as PreviewRow;
@@ -553,7 +575,8 @@ function previewFakeSupabase(opts?: { obras?: ObraRow[] }) {
             const row = previews.find(
               (r) =>
                 matches(r as unknown as Record<string, unknown>, filters) &&
-                matchesGt(r as unknown as Record<string, unknown>, gtFilters)
+                matchesGt(r as unknown as Record<string, unknown>, gtFilters) &&
+                matchesOr(r as unknown as Record<string, unknown>, orExpr)
             );
             return { data: row ?? null, error: null };
           }
@@ -618,6 +641,7 @@ function previewFakeSupabase(opts?: { obras?: ObraRow[] }) {
               expires_at: pendingInsert!.expires_at as string,
               created_at: pendingInsert!.created_at as string,
               confirmed_at: null,
+              confirmando_desde: null,
             };
             previews.push(stored);
             return { data: { id: stored.id, expires_at: stored.expires_at }, error: null };
@@ -893,13 +917,56 @@ describe('executeMcpTool — confirmar_presupuesto', () => {
     const db = previewFakeSupabase();
     const { previewId } = await previsualizarYObtenerId(db);
     // Simula que otra llamada concurrente ya movió la fila a 'confirmando'
-    // antes del reclamo atómico de esta llamada.
+    // hace un instante (reclamo activo, no abandonado).
     db.previews[0].estado = 'confirmando';
+    db.previews[0].confirmando_desde = new Date().toISOString();
     const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
 
     const result = await executeMcpTool('confirmar_presupuesto', { preview_id: previewId }, c);
 
     expect(result).toMatchObject({ ok: false, code: 'en_curso' });
+    expect(db.presupuestos).toHaveLength(0);
+    expect(db.previews[0].estado).toBe('confirmando');
+  });
+
+  it('reactiva un reclamo confirmando abandonado (>2 min) y crea el presupuesto sin duplicar', async () => {
+    const db = previewFakeSupabase();
+    const { previewId } = await previsualizarYObtenerId(db);
+    db.previews[0].estado = 'confirmando';
+    db.previews[0].confirmando_desde = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+
+    const result = await executeMcpTool('confirmar_presupuesto', { preview_id: previewId }, c);
+
+    expect(result).toMatchObject({ ok: true });
+    expect(db.presupuestos).toHaveLength(1);
+    expect(db.previews[0].estado).toBe('confirmado');
+  });
+
+  it('un reclamo confirmando sin confirmando_desde (nulo) se trata como abandonado', async () => {
+    const db = previewFakeSupabase();
+    const { previewId } = await previsualizarYObtenerId(db);
+    db.previews[0].estado = 'confirmando';
+    db.previews[0].confirmando_desde = null;
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+
+    const result = await executeMcpTool('confirmar_presupuesto', { preview_id: previewId }, c);
+
+    expect(result).toMatchObject({ ok: true });
+    expect(db.presupuestos).toHaveLength(1);
+  });
+
+  it('reclamo abandonado pero con expires_at ya vencido devuelve preview_caducada', async () => {
+    const db = previewFakeSupabase();
+    const { previewId } = await previsualizarYObtenerId(db);
+    db.previews[0].estado = 'confirmando';
+    db.previews[0].confirmando_desde = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+    db.previews[0].expires_at = new Date(Date.now() - 1000).toISOString();
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+
+    const result = await executeMcpTool('confirmar_presupuesto', { preview_id: previewId }, c);
+
+    expect(result).toMatchObject({ ok: false, code: 'preview_caducada' });
     expect(db.presupuestos).toHaveLength(0);
   });
 
