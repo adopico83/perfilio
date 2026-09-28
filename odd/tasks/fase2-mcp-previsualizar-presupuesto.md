@@ -92,3 +92,46 @@ Ninguno bloqueante (ver verificación previa, memoria Engram
   no contiguos en la práctica, pero se documenta como limitación conocida.
 - La rama `en_curso` (reclamo atómico concurrente) no estaba en la lista de tests
   obligatoria del encargo; se añadió un test extra para cubrirla igualmente.
+
+## Revisión PR #22 (correcciones, ronda 2)
+- `0f97f03` fix(mcp): distingue colision de preview_id y autorrepara antes de revertir
+  — `insertarPresupuestoConNumeroCorrelativo` distingue el 23505 del índice parcial
+  `idx_presupuestos_preview_id_unique` (no reintenta, devuelve `conflictoPreview: true`)
+  del de `presupuestos_business_numero_unique` (sigue reintentando la numeración).
+  `confirmarPreviewPresupuesto` busca el presupuesto por `preview_id` antes de
+  revertir a `pendiente` cuando el insert falla por `conflictoPreview` o por un
+  error ambiguo, y lo adopta en vez de perderlo (evita duplicar o perder trabajo
+  ya hecho por otra llamada concurrente).
+- `bd67a18` fix(mcp): reactiva reclamos confirmando abandonados tras 2 minutos
+  — añade `confirmando_desde` a `presupuesto_previews` (columna nueva en la
+  migración `20260928090000_presupuestos_preview_id.sql`, sin aplicar) y lo fija
+  al reclamar atómicamente. Si una confirmación se queda en `confirmando` sin
+  presupuesto asociado, solo se reactiva el reclamo cuando `confirmando_desde`
+  es nulo o tiene más de 2 minutos; dentro de la ventana sigue devolviendo
+  `en_curso`. El reclamo reactivado respeta la caducidad de la preview antes de
+  continuar. Se extrajo `continuarConfirmacion` para no duplicar el tramo común
+  (recálculo, insert, marcado final) entre el camino `pendiente` y el de reclamo
+  reactivado.
+- `9ee94b4` fix(mcp): filtra por business_id/estado al marcar confirmado y unifica
+  errores de validacion — añade `.eq('business_id', ...).eq('estado', 'confirmando')`
+  a los dos updates que marcan una preview como `confirmado` (autorreparo y
+  marcado final tras insertar). `crear_presupuesto` devuelve ahora
+  `{ok:false, code:'validacion', error}` para `cliente_nombre` y `obra_id`
+  inválidos, igual que el resto de errores de esta tool.
+- `8c22af2` chore(db): registrar migración de RLS propia de business_profiles ya
+  aplicada — `20260927221916_business_profiles_rls_propio.sql`, sin aplicar por
+  este agente: ya existe en producción desde 2026-09-27 (aplicada fuera de
+  version control), se registra tal cual para tenerla trazada en el repo.
+- Ajuste de test existente: el test `devuelve en_curso si otra confirmación ya
+  reclamó la previsualización` ahora fija `confirmando_desde` a un instante
+  reciente explícitamente, porque tras `bd67a18` un `confirmando` sin
+  `confirmando_desde` se trata como reclamo abandonado y se reactivaría en vez
+  de devolver `en_curso`. Es el comportamiento correcto: ese test simula un
+  reclamo concurrente activo, que en la realidad siempre fija `confirmando_desde`
+  al reclamar.
+- Verificación tras la ronda 2: `npm test` 47 suites/291 tests verde (284 → 291,
+  +7 tests nuevos), `npx tsc --noEmit` limpio, `npm run build` verde (`sw.js`
+  revertido tras el build, no comiteado).
+- Cada tarea se verificó en TDD real: rojo observado quitando temporalmente el
+  cambio de implementación correspondiente (tests fallando con el mensaje
+  esperado), luego restaurado a verde.
