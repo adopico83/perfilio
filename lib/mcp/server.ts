@@ -223,6 +223,23 @@ export function createPerfilioMcpServer(ctx: McpContext): McpServer {
   );
 
   server.registerTool(
+    'obtener_enlace_pdf_presupuesto',
+    {
+      description:
+        'Devuelve un enlace firmado y temporal al PDF oficial de un presupuesto, para mandárselo al cliente. Solo funciona con presupuestos confirmados del negocio de esta conexión. Regenera el PDF en cada llamada, así que siempre refleja el estado actual. Caduca a los 7 días por defecto; máximo 30 (más se rechaza). Indica id o numero.',
+      inputSchema: {
+        id: z.string().optional().describe('UUID del presupuesto'),
+        numero: z.number().optional().describe('Número correlativo del presupuesto (numero_presupuesto)'),
+        dias_validez: z
+          .number()
+          .optional()
+          .describe('Días de validez del enlace, entero entre 1 y 30. Por defecto 7'),
+      },
+    },
+    async (args) => toolTextResult(await executeMcpTool('obtener_enlace_pdf_presupuesto', args, ctx))
+  );
+
+  server.registerTool(
     'registrar_horas',
     {
       description: 'Registra o actualiza horas de un operario en una obra.',

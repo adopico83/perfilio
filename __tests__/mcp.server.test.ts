@@ -173,6 +173,31 @@ describe('MCP ver_presupuestos / ver_presupuesto', () => {
   });
 });
 
+describe('MCP obtener_enlace_pdf_presupuesto', () => {
+  it('registra la tool sin business_id y con dias_validez opcional', () => {
+    const server = createPerfilioMcpServer({
+      businessId: 'biz-1',
+      userId: 'user-1',
+      supabase: {} as McpContext['supabase'],
+    });
+    const tool = registeredTools(server).obtener_enlace_pdf_presupuesto;
+    expect(tool).toBeDefined();
+    expect(tool.description ?? '').toMatch(/firmado/i);
+    expect(tool.description ?? '').toMatch(/confirmados/i);
+    expect(tool.description ?? '').toMatch(/30/);
+
+    const shape = tool.inputSchema?.shape ?? {};
+    expect(Object.keys(shape).sort()).toEqual(['dias_validez', 'id', 'numero']);
+    expect(shape).not.toHaveProperty('business_id');
+
+    const parsed = tool.inputSchema as unknown as {
+      safeParse?: (value: unknown) => { success: boolean };
+    };
+    expect(parsed.safeParse?.({ id: '11111111-1111-4111-8111-111111111111' }).success).toBe(true);
+    expect(parsed.safeParse?.({ numero: 4, dias_validez: 3 }).success).toBe(true);
+  });
+});
+
 describe('MCP previsualizar_presupuesto / confirmar_presupuesto', () => {
   it('registra las dos tools sin business_id, con descripciones de previsualizar antes de confirmar', () => {
     const server = createPerfilioMcpServer({

@@ -9,7 +9,7 @@ const RE_YMD = /^\d{4}-\d{2}-\d{2}$/;
 const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const RE_PIE = /BASE\s+IMPONIBLE:/i;
 
-const MSG_NO_ENCONTRADO = 'No se encontró ese presupuesto en este negocio.';
+export const MSG_NO_ENCONTRADO = 'No se encontró ese presupuesto en este negocio.';
 
 type ErrorLectura = { ok: false; code: 'validacion' | 'no_encontrado' | 'error'; error: string };
 

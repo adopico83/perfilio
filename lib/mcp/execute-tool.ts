@@ -6,6 +6,7 @@ import {
   type DiarioObraFotoSource,
 } from '@/lib/diario-obra-ingest';
 import { crearCitaAgenda, listarCitasAgenda } from '@/lib/mcp/citas';
+import { obtenerEnlacePdfPresupuesto } from '@/lib/presupuestos/enlace-pdf';
 import { listarPresupuestos, verPresupuesto } from '@/lib/presupuestos/lectura';
 import { insertarPresupuestoConNumeroCorrelativo } from '@/lib/presupuestos/numero';
 import {
@@ -120,6 +121,8 @@ export async function executeMcpTool(
       return listarPresupuestos(ctx, toolArgs);
     case 'ver_presupuesto':
       return verPresupuesto(ctx, toolArgs);
+    case 'obtener_enlace_pdf_presupuesto':
+      return obtenerEnlacePdfPresupuesto(ctx, toolArgs);
     case 'ver_obras_activas': {
       const { data, error } = await ctx.supabase
         .from('obras')
