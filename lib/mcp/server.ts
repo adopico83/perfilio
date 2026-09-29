@@ -194,6 +194,35 @@ export function createPerfilioMcpServer(ctx: McpContext): McpServer {
   );
 
   server.registerTool(
+    'ver_presupuestos',
+    {
+      description:
+        'Solo lectura. Lista presupuestos del negocio de esta conexión, del más reciente al más antiguo, con filtros opcionales. Los importes son exactamente los guardados en la base de datos: nunca los recalcules ni los corrijas. «confirmado» indica si el presupuesto ya salió de una previsualización aprobada o ya no es borrador. Usa ver_presupuesto para el detalle.',
+      inputSchema: {
+        cliente: z.string().optional().describe('Nombre o fragmento del cliente, opcional'),
+        estado: z.string().optional().describe('Estado exacto (borrador, enviado, aceptado...), opcional'),
+        desde: z.string().optional().describe('Fecha inicial inclusive AAAA-MM-DD, opcional'),
+        hasta: z.string().optional().describe('Fecha final inclusive AAAA-MM-DD, opcional'),
+        limite: z.number().optional().describe('Cuántos presupuestos devolver, entre 1 y 50. Por defecto 20'),
+      },
+    },
+    async (args) => toolTextResult(await executeMcpTool('ver_presupuestos', args, ctx))
+  );
+
+  server.registerTool(
+    'ver_presupuesto',
+    {
+      description:
+        'Solo lectura. Devuelve el detalle de un presupuesto del negocio de esta conexión (capítulos, partidas, base, IVA y total), por id o por número. Los importes son tal cual están en la base de datos: nunca los recalcules. Si el texto guardado no trae el pie con base e IVA, esos campos vienen a null. Indica id o numero.',
+      inputSchema: {
+        id: z.string().optional().describe('UUID del presupuesto'),
+        numero: z.number().optional().describe('Número correlativo del presupuesto (numero_presupuesto)'),
+      },
+    },
+    async (args) => toolTextResult(await executeMcpTool('ver_presupuesto', args, ctx))
+  );
+
+  server.registerTool(
     'registrar_horas',
     {
       description: 'Registra o actualiza horas de un operario en una obra.',
