@@ -1,0 +1,52 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Edit",
+      "Write",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git checkout*)",
+      "Bash(git switch*)",
+      "Bash(git branch*)",
+      "Bash(git fetch*)",
+      "Bash(git push -u origin fase3-*)",
+      "Bash(git push origin fase3-*)",
+      "Bash(npm install*)",
+      "Bash(npm ci*)",
+      "Bash(npm test*)",
+      "Bash(npm run *)",
+      "Bash(npx tsc*)",
+      "Bash(npx vitest*)",
+      "Bash(npx jest*)",
+      "Bash(npx eslint*)",
+      "Bash(npx next build*)",
+      "Bash(gh pr create*)",
+      "Bash(gh pr view*)"
+    ],
+    "deny": [
+      "Read(./.env*)",
+      "Edit(./.env*)",
+      "Write(./.env*)",
+      "Bash(git push origin main*)",
+      "Bash(git push * main*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(rm -rf*)",
+      "Bash(cat .env*)",
+      "Bash(type .env*)",
+      "Bash(Get-Content .env*)",
+      "Bash(printenv)",
+      "Bash(supabase *)",
+      "Bash(npx supabase*)",
+      "Bash(vercel *)",
+      "Bash(npx vercel*)",
+      "mcp__e58df667-faa5-4527-919a-5943f1e2229c__*"
+    ]
+  }
+}

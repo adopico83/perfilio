@@ -134,6 +134,70 @@ describe('MCP crear_upload_firmado_diario', () => {
   });
 });
 
+describe('MCP ver_presupuestos / ver_presupuesto', () => {
+  it('registra ambas tools de solo lectura sin business_id en la entrada', () => {
+    const server = createPerfilioMcpServer({
+      businessId: 'biz-1',
+      userId: 'user-1',
+      supabase: {} as McpContext['supabase'],
+    });
+    const tools = registeredTools(server);
+    const lista = tools.ver_presupuestos;
+    const detalle = tools.ver_presupuesto;
+    expect(lista).toBeDefined();
+    expect(detalle).toBeDefined();
+    for (const t of [lista, detalle]) {
+      expect(t.description ?? '').toMatch(/solo lectura/i);
+      expect(t.description ?? '').toMatch(/nunca (los )?recalcul/i);
+      expect(t.inputSchema?.shape ?? {}).not.toHaveProperty('business_id');
+    }
+
+    expect(Object.keys(lista.inputSchema?.shape ?? {}).sort()).toEqual([
+      'cliente',
+      'desde',
+      'estado',
+      'hasta',
+      'limite',
+    ]);
+    expect(Object.keys(detalle.inputSchema?.shape ?? {}).sort()).toEqual(['id', 'numero']);
+
+    const parsed = detalle.inputSchema as unknown as {
+      safeParse?: (value: unknown) => { success: boolean };
+    };
+    expect(parsed.safeParse?.({ id: '11111111-1111-4111-8111-111111111111' }).success).toBe(true);
+    expect(parsed.safeParse?.({ numero: 4 }).success).toBe(true);
+    const parsedLista = lista.inputSchema as unknown as {
+      safeParse?: (value: unknown) => { success: boolean };
+    };
+    expect(parsedLista.safeParse?.({}).success).toBe(true);
+  });
+});
+
+describe('MCP obtener_enlace_pdf_presupuesto', () => {
+  it('registra la tool sin business_id y con dias_validez opcional', () => {
+    const server = createPerfilioMcpServer({
+      businessId: 'biz-1',
+      userId: 'user-1',
+      supabase: {} as McpContext['supabase'],
+    });
+    const tool = registeredTools(server).obtener_enlace_pdf_presupuesto;
+    expect(tool).toBeDefined();
+    expect(tool.description ?? '').toMatch(/firmado/i);
+    expect(tool.description ?? '').toMatch(/confirmados/i);
+    expect(tool.description ?? '').toMatch(/30/);
+
+    const shape = tool.inputSchema?.shape ?? {};
+    expect(Object.keys(shape).sort()).toEqual(['dias_validez', 'id', 'numero']);
+    expect(shape).not.toHaveProperty('business_id');
+
+    const parsed = tool.inputSchema as unknown as {
+      safeParse?: (value: unknown) => { success: boolean };
+    };
+    expect(parsed.safeParse?.({ id: '11111111-1111-4111-8111-111111111111' }).success).toBe(true);
+    expect(parsed.safeParse?.({ numero: 4, dias_validez: 3 }).success).toBe(true);
+  });
+});
+
 describe('MCP previsualizar_presupuesto / confirmar_presupuesto', () => {
   it('registra las dos tools sin business_id, con descripciones de previsualizar antes de confirmar', () => {
     const server = createPerfilioMcpServer({

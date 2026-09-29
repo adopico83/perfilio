@@ -262,6 +262,8 @@ function agruparSalida(
   });
 }
 
+export type OrigenPreview = 'previsualizacion' | 'atajo';
+
 const VEINTICUATRO_HORAS_MS = 24 * 60 * 60 * 1000;
 
 /** Aplana los capítulos de salida a partidas aptas para volver a pasar por generarTextoCanonico. */
@@ -298,6 +300,9 @@ function aplanarParaGuardar(capitulos: CapituloPreviewSalida[]): Array<{
  * para que `confirmarPreviewPresupuesto` la recalcule y la convierta en un
  * presupuesto real. No debe llamarse con un cálculo no confirmable: es una
  * defensa, el llamador ya debería haberlo comprobado.
+ *
+ * `origen` distingue la previsualización revisada por un humano (`previsualizacion`) del
+ * atajo crear_presupuesto (`atajo`), que guarda y confirma en la misma llamada sin revisión.
  */
 export async function guardarPreviewPresupuesto(
   supabase: SupabaseClient,
@@ -305,7 +310,8 @@ export async function guardarPreviewPresupuesto(
   userId: string,
   input: PreviewPresupuestoInput,
   calculo: PreviewPresupuesto,
-  now: Date
+  now: Date,
+  origen: OrigenPreview
 ): Promise<{ ok: true; previewId: string; expiresAt: string } | { ok: false; error: string }> {
   if (!calculo.confirmable) {
     return { ok: false, error: 'La previsualización no es confirmable, no se puede guardar.' };
@@ -330,6 +336,7 @@ export async function guardarPreviewPresupuesto(
       avisos: calculo.avisos,
       observaciones: input.observaciones ?? null,
       estado: 'pendiente',
+      origen,
       expires_at: expiresAt,
       created_at: now.toISOString(),
     })
@@ -377,6 +384,8 @@ type PreviewRowLeida = {
   presupuesto_id: string | null;
   expires_at: string;
   confirmando_desde: string | null;
+  /** null = preview anterior a la columna `origen`: se trata como no revisada. */
+  origen?: OrigenPreview | null;
 };
 
 /** Ventana tras la que un reclamo `confirmando` se considera abandonado (proceso caído a medias). */
@@ -515,6 +524,8 @@ async function continuarConfirmacion(
       fecha,
       estado: 'borrador',
       preview_id: previewId,
+      // El origen vive en la preview: confirmar_presupuesto no puede blanquear un atajo.
+      confirmado_por_humano: row.origen === 'previsualizacion',
       ...(row.obra_id ? { obra_id: row.obra_id } : {}),
     },
     'id, numero_presupuesto, cliente_nombre, importe_total, estado, fecha'
