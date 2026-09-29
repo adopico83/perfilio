@@ -28,7 +28,7 @@ export type EnlacePdfOk = {
 type FilaEnlace = PresupuestoPdfRow & {
   id: string;
   estado: string | null;
-  preview_id: string | null;
+  confirmado_por_humano: boolean | null;
   numero_presupuesto: number | null;
   cliente_nombre: string | null;
 };
@@ -85,7 +85,7 @@ export async function obtenerEnlacePdfPresupuesto(
 
   let query = ctx.supabase
     .from('presupuestos')
-    .select(`${PRESUPUESTO_PDF_COLUMNS}, estado, preview_id`)
+    .select(`${PRESUPUESTO_PDF_COLUMNS}, estado, confirmado_por_humano`)
     .eq('business_id', ctx.businessId);
   query = id ? query.eq('id', id) : query.eq('numero_presupuesto', numero);
 
@@ -99,7 +99,7 @@ export async function obtenerEnlacePdfPresupuesto(
       ok: false,
       code: 'no_confirmado',
       error:
-        'Solo se puede enlazar el PDF de presupuestos confirmados. Confirma antes el presupuesto (confirmar_presupuesto).',
+        'Solo se puede enlazar el PDF de presupuestos confirmados. Confirma antes el presupuesto con previsualizar_presupuesto y confirmar_presupuesto, o márcalo como enviado.',
     };
   }
 

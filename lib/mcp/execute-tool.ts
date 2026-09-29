@@ -186,7 +186,8 @@ export async function executeMcpTool(
           ctx.userId,
           input,
           resultado,
-          new Date()
+          new Date(),
+          'atajo'
         );
         if (!guardado.ok) return { ok: false, code: 'validacion', error: guardado.error };
         const confirmado = await confirmarPreviewPresupuesto(
@@ -321,7 +322,8 @@ export async function executeMcpTool(
         ctx.userId,
         input,
         resultado,
-        new Date()
+        new Date(),
+        'previsualizacion'
       );
       if (!guardado.ok) {
         return { ok: false, code: 'validacion', error: guardado.error };

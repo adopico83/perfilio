@@ -42,17 +42,21 @@ type FilaPresupuesto = {
   estado: string | null;
   fecha: string | null;
   obra_id: string | null;
-  preview_id: string | null;
+  confirmado_por_humano: boolean | null;
   presupuesto_generado?: string | null;
   created_at?: string | null;
 };
 
-/** Confirmado = salió de una previsualización aprobada (preview_id) o su estado ya no es borrador. */
+/**
+ * Confirmado = pasó por previsualizar_presupuesto + confirmar_presupuesto (revisión humana,
+ * `confirmado_por_humano`) o su estado ya no es borrador (enviado/aceptado/aprobado/facturado).
+ * Los creados con el atajo crear_presupuesto (capitulos) no cuentan mientras sigan en borrador.
+ */
 export function esPresupuestoConfirmado(row: {
   estado?: string | null;
-  preview_id?: string | null;
+  confirmado_por_humano?: boolean | null;
 }): boolean {
-  if (row.preview_id != null) return true;
+  if (row.confirmado_por_humano === true) return true;
   const estado = typeof row.estado === 'string' ? row.estado.trim().toLowerCase() : '';
   return ESTADOS_CONFIRMADOS.includes(estado);
 }
@@ -101,7 +105,7 @@ export async function listarPresupuestos(
 
   let query = ctx.supabase
     .from('presupuestos')
-    .select('id, numero_presupuesto, cliente_nombre, importe_total, estado, fecha, obra_id, preview_id')
+    .select('id, numero_presupuesto, cliente_nombre, importe_total, estado, fecha, obra_id, confirmado_por_humano')
     .eq('business_id', ctx.businessId);
 
   const cliente = escapeIlikePattern(texto(args.cliente)).trim();
@@ -147,7 +151,7 @@ export async function verPresupuesto(
   let query = ctx.supabase
     .from('presupuestos')
     .select(
-      'id, numero_presupuesto, cliente_nombre, importe_total, estado, fecha, obra_id, preview_id, presupuesto_generado, created_at'
+      'id, numero_presupuesto, cliente_nombre, importe_total, estado, fecha, obra_id, confirmado_por_humano, presupuesto_generado, created_at'
     )
     .eq('business_id', ctx.businessId);
   query = id ? query.eq('id', id) : query.eq('numero_presupuesto', numero);

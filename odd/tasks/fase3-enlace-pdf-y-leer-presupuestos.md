@@ -17,8 +17,10 @@ No merge, no aplicar migraciones, no tocar `.env*`, no `supabase`/`vercel` CLI, 
   (upsert en cada llamada) y firmar con `createSignedUrl`.
 - Bucket privado; políticas de `storage.objects` solo SELECT para `authenticated` por
   `business_users` sobre la carpeta `{business_id}`. Escritura solo con service role (MCP).
-- «Confirmado» = `preview_id` no nulo o estado en enviado/aceptado/aprobado/facturado.
-  `preview_id` solo lo escribe `confirmarPreviewPresupuesto` (ver nota en resumen).
+- «Confirmado» = `presupuestos.confirmado_por_humano` (preview guardada por `previsualizar_presupuesto` y
+  confirmada con `confirmar_presupuesto`) o estado enviado/aceptado/aprobado/facturado. Los del atajo
+  `crear_presupuesto` no cuentan en borrador. Migración `20260929110000_…origen_confirmacion.sql` (sin aplicar).
+  El origen vive en `presupuesto_previews.origen`, así confirmar_presupuesto no puede blanquear un atajo.
 - No se cambia el estado `borrador` que deja `confirmar_presupuesto` (pendiente).
 - Caducidad por defecto 7 días, máximo 30; por encima se rechaza.
 

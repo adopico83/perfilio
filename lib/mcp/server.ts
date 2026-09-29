@@ -197,7 +197,7 @@ export function createPerfilioMcpServer(ctx: McpContext): McpServer {
     'ver_presupuestos',
     {
       description:
-        'Solo lectura. Lista presupuestos del negocio de esta conexión, del más reciente al más antiguo, con filtros opcionales. Los importes son exactamente los guardados en la base de datos: nunca los recalcules ni los corrijas. «confirmado» indica si el presupuesto ya salió de una previsualización aprobada o ya no es borrador. Usa ver_presupuesto para el detalle.',
+        'Solo lectura. Lista presupuestos del negocio de esta conexión, del más reciente al más antiguo, con filtros opcionales. Los importes son exactamente los guardados en la base de datos: nunca los recalcules ni los corrijas. «confirmado» es true si el presupuesto pasó por previsualizar_presupuesto + confirmar_presupuesto, o su estado es enviado, aceptado, aprobado o facturado; los creados con el atajo crear_presupuesto no cuentan mientras sigan en borrador. Usa ver_presupuesto para el detalle.',
       inputSchema: {
         cliente: z.string().optional().describe('Nombre o fragmento del cliente, opcional'),
         estado: z.string().optional().describe('Estado exacto (borrador, enviado, aceptado...), opcional'),
@@ -226,7 +226,7 @@ export function createPerfilioMcpServer(ctx: McpContext): McpServer {
     'obtener_enlace_pdf_presupuesto',
     {
       description:
-        'Devuelve un enlace firmado y temporal al PDF oficial de un presupuesto, para mandárselo al cliente. Solo funciona con presupuestos confirmados del negocio de esta conexión. Regenera el PDF en cada llamada, así que siempre refleja el estado actual. Caduca a los 7 días por defecto; máximo 30 (más se rechaza). Indica id o numero.',
+        'Devuelve un enlace firmado y temporal al PDF oficial de un presupuesto, para mandárselo al cliente. Solo funciona con presupuestos confirmados del negocio de esta conexión: los que pasaron por previsualizar_presupuesto + confirmar_presupuesto, o cuyo estado es enviado, aceptado, aprobado o facturado (los creados con el atajo crear_presupuesto no cuentan mientras sigan en borrador). Regenera el PDF en cada llamada, así que siempre refleja el estado actual. Caduca a los 7 días por defecto; máximo 30 (más se rechaza). Indica id o numero.',
       inputSchema: {
         id: z.string().optional().describe('UUID del presupuesto'),
         numero: z.number().optional().describe('Número correlativo del presupuesto (numero_presupuesto)'),

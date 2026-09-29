@@ -52,7 +52,7 @@ function fila(over: FakeRow): FakeRow {
     numero_presupuesto: 1,
     cliente_nombre: 'Pino',
     estado: 'borrador',
-    preview_id: null,
+    confirmado_por_humano: false,
     fecha: '2026-09-01',
     presupuesto_generado: 'texto',
     mensaje_cliente: null,
@@ -79,8 +79,8 @@ describe('obtenerEnlacePdfPresupuesto', () => {
     expect(DIAS_VALIDEZ_MAX).toBe(30);
   });
 
-  it('presupuesto confirmado por preview_id: sube, firma y devuelve el enlace', async () => {
-    const { fake, ctx } = montar([fila({ preview_id: 'prev-1' })]);
+  it('presupuesto confirmado por humano: sube, firma y devuelve el enlace', async () => {
+    const { fake, ctx } = montar([fila({ confirmado_por_humano: true })]);
     const r = await obtenerEnlacePdfPresupuesto(ctx, { id: ID_1 }, AHORA);
 
     expect(r).toEqual({
@@ -103,7 +103,21 @@ describe('obtenerEnlacePdfPresupuesto', () => {
     expect(r.ok).toBe(true);
   });
 
-  it('borrador sin preview_id: no_confirmado y sin render, subida ni firma', async () => {
+  it('borrador de atajo (con preview_id pero sin revisión humana): no_confirmado, sin render, subida ni firma', async () => {
+    const { fake, ctx } = montar([fila({ preview_id: 'prev-atajo', confirmado_por_humano: false })]);
+    const r = await obtenerEnlacePdfPresupuesto(ctx, { id: ID_1 }, AHORA);
+    expect(r).toMatchObject({ ok: false, code: 'no_confirmado' });
+    expect(renderMock).not.toHaveBeenCalled();
+    expect(fake.storageCalls).toEqual([]);
+  });
+
+  it('presupuesto de atajo que ya está en estado enviado: pasa', async () => {
+    const { ctx } = montar([fila({ preview_id: 'prev-atajo', confirmado_por_humano: false, estado: 'enviado' })]);
+    const r = await obtenerEnlacePdfPresupuesto(ctx, { id: ID_1 }, AHORA);
+    expect(r.ok).toBe(true);
+  });
+
+  it('borrador sin revisión humana: no_confirmado y sin render, subida ni firma', async () => {
     const { fake, ctx } = montar([fila({})]);
     const r = await obtenerEnlacePdfPresupuesto(ctx, { id: ID_1 }, AHORA);
     expect(r).toMatchObject({ ok: false, code: 'no_confirmado' });
@@ -120,10 +134,10 @@ describe('obtenerEnlacePdfPresupuesto', () => {
   });
 
   describe('aislamiento entre negocios', () => {
-    const ajeno = fila({ id: ID_AJENO, business_id: OTRO_BIZ, numero_presupuesto: 5, preview_id: 'prev-x' });
+    const ajeno = fila({ id: ID_AJENO, business_id: OTRO_BIZ, numero_presupuesto: 5, confirmado_por_humano: true });
 
     it('por id de otro negocio: no_encontrado, sin storage y con filtro business_id', async () => {
-      const { fake, ctx } = montar([fila({ id: ID_2, numero_presupuesto: 2, preview_id: 'p' }), ajeno]);
+      const { fake, ctx } = montar([fila({ id: ID_2, numero_presupuesto: 2, confirmado_por_humano: true }), ajeno]);
       const r = await obtenerEnlacePdfPresupuesto(ctx, { id: ID_AJENO }, AHORA);
       expect(r).toEqual({ ok: false, code: 'no_encontrado', error: MSG_NO_ENCONTRADO });
       expect(fake.storageCalls).toEqual([]);
@@ -132,7 +146,7 @@ describe('obtenerEnlacePdfPresupuesto', () => {
     });
 
     it('por numero de otro negocio: no_encontrado, sin storage y con filtro business_id', async () => {
-      const { fake, ctx } = montar([fila({ id: ID_2, numero_presupuesto: 2, preview_id: 'p' }), ajeno]);
+      const { fake, ctx } = montar([fila({ id: ID_2, numero_presupuesto: 2, confirmado_por_humano: true }), ajeno]);
       const r = await obtenerEnlacePdfPresupuesto(ctx, { numero: 5 }, AHORA);
       expect(r).toEqual({ ok: false, code: 'no_encontrado', error: MSG_NO_ENCONTRADO });
       expect(fake.storageCalls).toEqual([]);
@@ -148,7 +162,7 @@ describe('obtenerEnlacePdfPresupuesto', () => {
   });
 
   it('la ruta de subida usa el business_id del contexto, upsert y application/pdf', async () => {
-    const { fake, ctx } = montar([fila({ preview_id: 'p' })]);
+    const { fake, ctx } = montar([fila({ confirmado_por_humano: true })]);
     // Un business_id colado en los argumentos no debe influir.
     await obtenerEnlacePdfPresupuesto(ctx, { id: ID_1, business_id: OTRO_BIZ }, AHORA);
     const subida = fake.storageCalls.find((c) => c.type === 'upload');
@@ -161,7 +175,7 @@ describe('obtenerEnlacePdfPresupuesto', () => {
   });
 
   it('caducidad por defecto 7 dias y nombre de descarga estable', async () => {
-    const { fake, ctx } = montar([fila({ preview_id: 'p' })]);
+    const { fake, ctx } = montar([fila({ confirmado_por_humano: true })]);
     const r = await obtenerEnlacePdfPresupuesto(ctx, { id: ID_1 }, AHORA);
     const firma = fake.storageCalls.find((c) => c.type === 'createSignedUrl');
     expect(firma).toMatchObject({
@@ -173,7 +187,7 @@ describe('obtenerEnlacePdfPresupuesto', () => {
   });
 
   it('dias_validez personalizado (3 dias)', async () => {
-    const { fake, ctx } = montar([fila({ preview_id: 'p' })]);
+    const { fake, ctx } = montar([fila({ confirmado_por_humano: true })]);
     const r = await obtenerEnlacePdfPresupuesto(ctx, { id: ID_1, dias_validez: 3 }, AHORA);
     const firma = fake.storageCalls.find((c) => c.type === 'createSignedUrl');
     expect(firma).toMatchObject({ expiresIn: 259200 });
@@ -181,7 +195,7 @@ describe('obtenerEnlacePdfPresupuesto', () => {
   });
 
   it('acepta el maximo de 30 dias', async () => {
-    const { ctx } = montar([fila({ preview_id: 'p' })]);
+    const { ctx } = montar([fila({ confirmado_por_humano: true })]);
     const r = await obtenerEnlacePdfPresupuesto(ctx, { id: ID_1, dias_validez: 30 }, AHORA);
     expect(r).toMatchObject({ ok: true, dias_validez: 30 });
   });
@@ -189,7 +203,7 @@ describe('obtenerEnlacePdfPresupuesto', () => {
   it.each([31, 0, -1, 1.5, 'abc', NaN, Infinity])(
     'dias_validez %p se rechaza sin tocar storage',
     async (dias) => {
-      const { fake, ctx } = montar([fila({ preview_id: 'p' })]);
+      const { fake, ctx } = montar([fila({ confirmado_por_humano: true })]);
       const r = await obtenerEnlacePdfPresupuesto(ctx, { id: ID_1, dias_validez: dias }, AHORA);
       expect(r).toMatchObject({ ok: false, code: 'validacion' });
       expect(fake.storageCalls).toEqual([]);
@@ -198,7 +212,7 @@ describe('obtenerEnlacePdfPresupuesto', () => {
   );
 
   it('sin id ni numero: validacion', async () => {
-    const { fake, ctx } = montar([fila({ preview_id: 'p' })]);
+    const { fake, ctx } = montar([fila({ confirmado_por_humano: true })]);
     const r = await obtenerEnlacePdfPresupuesto(ctx, {}, AHORA);
     expect(r).toMatchObject({ ok: false, code: 'validacion' });
     expect(fake.queries).toEqual([]);
@@ -219,14 +233,14 @@ describe('obtenerEnlacePdfPresupuesto', () => {
 
   it('fallo del render: error, sin subida', async () => {
     renderMock.mockResolvedValue({ ok: false, error: 'sin perfil de empresa' });
-    const { fake, ctx } = montar([fila({ preview_id: 'p' })]);
+    const { fake, ctx } = montar([fila({ confirmado_por_humano: true })]);
     const r = await obtenerEnlacePdfPresupuesto(ctx, { id: ID_1 }, AHORA);
     expect(r).toMatchObject({ ok: false, code: 'error', error: expect.stringContaining('sin perfil') });
     expect(fake.storageCalls).toEqual([]);
   });
 
   it('fallo de la subida: ok false y sin url ni firma', async () => {
-    const { fake, ctx } = montar([fila({ preview_id: 'p' })]);
+    const { fake, ctx } = montar([fila({ confirmado_por_humano: true })]);
     fake.failUpload('Bucket not found');
     const r = await obtenerEnlacePdfPresupuesto(ctx, { id: ID_1 }, AHORA);
     expect(r).toMatchObject({ ok: false, code: 'error', error: expect.stringContaining('Bucket not found') });
@@ -235,7 +249,7 @@ describe('obtenerEnlacePdfPresupuesto', () => {
   });
 
   it('fallo de la firma: ok false y sin url', async () => {
-    const { fake, ctx } = montar([fila({ preview_id: 'p' })]);
+    const { fake, ctx } = montar([fila({ confirmado_por_humano: true })]);
     fake.failSignedUrl('boom');
     const r = await obtenerEnlacePdfPresupuesto(ctx, { id: ID_1 }, AHORA);
     expect(r).toMatchObject({ ok: false, code: 'error', error: expect.stringContaining('boom') });
@@ -243,7 +257,7 @@ describe('obtenerEnlacePdfPresupuesto', () => {
   });
 
   it('executeMcpTool despacha obtener_enlace_pdf_presupuesto', async () => {
-    const { ctx } = montar([fila({ preview_id: 'p' })]);
+    const { ctx } = montar([fila({ confirmado_por_humano: true })]);
     const r = (await executeMcpTool('obtener_enlace_pdf_presupuesto', { id: ID_1 }, ctx)) as {
       ok: boolean;
     };

@@ -449,6 +449,7 @@ type PreviewRow = {
   created_at: string;
   confirmed_at: string | null;
   confirmando_desde: string | null;
+  origen?: string | null;
 };
 
 type PresRow = {
@@ -462,6 +463,7 @@ type PresRow = {
   fecha?: unknown;
   obra_id?: unknown;
   preview_id?: string | null;
+  confirmado_por_humano?: boolean;
 };
 
 type ObraRow = { id: string; business_id: string };
@@ -606,6 +608,7 @@ function previewFakeSupabase(opts?: { obras?: ObraRow[] }) {
               fecha: pendingInsert!.fecha,
               obra_id: pendingInsert!.obra_id ?? null,
               preview_id: (pendingInsert!.preview_id as string | null) ?? null,
+              confirmado_por_humano: pendingInsert!.confirmado_por_humano as boolean | undefined,
             };
             presupuestos.push(stored);
             return {
@@ -642,6 +645,7 @@ function previewFakeSupabase(opts?: { obras?: ObraRow[] }) {
               created_at: pendingInsert!.created_at as string,
               confirmed_at: null,
               confirmando_desde: null,
+              origen: (pendingInsert!.origen as string | null | undefined) ?? null,
             };
             previews.push(stored);
             return { data: { id: stored.id, expires_at: stored.expires_at }, error: null };
@@ -702,6 +706,23 @@ describe('executeMcpTool — crear_presupuesto con capitulos', () => {
       ]),
     });
     expect(db.presupuestos).toHaveLength(1);
+  });
+
+  it('guarda la preview con origen atajo y el presupuesto NO queda confirmado por humano', async () => {
+    const db = previewFakeSupabase();
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+
+    const result = await executeMcpTool(
+      'crear_presupuesto',
+      { cliente_nombre: 'Pino', capitulos: capitulosPreviewBasico() },
+      c
+    );
+
+    expect(result).toMatchObject({ ok: true });
+    expect(db.previews).toHaveLength(1);
+    expect(db.previews[0].origen).toBe('atajo');
+    expect(db.presupuestos).toHaveLength(1);
+    expect(db.presupuestos[0].confirmado_por_humano).toBe(false);
   });
 
   it('no crea nada si alguna partida no tiene precio', async () => {
@@ -834,6 +855,17 @@ describe('executeMcpTool — previsualizar_presupuesto', () => {
     expect(db.previews[0].id).toBe(r.preview_id);
   });
 
+  it('guarda la previsualización con origen previsualizacion', async () => {
+    const db = previewFakeSupabase();
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+    await executeMcpTool(
+      'previsualizar_presupuesto',
+      { cliente_nombre: 'Pino', capitulos: capitulosPreviewBasico() },
+      c
+    );
+    expect(db.previews[0].origen).toBe('previsualizacion');
+  });
+
   it('exige cliente_nombre', async () => {
     const db = previewFakeSupabase();
     const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
@@ -889,6 +921,34 @@ describe('executeMcpTool — confirmar_presupuesto', () => {
     const todasPartidas = parseado.capitulos.flatMap((cap) => cap.partidas);
     expect(todasPartidas).toHaveLength(2);
   });
+
+  it('confirmar una preview de origen previsualizacion marca confirmado_por_humano true', async () => {
+    const db = previewFakeSupabase();
+    const { previewId } = await previsualizarYObtenerId(db);
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+
+    await executeMcpTool('confirmar_presupuesto', { preview_id: previewId }, c);
+
+    expect(db.presupuestos).toHaveLength(1);
+    expect(db.presupuestos[0].confirmado_por_humano).toBe(true);
+  });
+
+  it.each([['atajo'], [null], [undefined]])(
+    'confirmar una preview con origen %s (atajo o anterior a la columna) deja confirmado_por_humano false',
+    async (origen) => {
+      const db = previewFakeSupabase();
+      const { previewId } = await previsualizarYObtenerId(db);
+      // Simula una preview atajo o legacy que alguien intenta "blanquear" vía confirmar_presupuesto.
+      db.previews[0].origen = origen as string | null | undefined;
+      const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+
+      const r = await executeMcpTool('confirmar_presupuesto', { preview_id: previewId }, c);
+
+      expect(r).toMatchObject({ ok: true });
+      expect(db.presupuestos).toHaveLength(1);
+      expect(db.presupuestos[0].confirmado_por_humano).toBe(false);
+    }
+  );
 
   it('confirmar dos veces devuelve el mismo presupuesto y solo hay un insert', async () => {
     const db = previewFakeSupabase();

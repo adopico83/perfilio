@@ -37,7 +37,7 @@ function fila(over: FakeRow): FakeRow {
     estado: 'borrador',
     fecha: '2026-09-01',
     obra_id: null,
-    preview_id: null,
+    confirmado_por_humano: false,
     presupuesto_generado: TEXTO_CON_PIE,
     created_at: '2026-09-01T09:00:00Z',
     ...over,
@@ -66,7 +66,7 @@ const base: FakeRow[] = [
     cliente_nombre: 'Pinares SA',
     fecha: '2026-09-10',
     estado: 'borrador',
-    preview_id: 'prev-1',
+    confirmado_por_humano: true,
     created_at: '2026-09-10T12:00:00Z',
   }),
   fila({ id: ID_AJENO, business_id: OTRO_BIZ, numero_presupuesto: 1, cliente_nombre: 'Pino Ajeno', fecha: '2026-09-05' }),
@@ -74,17 +74,26 @@ const base: FakeRow[] = [
 
 describe('esPresupuestoConfirmado', () => {
   it.each([
-    [{ estado: 'borrador', preview_id: null }, false],
-    [{ estado: 'borrador', preview_id: 'p' }, true],
+    [{ estado: 'borrador', confirmado_por_humano: true }, true],
+    [{ estado: 'rechazado', confirmado_por_humano: true }, true],
+    [{ confirmado_por_humano: true }, true],
+    [{ estado: 'borrador', confirmado_por_humano: false }, false],
+    [{ estado: 'borrador', confirmado_por_humano: null }, false],
+    [{ estado: 'borrador' }, false],
+    [{ estado: 'enviado' }, true],
     [{ estado: ' Enviado ' }, true],
     [{ estado: 'ACEPTADO' }, true],
-    [{ estado: 'aprobado' }, true],
-    [{ estado: 'facturado' }, true],
-    [{ estado: 'rechazado', preview_id: null }, false],
-    [{ estado: null, preview_id: null }, false],
+    [{ estado: '  Aprobado' }, true],
+    [{ estado: 'facturado ' }, true],
+    [{ estado: 'rechazado', confirmado_por_humano: false }, false],
+    [{ estado: null, confirmado_por_humano: null }, false],
     [{}, false],
   ])('%j -> %s', (row, esperado) => {
     expect(esPresupuestoConfirmado(row)).toBe(esperado);
+  });
+
+  it('un preview_id por sí solo (atajo) no confirma', () => {
+    expect(esPresupuestoConfirmado({ estado: 'borrador', preview_id: 'p' } as never)).toBe(false);
   });
 });
 
@@ -98,18 +107,21 @@ describe('listarPresupuestos', () => {
     expect(fake.queries[0].filters).toContainEqual({ op: 'eq', col: 'business_id', val: BIZ });
   });
 
-  it('ordena por fecha desc y luego created_at desc, y no filtra preview_id al exterior', async () => {
+  it('ordena por fecha desc y luego created_at desc, y no filtra preview_id ni confirmado_por_humano al exterior', async () => {
     const { ctx } = montar(base);
     const r = await listarPresupuestos(ctx, {});
     if (!r.ok) throw new Error('esperaba ok');
     expect(r.items.map((i) => i.id)).toEqual([ID_3, ID_2, ID_1]);
-    for (const item of r.items) expect(item).not.toHaveProperty('preview_id');
+    for (const item of r.items) {
+      expect(item).not.toHaveProperty('preview_id');
+      expect(item).not.toHaveProperty('confirmado_por_humano');
+    }
     expect(Object.keys(r.items[0]).sort()).toEqual(
       ['cliente_nombre', 'confirmado', 'estado', 'fecha', 'id', 'importe_total', 'numero_presupuesto', 'obra_id'].sort()
     );
   });
 
-  it('marca confirmado por preview_id o por estado normalizado', async () => {
+  it('marca confirmado por confirmado_por_humano o por estado normalizado', async () => {
     const { ctx } = montar(base);
     const r = await listarPresupuestos(ctx, {});
     if (!r.ok) throw new Error('esperaba ok');
@@ -193,7 +205,7 @@ describe('listarPresupuestos', () => {
 });
 
 describe('verPresupuesto', () => {
-  it('devuelve el detalle por id, con confirmado y sin texto crudo ni preview_id', async () => {
+  it('devuelve el detalle por id, con confirmado y sin texto crudo, preview_id ni confirmado_por_humano', async () => {
     const { ctx, fake } = montar(base);
     const r = await verPresupuesto(ctx, { id: ID_2 });
     expect(r.ok).toBe(true);
@@ -211,6 +223,7 @@ describe('verPresupuesto', () => {
       iva_importe: 147,
     });
     expect(r).not.toHaveProperty('preview_id');
+    expect(r).not.toHaveProperty('confirmado_por_humano');
     expect(r).not.toHaveProperty('presupuesto_generado');
     expect(r.capitulos).toEqual([
       {
