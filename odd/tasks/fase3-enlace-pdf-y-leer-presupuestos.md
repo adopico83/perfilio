@@ -26,16 +26,23 @@ No merge, no aplicar migraciones, no tocar `.env*`, no `supabase`/`vercel` CLI, 
 Modo: ON. Runner: Jest 30 (`npm test`). Fuente: continuidad de la fase 2.
 
 ## Tareas
-- [ ] T1 — Extraer el render del PDF de la route a `lib/pdf/presupuesto-render.tsx` (sin cambio de
+- [x] T1 — Extraer el render del PDF de la route a `lib/pdf/presupuesto-render.tsx` (sin cambio de
       comportamiento). Ruta: inline (refactor mecánico).
-- [ ] T2 — `ver_presupuestos` + `ver_presupuesto` (`lib/presupuestos/lectura.ts`, execute-tool, server,
+- [x] T2 — `ver_presupuestos` + `ver_presupuesto` (`lib/presupuestos/lectura.ts`, execute-tool, server,
       tests). Ruta: delegada (writer, >2 archivos no triviales).
-- [ ] T3 — `obtener_enlace_pdf_presupuesto` + migración del bucket (sin aplicar) + tests.
+- [x] T3 — `obtener_enlace_pdf_presupuesto` + migración del bucket (sin aplicar) + tests.
       Ruta: delegada (writer).
-- [ ] T4 — README, cierre: `npm test`, `npx tsc --noEmit`, `npm run build`, lint, PR.
+- [x] T4 — README, cierre: `npm test`, `npx tsc --noEmit`, `npm run build`, lint, PR.
 
 ## Evidencia de checks
-(pendiente)
+- `npm test`: 49 suites, 345 tests, verde.
+- `npx tsc --noEmit`: sin errores.
+- `npm run build`: correcto (`public/sw.js` revertido tras el build).
+- Lint: ver PR (10 errores/26 avisos preexistentes en main según fase 2).
+- Route declarada: T1 inline; T2 y T3 delegadas (writer). Desvio T3: import dinamico del render
+  (`@react-pdf/renderer` es ESM y rompe Jest si se importa estatico).
+- Limite: las politicas de Storage no se pueden ejercitar en Jest; verificar tras aplicar migracion.
 
 ## Commits
-(pendiente)
+
+- refactor(pdf) render compartido; feat(mcp) ver_presupuestos/ver_presupuesto; feat(mcp) obtener_enlace_pdf_presupuesto; feat(db) bucket presupuestos-pdf (sin aplicar)
