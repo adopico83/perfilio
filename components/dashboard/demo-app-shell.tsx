@@ -86,7 +86,13 @@ export default function DemoAppShell({
               href="/dashboard"
               className="flex items-center gap-2 font-bold text-lg tracking-tight text-zinc-900"
             >
-              <Image src="/logo.png" alt="" width={39} height={32} className="h-8 w-auto shrink-0" />
+              <Image
+                src="/logo-oscuro-transparente.png"
+                alt=""
+                width={417}
+                height={394}
+                className="h-9 w-auto shrink-0"
+              />
               Perfilio
             </Link>
           </div>
@@ -152,7 +158,13 @@ export default function DemoAppShell({
           <div className="absolute left-0 top-0 bottom-0 flex w-64 flex-col overflow-hidden bg-[#E5DFD0] shadow-xl">
             <div className="flex items-center justify-between px-4 py-4 border-b border-zinc-400/30">
               <span className="flex items-center gap-2 font-bold text-zinc-900">
-                <Image src="/logo.png" alt="" width={39} height={32} className="h-8 w-auto shrink-0" />
+                <Image
+                  src="/logo-oscuro-transparente.png"
+                  alt=""
+                  width={417}
+                  height={394}
+                  className="h-9 w-auto shrink-0"
+                />
                 Perfilio
               </span>
               <button
