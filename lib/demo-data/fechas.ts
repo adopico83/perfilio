@@ -28,9 +28,45 @@ export function demoFecha(offsetDias: number, now: Date = new Date()): string {
   return isoDeUtc(Date.UTC(y, m - 1, d + offsetDias));
 }
 
-/** Timestamp local sin zona (`YYYY-MM-DDTHH:mm:00`) a `offsetDias` de hoy. */
+/** Hora actual en Madrid como minutos desde medianoche. */
+function minutosAhoraMadrid(now: Date): number {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: TZ,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(now);
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
+  return get('hour') * 60 + get('minute');
+}
+
+function hhmm(minutos: number): string {
+  const m = Math.max(0, minutos);
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+/**
+ * Timestamp local sin zona (`YYYY-MM-DDTHH:mm:00`) a `offsetDias` de hoy.
+ * Nunca queda en el futuro: si cae hoy y la hora aún no ha llegado, se recorta a una hora antes de ahora.
+ */
 export function demoTimestamp(offsetDias: number, hora = '09:00', now: Date = new Date()): string {
-  return `${demoFecha(offsetDias, now)}T${hora}:00`;
+  const fecha = demoFecha(offsetDias, now);
+  if (fecha === demoHoy(now)) {
+    const [h, m] = hora.split(':').map(Number);
+    const ahora = minutosAhoraMadrid(now);
+    if (h * 60 + m > ahora) return `${fecha}T${hhmm(ahora - 60)}:00`;
+  }
+  return `${fecha}T${hora}:00`;
+}
+
+/**
+ * Timestamp reciente para «lo de hoy» (diario, mensajes): ahora menos `horasAtras`.
+ * Si eso cae antes de las 07:00 (muy temprano), pasa a ayer a `horaAyer`.
+ */
+export function demoTimestampReciente(horasAtras: number, horaAyer = '18:30', now: Date = new Date()): string {
+  const minutos = minutosAhoraMadrid(now) - horasAtras * 60;
+  if (minutos < 7 * 60) return `${demoFecha(-1, now)}T${horaAyer}:00`;
+  return `${demoFecha(0, now)}T${hhmm(minutos)}:00`;
 }
 
 /** Como demoFecha, pero un sábado o domingo pasa al lunes siguiente. */
@@ -57,6 +93,40 @@ export function demoUltimoDiaUsable(mes: string, now: Date = new Date()): number
   return diasMes;
 }
 
+function esLaborable(iso: string): boolean {
+  const dow = new Date(`${iso}T12:00:00Z`).getUTCDay();
+  return dow !== 0 && dow !== 6;
+}
+
+export function demoEsFinDeSemana(iso: string): boolean {
+  return !esLaborable(iso);
+}
+
+/** Los `n` últimos días laborables hasta hoy (inclusive), en orden cronológico. */
+export function demoUltimosDiasLaborables(n: number, now: Date = new Date()): string[] {
+  const out: string[] = [];
+  for (let off = 0; out.length < n; off--) {
+    const iso = demoFecha(off, now);
+    if (esLaborable(iso)) out.unshift(iso);
+  }
+  return out;
+}
+
+/** Mínimo de días laborables del mes actual para no completar con el mes anterior. */
+export const DEMO_MIN_LABORABLES_MES = 10;
+
+/**
+ * Días laborables que pinta la demo para `mes`: los del mes hasta hoy; si es el mes actual y lleva menos de
+ * 10 días laborables, los últimos 20 (cruzando al mes anterior) para que Operarios no salga vacío.
+ */
+export function demoDiasLaborablesVentana(mes: string, now: Date = new Date()): string[] {
+  const propios = demoDiasLaborables(mes, now);
+  if (mes === demoMesActual(now) && propios.length < DEMO_MIN_LABORABLES_MES) {
+    return demoUltimosDiasLaborables(20, now);
+  }
+  return propios;
+}
+
 /** Días laborables (lunes a viernes) de `mes` hasta el último día usable. */
 export function demoDiasLaborables(mes: string, now: Date = new Date()): string[] {
   const ultimo = demoUltimoDiaUsable(mes, now);
@@ -67,4 +137,10 @@ export function demoDiasLaborables(mes: string, now: Date = new Date()): string[
     if (dow !== 0 && dow !== 6) out.push(iso);
   }
   return out;
+}
+
+/** Suma `n` días a un YYYY-MM-DD (aritmética de calendario, sin zonas). */
+export function demoSumarDias(iso: string, n: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return isoDeUtc(Date.UTC(y, m - 1, d + n));
 }

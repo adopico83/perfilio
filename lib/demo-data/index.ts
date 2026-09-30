@@ -19,6 +19,7 @@ import {
   construirAgenda,
   construirDiario,
   construirGastos,
+  gastosDelMes,
   construirMensajes,
   construirRegistrosJornada,
 } from './orbegozo-operativa';
@@ -142,7 +143,7 @@ export function getDemoObras(now: Date = new Date()): DemoObraRow[] {
   const presupuestos = construirPresupuestos(now);
   const facturas = construirFacturas(now);
   const albaranes = construirAlbaranes(now);
-  const gastos = construirGastos(demoMesActual(now), now);
+  const gastos = construirGastos(now);
   const diario = construirDiario(now);
   const nombres = new Map(DEMO_CLIENTES.map((c) => [c.id, c.nombre]));
   return DEMO_OBRAS_BASE.map((o) => {
@@ -175,7 +176,7 @@ export function getDemoObraDetalle(id: string, now: Date = new Date()): DemoObra
   const fila = getDemoObras(now).find((o) => o.id === id);
   if (!fila) return null;
   const cli = DEMO_CLIENTES.find((c) => c.id === fila.cliente_id) ?? null;
-  const gastos = construirGastos(demoMesActual(now), now)
+  const gastos = construirGastos(now)
     .filter((g) => g.obra_id === id)
     .map((g) => ({ id: g.id, fecha: g.fecha, proveedor: g.proveedor, descripcion: g.descripcion, categoria: g.categoria, importe: g.importe, iva: g.iva, importe_total: g.importe_total }));
   return {
@@ -216,7 +217,7 @@ export function getDemoDiarioAgrupado(now: Date = new Date()): Record<string, De
 /* ---------------------------------- Gastos -------------------------------- */
 
 export function getDemoResumenGastos(mes: string = demoMesActual(), now: Date = new Date()): DemoResumenGastos {
-  const filas = construirGastos(mes, now);
+  const filas = gastosDelMes(mes, now);
   const nombres = new Map(DEMO_OBRAS_BASE.map((o) => [o.id, o.nombre]));
   const grupos = new Map<string, DemoResumenGastos['por_obra'][number]>();
   for (const { obra_id, ...fila } of filas) {
@@ -340,7 +341,7 @@ export function getDemoClienteFicha(id: string, now: Date = new Date()): DemoCli
         total: a.total,
         numero_albaran: a.numero_albaran,
       })),
-    gastos: construirGastos(demoMesActual(now), now)
+    gastos: construirGastos(now)
       .filter((g) => g.obra_id && obraIds.has(g.obra_id))
       .map((g) => ({
         id: g.id,

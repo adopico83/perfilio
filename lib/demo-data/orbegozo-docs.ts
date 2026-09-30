@@ -1,6 +1,7 @@
 /** Presupuestos, facturas y albaranes del mock demo. Importes cuadrados al céntimo. */
 import { DEMO_BUSINESS_ID, DEMO_CLIENTES, DEMO_OBRAS_BASE } from './orbegozo-base';
 import { demoFecha, demoTimestamp } from './fechas';
+import { numerosCorrelativos } from './numeracion';
 import {
   baseCent,
   generarTextoPresupuesto,
@@ -304,7 +305,6 @@ function lineasPorCapitulo(capitulos: DemoCapitulo[]): DemoLineaDocumento[] {
 
 type FacturaDef = {
   id: string;
-  numero: string;
   obraId: string;
   presupuestoId: string;
   /** Porcentaje del presupuesto (base) que se factura. */
@@ -316,15 +316,20 @@ type FacturaDef = {
 };
 
 export const FACTURAS_DEF: FacturaDef[] = [
-  { id: 'demo-factura-1', numero: 'F-2026-041', obraId: 'demo-obra-6', presupuestoId: 'demo-presupuesto-7', porcentaje: 100, concepto: 'Reforma completa de baño', estado: 'pagada', offset: -18, vencimiento: -3 },
-  { id: 'demo-factura-2', numero: 'F-2026-042', obraId: 'demo-obra-2', presupuestoId: 'demo-presupuesto-3', porcentaje: 100, concepto: 'Reforma completa de baño', estado: 'pendiente', offset: -5, vencimiento: 10 },
-  { id: 'demo-factura-3', numero: 'F-2026-043', obraId: 'demo-obra-1', presupuestoId: 'demo-presupuesto-1', porcentaje: 40, concepto: 'Certificación 1 (40 %) de la reforma integral', estado: 'pagada', offset: -25, vencimiento: -10 },
-  { id: 'demo-factura-4', numero: 'F-2026-044', obraId: 'demo-obra-1', presupuestoId: 'demo-presupuesto-1', porcentaje: 20, concepto: 'Certificación 2 (20 %) de la reforma integral', estado: 'pendiente', offset: -10, vencimiento: 5 },
-  { id: 'demo-factura-5', numero: 'F-2026-045', obraId: 'demo-obra-3', presupuestoId: 'demo-presupuesto-4', porcentaje: 30, concepto: 'Anticipo del 30 % de la cocina', estado: 'vencida', offset: -19, vencimiento: -4 },
-  { id: 'demo-factura-6', numero: 'F-2026-046', obraId: 'demo-obra-5', presupuestoId: 'demo-presupuesto-6', porcentaje: 30, concepto: 'Anticipo del 30 % de baño y cocina', estado: 'pendiente', offset: 0, vencimiento: 15 },
+  { id: 'demo-factura-1', obraId: 'demo-obra-6', presupuestoId: 'demo-presupuesto-7', porcentaje: 100, concepto: 'Reforma completa de baño', estado: 'pagada', offset: -18, vencimiento: -3 },
+  { id: 'demo-factura-2', obraId: 'demo-obra-2', presupuestoId: 'demo-presupuesto-3', porcentaje: 100, concepto: 'Reforma completa de baño', estado: 'pendiente', offset: -5, vencimiento: 10 },
+  { id: 'demo-factura-3', obraId: 'demo-obra-1', presupuestoId: 'demo-presupuesto-1', porcentaje: 40, concepto: 'Certificación 1 (40 %) de la reforma integral', estado: 'pagada', offset: -25, vencimiento: -10 },
+  { id: 'demo-factura-4', obraId: 'demo-obra-1', presupuestoId: 'demo-presupuesto-1', porcentaje: 20, concepto: 'Certificación 2 (20 %) de la reforma integral', estado: 'pendiente', offset: -10, vencimiento: 5 },
+  { id: 'demo-factura-5', obraId: 'demo-obra-3', presupuestoId: 'demo-presupuesto-4', porcentaje: 30, concepto: 'Anticipo del 30 % de la cocina', estado: 'vencida', offset: -19, vencimiento: -4 },
+  { id: 'demo-factura-6', obraId: 'demo-obra-5', presupuestoId: 'demo-presupuesto-6', porcentaje: 30, concepto: 'Anticipo del 30 % de baño y cocina', estado: 'pendiente', offset: 0, vencimiento: 15 },
 ];
 
 export function construirFacturas(now: Date = new Date()): DemoFactura[] {
+  const numeros = numerosCorrelativos(
+    FACTURAS_DEF.map((d) => ({ id: d.id, fecha: demoFecha(d.offset, now) })),
+    'F',
+    40
+  );
   return FACTURAS_DEF.map((d) => {
     const pres = PRESUPUESTOS_DEF.find((p) => p.id === d.presupuestoId)!;
     const cli = cliente(pres.clienteId);
@@ -339,7 +344,7 @@ export function construirFacturas(now: Date = new Date()): DemoFactura[] {
     return {
       id: d.id,
       business_id: DEMO_BUSINESS_ID,
-      numero_factura: d.numero,
+      numero_factura: numeros.get(d.id) ?? null,
       cliente_nombre: cli.nombre,
       cliente_id: cli.id,
       cliente_direccion: cli.direccion,
@@ -362,7 +367,6 @@ export function construirFacturas(now: Date = new Date()): DemoFactura[] {
 
 type AlbaranDef = {
   id: string;
-  numero: string;
   obraId: string;
   estado: 'pendiente' | 'entregado' | 'facturado';
   offset: number;
@@ -373,7 +377,6 @@ type AlbaranDef = {
 export const ALBARANES_DEF: AlbaranDef[] = [
   {
     id: 'demo-albaran-1',
-    numero: 'ALB-2026-011',
     obraId: 'demo-obra-1',
     estado: 'entregado',
     offset: -20,
@@ -386,7 +389,6 @@ export const ALBARANES_DEF: AlbaranDef[] = [
   },
   {
     id: 'demo-albaran-2',
-    numero: 'ALB-2026-014',
     obraId: 'demo-obra-1',
     estado: 'pendiente',
     offset: -3,
@@ -399,7 +401,6 @@ export const ALBARANES_DEF: AlbaranDef[] = [
   },
   {
     id: 'demo-albaran-3',
-    numero: 'ALB-2026-012',
     obraId: 'demo-obra-2',
     estado: 'facturado',
     offset: -8,
@@ -413,7 +414,6 @@ export const ALBARANES_DEF: AlbaranDef[] = [
   },
   {
     id: 'demo-albaran-4',
-    numero: 'ALB-2026-013',
     obraId: 'demo-obra-3',
     estado: 'entregado',
     offset: -6,
@@ -427,6 +427,11 @@ export const ALBARANES_DEF: AlbaranDef[] = [
 ];
 
 export function construirAlbaranes(now: Date = new Date()): DemoAlbaran[] {
+  const numeros = numerosCorrelativos(
+    ALBARANES_DEF.map((d) => ({ id: d.id, fecha: demoFecha(d.offset, now) })),
+    'ALB',
+    10
+  );
   return ALBARANES_DEF.map((d) => {
     const nombreObra = obra(d.obraId).nombre;
     const cli = cliente(obra(d.obraId).clienteId);
@@ -438,7 +443,7 @@ export function construirAlbaranes(now: Date = new Date()): DemoAlbaran[] {
     return {
       id: d.id,
       business_id: DEMO_BUSINESS_ID,
-      numero_albaran: d.numero,
+      numero_albaran: numeros.get(d.id) ?? null,
       cliente_nombre: cli.nombre,
       cliente_id: cli.id,
       cliente_direccion: cli.direccion,
