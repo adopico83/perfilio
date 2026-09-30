@@ -71,7 +71,7 @@ describe('DemoAppShell', () => {
 
     const aside = screen.getByRole('complementary');
     expect(aside).toHaveTextContent('Perfilio');
-    expect(aside.querySelector('a img')?.getAttribute('src')).toContain('logo.png');
+    expect(aside.querySelector('a img')?.getAttribute('src')).toContain('logo-simbolo-oscuro-transparente.png');
     expect(aside).not.toHaveTextContent('Orbegozo Dekorazio');
     expect(screen.getAllByText('Orbegozo Dekorazio')).toHaveLength(1);
   });
