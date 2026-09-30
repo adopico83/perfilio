@@ -10,6 +10,13 @@ import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
 import { GASTO_CATEGORIAS, etiquetaGastoCategoria } from '@/lib/gastos-categoria';
 import { getBusinessIdClient } from '@/lib/supabase/get-business-id';
+import { useDemoTenant } from '@/lib/use-demo-tenant';
+import {
+  DEMO_BUSINESS_ID,
+  DEMO_EMPRESA,
+  DEMO_MOCK_ENABLED,
+  getDemoResumenGastos,
+} from '@/lib/demo-data';
 
 type GastoResumenFila = {
   id: string;
@@ -59,6 +66,7 @@ function fmtFechaCorta(iso: string): string {
 
 export default function GastosPage() {
   const router = useRouter();
+  const demo = useDemoTenant() && DEMO_MOCK_ENABLED;
   const supabase = useMemo(
     () =>
       createBrowserClient(
@@ -100,6 +108,12 @@ export default function GastosPage() {
       }
       setAuthChecking(false);
 
+      if (demo) {
+        setBusinessId(DEMO_BUSINESS_ID);
+        setBusinessName(DEMO_EMPRESA.nombre);
+        return;
+      }
+
       const businessId = await getBusinessIdClient(supabase);
       if (!businessId) {
         setBusinessId(null);
@@ -116,12 +130,20 @@ export default function GastosPage() {
       if (bp?.nombre) setBusinessName(bp.nombre);
     };
     void run();
-  }, [router, supabase]);
+  }, [router, supabase, demo]);
 
   const cargarResumen = useCallback(async () => {
     if (!businessId) return;
     setLoading(true);
     setError(null);
+    if (demo) {
+      const json = getDemoResumenGastos(mes);
+      setPorObra(json.por_obra);
+      setPorCategoria(json.por_categoria);
+      setTotalMes(json.total_mes);
+      setLoading(false);
+      return;
+    }
     try {
       const res = await fetch(
         `/api/gastos/resumen?business_id=${encodeURIComponent(businessId)}&mes=${encodeURIComponent(mes)}`,
@@ -146,7 +168,7 @@ export default function GastosPage() {
     } finally {
       setLoading(false);
     }
-  }, [businessId, mes]);
+  }, [businessId, mes, demo]);
 
   useEffect(() => {
     if (!authChecking && businessId) void cargarResumen();

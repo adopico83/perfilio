@@ -12,6 +12,13 @@ import DiarioEntradaModal from '@/components/dashboard/diario-entrada-modal';
 import DiarioEntradaDeleteDialog from '@/components/dashboard/diario-entrada-delete-dialog';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import { getBusinessIdClient } from '@/lib/supabase/get-business-id';
+import { useDemoTenant } from '@/lib/use-demo-tenant';
+import {
+  DEMO_BUSINESS_ID,
+  DEMO_EMPRESA,
+  DEMO_MOCK_ENABLED,
+  getDemoDiarioAgrupado,
+} from '@/lib/demo-data';
 
 type DiarioEntrada = {
   id: string;
@@ -27,6 +34,7 @@ type DiarioEntrada = {
 function DiarioPageInner() {
   const { abrirObra } = useObraModal();
   const router = useRouter();
+  const demo = useDemoTenant() && DEMO_MOCK_ENABLED;
   const searchParams = useSearchParams();
   const supabase = useMemo(
     () =>
@@ -65,14 +73,16 @@ function DiarioPageInner() {
     setDeletingId(pendingDelete.id);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/diario/${encodeURIComponent(pendingDelete.id)}?business_id=${encodeURIComponent(businessId)}`,
-        { method: 'DELETE', credentials: 'include' }
-      );
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        setError(json.error ?? 'No se pudo eliminar la entrada');
-        return;
+      if (!demo) {
+        const res = await fetch(
+          `/api/diario/${encodeURIComponent(pendingDelete.id)}?business_id=${encodeURIComponent(businessId)}`,
+          { method: 'DELETE', credentials: 'include' }
+        );
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) {
+          setError(json.error ?? 'No se pudo eliminar la entrada');
+          return;
+        }
       }
       const removedId = pendingDelete.id;
       setPendingDelete(null);
@@ -90,7 +100,7 @@ function DiarioPageInner() {
     } finally {
       setDeletingId(null);
     }
-  }, [businessId, pendingDelete]);
+  }, [businessId, pendingDelete, demo]);
 
   useEffect(() => {
     const run = async () => {
@@ -102,6 +112,21 @@ function DiarioPageInner() {
         return;
       }
       setAuthChecking(false);
+
+      if (demo) {
+        setBusinessId(DEMO_BUSINESS_ID);
+        setBusinessName(DEMO_EMPRESA.nombre);
+        const raw = getDemoDiarioAgrupado();
+        const ordenado: Record<string, DiarioEntrada[]> = {};
+        for (const [nombre, entradas] of Object.entries(raw)) {
+          ordenado[nombre] = [...entradas].sort(
+            (a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()
+          );
+        }
+        setAgrupado(ordenado);
+        setLoading(false);
+        return;
+      }
 
       const businessId = await getBusinessIdClient(supabase);
       if (!businessId) {
@@ -147,7 +172,7 @@ function DiarioPageInner() {
       }
     };
     void run();
-  }, [router, supabase]);
+  }, [router, supabase, demo]);
 
   const obrasOrdenadas = useMemo(() => {
     return Object.keys(agrupado).sort((a, b) => {
