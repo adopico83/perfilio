@@ -97,9 +97,8 @@ export function getDemoHoy(now: Date = new Date()): {
 } {
   const nombres = new Map(DEMO_CLIENTES.map((c) => [c.id, c.nombre]));
   return {
-    clientes: [...DEMO_CLIENTES]
-      .map((c) => ({ id: c.id, nombre: c.nombre }))
-      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')),
+    // Orden del dataset (clientes de las obras destacadas primero): la home solo enseña 3.
+    clientes: DEMO_CLIENTES.map((c) => ({ id: c.id, nombre: c.nombre })),
     obras: DEMO_OBRAS_BASE.map((o) => ({
       id: o.id,
       nombre: o.nombre,
