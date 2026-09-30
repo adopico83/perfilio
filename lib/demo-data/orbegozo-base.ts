@@ -1,4 +1,4 @@
-/** Empresa, clientes y obras del mock demo (Reformas Ibarbide, Bizkaia). Todo ficticio. */
+/** Empresa, clientes y obras del mock demo (Orbegozo Dekorazio, Bizkaia). Todo ficticio. */
 import type { DemoCliente, DemoEmpresa } from './types';
 
 /**
@@ -7,11 +7,11 @@ import type { DemoCliente, DemoEmpresa } from './types';
 export const DEMO_BUSINESS_ID = 'demo-business';
 
 export const DEMO_EMPRESA: DemoEmpresa = {
-  nombre: 'Reformas Ibarbide',
+  nombre: 'Orbegozo Dekorazio',
   ciudad: 'Getxo (Bizkaia)',
-  direccion: 'Calle Ficticia Ibarbide 3, bajo, 48990 Getxo',
+  direccion: 'Avenida Algorta 12, 48990 Getxo',
   telefono: '944 00 00 00',
-  email: 'hola@reformas-ibarbide.example.com',
+  email: 'hola@orbegozo-dekorazio.example.com',
 };
 
 export const DEMO_CLIENTES: DemoCliente[] = [

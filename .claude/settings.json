@@ -27,10 +27,15 @@
       "Bash(npx eslint*)",
       "Bash(npx next build*)",
       "Bash(gh pr create*)",
-      "Bash(gh pr view*)"
+      "Bash(gh pr view*)",
+      "Bash(ls:*)",
+      "Bash(file:*)",
+      "Bash(mkdir:*)",
+      "Bash(wc:*)"
     ],
     "deny": [
       "Read(./.env*)",
+      "Grep(./.env*)",
       "Edit(./.env*)",
       "Write(./.env*)",
       "Bash(git push origin main*)",

@@ -55,4 +55,23 @@ describe('DemoAppShell', () => {
       expect(screen.queryByTestId('agent-panel')).not.toBeInTheDocument();
     });
   });
+
+  it('cabecera con logo y «Orbegozo Dekorazio»; el menú solo muestra «Perfilio» sin subtítulo', () => {
+    render(
+      <AgentSidebarProvider>
+        <DemoAppShell businessName="Reformas Demo Errenteria">
+          <p>contenido</p>
+        </DemoAppShell>
+      </AgentSidebarProvider>
+    );
+
+    const header = screen.getByRole('banner');
+    expect(header).toHaveTextContent('Orbegozo Dekorazio');
+    expect(header.querySelector('img')?.getAttribute('src')).toContain('orbegozo-logo.png');
+
+    const aside = screen.getByRole('complementary');
+    expect(aside).toHaveTextContent('Perfilio');
+    expect(aside).not.toHaveTextContent('Orbegozo Dekorazio');
+    expect(screen.getAllByText('Orbegozo Dekorazio')).toHaveLength(1);
+  });
 });

@@ -61,8 +61,8 @@ describe('GET /api/demo/pdf/[tipo]/[id]', () => {
     expect(res.headers.get('Content-Disposition')).toMatch(/^attachment; filename="presupuesto-\d{4}-\d{2}-\d{2}\.pdf"$/);
     const { props } = docRenderizado();
     expect(props.parsed).toMatchObject({ baseImponible: 24850, importeIva: 5218.5, total: 30068.5 });
-    expect(props.empresa.razonSocial).toBe('Reformas Ibarbide');
-    expect(props.empresa.email).toBe('hola@reformas-ibarbide.example.com');
+    expect(props.empresa.razonSocial).toBe('Orbegozo Dekorazio');
+    expect(props.empresa.email).toBe('hola@orbegozo-dekorazio.example.com');
     expect(props.referencia).toBe('Reforma integral piso Algorta');
     expect(props.numeroPresupuesto).toBe('2');
   });
@@ -81,7 +81,7 @@ describe('GET /api/demo/pdf/[tipo]/[id]', () => {
     });
     expect(props.factura?.numero_factura).toMatch(/^F-\d{4}-\d{3}$/);
     expect(props.porcentajeIva).toBe(21);
-    expect(props.empresa.razonSocial).toBe('Reformas Ibarbide');
+    expect(props.empresa.razonSocial).toBe('Orbegozo Dekorazio');
   });
 
   it('con un usuario que no es la demo devuelve 403 y no renderiza nada', async () => {
