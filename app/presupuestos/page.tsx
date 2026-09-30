@@ -210,7 +210,9 @@ function PresupuestosPageContent() {
   };
 
   const descargarPDF = async (p: Presupuesto) => {
-    const res = await fetch(`/api/pdf/presupuesto/${encodeURIComponent(p.id)}`, {
+    // En demo el PDF sale del mock por una ruta propia (mismo render oficial, sin tocar Supabase).
+    const base = demo ? '/api/demo/pdf/presupuesto' : '/api/pdf/presupuesto';
+    const res = await fetch(`${base}/${encodeURIComponent(p.id)}`, {
       credentials: 'include',
     });
     if (!res.ok) {
@@ -300,8 +302,6 @@ function PresupuestosPageContent() {
                   </button>
                   <button
                     type="button"
-                    disabled={demo}
-                    title={demo ? 'No disponible en la demo' : undefined}
                     onClick={async () => {
                       try {
                         await descargarPDF(p);
@@ -310,7 +310,7 @@ function PresupuestosPageContent() {
                         alert(e instanceof Error ? e.message : 'Error al descargar el PDF');
                       }
                     }}
-                    className="px-3 py-1.5 text-sm font-medium bg-[#E5DFD0] hover:bg-[#D4CCBC] text-zinc-900 border border-zinc-400/50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-3 py-1.5 text-sm font-medium bg-[#E5DFD0] hover:bg-[#D4CCBC] text-zinc-900 border border-zinc-400/50 rounded-lg transition-colors"
                   >
                     Descargar PDF
                   </button>

@@ -13,7 +13,7 @@ import { formatEuro } from './parser';
 export interface FacturaPdfProps {
   factura: {
     id: string;
-    numero_factura: number;
+    numero_factura: number | string;
     fecha: string;
     fecha_operacion?: string | null;
     cliente_nombre: string;

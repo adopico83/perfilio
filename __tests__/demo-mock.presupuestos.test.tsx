@@ -70,7 +70,7 @@ describe('PresupuestosPage con el mock demo', () => {
     expect(mockCreateClient).not.toHaveBeenCalled();
   });
 
-  it('las acciones solo cambian el estado local y descargar PDF queda desactivado', async () => {
+  it('las acciones solo cambian el estado local y Descargar PDF usa la ruta demo', async () => {
     mockFrom.mockImplementation(() => {
       throw new Error('Supabase no debe consultarse en demo');
     });
@@ -81,10 +81,20 @@ describe('PresupuestosPage con el mock demo', () => {
     render(<PresupuestosPage />);
     await waitFor(() => expect(screen.getAllByText('Ver presupuesto completo')).toHaveLength(8));
 
-    for (const boton of screen.getAllByRole('button', { name: 'Descargar PDF' })) {
-      expect(boton).toBeDisabled();
-      expect(boton).toHaveAttribute('title', 'No disponible en la demo');
-    }
+    URL.createObjectURL = jest.fn(() => 'blob:demo');
+    URL.revokeObjectURL = jest.fn();
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({ ok: true, blob: async () => new Blob(['%PDF']) });
+    const descargar = screen.getAllByRole('button', { name: 'Descargar PDF' });
+    for (const boton of descargar) expect(boton).toBeEnabled();
+    fireEvent.click(descargar[0]);
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+    expect(String(mockFetch.mock.calls[0][0]).startsWith('/api/demo/pdf/presupuesto/demo-presupuesto-')).toBe(true);
+    mockFetch.mockReset();
+    mockFetch.mockImplementation(() => {
+      throw new Error('fetch no debe llamarse en demo');
+    });
+    mockFetch.mockClear();
     const antes = screen.getAllByRole('button', { name: 'Generar factura' }).length;
     expect(antes).toBe(3);
 
