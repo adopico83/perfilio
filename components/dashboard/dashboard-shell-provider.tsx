@@ -6,6 +6,7 @@ import DashboardShell from './dashboard-shell';
 
 const DASHBOARD_PREFIXES = [
   '/dashboard',
+  '/agenda',
   '/mensajes',
   '/presupuestos',
   '/albaranes',

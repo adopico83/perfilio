@@ -6,6 +6,7 @@ import DemoAppShell from './demo-app-shell';
 import { useAgentSidebar } from '@/contexts/agent-sidebar-context';
 import { useSession } from '@/components/providers/session-provider';
 import { isDemoReformasTenant } from '@/lib/demo-tenant';
+import { DemoAgendaProvider } from '@/contexts/demo-agenda-context';
 
 export default function DashboardShell({ children }: { children: ReactNode }) {
   const { isOpen } = useAgentSidebar();
@@ -16,7 +17,11 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
   });
 
   if (isDemo) {
-    return <DemoAppShell businessName={businessName}>{children}</DemoAppShell>;
+    return (
+      <DemoAgendaProvider>
+        <DemoAppShell businessName={businessName}>{children}</DemoAppShell>
+      </DemoAgendaProvider>
+    );
   }
 
   return (

@@ -1,11 +1,18 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useSession } from '@/components/providers/session-provider';
 import { createClient } from '@/lib/supabase/client';
 import { useDemoTenant } from '@/lib/use-demo-tenant';
-import { DEMO_MOCK_ENABLED, getDemoAgendaMes, getDemoAgendaProximos } from '@/lib/demo-data';
+import {
+  mezclarMes,
+  mezclarProximos,
+  useDemoAgenda,
+  type DemoCita,
+  type NuevaCitaDemo,
+} from '@/contexts/demo-agenda-context';
+import { DEMO_MOCK_ENABLED, demoHoy, getDemoAgendaMes, getDemoAgendaProximos, getDemoObras } from '@/lib/demo-data';
 import {
   construirCeldasMes,
   etiquetaFecha,
@@ -25,59 +32,132 @@ function hoyIsoLocal(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** Calendario mensual (navegación de mes, cuadrícula y detalle del día). Lo usan la card y la página Agenda. */
+const MESES = Array.from({ length: 12 }, (_, i) =>
+  new Date(2000, i, 1).toLocaleDateString('es-ES', { month: 'long' })
+);
+
+const controlClass =
+  'rounded-lg border border-zinc-400/40 bg-[#EFEADF] px-2 py-2 text-sm text-zinc-900 focus:outline-none focus:ring-1 focus:ring-[#A04A2F]';
+const navBtnClass =
+  'inline-flex size-10 items-center justify-center rounded-lg border border-zinc-400/40 hover:bg-[#EFEADF]';
+
+/**
+ * Calendario mensual: navegación por mes y año, cuadrícula, detalle del día y alta de citas.
+ * Lo usan la card del dashboard (modal) y la página Agenda de la demo.
+ */
 export function DemoCalendarioMes({
   mes,
   eventosMes,
   onMes,
+  onAnadir,
+  obras = [],
 }: {
   mes: Date;
-  eventosMes: AgendaEvento[];
+  eventosMes: DemoCita[];
   onMes: (next: Date) => void;
+  /** Si se pasa, aparece «+ Añadir cita». En la demo solo guarda en estado local. */
+  onAnadir?: (cita: NuevaCitaDemo) => void;
+  /** Nombres de obra para el desplegable del formulario. */
+  obras?: string[];
 }) {
   const [diaDetalle, setDiaDetalle] = useState<string | null>(null);
-  const celdas = useMemo(
-    () => construirCeldasMes(mes.getFullYear(), mes.getMonth()),
-    [mes]
-  );
-  const porFecha = useMemo(() => eventosPorFecha(eventosMes), [eventosMes]);
+  const [formAbierto, setFormAbierto] = useState(false);
+  const [form, setForm] = useState({ titulo: '', fecha: '', hora: '09:00', obra: '', nota: '' });
+  const celdas = useMemo(() => construirCeldasMes(mes.getFullYear(), mes.getMonth()), [mes]);
+  const porFecha = useMemo(() => eventosPorFecha(eventosMes) as Map<string, DemoCita[]>, [eventosMes]);
   const hoy = hoyIsoLocal();
-  const tituloMes = new Date(mes.getFullYear(), mes.getMonth(), 1).toLocaleDateString('es-ES', {
-    month: 'long',
-    year: 'numeric',
-  });
+  const anioHoy = Number(hoy.slice(0, 4));
+  const anios = useMemo(() => {
+    const lista = [anioHoy - 1, anioHoy, anioHoy + 1, anioHoy + 2];
+    if (!lista.includes(mes.getFullYear())) lista.push(mes.getFullYear());
+    return lista.sort((a, b) => a - b);
+  }, [anioHoy, mes]);
+
+  const irAMes = (year: number, month: number) => {
+    setDiaDetalle(null);
+    onMes(new Date(year, month, 1));
+  };
+
+  const abrirForm = () => {
+    setForm({ titulo: '', fecha: diaDetalle ?? hoy, hora: '09:00', obra: '', nota: '' });
+    setFormAbierto(true);
+  };
+
+  const guardar = (e: FormEvent) => {
+    e.preventDefault();
+    const titulo = form.titulo.trim();
+    if (!titulo || !form.fecha || !onAnadir) return;
+    onAnadir({
+      titulo,
+      fecha: form.fecha,
+      hora: form.hora || null,
+      obra_nombre: form.obra || null,
+      nota: form.nota.trim() || null,
+    });
+    const [y, m] = form.fecha.split('-').map(Number);
+    onMes(new Date(y, m - 1, 1));
+    setDiaDetalle(form.fecha);
+    setFormAbierto(false);
+  };
 
   return (
     <>
-      <div className="flex items-center justify-between gap-2 border-b border-zinc-400/30 px-3 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-400/30 px-3 py-3">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            aria-label="Mes anterior"
+            className={navBtnClass}
+            onClick={() => irAMes(mes.getFullYear(), mes.getMonth() - 1)}
+          >
+            <ChevronLeft className="size-5" />
+          </button>
+          <select
+            aria-label="Mes"
+            className={`${controlClass} capitalize`}
+            value={mes.getMonth()}
+            onChange={(e) => irAMes(mes.getFullYear(), Number(e.target.value))}
+          >
+            {MESES.map((nombre, i) => (
+              <option key={nombre} value={i}>
+                {nombre}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="Año"
+            className={controlClass}
+            value={mes.getFullYear()}
+            onChange={(e) => irAMes(Number(e.target.value), mes.getMonth())}
+          >
+            {anios.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            aria-label="Mes siguiente"
+            className={navBtnClass}
+            onClick={() => irAMes(mes.getFullYear(), mes.getMonth() + 1)}
+          >
+            <ChevronRight className="size-5" />
+          </button>
+        </div>
         <button
           type="button"
-          aria-label="Mes anterior"
-          className="inline-flex size-10 items-center justify-center rounded-lg border border-zinc-400/40"
+          className="rounded-lg border border-[#A04A2F]/50 px-3 py-2 text-sm font-medium text-[#A04A2F] hover:bg-[#A04A2F]/10"
           onClick={() => {
-            setDiaDetalle(null);
-            onMes(new Date(mes.getFullYear(), mes.getMonth() - 1, 1));
+            onMes(new Date());
+            setDiaDetalle(hoy);
           }}
         >
-          <ChevronLeft className="size-5" />
-        </button>
-        <p className="flex-1 truncate text-center text-base font-semibold capitalize text-zinc-900">
-          {tituloMes}
-        </p>
-        <button
-          type="button"
-          aria-label="Mes siguiente"
-          className="inline-flex size-10 items-center justify-center rounded-lg border border-zinc-400/40"
-          onClick={() => {
-            setDiaDetalle(null);
-            onMes(new Date(mes.getFullYear(), mes.getMonth() + 1, 1));
-          }}
-        >
-          <ChevronRight className="size-5" />
+          Hoy
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-        <div className="mb-2 grid grid-cols-7 gap-1 text-center text-[10px] font-semibold uppercase tracking-wide text-zinc-600 sm:text-xs">
+        <div className="mb-2 mt-3 grid grid-cols-7 gap-1 text-center text-[10px] font-semibold uppercase tracking-wide text-zinc-600 sm:text-xs">
           {DIAS.map((d) => (
             <div key={d} className="py-1">
               {d}
@@ -92,22 +172,27 @@ export function DemoCalendarioMes({
             const eventosDia = porFecha.get(celda.fechaStr) ?? [];
             const tiene = eventosDia.length > 0;
             const esHoy = celda.fechaStr === hoy;
+            const seleccionado = celda.fechaStr === diaDetalle;
             return (
               <button
                 key={celda.fechaStr}
                 type="button"
-                disabled={!tiene}
-                onClick={() => tiene && setDiaDetalle(celda.fechaStr)}
+                aria-pressed={seleccionado}
+                onClick={() => setDiaDetalle(celda.fechaStr)}
                 className={[
-                  'flex min-h-[52px] flex-col rounded-lg border p-1 text-left sm:min-h-[72px] sm:p-1.5',
-                  esHoy ? 'border-[#A04A2F] bg-[#EFEADF]' : 'border-zinc-400/30 bg-[#EFEADF]/70',
-                  tiene ? 'cursor-pointer hover:bg-[#EFEADF]' : 'cursor-default',
+                  'flex min-h-[52px] cursor-pointer flex-col rounded-lg border p-1 text-left hover:bg-[#EFEADF] sm:min-h-[72px] sm:p-1.5',
+                  seleccionado
+                    ? 'border-[#A04A2F] bg-[#EFEADF] ring-1 ring-[#A04A2F]'
+                    : esHoy
+                      ? 'border-[#A04A2F] bg-[#EFEADF]'
+                      : 'border-zinc-400/30 bg-[#EFEADF]/70',
                 ].join(' ')}
               >
                 <span className="text-xs font-semibold text-zinc-900 sm:text-sm">{celda.dia}</span>
                 {tiene ? (
                   <span className="mt-0.5 truncate text-[10px] font-medium text-[#A04A2F] sm:text-[11px]">
                     {eventosDia[0]?.titulo}
+                    {eventosDia.length > 1 ? ` +${eventosDia.length - 1}` : ''}
                   </span>
                 ) : null}
               </button>
@@ -123,16 +208,106 @@ export function DemoCalendarioMes({
                 month: 'long',
               })}
             </p>
-            <ul className="space-y-2">
-              {(porFecha.get(diaDetalle) ?? []).map((ev) => (
-                <li key={ev.id} className="rounded-lg border border-zinc-400/30 bg-[#EFEADF] px-3 py-2">
-                  <p className="font-medium text-zinc-900">{ev.titulo}</p>
-                  {horaCorta(ev.hora) ? (
-                    <p className="text-xs text-zinc-600">{horaCorta(ev.hora)}</p>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
+            {(porFecha.get(diaDetalle) ?? []).length === 0 ? (
+              <p className="text-sm text-zinc-700">Sin citas este día.</p>
+            ) : (
+              <ul className="space-y-2">
+                {(porFecha.get(diaDetalle) ?? []).map((ev) => (
+                  <li key={ev.id} className="rounded-lg border border-zinc-400/30 bg-[#EFEADF] px-3 py-2">
+                    <p className="font-medium text-zinc-900">{ev.titulo}</p>
+                    {horaCorta(ev.hora) ? <p className="text-xs text-zinc-600">{horaCorta(ev.hora)}</p> : null}
+                    {ev.obra_nombre ? <p className="text-xs text-zinc-600">Obra: {ev.obra_nombre}</p> : null}
+                    {ev.nota ? <p className="mt-1 text-xs text-zinc-700">{ev.nota}</p> : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : null}
+        {onAnadir ? (
+          <div className="mt-4 border-t border-zinc-400/30 pt-4">
+            {!formAbierto ? (
+              <button
+                type="button"
+                onClick={abrirForm}
+                className="rounded-lg bg-[#A04A2F] px-4 py-2 text-sm font-semibold text-white hover:bg-[#8a3f28]"
+              >
+                + Añadir cita
+              </button>
+            ) : (
+              <form onSubmit={guardar} className="space-y-3" aria-label="Nueva cita">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <label className="flex flex-col gap-1 text-xs font-medium text-zinc-700 sm:col-span-3">
+                    Título
+                    <input
+                      required
+                      className={controlClass}
+                      value={form.titulo}
+                      onChange={(e) => setForm((f) => ({ ...f, titulo: e.target.value }))}
+                      placeholder="Ej.: Visita de obra"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs font-medium text-zinc-700">
+                    Fecha
+                    <input
+                      required
+                      type="date"
+                      className={controlClass}
+                      value={form.fecha}
+                      onChange={(e) => setForm((f) => ({ ...f, fecha: e.target.value }))}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs font-medium text-zinc-700">
+                    Hora
+                    <input
+                      type="time"
+                      className={controlClass}
+                      value={form.hora}
+                      onChange={(e) => setForm((f) => ({ ...f, hora: e.target.value }))}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs font-medium text-zinc-700">
+                    Obra (opcional)
+                    <select
+                      className={controlClass}
+                      value={form.obra}
+                      onChange={(e) => setForm((f) => ({ ...f, obra: e.target.value }))}
+                    >
+                      <option value="">Sin obra</option>
+                      {obras.map((o) => (
+                        <option key={o} value={o}>
+                          {o}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs font-medium text-zinc-700 sm:col-span-3">
+                    Nota (opcional)
+                    <textarea
+                      rows={2}
+                      className={controlClass}
+                      value={form.nota}
+                      onChange={(e) => setForm((f) => ({ ...f, nota: e.target.value }))}
+                    />
+                  </label>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    className="rounded-lg bg-[#A04A2F] px-4 py-2 text-sm font-semibold text-white hover:bg-[#8a3f28]"
+                  >
+                    Guardar cita
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormAbierto(false)}
+                    className="rounded-lg border border-zinc-400/50 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-[#EFEADF]"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         ) : null}
       </div>
@@ -149,16 +324,29 @@ export function DemoCalendarioCardView({
   onCerrar,
   onMes,
   abierto,
+  onAnadir,
+  obras,
 }: {
   loading: boolean;
-  proximos: AgendaEvento[];
+  proximos: DemoCita[];
   mes: Date;
-  eventosMes: AgendaEvento[];
+  eventosMes: DemoCita[];
   abierto: boolean;
   onAbrir: () => void;
   onCerrar: () => void;
   onMes: (next: Date) => void;
+  onAnadir?: (cita: NuevaCitaDemo) => void;
+  obras?: string[];
 }) {
+  useEffect(() => {
+    if (!abierto) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCerrar();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [abierto, onCerrar]);
+
   return (
     <>
       <button type="button" className={cardClass} onClick={onAbrir}>
@@ -216,7 +404,7 @@ export function DemoCalendarioCardView({
                 ×
               </button>
             </div>
-            <DemoCalendarioMes mes={mes} eventosMes={eventosMes} onMes={onMes} />
+            <DemoCalendarioMes mes={mes} eventosMes={eventosMes} onMes={onMes} onAnadir={onAnadir} obras={obras} />
           </div>
         </div>
       ) : null}
@@ -232,10 +420,21 @@ export default function DemoCalendarioCard() {
   const [abierto, setAbierto] = useState(false);
   const [mes, setMes] = useState(() => new Date());
   const [eventosMes, setEventosMes] = useState<AgendaEvento[]>([]);
+  const { citas: citasLocales, anadirCita } = useDemoAgenda();
+  const obrasDemo = useMemo(() => (demo ? getDemoObras().map((o) => o.nombre) : undefined), [demo]);
+  // En demo, las citas del mock y las añadidas a mano se combinan al vuelo (estado local compartido).
+  const proximosDemo = useMemo(
+    () => (demo ? mezclarProximos(getDemoAgendaProximos(new Date(), 50), citasLocales, demoHoy()) : []),
+    [demo, citasLocales]
+  );
+  const eventosMesDemo = useMemo(
+    () =>
+      demo ? mezclarMes(getDemoAgendaMes(mes.getFullYear(), mes.getMonth()), citasLocales, mes.getFullYear(), mes.getMonth()) : [],
+    [demo, citasLocales, mes]
+  );
 
   useEffect(() => {
     if (demo) {
-      setProximos(getDemoAgendaProximos());
       setLoading(false);
       return;
     }
@@ -268,10 +467,7 @@ export default function DemoCalendarioCard() {
 
   const cargarMes = useCallback(
     async (fecha: Date) => {
-      if (demo) {
-        setEventosMes(getDemoAgendaMes(fecha.getFullYear(), fecha.getMonth()));
-        return;
-      }
+      if (demo) return;
       if (!businessId) {
         setEventosMes([]);
         return;
@@ -298,6 +494,8 @@ export default function DemoCalendarioCard() {
     [businessId, demo]
   );
 
+  const cerrar = useCallback(() => setAbierto(false), []);
+
   const abrir = () => {
     const ahora = new Date();
     setMes(ahora);
@@ -308,12 +506,14 @@ export default function DemoCalendarioCard() {
   return (
     <DemoCalendarioCardView
       loading={loading}
-      proximos={proximos}
+      proximos={demo ? proximosDemo : proximos}
       mes={mes}
-      eventosMes={eventosMes}
+      eventosMes={demo ? eventosMesDemo : eventosMes}
       abierto={abierto}
       onAbrir={abrir}
-      onCerrar={() => setAbierto(false)}
+      onCerrar={cerrar}
+      onAnadir={demo ? anadirCita : undefined}
+      obras={obrasDemo}
       onMes={(next) => {
         setMes(next);
         void cargarMes(next);
