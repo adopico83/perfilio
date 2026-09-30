@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import '@testing-library/jest-dom';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import DemoAppShell from '@/components/dashboard/demo-app-shell';
 import { AgentSidebarProvider } from '@/contexts/agent-sidebar-context';
 
@@ -17,7 +17,11 @@ jest.mock('@/components/dashboard/agent-sidebar', () => ({
 
 jest.mock('@/app/dashboard/logout-button', () => ({
   __esModule: true,
-  default: () => <button type="button">Cerrar Sesión</button>,
+  default: ({ compact }: { compact?: boolean }) => (
+    <button type="button" aria-label="Cerrar sesión" data-compact={compact ? 'true' : 'false'}>
+      Cerrar Sesión
+    </button>
+  ),
 }));
 
 describe('DemoAppShell', () => {
@@ -74,5 +78,9 @@ describe('DemoAppShell', () => {
     expect(aside.querySelector('a img')?.getAttribute('src')).toContain('logo-simbolo-oscuro-transparente.png');
     expect(aside).not.toHaveTextContent('Orbegozo Dekorazio');
     expect(screen.getAllByText('Orbegozo Dekorazio')).toHaveLength(1);
+    expect(within(header).getByRole('button', { name: 'Cerrar sesión' })).toHaveAttribute(
+      'data-compact',
+      'true'
+    );
   });
 });
