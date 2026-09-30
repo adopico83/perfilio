@@ -6,6 +6,8 @@ import { Trash2, X } from 'lucide-react';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import { etiquetaGastoCategoria } from '@/lib/gastos-categoria';
 import { createClient } from '@/lib/supabase/client';
+import { useDemoTenant } from '@/lib/use-demo-tenant';
+import { DEMO_MOCK_ENABLED, DEMO_OPERARIOS, getDemoObraDetalle, getDemoRegistrosJornada } from '@/lib/demo-data';
 import DiarioEntradaDeleteDialog from '@/components/dashboard/diario-entrada-delete-dialog';
 import AgenteContextChips, { chipsObra } from '@/components/dashboard/agente-context-chips';
 
@@ -76,6 +78,7 @@ function costeHorasRealesEUR(horasReales: number): number {
 export default function ObraModal() {
   const router = useRouter();
   const { isOpen, obraId, cerrarObra } = useObraModal();
+  const demo = useDemoTenant() && DEMO_MOCK_ENABLED;
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,6 +98,16 @@ export default function ObraModal() {
     if (!obraId) return;
     setLoading(true);
     setError(null);
+    if (demo) {
+      const detalle = getDemoObraDetalle(obraId);
+      if (detalle) {
+        setFicha({ ...(detalle as unknown as FichaObraResponse), registros_jornada: detalle.registros_jornada ?? [] });
+      } else {
+        setError('No se pudo cargar la ficha');
+      }
+      setLoading(false);
+      return;
+    }
     try {
       const res = await fetch(`/api/obras/${encodeURIComponent(obraId)}`, {
         credentials: 'include',
@@ -114,7 +127,7 @@ export default function ObraModal() {
     } finally {
       setLoading(false);
     }
-  }, [obraId]);
+  }, [obraId, demo]);
 
   useEffect(() => {
     if (!isOpen || !obraId) return;
@@ -138,6 +151,13 @@ export default function ObraModal() {
     let cancelled = false;
     setHorasLoading(true);
     setHorasError(null);
+
+    if (demo) {
+      setHorasJornada(getDemoRegistrosJornada(obraId) as unknown as Array<Record<string, unknown>>);
+      setOperarioNombrePorId(new Map(DEMO_OPERARIOS.map((o) => [o.id, o.nombre])));
+      setHorasLoading(false);
+      return;
+    }
 
     void (async () => {
       try {
@@ -195,7 +215,7 @@ export default function ObraModal() {
     return () => {
       cancelled = true;
     };
-  }, [tab, obraId, ficha?.obra?.business_id]);
+  }, [tab, obraId, ficha?.obra?.business_id, demo]);
 
   const confirmarEliminarDiario = useCallback(async () => {
     if (!pendingDeleteDiarioId || !ficha?.obra?.business_id) return;
@@ -203,6 +223,20 @@ export default function ObraModal() {
     const entryId = pendingDeleteDiarioId;
     setDeletingDiarioId(entryId);
     setError(null);
+    if (demo) {
+      setPendingDeleteDiarioId(null);
+      setFicha((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          entradas_diario_obra: prev.entradas_diario_obra.filter(
+            (row) => String((row as { id?: unknown }).id ?? '') !== entryId
+          ),
+        };
+      });
+      setDeletingDiarioId(null);
+      return;
+    }
     try {
       const res = await fetch(
         `/api/diario/${encodeURIComponent(entryId)}?business_id=${encodeURIComponent(bid)}`,
@@ -228,7 +262,7 @@ export default function ObraModal() {
     } finally {
       setDeletingDiarioId(null);
     }
-  }, [pendingDeleteDiarioId, ficha?.obra?.business_id]);
+  }, [pendingDeleteDiarioId, ficha?.obra?.business_id, demo]);
 
   const badge = useMemo(() => estadoBadge(ficha?.obra?.estado), [ficha]);
 
@@ -265,6 +299,11 @@ export default function ObraModal() {
     if (!isCerrada) {
       const ok = window.confirm('¿Cerrar esta obra? Los documentos vinculados se mantendrán.');
       if (!ok) return;
+    }
+
+    if (demo) {
+      setFicha((prev) => (prev ? { ...prev, obra: { ...prev.obra, estado: nextEstado } } : prev));
+      return;
     }
 
     setEstadoUpdating(true);

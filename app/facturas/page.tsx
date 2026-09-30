@@ -7,6 +7,8 @@ import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import { X } from 'lucide-react';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import { type ObrasNombreJoin, nombreObraDesdeJoin } from '@/lib/obras-nombre-join';
+import { useDemoTenant } from '@/lib/use-demo-tenant';
+import { DEMO_EMPRESA_EMISOR, DEMO_MOCK_ENABLED, getDemoFacturas } from '@/lib/demo-data';
 import {
   InvoiceEditor,
   type InvoiceEditorSavePayload,
@@ -41,6 +43,7 @@ interface Factura {
 export default function FacturasPage() {
   const { abrirObra } = useObraModal();
   const router = useRouter();
+  const demo = useDemoTenant() && DEMO_MOCK_ENABLED;
   const supabase = useMemo(
     () =>
       createBrowserClient(
@@ -80,6 +83,12 @@ export default function FacturasPage() {
   }, [router, supabase]);
 
   const loadFacturas = useCallback(async () => {
+    if (demo) {
+      const rows = getDemoFacturas() as unknown as Factura[];
+      setFacturas(rows);
+      setLoading(false);
+      return rows;
+    }
     const { data } = await supabase
       .from('facturas')
       .select(
@@ -90,15 +99,19 @@ export default function FacturasPage() {
     setFacturas(rows);
     setLoading(false);
     return rows;
-  }, [supabase]);
+  }, [supabase, demo]);
 
   useEffect(() => {
     if (!authChecking) queueMicrotask(() => void loadFacturas());
   }, [authChecking, loadFacturas]);
 
   const setEstado = async (id: string, estado: string) => {
-    await supabase.from('facturas').update({ estado }).eq('id', id);
-    loadFacturas();
+    if (demo) {
+      setFacturas((prev) => prev.map((f) => (f.id === id ? { ...f, estado } : f)));
+    } else {
+      await supabase.from('facturas').update({ estado }).eq('id', id);
+      loadFacturas();
+    }
     setDetalleId(null);
     setEditandoDetalle(false);
     setEditError('');
@@ -114,6 +127,10 @@ export default function FacturasPage() {
     if (!modoEdicion) return;
     const req = ++emisorReq.current;
     setEmisor(null);
+    if (demo) {
+      setEmisor({ empresa: DEMO_EMPRESA_EMISOR, logoUrl: null });
+      return;
+    }
     void loadEmpresaEmisor(supabase, factura.business_id).then((res) => {
       if (emisorReq.current !== req) return;
       if (res.ok) {
@@ -134,6 +151,24 @@ export default function FacturasPage() {
   const guardarDesdeEditor = async (factura: Factura, payload: InvoiceEditorSavePayload) => {
     setGuardandoEdicion(true);
     setEditError('');
+    if (demo) {
+      setFacturas((prev) =>
+        prev.map((f) =>
+          f.id === factura.id
+            ? {
+                ...f,
+                cliente_nombre: payload.cliente_nombre,
+                total: payload.importe_total,
+                descripcion_trabajos: payload.descripcion_trabajos,
+              }
+            : f
+        )
+      );
+      setFacturaGuardadaId(factura.id);
+      setEditorDataRevision((n) => n + 1);
+      setGuardandoEdicion(false);
+      return;
+    }
     try {
       const res = await fetch('/api/agente', {
         method: 'POST',
@@ -296,6 +331,8 @@ export default function FacturasPage() {
                     </button>
                     <button
                       type="button"
+                      disabled={demo}
+                      title={demo ? 'No disponible en la demo' : undefined}
                       onClick={async () => {
                         try {
                           await descargarPDF(f);
@@ -304,7 +341,7 @@ export default function FacturasPage() {
                           alert(e instanceof Error ? e.message : 'Error al descargar el PDF');
                         }
                       }}
-                      className="px-3 py-1.5 text-sm font-medium bg-[#E5DFD0] hover:bg-[#D4CCBC] text-zinc-900 border border-zinc-400/50 rounded-lg transition-colors"
+                      className="px-3 py-1.5 text-sm font-medium bg-[#E5DFD0] hover:bg-[#D4CCBC] text-zinc-900 border border-zinc-400/50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Descargar PDF
                     </button>
@@ -462,6 +499,8 @@ export default function FacturasPage() {
               </button>
               <button
                 type="button"
+                disabled={demo}
+                title={demo ? 'No disponible en la demo' : undefined}
                 onClick={async () => {
                   try {
                     await descargarPDF(detalleItem);
@@ -470,7 +509,7 @@ export default function FacturasPage() {
                     alert(e instanceof Error ? e.message : 'Error al descargar el PDF');
                   }
                 }}
-                className="px-4 py-2 text-sm font-medium bg-[#E5DFD0] hover:bg-[#D4CCBC] text-zinc-900 border border-zinc-400/50 rounded-lg"
+                className="px-4 py-2 text-sm font-medium bg-[#E5DFD0] hover:bg-[#D4CCBC] text-zinc-900 border border-zinc-400/50 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Descargar PDF
               </button>

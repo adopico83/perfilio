@@ -10,6 +10,8 @@ import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import { getBusinessIdClient } from '@/lib/supabase/get-business-id';
+import { useDemoTenant } from '@/lib/use-demo-tenant';
+import { DEMO_BUSINESS_ID, DEMO_CLIENTES, DEMO_EMPRESA, DEMO_MOCK_ENABLED, getDemoObras } from '@/lib/demo-data';
 
 type ObraRow = {
   id: string;
@@ -54,6 +56,7 @@ export default function ObrasPage() {
     []
   );
 
+  const demo = useDemoTenant() && DEMO_MOCK_ENABLED;
   const { abrirObra } = useObraModal();
   const autoOpenedObraIdRef = useRef<string | null>(null);
 
@@ -96,6 +99,16 @@ export default function ObrasPage() {
       } = await supabase.auth.getSession();
       if (!session) {
         router.replace('/login');
+        return;
+      }
+
+      if (demo) {
+        setBusinessId(DEMO_BUSINESS_ID);
+        setBusinessName(DEMO_EMPRESA.nombre);
+        setClientesOpciones(DEMO_CLIENTES.map((c) => ({ id: c.id, nombre: c.nombre })));
+        setObras(getDemoObras() as ObraRow[]);
+        setLoading(false);
+        setAuthChecking(false);
         return;
       }
 
@@ -143,7 +156,7 @@ export default function ObrasPage() {
     };
 
     void run();
-  }, [router, supabase]);
+  }, [router, supabase, demo]);
 
   useEffect(() => {
     if (authChecking || loading) return;
@@ -172,6 +185,29 @@ export default function ObrasPage() {
     if (!businessId) return;
     const nombre = form.nombre.trim();
     if (!nombre) return;
+    if (demo) {
+      const fila: ObraRow = {
+        id: `demo-obra-local-${Date.now()}`,
+        nombre,
+        cliente_nombre: DEMO_CLIENTES.find((c) => c.id === form.cliente_id.trim())?.nombre ?? null,
+        cliente_id: form.cliente_id.trim() || null,
+        direccion: form.direccion.trim() || null,
+        estado: form.estado,
+        fecha_inicio: form.fecha_inicio.trim() || null,
+        fecha_fin: null,
+        descripcion: form.descripcion.trim() || null,
+        num_presupuestos: 0,
+        num_facturas: 0,
+        num_albaranes: 0,
+        num_gastos: 0,
+        tiene_diario: 0,
+        total_documentos: 0,
+      };
+      setObras((prev) => [fila, ...prev]);
+      setModalNuevo(false);
+      setForm({ nombre: '', cliente_id: '', direccion: '', estado: 'abierta', fecha_inicio: '', descripcion: '' });
+      return;
+    }
     setGuardando(true);
     try {
       const res = await fetch('/api/obras', {
@@ -235,6 +271,30 @@ export default function ObrasPage() {
     if (!businessId || !modalEditar) return;
     const nombre = formEdit.nombre.trim();
     if (!nombre) return;
+    if (demo) {
+      const clienteId =
+        formEdit.cliente_id === '__none__' || !formEdit.cliente_id ? null : formEdit.cliente_id;
+      const editada = modalEditar;
+      setObras((prev) =>
+        prev.map((o) =>
+          o.id === editada.id
+            ? {
+                ...o,
+                nombre,
+                direccion: formEdit.direccion.trim() || null,
+                estado: formEdit.estado,
+                fecha_inicio: formEdit.fecha_inicio.trim() || null,
+                fecha_fin: formEdit.fecha_fin.trim() || null,
+                descripcion: formEdit.descripcion.trim() || null,
+                cliente_id: clienteId,
+                cliente_nombre: DEMO_CLIENTES.find((c) => c.id === clienteId)?.nombre ?? null,
+              }
+            : o
+        )
+      );
+      setModalEditar(null);
+      return;
+    }
     setGuardando(true);
     try {
       const res = await fetch('/api/obras', {

@@ -9,6 +9,8 @@ import { X } from 'lucide-react';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import AgenteContextChips, { chipsPresupuesto } from '@/components/dashboard/agente-context-chips';
 import { type ObrasNombreJoin, nombreObraDesdeJoin } from '@/lib/obras-nombre-join';
+import { useDemoTenant } from '@/lib/use-demo-tenant';
+import { DEMO_MOCK_ENABLED, getDemoPresupuestos } from '@/lib/demo-data';
 
 interface Presupuesto {
   id: string;
@@ -37,6 +39,7 @@ function PresupuestosPageContent() {
   const { abrirObra } = useObraModal();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const demo = useDemoTenant() && DEMO_MOCK_ENABLED;
   const supabase = useMemo(
     () =>
       createBrowserClient(
@@ -64,6 +67,11 @@ function PresupuestosPageContent() {
   }, [router, supabase]);
 
   const loadPresupuestos = useCallback(async () => {
+    if (demo) {
+      setPresupuestos(getDemoPresupuestos() as unknown as Presupuesto[]);
+      setLoading(false);
+      return;
+    }
     const { data } = await supabase
       .from('presupuestos')
       .select(
@@ -72,7 +80,7 @@ function PresupuestosPageContent() {
       .order('created_at', { ascending: false });
     setPresupuestos((data ?? []) as unknown as Presupuesto[]);
     setLoading(false);
-  }, [supabase]);
+  }, [supabase, demo]);
 
   useEffect(() => {
     if (!authChecking) queueMicrotask(() => void loadPresupuestos());
@@ -93,6 +101,11 @@ function PresupuestosPageContent() {
   };
 
   const setEstado = async (id: string, estado: string) => {
+    if (demo) {
+      setPresupuestos((prev) => prev.map((p) => (p.id === id ? { ...p, estado } : p)));
+      cerrarModal();
+      return;
+    }
     await supabase.from('presupuestos').update({ estado }).eq('id', id);
     loadPresupuestos();
     cerrarModal();
@@ -147,6 +160,11 @@ function PresupuestosPageContent() {
     msg.includes('Solo se puede convertir') || msg.includes('estado aceptado');
 
   const generarFactura = async (p: Presupuesto) => {
+    if (demo) {
+      setPresupuestos((prev) => prev.map((x) => (x.id === p.id ? { ...x, estado: 'facturado' } : x)));
+      cerrarModal();
+      return;
+    }
     const intentar = async () => {
       const res = await fetch('/api/presupuestos/generar-factura', {
         method: 'POST',
@@ -282,6 +300,8 @@ function PresupuestosPageContent() {
                   </button>
                   <button
                     type="button"
+                    disabled={demo}
+                    title={demo ? 'No disponible en la demo' : undefined}
                     onClick={async () => {
                       try {
                         await descargarPDF(p);
@@ -290,7 +310,7 @@ function PresupuestosPageContent() {
                         alert(e instanceof Error ? e.message : 'Error al descargar el PDF');
                       }
                     }}
-                    className="px-3 py-1.5 text-sm font-medium bg-[#E5DFD0] hover:bg-[#D4CCBC] text-zinc-900 border border-zinc-400/50 rounded-lg transition-colors"
+                    className="px-3 py-1.5 text-sm font-medium bg-[#E5DFD0] hover:bg-[#D4CCBC] text-zinc-900 border border-zinc-400/50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Descargar PDF
                   </button>
@@ -307,6 +327,8 @@ function PresupuestosPageContent() {
                     <>
                       <button
                         type="button"
+                        disabled={demo}
+                        title={demo ? 'No disponible en la demo' : undefined}
                         onClick={async () => {
                           try {
                             const res = await fetch('/api/presupuestos/reabrir-borrador', {
@@ -325,7 +347,7 @@ function PresupuestosPageContent() {
                             alert(e instanceof Error ? e.message : 'No se pudo reabrir el borrador');
                           }
                         }}
-                        className="px-3 py-1.5 text-sm font-medium bg-[#A04A2F] hover:bg-[#8a3f28] text-white rounded-lg transition-colors"
+                        className="px-3 py-1.5 text-sm font-medium bg-[#A04A2F] hover:bg-[#8a3f28] text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         Editar borrador
                       </button>

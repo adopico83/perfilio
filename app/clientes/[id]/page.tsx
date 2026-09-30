@@ -7,6 +7,8 @@ import Link from 'next/link';
 import LogoutButton from '@/app/dashboard/logout-button';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import ToggleAgenteNavButton from '@/components/dashboard/toggle-agente-nav-button';
+import { useDemoTenant } from '@/lib/use-demo-tenant';
+import { DEMO_EMPRESA, DEMO_MOCK_ENABLED, getDemoClienteFicha } from '@/lib/demo-data';
 
 type Cliente = {
   id: string;
@@ -56,6 +58,7 @@ type GasRow = {
 
 export default function ClienteFichaPage() {
   const router = useRouter();
+  const demo = useDemoTenant() && DEMO_MOCK_ENABLED;
   const params = useParams();
   const clienteId = typeof params.id === 'string' ? params.id : '';
 
@@ -94,6 +97,31 @@ export default function ClienteFichaPage() {
     if (!clienteId) return;
     setLoading(true);
     setError(null);
+    if (demo) {
+      const ficha = getDemoClienteFicha(clienteId);
+      if (!ficha) {
+        setError('No se pudo cargar la ficha');
+        setCliente(null);
+      } else {
+        const c = ficha.cliente;
+        setCliente(c);
+        setForm({
+          nombre: c.nombre,
+          telefono: c.telefono ?? '',
+          email: c.email ?? '',
+          direccion: c.direccion ?? '',
+          nif: c.nif ?? '',
+          notas: c.notas ?? '',
+        });
+        setPresupuestos(ficha.presupuestos);
+        setFacturas(ficha.facturas);
+        setAlbaranes(ficha.albaranes);
+        setGastos(ficha.gastos);
+        setDiario(ficha.diario_obra);
+      }
+      setLoading(false);
+      return;
+    }
     try {
       const res = await fetch(`/api/clientes/${encodeURIComponent(clienteId)}`, {
         credentials: 'include',
@@ -134,7 +162,7 @@ export default function ClienteFichaPage() {
     } finally {
       setLoading(false);
     }
-  }, [clienteId]);
+  }, [clienteId, demo]);
 
   useEffect(() => {
     const run = async () => {
@@ -147,6 +175,11 @@ export default function ClienteFichaPage() {
       }
       setAuthChecking(false);
 
+      if (demo) {
+        setBusinessName(DEMO_EMPRESA.nombre);
+        return;
+      }
+
       const { data: bp } = await supabase
         .from('business_profiles')
         .select('nombre')
@@ -156,7 +189,7 @@ export default function ClienteFichaPage() {
       if (bp?.nombre) setBusinessName(bp.nombre);
     };
     void run();
-  }, [router, supabase]);
+  }, [router, supabase, demo]);
 
   useEffect(() => {
     if (!authChecking && clienteId) void cargar();
@@ -166,6 +199,19 @@ export default function ClienteFichaPage() {
     if (!cliente?.id) return;
     const nombre = form.nombre.trim();
     if (!nombre) return;
+    if (demo) {
+      setCliente({
+        ...cliente,
+        nombre,
+        telefono: form.telefono.trim() || null,
+        email: form.email.trim() || null,
+        direccion: form.direccion.trim() || null,
+        nif: form.nif.trim() || null,
+        notas: form.notas.trim() || null,
+      });
+      setModalEditar(false);
+      return;
+    }
     setGuardando(true);
     try {
       const res = await fetch('/api/clientes', {

@@ -7,6 +7,8 @@ import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import { X } from 'lucide-react';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import { type ObrasNombreJoin, nombreObraDesdeJoin } from '@/lib/obras-nombre-join';
+import { useDemoTenant } from '@/lib/use-demo-tenant';
+import { DEMO_MOCK_ENABLED, getDemoAlbaranes } from '@/lib/demo-data';
 
 interface Albaran {
   id: string;
@@ -29,6 +31,7 @@ interface Albaran {
 export default function AlbaranesPage() {
   const { abrirObra } = useObraModal();
   const router = useRouter();
+  const demo = useDemoTenant() && DEMO_MOCK_ENABLED;
   const supabase = useMemo(
     () =>
       createBrowserClient(
@@ -56,19 +59,29 @@ export default function AlbaranesPage() {
   }, [router, supabase]);
 
   const loadAlbaranes = useCallback(async () => {
+    if (demo) {
+      setAlbaranes(getDemoAlbaranes() as unknown as Albaran[]);
+      setLoading(false);
+      return;
+    }
     const { data } = await supabase
       .from('albaranes')
       .select('id, business_id, numero_albaran, cliente_nombre, cliente_id, cliente_direccion, descripcion_trabajos, lineas, total, fecha, estado, observaciones, created_at, obra_id, obras(nombre)')
       .order('created_at', { ascending: false });
     setAlbaranes((data ?? []) as unknown as Albaran[]);
     setLoading(false);
-  }, [supabase]);
+  }, [supabase, demo]);
 
   useEffect(() => {
     if (!authChecking) queueMicrotask(() => void loadAlbaranes());
   }, [authChecking, loadAlbaranes]);
 
   const setEstado = async (id: string, estado: string) => {
+    if (demo) {
+      setAlbaranes((prev) => prev.map((a) => (a.id === id ? { ...a, estado } : a)));
+      setDetalleId(null);
+      return;
+    }
     if (estado === 'facturado') {
       const { data: alb, error: selErr } = await supabase
         .from('albaranes')

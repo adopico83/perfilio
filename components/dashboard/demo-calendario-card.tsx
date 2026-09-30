@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useSession } from '@/components/providers/session-provider';
 import { createClient } from '@/lib/supabase/client';
+import { useDemoTenant } from '@/lib/use-demo-tenant';
+import { DEMO_MOCK_ENABLED, getDemoAgendaMes, getDemoAgendaProximos } from '@/lib/demo-data';
 import {
   construirCeldasMes,
   etiquetaFecha,
@@ -207,6 +209,7 @@ export function DemoCalendarioCardView({
 
 export default function DemoCalendarioCard() {
   const { businessId } = useSession();
+  const demo = useDemoTenant() && DEMO_MOCK_ENABLED;
   const [loading, setLoading] = useState(true);
   const [proximos, setProximos] = useState<AgendaEvento[]>([]);
   const [abierto, setAbierto] = useState(false);
@@ -214,6 +217,11 @@ export default function DemoCalendarioCard() {
   const [eventosMes, setEventosMes] = useState<AgendaEvento[]>([]);
 
   useEffect(() => {
+    if (demo) {
+      setProximos(getDemoAgendaProximos());
+      setLoading(false);
+      return;
+    }
     if (!businessId) {
       setProximos([]);
       setLoading(false);
@@ -239,10 +247,14 @@ export default function DemoCalendarioCard() {
     return () => {
       cancelled = true;
     };
-  }, [businessId]);
+  }, [businessId, demo]);
 
   const cargarMes = useCallback(
     async (fecha: Date) => {
+      if (demo) {
+        setEventosMes(getDemoAgendaMes(fecha.getFullYear(), fecha.getMonth()));
+        return;
+      }
       if (!businessId) {
         setEventosMes([]);
         return;
@@ -266,7 +278,7 @@ export default function DemoCalendarioCard() {
           : []
       );
     },
-    [businessId]
+    [businessId, demo]
   );
 
   const abrir = () => {

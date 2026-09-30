@@ -9,6 +9,13 @@ import LogoutButton from '@/app/dashboard/logout-button';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
 import { getBusinessIdClient } from '@/lib/supabase/get-business-id';
+import { useDemoTenant } from '@/lib/use-demo-tenant';
+import {
+  DEMO_BUSINESS_ID,
+  DEMO_EMPRESA,
+  DEMO_MOCK_ENABLED,
+  getDemoResumenOperarios,
+} from '@/lib/demo-data';
 
 type OperarioResumenPorObra = {
   obra_id: string;
@@ -64,6 +71,7 @@ function formatearDiaCorto(fechaIso: string): string {
 
 export default function OperariosPage() {
   const router = useRouter();
+  const demo = useDemoTenant() && DEMO_MOCK_ENABLED;
   const supabase = useMemo(
     () =>
       createBrowserClient(
@@ -108,6 +116,12 @@ export default function OperariosPage() {
       }
       setAuthChecking(false);
 
+      if (demo) {
+        setBusinessId(DEMO_BUSINESS_ID);
+        setBusinessName(DEMO_EMPRESA.nombre);
+        return;
+      }
+
       const businessId = await getBusinessIdClient(supabase);
       if (!businessId) {
         setBusinessId(null);
@@ -124,12 +138,19 @@ export default function OperariosPage() {
       if (bp?.nombre) setBusinessName(bp.nombre);
     };
     void run();
-  }, [router, supabase]);
+  }, [router, supabase, demo]);
 
   const cargarResumen = useCallback(async () => {
     if (!businessId) return;
     setLoading(true);
     setError(null);
+    if (demo) {
+      const json = getDemoResumenOperarios(mes);
+      setFilas(json.operarios);
+      setTotales(json.totales);
+      setLoading(false);
+      return;
+    }
     try {
       const res = await fetch(
         `/api/operarios/resumen?business_id=${encodeURIComponent(businessId)}&mes=${encodeURIComponent(mes)}`,
@@ -151,7 +172,7 @@ export default function OperariosPage() {
     } finally {
       setLoading(false);
     }
-  }, [businessId, mes]);
+  }, [businessId, mes, demo]);
 
   const abrirEditorDni = useCallback((op: OperarioResumenFila) => {
     setOperarioEditando(op);
@@ -161,6 +182,15 @@ export default function OperariosPage() {
 
   const guardarDni = useCallback(async () => {
     if (!businessId || !operarioEditando) return;
+    if (demo) {
+      setFilas((prev) =>
+        prev.map((f) => (f.id === operarioEditando.id ? { ...f, dni: dniDraft.trim() || null } : f))
+      );
+      setModalDniAbierto(false);
+      setOperarioEditando(null);
+      setDniDraft('');
+      return;
+    }
     setGuardandoDni(true);
     setError(null);
     try {
@@ -197,7 +227,7 @@ export default function OperariosPage() {
     } finally {
       setGuardandoDni(false);
     }
-  }, [businessId, dniDraft, operarioEditando]);
+  }, [businessId, dniDraft, operarioEditando, demo]);
 
   useEffect(() => {
     if (!authChecking && businessId) void cargarResumen();
