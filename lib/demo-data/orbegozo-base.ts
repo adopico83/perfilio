@@ -9,7 +9,7 @@ export const DEMO_BUSINESS_ID = 'demo-business';
 export const DEMO_EMPRESA: DemoEmpresa = {
   nombre: 'Orbegozo Dekorazio',
   ciudad: 'Getxo (Bizkaia)',
-  direccion: 'Calle Ficticia Orbegozo 3, bajo, 48990 Getxo',
+  direccion: 'Avenida Algorta 12, 48990 Getxo',
   telefono: '944 00 00 00',
   email: 'hola@orbegozo-dekorazio.example.com',
 };
