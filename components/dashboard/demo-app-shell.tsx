@@ -82,7 +82,11 @@ export default function DemoAppShell({
       <div className="flex min-h-screen">
         <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-zinc-400/30 bg-[#E5DFD0] md:flex">
           <div className="px-5 py-5">
-            <Link href="/dashboard" className="block font-bold text-lg tracking-tight text-zinc-900">
+            <Link
+              href="/dashboard"
+              className="flex items-center gap-2 font-bold text-lg tracking-tight text-zinc-900"
+            >
+              <Image src="/logo.png" alt="" width={39} height={32} className="h-8 w-auto shrink-0" />
               Perfilio
             </Link>
           </div>
@@ -96,7 +100,7 @@ export default function DemoAppShell({
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-zinc-400/30 bg-[#EFEADF] px-4 sm:px-6">
+          <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-zinc-400/30 bg-[#EFEADF] px-4 sm:h-[72px] sm:px-6">
             <div className="flex min-w-0 items-center gap-3">
               <button
                 type="button"
@@ -109,12 +113,12 @@ export default function DemoAppShell({
               <Image
                 src="/demo/orbegozo-logo.png"
                 alt=""
-                width={28}
-                height={40}
-                className="h-9 w-auto shrink-0"
+                width={100}
+                height={154}
+                className="h-10 w-auto shrink-0 sm:h-14"
                 priority
               />
-              <p className="truncate text-sm font-semibold text-zinc-800">{brand}</p>
+              <p className="truncate text-xl font-semibold text-zinc-900 sm:text-2xl">{brand}</p>
             </div>
             <LogoutButton />
           </header>
@@ -123,7 +127,7 @@ export default function DemoAppShell({
             <div className="min-w-0 flex-1 overflow-auto">{children}</div>
             {isOpen ? (
               <div className="hidden lg:block w-[25%] min-w-[320px] max-w-[420px] border-l border-zinc-400/30">
-                <div className="sticky top-0 h-[calc(100vh-3.5rem)]">
+                <div className="sticky top-0 h-[calc(100vh-4.5rem)]">
                   <AgentSidebar />
                 </div>
               </div>
@@ -147,7 +151,10 @@ export default function DemoAppShell({
           />
           <div className="absolute left-0 top-0 bottom-0 flex w-64 flex-col overflow-hidden bg-[#E5DFD0] shadow-xl">
             <div className="flex items-center justify-between px-4 py-4 border-b border-zinc-400/30">
-              <span className="font-bold text-zinc-900">Perfilio</span>
+              <span className="flex items-center gap-2 font-bold text-zinc-900">
+                <Image src="/logo.png" alt="" width={39} height={32} className="h-8 w-auto shrink-0" />
+                Perfilio
+              </span>
               <button
                 type="button"
                 onClick={() => setMobileNavOpen(false)}
