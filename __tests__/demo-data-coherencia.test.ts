@@ -2,6 +2,8 @@ import { parsePresupuestoGenerado } from '@/lib/pdf/parser';
 import { metricaPresupuesto } from '@/lib/demo-metricas';
 import { GASTO_CATEGORIAS } from '@/lib/gastos-categoria';
 import { pickHoy } from '@/lib/hoy';
+import { construirGastos } from '@/lib/demo-data/orbegozo-operativa';
+import { DEMO_OBRAS_BASE } from '@/lib/demo-data/orbegozo-base';
 import {
   DEMO_CLIENTES,
   DEMO_EMPRESA,
@@ -122,7 +124,7 @@ describe('demo-data: facturas y albaranes', () => {
       expect(r2(f.base_imponible! + f.iva!)).toBe(f.total);
       expect(r2(f.base_imponible! * 0.21)).toBe(f.iva);
       expect(r2(f.lineas.reduce((s, l) => s + l.importe, 0))).toBe(f.base_imponible);
-      expect(f.numero_factura).toMatch(/^F-2026-0\d\d$/);
+      expect(f.numero_factura).toMatch(/^F-\d{4}-\d{3}$/);
     }
   });
 
@@ -159,8 +161,7 @@ describe('demo-data: gastos', () => {
 
   it('filas y totales cuadran', () => {
     const filas = resumen.por_obra.flatMap((o) => o.gastos);
-    expect(filas.length).toBeGreaterThanOrEqual(10);
-    expect(filas.length).toBeLessThanOrEqual(14);
+    expect(filas.length).toBeGreaterThan(0);
     for (const g of filas) {
       expect(r2(g.importe + g.iva)).toBe(g.importe_total);
       expect(r2(g.importe * 0.21)).toBe(g.iva);
@@ -359,7 +360,7 @@ describe('demo-data: mensajes', () => {
 });
 
 describe('demo-data: todo es ficticio', () => {
-  it('ningún email fuera de example.com ni teléfono fuera del estilo 600 1x xx xx', () => {
+  it('ningún email fuera de example.com y los teléfonos son ficticios (944 00 00 0x)', () => {
     const blob = JSON.stringify([
       DEMO_EMPRESA,
       DEMO_CLIENTES,
@@ -377,6 +378,120 @@ describe('demo-data: todo es ficticio', () => {
     }
     const telefonos = blob.match(/\b\d{3} \d{2} \d{2} \d{2}\b/g) ?? [];
     expect(telefonos.length).toBeGreaterThan(0);
-    for (const t of telefonos) expect(t).toMatch(/^600 1\d \d{2} \d{2}$/);
+    for (const t of telefonos) expect(t).toMatch(/^944 00 00 0\d$/);
+  });
+});
+
+/* ---------------- Reglas de pulido, con distintas fechas simuladas ---------------- */
+
+const ESCENARIOS: Array<[string, Date]> = [
+  ['15 oct 2025 (mitad de mes)', new Date('2025-10-15T10:00:00Z')],
+  ['1 nov 2026 (domingo, mes recién empezado)', new Date('2026-11-01T10:00:00Z')],
+  ['3 nov 2026 (martes, mes recién empezado)', new Date('2026-11-03T10:00:00Z')],
+  ['1 nov 2026 a las 08:00', new Date('2026-11-01T07:00:00Z')],
+  ['3 nov 2026 a las 08:00', new Date('2026-11-03T07:00:00Z')],
+  ['10 ene 2027 (cambio de año)', new Date('2027-01-10T10:00:00Z')],
+];
+
+describe.each(ESCENARIOS)('demo-data pulido: %s', (_nombre, now) => {
+  const hoy = demoHoy(now);
+  const mesActual = hoy.slice(0, 7);
+  const esFinDeSemana = (iso: string) => [0, 6].includes(new Date(`${iso}T12:00:00Z`).getUTCDay());
+
+  it('gastos: laborables, no antes del inicio de su obra, no después de hoy y en los últimos 30 días', () => {
+    const gastos = construirGastos(now);
+    expect(gastos).toHaveLength(12);
+    for (const g of gastos) {
+      expect(esFinDeSemana(g.fecha)).toBe(false);
+      expect(g.fecha <= hoy).toBe(true);
+      expect(g.fecha >= demoFecha(-30, now)).toBe(true);
+      if (g.obra_id) {
+        const obra = DEMO_OBRAS_BASE.find((o) => o.id === g.obra_id)!;
+        expect(g.fecha >= demoFecha(obra.inicio, now)).toBe(true);
+      }
+    }
+    // Repartidos: al menos 8 fechas distintas y un rango de 3 semanas o más.
+    const fechas = gastos.map((g) => g.fecha).sort();
+    expect(new Set(fechas).size).toBeGreaterThanOrEqual(8);
+    const dias = (a: string, b: string) => (Date.parse(b) - Date.parse(a)) / 86400000;
+    expect(dias(fechas[0], fechas[fechas.length - 1])).toBeGreaterThanOrEqual(21);
+  });
+
+  it('gastos: la página del mes actual nunca sale vacía y sus totales cuadran', () => {
+    const r = getDemoResumenGastos(mesActual, now);
+    expect(r.por_obra.flatMap((o) => o.gastos).length).toBeGreaterThan(0);
+    expect(r2(r.por_obra.reduce((s, o) => s + o.subtotal, 0))).toBe(r.total_mes);
+    expect(r2(r.por_categoria.reduce((s, c) => s + c.total, 0))).toBe(r.total_mes);
+  });
+
+  it('operarios: el mes actual no sale vacío y las horas cuadran', () => {
+    const r = getDemoResumenOperarios(mesActual, now);
+    expect(r.totales.horas_reales).toBeGreaterThan(0);
+    for (const op of r.operarios) {
+      expect(op.por_obra.length).toBeGreaterThan(0);
+      expect(r2(op.por_obra.reduce((s, o) => s + o.horas_reales, 0))).toBe(op.horas_reales_mes);
+      for (const o of op.por_obra) {
+        for (const d of o.por_dia) {
+          expect(esFinDeSemana(d.fecha)).toBe(false);
+          expect(d.fecha <= hoy).toBe(true);
+        }
+      }
+    }
+    const dias = new Set(r.operarios.flatMap((o) => o.por_obra.flatMap((x) => x.por_dia.map((d) => d.fecha))));
+    // Con menos de 10 laborables en el mes se usan los últimos 20; si no, los del mes.
+    expect(dias.size).toBeGreaterThanOrEqual(Math.min(10, 20));
+  });
+
+  it('facturas y albaranes: numeración correlativa por fecha y año calculado de la fecha', () => {
+    for (const docs of [
+      getDemoFacturas(now).map((f) => ({ fecha: f.fecha!, numero: f.numero_factura! })),
+      getDemoAlbaranes(now).map((a) => ({ fecha: a.fecha!, numero: a.numero_albaran! })),
+    ]) {
+      const porFecha = [...docs].sort((a, b) => a.fecha.localeCompare(b.fecha));
+      let anterior: { anio: string; n: number } | null = null;
+      for (const d of porFecha) {
+        const m = d.numero.match(/^[A-Z]+-(\d{4})-(\d{3})$/)!;
+        expect(m).not.toBeNull();
+        expect(m[1]).toBe(d.fecha.slice(0, 4));
+        if (anterior && anterior.anio === m[1]) expect(Number(m[2])).toBe(anterior.n + 1);
+        anterior = { anio: m[1], n: Number(m[2]) };
+      }
+      expect(new Set(docs.map((d) => d.numero)).size).toBe(docs.length);
+    }
+  });
+
+  it('nada en el futuro: diario y mensajes de hoy llevan una hora anterior a la actual', () => {
+    const ahora = now.getTime();
+    const local = (ts: string) => {
+      // Los timestamps del mock son hora de Madrid sin zona; se comparan como tal.
+      const madrid = new Intl.DateTimeFormat('sv-SE', {
+        timeZone: 'Europe/Madrid',
+        dateStyle: 'short',
+        timeStyle: 'short',
+      }).format(new Date(ahora));
+      return ts.slice(0, 16) <= madrid.replace(' ', 'T');
+    };
+    for (const e of getDemoDiario(now)) expect(local(e.fecha)).toBe(true);
+    for (const m of getDemoMensajes(now)) expect(local(m.created_at)).toBe(true);
+    for (const p of [...getDemoPresupuestos(now), ...getDemoFacturas(now), ...getDemoAlbaranes(now)]) {
+      expect(local(p.created_at)).toBe(true);
+    }
+  });
+});
+
+describe('demo-data pulido: hoy a las 08:00', () => {
+  const now = new Date('2026-11-03T07:00:00Z'); // 08:00 en Madrid
+
+  it('lo de hoy pasa a ayer si «ahora menos 2-3 h» sería demasiado temprano', () => {
+    const diarioHoy = getDemoDiario(now).find((e) => e.id === 'demo-diario-4')!;
+    expect(diarioHoy.fecha.startsWith('2026-11-02')).toBe(true);
+    const mensajeHoy = getDemoMensajes(now).find((m) => m.id === 'demo-conversacion-1')!;
+    expect(mensajeHoy.created_at.startsWith('2026-11-03T07:00')).toBe(true);
+  });
+
+  it('a media mañana se queda hoy, 2 h antes', () => {
+    const tarde = new Date('2026-11-03T12:00:00Z'); // 13:00 en Madrid
+    const diarioHoy = getDemoDiario(tarde).find((e) => e.id === 'demo-diario-4')!;
+    expect(diarioHoy.fecha).toBe('2026-11-03T11:00:00');
   });
 });

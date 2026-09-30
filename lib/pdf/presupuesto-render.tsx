@@ -1,5 +1,5 @@
 import { renderToBuffer } from '@react-pdf/renderer';
-import { loadEmpresaEmisor, type EmpresaLoaderClient } from '@/lib/pdf/empresa';
+import { loadEmpresaEmisor, type EmpresaEmisor, type EmpresaLoaderClient } from '@/lib/pdf/empresa';
 import { parsePresupuestoGenerado } from '@/lib/pdf/parser';
 import { PresupuestoPdfDocument } from '@/lib/pdf/presupuesto';
 
@@ -45,7 +45,17 @@ export async function renderPresupuestoPdf(
 ): Promise<RenderPresupuestoPdfResult> {
   const emisor = await loadEmpresaEmisor(supabase, businessId);
   if (!emisor.ok) return { ok: false, error: emisor.error };
+  return renderPresupuestoPdfConEmisor(emisor, pres);
+}
 
+/** Datos del emisor ya resueltos (los de un negocio real o los del mock demo). */
+export type EmisorPdf = { empresa: EmpresaEmisor; logoUrl: string | null };
+
+/** Mismo render que `renderPresupuestoPdf`, sin consultar nada: el emisor llega resuelto. */
+export async function renderPresupuestoPdfConEmisor(
+  emisor: EmisorPdf,
+  pres: PresupuestoPdfRow
+): Promise<RenderPresupuestoPdfResult> {
   const texto = String(pres.presupuesto_generado ?? '');
   const parsed = parsePresupuestoGenerado(texto);
 

@@ -59,14 +59,23 @@ describe('FacturasPage con el mock demo', () => {
     expect(mockCreateClient).not.toHaveBeenCalled();
   });
 
-  it('marcar pagada solo cambia el estado local; descargar PDF queda desactivado', async () => {
+  it('marcar pagada solo cambia el estado local; Descargar PDF usa la ruta demo', async () => {
     render(<FacturasPage />);
     await waitFor(() => expect(screen.getAllByText('Ver detalle completo')).toHaveLength(6));
 
-    for (const boton of screen.getAllByRole('button', { name: 'Descargar PDF' })) {
-      expect(boton).toBeDisabled();
-      expect(boton).toHaveAttribute('title', 'No disponible en la demo');
-    }
+    URL.createObjectURL = jest.fn(() => 'blob:demo');
+    URL.revokeObjectURL = jest.fn();
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({ ok: true, blob: async () => new Blob(['%PDF']) });
+    const descargar = screen.getAllByRole('button', { name: 'Descargar PDF' });
+    for (const boton of descargar) expect(boton).toBeEnabled();
+    fireEvent.click(descargar[0]);
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+    expect(String(mockFetch.mock.calls[0][0]).startsWith('/api/demo/pdf/factura/demo-factura-')).toBe(true);
+    mockFetch.mockReset();
+    mockFetch.mockImplementation(() => {
+      throw new Error('fetch no debe llamarse en demo');
+    });
     expect(screen.getAllByRole('button', { name: 'Marcar pagada' })).toHaveLength(3);
     fireEvent.click(screen.getAllByRole('button', { name: 'Marcar pagada' })[0]);
     await waitFor(() => expect(screen.getAllByRole('button', { name: 'Marcar pagada' })).toHaveLength(2));

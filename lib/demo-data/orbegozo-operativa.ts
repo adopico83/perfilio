@@ -1,11 +1,16 @@
 /** Agenda, gastos, operarios/partes, diario de obra y mensajes del mock demo. */
 import { DEMO_OBRAS_BASE } from './orbegozo-base';
 import {
+  DEMO_MIN_LABORABLES_MES,
   demoDiasLaborables,
+  demoDiasLaborablesVentana,
+  demoEsFinDeSemana,
   demoFecha,
   demoFechaLaborable,
+  demoMesActual,
+  demoSumarDias,
   demoTimestamp,
-  demoUltimoDiaUsable,
+  demoTimestampReciente,
 } from './fechas';
 import type {
   AgendaEvento,
@@ -46,7 +51,8 @@ export function construirAgenda(now: Date = new Date()): AgendaEvento[] {
 
 type GastoDef = {
   obraId: string | null;
-  dia: number;
+  /** Días naturales hacia atrás desde hoy (0-29). */
+  atras: number;
   proveedor: string;
   descripcion: string;
   categoria: (typeof GASTO_CATEGORIAS)[number];
@@ -54,32 +60,45 @@ type GastoDef = {
 };
 
 const GASTOS_DEF: GastoDef[] = [
-  { obraId: 'demo-obra-1', dia: 2, proveedor: 'Almacén de Materiales Uribe S.L.', descripcion: 'Adhesivo, junta y material de alicatado', categoria: 'material', importeCent: 41260 },
-  { obraId: 'demo-obra-1', dia: 3, proveedor: 'Contenedores Nerbioi S.L.', descripcion: 'Contenedor de escombros de 6 m³ con retirada', categoria: 'vertido', importeCent: 18500 },
-  { obraId: 'demo-obra-1', dia: 5, proveedor: 'Electricidad Arratia S.L.', descripcion: 'Cable, tubo corrugado y mecanismos', categoria: 'material', importeCent: 34890 },
-  { obraId: 'demo-obra-1', dia: 8, proveedor: 'Transportes Ibaizabal S.L.', descripcion: 'Portes de material a obra', categoria: 'transporte', importeCent: 9600 },
-  { obraId: 'demo-obra-2', dia: 4, proveedor: 'Almacén de Materiales Uribe S.L.', descripcion: 'Azulejo y pegamento del baño', categoria: 'material', importeCent: 52430 },
-  { obraId: 'demo-obra-2', dia: 6, proveedor: 'Suministros de Fontanería Abando S.L.', descripcion: 'Plato de ducha, sifones y grifería', categoria: 'material', importeCent: 61800 },
-  { obraId: 'demo-obra-3', dia: 9, proveedor: 'Ferretería Industrial Txori S.L.', descripcion: 'Discos de corte y brocas', categoria: 'herramienta', importeCent: 7450 },
-  { obraId: 'demo-obra-3', dia: 10, proveedor: 'Ayudas de Albañilería Zorrotza S.L.', descripcion: 'Ayudas de albañilería subcontratadas', categoria: 'subcontrata', importeCent: 64000 },
-  { obraId: 'demo-obra-4', dia: 11, proveedor: 'Contenedores Nerbioi S.L.', descripcion: 'Contenedor de demolición del local', categoria: 'vertido', importeCent: 26000 },
-  { obraId: 'demo-obra-4', dia: 12, proveedor: 'Alquiler de Maquinaria Ercilla S.L.', descripcion: 'Martillo demoledor, 3 días', categoria: 'herramienta', importeCent: 18750 },
-  { obraId: null, dia: 13, proveedor: 'Ferretería Industrial Txori S.L.', descripcion: 'Reposición de herramienta y EPIs', categoria: 'herramienta', importeCent: 13240 },
-  { obraId: null, dia: 14, proveedor: 'Parking Centro Bilbao S.L.', descripcion: 'Aparcamiento en visitas a clientes', categoria: 'otros', importeCent: 3800 },
+  { obraId: 'demo-obra-1', atras: 28, proveedor: 'Almacén de Materiales Uribe S.L.', descripcion: 'Adhesivo, junta y material de alicatado', categoria: 'material', importeCent: 41260 },
+  { obraId: 'demo-obra-1', atras: 25, proveedor: 'Contenedores Nerbioi S.L.', descripcion: 'Contenedor de escombros de 6 m³ con retirada', categoria: 'vertido', importeCent: 18500 },
+  { obraId: 'demo-obra-1', atras: 21, proveedor: 'Electricidad Arratia S.L.', descripcion: 'Cable, tubo corrugado y mecanismos', categoria: 'material', importeCent: 34890 },
+  { obraId: null, atras: 18, proveedor: 'Ferretería Industrial Txori S.L.', descripcion: 'Reposición de herramienta y EPIs', categoria: 'herramienta', importeCent: 13240 },
+  { obraId: 'demo-obra-1', atras: 14, proveedor: 'Transportes Ibaizabal S.L.', descripcion: 'Portes de material a obra', categoria: 'transporte', importeCent: 9600 },
+  { obraId: 'demo-obra-2', atras: 11, proveedor: 'Almacén de Materiales Uribe S.L.', descripcion: 'Azulejo y pegamento del baño', categoria: 'material', importeCent: 52430 },
+  { obraId: 'demo-obra-2', atras: 9, proveedor: 'Suministros de Fontanería Abando S.L.', descripcion: 'Plato de ducha, sifones y grifería', categoria: 'material', importeCent: 61800 },
+  { obraId: 'demo-obra-3', atras: 8, proveedor: 'Ferretería Industrial Txori S.L.', descripcion: 'Discos de corte y brocas', categoria: 'herramienta', importeCent: 7450 },
+  { obraId: null, atras: 6, proveedor: 'Parking Centro Bilbao S.L.', descripcion: 'Aparcamiento en visitas a clientes', categoria: 'otros', importeCent: 3800 },
+  { obraId: 'demo-obra-3', atras: 5, proveedor: 'Ayudas de Albañilería Zorrotza S.L.', descripcion: 'Ayudas de albañilería subcontratadas', categoria: 'subcontrata', importeCent: 64000 },
+  { obraId: 'demo-obra-4', atras: 2, proveedor: 'Contenedores Nerbioi S.L.', descripcion: 'Contenedor de demolición del local', categoria: 'vertido', importeCent: 26000 },
+  { obraId: 'demo-obra-4', atras: 1, proveedor: 'Alquiler de Maquinaria Ercilla S.L.', descripcion: 'Martillo demoledor, 3 días', categoria: 'herramienta', importeCent: 18750 },
 ];
 
 export type DemoGastoConObra = DemoGastoFila & { obra_id: string | null };
 
-/** Gastos del mes `mes` (YYYY-MM). Los días se recortan al último día usable (hoy si es el mes actual). */
-export function construirGastos(mes: string, now: Date = new Date()): DemoGastoConObra[] {
-  const ultimo = demoUltimoDiaUsable(mes, now);
-  if (ultimo === 0) return [];
+/**
+ * Día laborable para un gasto: nunca en fin de semana, nunca antes del inicio de su obra
+ * ni después de hoy. Un fin de semana retrocede al viernes; si eso queda antes del inicio, avanza al lunes.
+ */
+function fechaGasto(atras: number, obraId: string | null, now: Date): string {
+  const inicio = obraId ? demoFecha(obra(obraId).inicio, now) : null;
+  let f = demoFecha(-atras, now);
+  if (inicio && f < inicio) f = inicio;
+  while (demoEsFinDeSemana(f)) f = demoSumarDias(f, -1);
+  if (inicio && f < inicio) {
+    f = inicio;
+    while (demoEsFinDeSemana(f)) f = demoSumarDias(f, 1);
+  }
+  return f;
+}
+
+/** Gastos de los últimos 30 días naturales (todas las filas del mock). */
+export function construirGastos(now: Date = new Date()): DemoGastoConObra[] {
   return GASTOS_DEF.map((d, i) => {
     const iva = Math.round((d.importeCent * 21) / 100);
-    const dia = Math.min(d.dia, ultimo);
     return {
       id: `demo-gasto-${i + 1}`,
-      fecha: `${mes}-${String(dia).padStart(2, '0')}`,
+      fecha: fechaGasto(d.atras, d.obraId, now),
       proveedor: d.proveedor,
       descripcion: d.descripcion,
       categoria: d.categoria,
@@ -89,6 +108,18 @@ export function construirGastos(mes: string, now: Date = new Date()): DemoGastoC
       obra_id: d.obraId,
     };
   });
+}
+
+/**
+ * Gastos que pinta la página para `mes` (YYYY-MM): los de ese mes dentro de la ventana de 30 días.
+ * En el mes actual con menos de 10 días laborables se muestra toda la ventana para que no salga casi vacío.
+ */
+export function gastosDelMes(mes: string, now: Date = new Date()): DemoGastoConObra[] {
+  const todos = construirGastos(now);
+  if (mes === demoMesActual(now) && demoDiasLaborables(mes, now).length < DEMO_MIN_LABORABLES_MES) {
+    return todos;
+  }
+  return todos.filter((g) => g.fecha.startsWith(mes));
 }
 
 /* --------------------------- Operarios y horas --------------------------- */
@@ -129,9 +160,9 @@ function obraActiva(obraId: string, iso: string, now: Date): boolean {
   return iso >= demoFecha(o.inicio, now) && iso <= demoFecha(o.fin, now);
 }
 
-/** Partes de horas de lunes a viernes del mes `mes`, hasta hoy. */
+/** Partes de horas de lunes a viernes de `mes` hasta hoy (ver demoDiasLaborablesVentana a principio de mes). */
 export function construirRegistrosJornada(mes: string, now: Date = new Date()): DemoRegistroJornada[] {
-  const dias = demoDiasLaborables(mes, now);
+  const dias = demoDiasLaborablesVentana(mes, now);
   const out: DemoRegistroJornada[] = [];
   DEMO_OPERARIOS.forEach((op, opIdx) => {
     dias.forEach((iso, diaIdx) => {
@@ -195,7 +226,7 @@ const DIARIO_DEF: DiarioDef[] = [
     id: 'demo-diario-4',
     obraId: 'demo-obra-1',
     offset: 0,
-    hora: '13:30',
+    hora: '13:30', // hoy: se sustituye por «ahora menos 2 h» (o ayer si es muy temprano)
     texto:
       'Iniciado el alicatado del baño principal. Cliente confirma la elección de azulejo. Falta el plato de ducha, previsto para la próxima semana.',
   },
@@ -261,7 +292,7 @@ export function construirDiario(now: Date = new Date()): DemoDiarioEntrada[] {
     texto: d.texto,
     fotos: d.fotos ?? [],
     videos: [],
-    fecha: demoTimestamp(d.offset, d.hora, now),
+    fecha: d.offset === 0 ? demoTimestampReciente(2, d.hora, now) : demoTimestamp(d.offset, d.hora, now),
   }));
 }
 
@@ -272,11 +303,11 @@ export function construirMensajes(now: Date = new Date()): DemoConversation[] {
     {
       id: 'demo-conversacion-1',
       customer_name: 'Leire Olabarria',
-      customer_contact: '600 15 60 05',
+      customer_contact: '944 00 00 05',
       channel: 'whatsapp',
       priority: 'urgent',
       status: 'pending',
-      created_at: demoTimestamp(0, '08:42', now),
+      created_at: demoTimestampReciente(1, '19:15', now),
       message:
         'Buenos días, ¿sabéis ya cuándo llega la encimera? Llevamos semanas sin cocina y necesitamos saber una fecha para organizarnos.',
       ai_responses: [
@@ -329,7 +360,7 @@ export function construirMensajes(now: Date = new Date()): DemoConversation[] {
     {
       id: 'demo-conversacion-4',
       customer_name: 'Jon Arrieta',
-      customer_contact: '600 12 30 02',
+      customer_contact: '944 00 00 02',
       channel: 'whatsapp',
       priority: 'low',
       status: 'pending',

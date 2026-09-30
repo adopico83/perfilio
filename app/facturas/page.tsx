@@ -227,7 +227,9 @@ export default function FacturasPage() {
   };
 
   const descargarPDF = async (f: Factura) => {
-    const res = await fetch(`/api/pdf/factura/${encodeURIComponent(f.id)}`, {
+    // En demo el PDF sale del mock por una ruta propia (mismo render oficial, sin tocar Supabase).
+    const base = demo ? '/api/demo/pdf/factura' : '/api/pdf/factura';
+    const res = await fetch(`${base}/${encodeURIComponent(f.id)}`, {
       credentials: 'include',
     });
     if (!res.ok) {
@@ -331,8 +333,6 @@ export default function FacturasPage() {
                     </button>
                     <button
                       type="button"
-                      disabled={demo}
-                      title={demo ? 'No disponible en la demo' : undefined}
                       onClick={async () => {
                         try {
                           await descargarPDF(f);
@@ -341,7 +341,7 @@ export default function FacturasPage() {
                           alert(e instanceof Error ? e.message : 'Error al descargar el PDF');
                         }
                       }}
-                      className="px-3 py-1.5 text-sm font-medium bg-[#E5DFD0] hover:bg-[#D4CCBC] text-zinc-900 border border-zinc-400/50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-3 py-1.5 text-sm font-medium bg-[#E5DFD0] hover:bg-[#D4CCBC] text-zinc-900 border border-zinc-400/50 rounded-lg transition-colors"
                     >
                       Descargar PDF
                     </button>
@@ -499,8 +499,6 @@ export default function FacturasPage() {
               </button>
               <button
                 type="button"
-                disabled={demo}
-                title={demo ? 'No disponible en la demo' : undefined}
                 onClick={async () => {
                   try {
                     await descargarPDF(detalleItem);
@@ -509,7 +507,7 @@ export default function FacturasPage() {
                     alert(e instanceof Error ? e.message : 'Error al descargar el PDF');
                   }
                 }}
-                className="px-4 py-2 text-sm font-medium bg-[#E5DFD0] hover:bg-[#D4CCBC] text-zinc-900 border border-zinc-400/50 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2 text-sm font-medium bg-[#E5DFD0] hover:bg-[#D4CCBC] text-zinc-900 border border-zinc-400/50 rounded-lg"
               >
                 Descargar PDF
               </button>

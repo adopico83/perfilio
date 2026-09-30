@@ -1,13 +1,16 @@
 /** Empresa, clientes y obras del mock demo (Reformas Ibarbide, Bizkaia). Todo ficticio. */
 import type { DemoCliente, DemoEmpresa } from './types';
 
+/**
+ * Todos los teléfonos del mock son FICTICIOS (944 00 00 0x): no son móviles ni números reales.
+ */
 export const DEMO_BUSINESS_ID = 'demo-business';
 
 export const DEMO_EMPRESA: DemoEmpresa = {
   nombre: 'Reformas Ibarbide',
   ciudad: 'Getxo (Bizkaia)',
   direccion: 'Calle Ficticia Ibarbide 3, bajo, 48990 Getxo',
-  telefono: '600 10 00 00',
+  telefono: '944 00 00 00',
   email: 'hola@reformas-ibarbide.example.com',
 };
 
@@ -16,7 +19,7 @@ export const DEMO_CLIENTES: DemoCliente[] = [
     id: 'demo-cliente-1',
     business_id: DEMO_BUSINESS_ID,
     nombre: 'Nerea Urrutia',
-    telefono: '600 11 20 01',
+    telefono: '944 00 00 01',
     email: 'nerea.urrutia@example.com',
     direccion: 'Calle Euskal Herria 12, 4º izda, 48992 Getxo',
     nif: null,
@@ -26,7 +29,7 @@ export const DEMO_CLIENTES: DemoCliente[] = [
     id: 'demo-cliente-2',
     business_id: DEMO_BUSINESS_ID,
     nombre: 'Jon Arrieta',
-    telefono: '600 12 30 02',
+    telefono: '944 00 00 02',
     email: 'jon.arrieta@example.com',
     direccion: 'Calle Lehendakari Aguirre 45, 2º B, 48014 Bilbao',
     nif: null,
@@ -36,7 +39,7 @@ export const DEMO_CLIENTES: DemoCliente[] = [
     id: 'demo-cliente-3',
     business_id: DEMO_BUSINESS_ID,
     nombre: 'Maite Zubizarreta',
-    telefono: '600 13 40 03',
+    telefono: '944 00 00 03',
     email: 'maite.zubizarreta@example.com',
     direccion: 'Calle Portu 18, 3º A, 48901 Barakaldo',
     nif: null,
@@ -46,7 +49,7 @@ export const DEMO_CLIENTES: DemoCliente[] = [
     id: 'demo-cliente-4',
     business_id: DEMO_BUSINESS_ID,
     nombre: 'Kafetegi Berria S.L.',
-    telefono: '600 14 50 04',
+    telefono: '944 00 00 04',
     email: 'administracion@example.com',
     direccion: 'Artekale 7, bajo, 48200 Durango',
     nif: null,
@@ -56,7 +59,7 @@ export const DEMO_CLIENTES: DemoCliente[] = [
     id: 'demo-cliente-5',
     business_id: DEMO_BUSINESS_ID,
     nombre: 'Leire Olabarria',
-    telefono: '600 15 60 05',
+    telefono: '944 00 00 05',
     email: 'leire.olabarria@example.com',
     direccion: 'Avenida Iparraguirre 60, 1º C, 48940 Leioa',
     nif: null,
@@ -66,7 +69,7 @@ export const DEMO_CLIENTES: DemoCliente[] = [
     id: 'demo-cliente-6',
     business_id: DEMO_BUSINESS_ID,
     nombre: 'Garazi Etxebarria',
-    telefono: '600 16 70 06',
+    telefono: '944 00 00 06',
     email: 'garazi.etxebarria@example.com',
     direccion: 'Calle Nagusia 21, 2º D, 48970 Basauri',
     nif: null,
@@ -76,7 +79,7 @@ export const DEMO_CLIENTES: DemoCliente[] = [
     id: 'demo-cliente-7',
     business_id: DEMO_BUSINESS_ID,
     nombre: 'Iñigo Larrea',
-    telefono: '600 17 80 07',
+    telefono: '944 00 00 07',
     email: 'inigo.larrea@example.com',
     direccion: 'Calle Mendialde 9, 2º A, 48640 Sopela',
     nif: null,
@@ -86,7 +89,7 @@ export const DEMO_CLIENTES: DemoCliente[] = [
     id: 'demo-cliente-8',
     business_id: DEMO_BUSINESS_ID,
     nombre: 'Aitor Elorriaga',
-    telefono: '600 18 90 08',
+    telefono: '944 00 00 08',
     email: 'aitor.elorriaga@example.com',
     direccion: 'Calle Kalezar 14, 1º, 48960 Galdakao',
     nif: null,
