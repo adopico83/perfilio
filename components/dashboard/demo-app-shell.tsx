@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Sparkles, X } from 'lucide-react';
@@ -84,9 +85,6 @@ export default function DemoAppShell({
             <Link href="/dashboard" className="block font-bold text-lg tracking-tight text-zinc-900">
               Perfilio
             </Link>
-            <p className="mt-1 text-[11px] text-zinc-600 leading-snug truncate" title={brand}>
-              {brand}
-            </p>
           </div>
           <SidebarNav
             pathname={pathname}
@@ -108,6 +106,14 @@ export default function DemoAppShell({
               >
                 ☰
               </button>
+              <Image
+                src="/demo/orbegozo-logo.png"
+                alt=""
+                width={28}
+                height={40}
+                className="h-9 w-auto shrink-0"
+                priority
+              />
               <p className="truncate text-sm font-semibold text-zinc-800">{brand}</p>
             </div>
             <LogoutButton />

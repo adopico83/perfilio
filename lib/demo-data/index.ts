@@ -1,5 +1,5 @@
 /**
- * Datos mock del tenant demo (Reformas Ibarbide, Bizkaia).
+ * Datos mock del tenant demo (Orbegozo Dekorazio, Bizkaia).
  * Solo se usan cuando `useDemoTenant() && DEMO_MOCK_ENABLED`; el resto de tenants no los toca.
  * Todo es ficticio y las fechas son relativas a hoy (ver ./fechas).
  */

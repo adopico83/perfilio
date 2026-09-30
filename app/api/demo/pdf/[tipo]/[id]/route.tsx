@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { NextRequest, NextResponse } from 'next/server';
 import { renderToBuffer } from '@react-pdf/renderer';
 import { createClient } from '@/lib/supabase/server';
@@ -7,6 +9,16 @@ import { FacturaPdfDocument, type FacturaPdfProps } from '@/lib/pdf/factura';
 import { nombreArchivoPresupuestoPdf, renderPresupuestoPdfConEmisor } from '@/lib/pdf/presupuesto-render';
 
 export const runtime = 'nodejs';
+
+/** Logo del emisor demo como data URI; si el fichero no está disponible, el PDF sale con el hueco habitual. */
+async function logoDemoDataUri(): Promise<string | null> {
+  try {
+    const buf = await readFile(path.join(process.cwd(), 'public', 'demo', 'orbegozo-logo.png'));
+    return `data:image/png;base64,${buf.toString('base64')}`;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * PDF de presupuestos y facturas del mock demo, con el mismo render oficial que los PDF reales.
@@ -33,7 +45,7 @@ export async function GET(
     if (tipo === 'presupuesto') {
       const pres = getDemoPresupuestos().find((p) => p.id === id);
       if (!pres) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
-      const res = await renderPresupuestoPdfConEmisor({ empresa: DEMO_EMPRESA_EMISOR, logoUrl: null }, pres);
+      const res = await renderPresupuestoPdfConEmisor({ empresa: DEMO_EMPRESA_EMISOR, logoUrl: await logoDemoDataUri() }, pres);
       if (!res.ok) return NextResponse.json({ error: res.error }, { status: 500 });
       return pdfResponse(res.buffer, nombreArchivoPresupuestoPdf(res.fecha));
     }
@@ -68,7 +80,7 @@ export async function GET(
       const buffer = await renderToBuffer(
         <FacturaPdfDocument
           factura={factura}
-          logoUrl={null}
+          logoUrl={await logoDemoDataUri()}
           empresa={DEMO_EMPRESA_EMISOR}
           porcentajeIva={porcentajeIva}
         />
