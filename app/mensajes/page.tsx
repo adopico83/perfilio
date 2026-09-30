@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import LogoutButton from '../dashboard/logout-button';
+import { useDemoTenant } from '@/lib/use-demo-tenant';
+import { DEMO_MOCK_ENABLED, getDemoMensajes } from '@/lib/demo-data';
 
 interface AiResponse {
   id: string;
@@ -23,6 +25,7 @@ interface Conversation {
 }
 
 export default function MensajesPage() {
+  const demo = useDemoTenant() && DEMO_MOCK_ENABLED;
   const supabase = useMemo(
     () =>
       createBrowserClient(
@@ -38,6 +41,11 @@ export default function MensajesPage() {
   const [editedText, setEditedText] = useState('');
 
   const loadConversations = useCallback(async () => {
+    if (demo) {
+      setConversations(getDemoMensajes());
+      setLoading(false);
+      return;
+    }
     const { data, error } = await supabase
       .from('conversations')
       .select(`
@@ -57,7 +65,7 @@ export default function MensajesPage() {
       setConversations(sorted);
     }
     setLoading(false);
-  }, [supabase]);
+  }, [supabase, demo]);
 
   useEffect(() => {
     queueMicrotask(() => void loadConversations());
@@ -111,6 +119,18 @@ export default function MensajesPage() {
   };
 
   const saveEdit = async (responseId: string) => {
+    if (demo) {
+      setConversations((prev) =>
+        prev.map((c) => ({
+          ...c,
+          ai_responses: c.ai_responses?.map((r) =>
+            r.id === responseId ? { ...r, edited_response: editedText } : r
+          ),
+        }))
+      );
+      setEditingId(null);
+      return;
+    }
     await supabase.from('ai_responses').update({ edited_response: editedText }).eq('id', responseId);
 
     setEditingId(null);
@@ -123,6 +143,10 @@ export default function MensajesPage() {
   };
 
   const approveResponse = async (conversationId: string) => {
+    if (demo) {
+      setConversations((prev) => prev.filter((c) => c.id !== conversationId));
+      return;
+    }
     await supabase.from('conversations').update({ status: 'approved' }).eq('id', conversationId);
 
     await supabase
@@ -134,6 +158,10 @@ export default function MensajesPage() {
   };
 
   const rejectResponse = async (conversationId: string) => {
+    if (demo) {
+      setConversations((prev) => prev.filter((c) => c.id !== conversationId));
+      return;
+    }
     await supabase.from('conversations').update({ status: 'rejected' }).eq('id', conversationId);
 
     await supabase
@@ -254,7 +282,9 @@ export default function MensajesPage() {
                 ) : (
                   <button
                     onClick={() => generateAIResponse(conv.id, conv.message ?? '')}
-                    className="mb-4 px-4 py-2 bg-[#A04A2F] text-white rounded hover:bg-[#8a3f28]"
+                    disabled={demo}
+                    title={demo ? 'No disponible en la demo' : undefined}
+                    className="mb-4 px-4 py-2 bg-[#A04A2F] text-white rounded hover:bg-[#8a3f28] disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     🤖 Generar Respuesta IA
                   </button>

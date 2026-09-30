@@ -8,6 +8,13 @@ import LogoutButton from '@/app/dashboard/logout-button';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
 import { getBusinessIdClient } from '@/lib/supabase/get-business-id';
+import { useDemoTenant } from '@/lib/use-demo-tenant';
+import {
+  DEMO_BUSINESS_ID,
+  DEMO_EMPRESA,
+  DEMO_MOCK_ENABLED,
+  getDemoClientes,
+} from '@/lib/demo-data';
 
 type ClienteRow = {
   id: string;
@@ -21,6 +28,7 @@ type ClienteRow = {
 
 export default function ClientesPage() {
   const router = useRouter();
+  const demo = useDemoTenant() && DEMO_MOCK_ENABLED;
   const supabase = useMemo(
     () =>
       createBrowserClient(
@@ -60,6 +68,14 @@ export default function ClientesPage() {
       }
       setAuthChecking(false);
 
+      if (demo) {
+        setBusinessId(DEMO_BUSINESS_ID);
+        setBusinessName(DEMO_EMPRESA.nombre);
+        setClientes(getDemoClientes());
+        setLoading(false);
+        return;
+      }
+
       const businessId = await getBusinessIdClient(supabase);
       if (!businessId) {
         setBusinessId(null);
@@ -94,7 +110,7 @@ export default function ClientesPage() {
       }
     };
     void run();
-  }, [router, supabase]);
+  }, [router, supabase, demo]);
 
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
@@ -105,6 +121,23 @@ export default function ClientesPage() {
   const crearCliente = async () => {
     const nombre = form.nombre.trim();
     if (!businessId || !nombre) return;
+    if (demo) {
+      setClientes((prev) => [
+        ...prev,
+        {
+          id: `demo-cliente-local-${Date.now()}`,
+          nombre,
+          telefono: form.telefono.trim() || null,
+          email: form.email.trim() || null,
+          num_presupuestos: 0,
+          num_facturas: 0,
+          num_albaranes: 0,
+        },
+      ]);
+      setModalNuevo(false);
+      setForm({ nombre: '', telefono: '', email: '', direccion: '', nif: '', notas: '' });
+      return;
+    }
     setGuardando(true);
     try {
       const res = await fetch('/api/clientes', {
