@@ -107,7 +107,7 @@ export default function DemoAppShell({
 
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-zinc-400/30 bg-[#EFEADF] px-4 sm:h-[72px] sm:px-6">
-            <div className="flex min-w-0 items-center gap-3">
+            <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
               <button
                 type="button"
                 className="md:hidden inline-flex size-10 items-center justify-center rounded-lg border border-zinc-400/40 text-zinc-800"
@@ -124,9 +124,9 @@ export default function DemoAppShell({
                 className="h-10 w-auto shrink-0 sm:h-14"
                 priority
               />
-              <p className="truncate text-xl font-semibold text-zinc-900 sm:text-2xl">{brand}</p>
+              <p className="min-w-0 flex-1 truncate text-xl font-semibold text-zinc-900 sm:text-2xl">{brand}</p>
             </div>
-            <LogoutButton />
+            <LogoutButton compact />
           </header>
 
           <div className="flex min-h-0 flex-1">
