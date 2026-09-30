@@ -5,6 +5,7 @@
  */
 import { GASTO_CATEGORIAS } from '@/lib/gastos-categoria';
 import type { LineaPresupuestoMetrica } from '@/lib/demo-metricas';
+import type { EmpresaEmisor } from '@/lib/pdf/empresa';
 import {
   DEMO_BUSINESS_ID,
   DEMO_CLIENTES,
@@ -37,6 +38,20 @@ import type {
   HoyObra,
   HoyPresupuesto,
 } from './types';
+
+/** Datos del emisor para el editor de facturas en demo. */
+export const DEMO_EMPRESA_EMISOR: EmpresaEmisor = {
+  razonSocial: DEMO_EMPRESA.nombre,
+  nif: null,
+  rea: null,
+  direccion: DEMO_EMPRESA.direccion,
+  localidad: DEMO_EMPRESA.ciudad,
+  telefono: DEMO_EMPRESA.telefono,
+  email: DEMO_EMPRESA.email,
+  web: null,
+  instagram: null,
+  cuentasBancarias: [],
+};
 
 /** Interruptor global del mock. Con `false` el tenant demo vuelve a leer de Supabase. */
 export const DEMO_MOCK_ENABLED = true;
