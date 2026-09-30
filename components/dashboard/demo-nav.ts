@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  CalendarDays,
   Building2,
   FileText,
   LayoutDashboard,
@@ -24,6 +25,12 @@ export const DEMO_NAV_ITEMS: {
     label: 'Dashboard',
     icon: LayoutDashboard,
     match: (p) => p === '/dashboard' || p === '/',
+  },
+  {
+    href: '/agenda',
+    label: 'Agenda',
+    icon: CalendarDays,
+    match: (p) => p.startsWith('/agenda'),
   },
   {
     href: '/mensajes',
