@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSession } from '@/components/providers/session-provider';
 import { createClient } from '@/lib/supabase/client';
+import { useDemoTenant } from '@/lib/use-demo-tenant';
+import { DEMO_MOCK_ENABLED, getDemoPresupuestosMetrica } from '@/lib/demo-data';
 import {
   fmtEurosEs,
   metricaPresupuesto,
@@ -101,10 +103,16 @@ export function DemoPresupuestoTotalCardView({
 
 export default function DemoPresupuestoTotalCard() {
   const { businessId } = useSession();
+  const demo = useDemoTenant() && DEMO_MOCK_ENABLED;
   const [loading, setLoading] = useState(true);
   const [lineas, setLineas] = useState<LineaPresupuestoMetrica[]>([]);
 
   useEffect(() => {
+    if (demo) {
+      setLineas(getDemoPresupuestosMetrica());
+      setLoading(false);
+      return;
+    }
     if (!businessId) {
       setLineas([]);
       setLoading(false);
@@ -129,7 +137,7 @@ export default function DemoPresupuestoTotalCard() {
     return () => {
       cancelled = true;
     };
-  }, [businessId]);
+  }, [businessId, demo]);
 
   return <DemoPresupuestoTotalCardView loading={loading} lineas={lineas} />;
 }

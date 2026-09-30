@@ -8,6 +8,7 @@ import AgentSidebar from '@/components/dashboard/agent-sidebar';
 import { DEMO_NAV_ITEMS } from '@/components/dashboard/demo-nav';
 import DemoSkyline from '@/components/dashboard/demo-skyline';
 import { useAgentSidebar } from '@/contexts/agent-sidebar-context';
+import { DEMO_EMPRESA, DEMO_MOCK_ENABLED } from '@/lib/demo-data';
 import LogoutButton from '@/app/dashboard/logout-button';
 
 function navItemClass(active: boolean): string {
@@ -72,7 +73,8 @@ export default function DemoAppShell({
     setMobileNavOpen(false);
   }, [pathname]);
 
-  const brand = businessName?.trim() || 'Perfilio';
+  // Con mock, la empresa ficticia sustituye al nombre real solo en pantalla.
+  const brand = DEMO_MOCK_ENABLED ? DEMO_EMPRESA.nombre : businessName?.trim() || 'Perfilio';
 
   return (
     <div className="min-h-screen bg-[#EFEADF] text-zinc-900">

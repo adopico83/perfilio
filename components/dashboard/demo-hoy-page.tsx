@@ -5,6 +5,8 @@ import { useSession } from '@/components/providers/session-provider';
 import { createClient } from '@/lib/supabase/client';
 import { pickHoy, type HoyCta, type HoyObra, type HoyPresupuesto } from '@/lib/hoy';
 import HoyDemoHome, { type HoyCliente } from '@/components/dashboard/hoy-demo-home';
+import { useDemoTenant } from '@/lib/use-demo-tenant';
+import { DEMO_MOCK_ENABLED, getDemoHoy } from '@/lib/demo-data';
 
 type ObraRow = {
   id: string;
@@ -20,6 +22,7 @@ export default function DemoHoyPage({
   onAbrirObra?: (obraId: string) => void;
 }) {
   const { businessId } = useSession();
+  const demo = useDemoTenant() && DEMO_MOCK_ENABLED;
   const [loading, setLoading] = useState(true);
   const [clientes, setClientes] = useState<HoyCliente[]>([]);
   const [obra, setObra] = useState<HoyObra | null>(null);
@@ -27,6 +30,16 @@ export default function DemoHoyPage({
   const [cta, setCta] = useState<HoyCta | null>(null);
 
   useEffect(() => {
+    if (demo) {
+      const mock = getDemoHoy();
+      const hoy = pickHoy(mock.obras, mock.presupuestos);
+      setClientes(mock.clientes);
+      setObra(hoy.obra);
+      setPresupuesto(hoy.presupuesto);
+      setCta(hoy.cta);
+      setLoading(false);
+      return;
+    }
     if (!businessId) {
       setClientes([]);
       setObra(null);
@@ -77,7 +90,7 @@ export default function DemoHoyPage({
     return () => {
       cancelled = true;
     };
-  }, [businessId]);
+  }, [businessId, demo]);
 
   return (
     <HoyDemoHome
