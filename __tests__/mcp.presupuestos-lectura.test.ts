@@ -1,5 +1,6 @@
 import { executeMcpTool } from '@/lib/mcp/execute-tool';
 import {
+  escapeIlikePattern,
   esPresupuestoConfirmado,
   listarPresupuestos,
   verPresupuesto,
@@ -129,14 +130,14 @@ describe('listarPresupuestos', () => {
     expect(por).toEqual({ [ID_1]: false, [ID_2]: true, [ID_3]: true });
   });
 
-  it('filtra por cliente con coincidencia parcial y sin comodines del usuario', async () => {
+  it('filtra por cliente con coincidencia parcial y escapando los comodines del usuario', async () => {
     const { ctx, fake } = montar(base);
     const r = await listarPresupuestos(ctx, { cliente: 'pin' });
     if (!r.ok) throw new Error('esperaba ok');
     expect(r.items.map((i) => i.id).sort()).toEqual([ID_1, ID_3].sort());
 
     await listarPresupuestos(ctx, { cliente: '%_*Pi*n%' });
-    expect(fake.queries[1].filters).toContainEqual({ op: 'ilike', col: 'cliente_nombre', pattern: '%Pin%' });
+    expect(fake.queries[1].filters).toContainEqual({ op: 'ilike', col: 'cliente_nombre', pattern: '%\\%\\_Pin\\%%' });
   });
 
   it('filtra por estado exacto en minúsculas', async () => {
@@ -301,5 +302,17 @@ describe('executeMcpTool ver_presupuestos / ver_presupuesto', () => {
     expect(lista.items).toHaveLength(1);
     const detalle = await executeMcpTool('ver_presupuesto', { numero: 2 }, ctx);
     expect(detalle).toMatchObject({ ok: true, id: ID_2 });
+  });
+});
+
+describe('escapeIlikePattern', () => {
+  it.each([
+    ['50%', '50\\%'],
+    ['a_b', 'a\\_b'],
+    ['c:\\obra', 'c:\\\\obra'],
+    ['100%_\\', '100\\%\\_\\\\'],
+    ['sin especiales', 'sin especiales'],
+  ])('escapa %s como literal', (entrada, esperado) => {
+    expect(escapeIlikePattern(entrada)).toBe(esperado);
   });
 });

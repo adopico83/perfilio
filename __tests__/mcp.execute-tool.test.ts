@@ -922,6 +922,17 @@ describe('executeMcpTool — confirmar_presupuesto', () => {
     expect(todasPartidas).toHaveLength(2);
   });
 
+  it('el presupuesto confirmado queda en estado pendiente, no borrador', async () => {
+    const db = previewFakeSupabase();
+    const { previewId } = await previsualizarYObtenerId(db);
+    const c: McpContext = { businessId: 'biz-1', userId: 'user-1', supabase: db.supabase };
+
+    const r = await executeMcpTool('confirmar_presupuesto', { preview_id: previewId }, c);
+
+    expect(r).toMatchObject({ ok: true, estado: 'pendiente' });
+    expect(db.presupuestos[0].estado).toBe('pendiente');
+  });
+
   it('confirmar una preview de origen previsualizacion marca confirmado_por_humano true', async () => {
     const db = previewFakeSupabase();
     const { previewId } = await previsualizarYObtenerId(db);
