@@ -61,8 +61,9 @@ export function esPresupuestoConfirmado(row: {
   return ESTADOS_CONFIRMADOS.includes(estado);
 }
 
-function escapeIlikePattern(s: string): string {
-  return s.replace(/[%_*]/g, '');
+/** Escapa \, % y _ con barra invertida para que ilike los trate como literales. `*` se descarta (comodín de PostgREST). */
+export function escapeIlikePattern(s: string): string {
+  return s.replace(/\*/g, '').replace(/[\\%_]/g, '\\$&');
 }
 
 function texto(raw: unknown): string {

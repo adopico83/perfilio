@@ -522,7 +522,7 @@ async function continuarConfirmacion(
       presupuesto_generado: presupuestoGenerado,
       importe_total: row.total,
       fecha,
-      estado: 'borrador',
+      estado: 'pendiente',
       preview_id: previewId,
       // El origen vive en la preview: confirmar_presupuesto no puede blanquear un atajo.
       confirmado_por_humano: row.origen === 'previsualizacion',
@@ -576,7 +576,7 @@ async function continuarConfirmacion(
     baseImponible: row.base_imponible,
     ivaImporte: row.iva_importe,
     total: row.total,
-    estado: 'borrador',
+    estado: 'pendiente',
     fecha,
   };
 }
