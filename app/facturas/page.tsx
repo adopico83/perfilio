@@ -105,6 +105,13 @@ export default function FacturasPage() {
     if (!authChecking) queueMicrotask(() => void loadFacturas());
   }, [authChecking, loadFacturas]);
 
+  // Enlace desde el resumen del día: /facturas?id=<uuid> abre el detalle de esa factura.
+  useEffect(() => {
+    if (loading) return;
+    const id = new URLSearchParams(window.location.search).get('id')?.trim();
+    if (id && facturas.some((f) => f.id === id)) queueMicrotask(() => setDetalleId(id));
+  }, [loading, facturas]);
+
   const setEstado = async (id: string, estado: string) => {
     if (demo) {
       setFacturas((prev) => prev.map((f) => (f.id === id ? { ...f, estado } : f)));

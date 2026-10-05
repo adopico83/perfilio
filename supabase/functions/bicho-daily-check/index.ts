@@ -2,6 +2,7 @@
 
 import OpenAI from 'https://esm.sh/openai@6.22.0';
 import { sendBichoNotification } from '../_shared/notify.ts';
+import { resolveBusinessId } from '../_shared/business.ts';
 import { createAdminClient } from '../_shared/supabase.ts';
 
 const MADRID_TIME_ZONE = 'Europe/Madrid';
@@ -9,7 +10,6 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const ACTIVE_OBRA_STATES = ['abierta', 'en_curso', 'activa'];
 const HOURLY_COST = 32;
 const MARGIN_RISK_THRESHOLD = 0.8;
-const DEFAULT_BUSINESS_ID = 'pino';
 const OPENAI_TIMEOUT_MS = 8000;
 
 const corsHeaders = {
@@ -484,11 +484,6 @@ async function sha256(value: string): Promise<string> {
     .join('');
 }
 
-function resolveBusinessId(body: DailyCheckRequestBody | null): string {
-  const requestedBusinessId = body?.business_id?.trim();
-  return requestedBusinessId || DEFAULT_BUSINESS_ID;
-}
-
 async function readRequestBody(req: Request): Promise<DailyCheckRequestBody | null> {
   if (req.method !== 'POST') return null;
 
@@ -499,8 +494,9 @@ async function readRequestBody(req: Request): Promise<DailyCheckRequestBody | nu
   return body && typeof body === 'object' ? body : null;
 }
 
-async function runDailyCheck(businessId: string) {
+async function runDailyCheck(requestedBusinessId: string | null | undefined) {
   const adminClient = createAdminClient();
+  const businessId = await resolveBusinessId(adminClient, requestedBusinessId);
   const now = new Date();
   const fecha = formatYmdInTimeZone(now, MADRID_TIME_ZONE);
   const sevenDaysAgo = formatYmdInTimeZone(
@@ -515,6 +511,7 @@ async function runDailyCheck(businessId: string) {
   const { data: obras, error: obrasError } = await adminClient
     .from('obras')
     .select('id, business_id, nombre, cliente_id, direccion, estado, fecha_inicio, fecha_fin, descripcion')
+    .eq('business_id', businessId)
     .in('estado', ACTIVE_OBRA_STATES);
 
   if (obrasError) {
@@ -763,8 +760,7 @@ Deno.serve(async (req) => {
 
   try {
     const body = await readRequestBody(req);
-    const businessId = resolveBusinessId(body);
-    const result = await runDailyCheck(businessId);
+    const result = await runDailyCheck(body?.business_id);
     return jsonResponse({ ok: true, ...result });
   } catch (error) {
     console.error('[bicho-daily-check]', error);

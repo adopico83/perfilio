@@ -6,6 +6,8 @@ import {
   type DiarioObraFotoSource,
 } from '@/lib/diario-obra-ingest';
 import { crearCitaAgenda, listarCitasAgenda } from '@/lib/mcp/citas';
+import { cargarResumenDia } from '@/lib/resumen-diario/datos';
+import { textoResumen } from '@/lib/resumen-diario/calcular';
 import { obtenerEnlacePdfPresupuesto } from '@/lib/presupuestos/enlace-pdf';
 import { listarPresupuestos, verPresupuesto } from '@/lib/presupuestos/lectura';
 import { insertarPresupuestoConNumeroCorrelativo } from '@/lib/presupuestos/numero';
@@ -144,6 +146,14 @@ export async function executeMcpTool(
         .limit(10);
       if (error) return { error: error.message };
       return { items: data ?? [] };
+    }
+    case 'resumen_del_dia': {
+      try {
+        const resumen = await cargarResumenDia(ctx.supabase, ctx.businessId);
+        return { ...resumen, todo_en_orden: resumen.todoEnOrden, texto: textoResumen(resumen) };
+      } catch (e) {
+        return { error: e instanceof Error ? e.message : 'No se pudo calcular el resumen' };
+      }
     }
     case 'crear_presupuesto': {
       const clienteNombre = String(toolArgs.cliente_nombre ?? '').trim().slice(0, 255);

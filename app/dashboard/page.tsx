@@ -21,6 +21,7 @@ import { useAgentSidebar } from '@/contexts/agent-sidebar-context';
 import { useEmailModal } from '@/contexts/email-modal-context';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import BichoLivePulse from '@/components/dashboard/BichoLivePulse';
+import ResumenHoyCard from '@/components/dashboard/resumen-hoy-card';
 import { dash, dashMain, dashResumenGrid } from '@/components/dashboard/dashboard-density';
 import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
 import DemoHoyPage from '@/components/dashboard/demo-hoy-page';
@@ -1272,6 +1273,8 @@ function DashboardContent() {
             {!showPushRecoveryCta ? <NotificationButton /> : null}
           </div>
         </section>
+
+        <ResumenHoyCard />
 
         <div className={bichoClass}>
           <BichoLivePulse />
