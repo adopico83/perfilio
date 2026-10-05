@@ -239,3 +239,16 @@ describe('MCP previsualizar_presupuesto / confirmar_presupuesto', () => {
     ).toBe(true);
   });
 });
+describe('MCP resumen_del_dia', () => {
+  it('se registra sin parámetros de entrada (el negocio sale de la conexión)', () => {
+    const server = createPerfilioMcpServer({
+      businessId: 'biz-1',
+      userId: 'user-1',
+      supabase: {} as McpContext['supabase'],
+    });
+    const tool = registeredTools(server).resumen_del_dia;
+    expect(tool).toBeDefined();
+    expect(tool.description ?? '').toMatch(/citas de hoy y de mañana/i);
+    expect(Object.keys(tool.inputSchema?.shape ?? {})).toEqual([]);
+  });
+});

@@ -86,6 +86,16 @@ export function createPerfilioMcpServer(ctx: McpContext): McpServer {
   );
 
   server.registerTool(
+    'resumen_del_dia',
+    {
+      description:
+        'Resumen del día del negocio: citas de hoy y de mañana, obras activas paradas (sin entradas en el diario en 5 días), presupuestos enviados hace más de 7 días sin respuesta, y facturas pendientes de cobro y vencidas. Cada punto trae su enlace (href). Si todo_en_orden es true no hay nada que avisar.',
+      inputSchema: {},
+    },
+    async () => toolTextResult(await executeMcpTool('resumen_del_dia', {}, ctx))
+  );
+
+  server.registerTool(
     'crear_presupuesto',
     {
       description:

@@ -12,6 +12,7 @@ export type Database = {
       bicho_notifications: {
         Row: {
           id: string;
+          business_id: string | null;
           created_at: string;
           type: string;
           slug: string;
@@ -24,6 +25,7 @@ export type Database = {
         };
         Insert: {
           id?: string;
+          business_id?: string | null;
           created_at?: string;
           type: string;
           slug: string;
@@ -36,6 +38,7 @@ export type Database = {
         };
         Update: {
           id?: string;
+          business_id?: string | null;
           created_at?: string;
           type?: string;
           slug?: string;
