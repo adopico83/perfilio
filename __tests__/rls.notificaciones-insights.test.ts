@@ -14,7 +14,8 @@ const MIGRATION = readFileSync(
 const ANA = '00000000-0000-4000-8000-0000000000a1'; // dueña del negocio A
 const BEA = '00000000-0000-4000-8000-0000000000b1'; // dueña del negocio B
 const EMPLEADO = '00000000-0000-4000-8000-0000000000c1'; // miembro del negocio A vía business_users
-const NEGOCIO_A = '10000000-0000-4000-8000-00000000000a';
+// UUID real del negocio Pino: el mismo que usa el backfill de la migración.
+const NEGOCIO_A = '8784450e-08a4-420a-8c37-d30bff8f0d39';
 const NEGOCIO_B = '10000000-0000-4000-8000-00000000000b';
 
 let db: PGlite;
@@ -59,6 +60,7 @@ beforeAll(async () => {
     -- perfilio_insights con business_id TEXT para comprobar que la policy vale con ambos tipos.
     create table public.bicho_notifications (
       id uuid primary key default gen_random_uuid(),
+      business_id text,
       created_at timestamptz not null default now(),
       type text not null, slug text not null, urgency text not null default 'baja',
       message text not null, is_read boolean not null default false, user_feedback text
@@ -76,15 +78,25 @@ beforeAll(async () => {
     insert into public.business_users values ('${NEGOCIO_A}', '${EMPLEADO}');
   `);
 
+  // Estado previo a la migración: avisos antiguos con business_id = 'pino' y otros sin negocio.
+  await db.exec(`
+    insert into public.bicho_notifications (business_id, type, slug, message) values
+      ('pino', 'obra_parada', 'pino-obra-parada-1', 'antiguo de A'),
+      (null, 'legacy', 'sin-negocio', 'huérfano');
+    insert into public.perfilio_insights (business_id, insight_text) values
+      ('pino', 'antiguo insight de A'),
+      (null, 'huérfano');
+  `);
+
   await db.exec(sinColumnaInsights(MIGRATION));
 
+  // Avisos nuevos (los escribe el servidor con el UUID).
   await db.exec(`
     insert into public.bicho_notifications (business_id, type, slug, message) values
       ('${NEGOCIO_A}', 'resumen_diario', 'resumen-diario-2026-10-05', 'aviso de A'),
-      ('${NEGOCIO_B}', 'resumen_diario', 'resumen-diario-2026-10-05', 'aviso de B'),
-      (null, 'legacy', 'sin-negocio', 'huérfano');
+      ('${NEGOCIO_B}', 'resumen_diario', 'resumen-diario-2026-10-05', 'aviso de B');
     insert into public.perfilio_insights (business_id, insight_text) values
-      ('${NEGOCIO_A}', 'insight de A'), ('${NEGOCIO_B}', 'insight de B'), (null, 'huérfano');
+      ('${NEGOCIO_A}', 'insight de A'), ('${NEGOCIO_B}', 'insight de B');
   `);
 });
 
@@ -102,20 +114,22 @@ describe.each(['bicho_notifications', 'perfilio_insights'] as const)('RLS de %s'
   const col = tabla === 'bicho_notifications' ? 'message' : 'insight_text';
   const propio = (negocio: string) => (negocio === NEGOCIO_A ? /de A/ : /de B/);
 
-  it('la dueña de A solo ve lo de A', async () => {
+  it('la dueña de A ve sus avisos antiguos (migrados desde «pino») y los nuevos, y nada más', async () => {
     const vistos = await como(ANA, 'authenticated', () => mensajes(tabla));
-    expect(vistos).toHaveLength(1);
-    expect(vistos[0]).toMatch(propio(NEGOCIO_A));
+    expect(vistos).toHaveLength(2);
+    expect(vistos.filter((v) => /antiguo/.test(v))).toHaveLength(1);
+    expect(vistos.every((v) => propio(NEGOCIO_A).test(v))).toBe(true);
   });
-  it('la dueña de B solo ve lo de B', async () => {
+  it('la dueña de otro negocio no ve los avisos antiguos de Pino', async () => {
     const vistos = await como(BEA, 'authenticated', () => mensajes(tabla));
     expect(vistos).toHaveLength(1);
     expect(vistos[0]).toMatch(propio(NEGOCIO_B));
+    expect(vistos.some((v) => /antiguo/.test(v))).toBe(false);
   });
-  it('un miembro de business_users ve lo de su negocio', async () => {
+  it('un miembro de business_users ve lo de su negocio, antiguo y nuevo', async () => {
     const vistos = await como(EMPLEADO, 'authenticated', () => mensajes(tabla));
-    expect(vistos).toHaveLength(1);
-    expect(vistos[0]).toMatch(propio(NEGOCIO_A));
+    expect(vistos).toHaveLength(2);
+    expect(vistos.every((v) => propio(NEGOCIO_A).test(v))).toBe(true);
   });
   it('un usuario sin negocio no ve nada, ni los huérfanos', async () => {
     const extraño = '00000000-0000-4000-8000-0000000000ff';
@@ -141,7 +155,7 @@ describe.each(['bicho_notifications', 'perfilio_insights'] as const)('RLS de %s'
     const r = await como(ANA, 'authenticated', () =>
       db.query(`update public.${tabla} set ${marca} where true returning ${col}`)
     );
-    expect(r.rows).toHaveLength(1); // solo la fila de A; B y el huérfano no se tocan
+    expect(r.rows).toHaveLength(2); // las 2 de A (antigua y nueva); B y el huérfano no se tocan
   });
   it('no puede pasar una fila suya a otro negocio', async () => {
     await expect(
@@ -154,7 +168,16 @@ describe.each(['bicho_notifications', 'perfilio_insights'] as const)('RLS de %s'
     await db.exec('set role service_role');
     const todo = await mensajes(tabla);
     await db.exec('reset role');
-    expect(todo).toHaveLength(3);
+    expect(todo).toHaveLength(4); // antiguo de A, huérfano, nuevo de A, nuevo de B
+  });
+  it('el backfill deja el UUID en las filas «pino» y no toca las de business_id NULL', async () => {
+    const r = await db.query<{ pino: number; nulos: number; migradas: number }>(
+      `select count(*) filter (where business_id = 'pino')::int as pino,
+              count(*) filter (where business_id is null)::int as nulos,
+              count(*) filter (where business_id = '${NEGOCIO_A}')::int as migradas
+         from public.${tabla}`
+    );
+    expect(r.rows[0]).toEqual({ pino: 0, nulos: 1, migradas: 2 });
   });
 });
 

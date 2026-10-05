@@ -3,10 +3,12 @@
 -- Hasta ahora estas dos tablas no tenían migración en el repo y, según el estado real de la base,
 -- podían estar abiertas a cualquier usuario autenticado (o incluso a anon). Esta migración:
 --   1. Se asegura de que ambas tienen business_id (los avisos son por negocio).
---   2. Borra TODAS las policies que hubiera (desconocidas) y activa RLS.
---   3. Deja solo: el miembro/dueño del negocio puede LEER y ACTUALIZAR (marcar leído, feedback)
+--   2. Pasa los avisos antiguos que quedaron con business_id = 'pino' al UUID real del negocio
+--      (si no, con RLS nadie los vería). Las filas con business_id NULL no se tocan.
+--   3. Borra TODAS las policies que hubiera (desconocidas) y activa RLS.
+--   4. Deja solo: el miembro/dueño del negocio puede LEER y ACTUALIZAR (marcar leído, feedback)
 --      lo suyo. Insertar y borrar solo lo hace el servidor con la service role (que se salta RLS).
---   4. Añade un índice único para que el cron del resumen diario no duplique el aviso del día.
+--   5. Añade un índice único para que el cron del resumen diario no duplique el aviso del día.
 --
 -- Compara business_id como texto a propósito: en estas tablas la columna puede ser uuid o text
 -- según cómo se creara a mano, y así la policy vale en ambos casos.
@@ -29,6 +31,16 @@ create index if not exists idx_perfilio_insights_business_created
 create unique index if not exists uq_bicho_notifications_resumen_diario
   on public.bicho_notifications (business_id, slug)
   where type = 'resumen_diario';
+
+-- 1b. Backfill: 'pino' -> UUID del negocio -----------------------------------------------------
+-- Antes de crear las policies. Se compara como texto porque, si la columna es uuid, 'pino' no
+-- puede existir (y comparar uuid = 'pino' daría error de sintaxis); si es text, se reescribe.
+update public.bicho_notifications
+   set business_id = '8784450e-08a4-420a-8c37-d30bff8f0d39'
+ where business_id::text = 'pino';
+update public.perfilio_insights
+   set business_id = '8784450e-08a4-420a-8c37-d30bff8f0d39'
+ where business_id::text = 'pino';
 
 -- 2. Función de pertenencia ---------------------------------------------------------------------
 -- security definer: evita depender de las policies de business_profiles / business_users al
