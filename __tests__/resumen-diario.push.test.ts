@@ -10,7 +10,9 @@ jest.mock('@/lib/notificaciones/web-push', () => ({
 }));
 
 const NOW = new Date('2026-10-05T05:30:00Z');
-const BIZ = 'biz-1';
+// Pino: el dueño de la clave global de Pushover (los demás negocios necesitan clave propia).
+const BIZ = '8784450e-08a4-420a-8c37-d30bff8f0d39';
+const OTRO = '900ed462-7640-4893-9030-a41163219f7a';
 const resumen = calcularResumenDia(
   {
     citas: [],
@@ -27,9 +29,10 @@ const resumen = calcularResumenDia(
 const fetchMock = jest.fn();
 const ENV = { ...process.env };
 
-function db(activo: boolean | undefined, subs: unknown[] = []) {
+function db(activo: boolean | undefined, subs: unknown[] = [], id = BIZ, avisos: Array<Record<string, unknown>> = []) {
   return crearFakeDb({
-    business_profiles: activo === undefined ? [] : [{ id: BIZ, resumen_push: activo }],
+    business_avisos_movil: avisos,
+    business_profiles: activo === undefined ? [] : [{ id, resumen_push: activo }],
     push_subscriptions: subs.map((subscription) => ({ business_id: BIZ, subscription })),
   });
 }
@@ -41,6 +44,7 @@ beforeEach(() => {
   delete process.env.PUSHOVER_TOKEN;
   delete process.env.PUSHOVER_USER_KEY;
   delete process.env.PUSHOVER_USER;
+  delete process.env.PUSHOVER_BUSINESS_ID;
   global.fetch = fetchMock as unknown as typeof fetch;
   configurarWebPush.mockImplementation(() => {
     throw new Error('VAPID keys no configuradas');
@@ -49,6 +53,25 @@ beforeEach(() => {
 });
 afterAll(() => {
   process.env = ENV;
+});
+
+describe('enviarPushResumen: Pushover por negocio', () => {
+  it('otro negocio sin clave propia NO recibe la clave global (sin_destinatario)', async () => {
+    process.env.PUSHOVER_API_TOKEN = 'tok';
+    process.env.PUSHOVER_USER_KEY = 'global-de-pino';
+    const r = await enviarPushResumen(db(true, [], OTRO).client, OTRO, resumen);
+    expect(r.pushover).toBe('sin_destinatario');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it('otro negocio con clave propia recibe en SU clave', async () => {
+    process.env.PUSHOVER_API_TOKEN = 'tok';
+    process.env.PUSHOVER_USER_KEY = 'global-de-pino';
+    fetchMock.mockResolvedValue({ json: async () => ({ status: 1 }) });
+    const propia = 'a'.repeat(30);
+    const r = await enviarPushResumen(db(true, [], OTRO, [{ business_id: OTRO, pushover_user_key: propia }]).client, OTRO, resumen);
+    expect(r.pushover).toBe('enviado');
+    expect(new URLSearchParams(fetchMock.mock.calls[0][1].body as URLSearchParams).get('user')).toBe(propia);
+  });
 });
 
 describe('enviarPushResumen', () => {

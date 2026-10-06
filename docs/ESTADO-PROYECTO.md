@@ -66,7 +66,7 @@ Documento orientado a mentor técnico: inventario de lo **implementado y operati
 
 - **Visión**: imágenes en el chat del agente analizadas en el mensaje de usuario (no OCR clásico Tesseract en repo; extracción vía modelo multimodal).
 - **Tool `registrar_gasto_ticket`**: registro de gasto a partir de datos (y contexto de imagen en la conversación); `vincular_gasto` para asociar a documentos u obra.
-- **Clasificación aparte**: `POST /api/classify` (GPT-3.5) para urgencia de mensajes en flujo “mensajes” + alerta email vía `lib/email.ts` (Resend).
+- **Clasificación aparte**: `POST /api/classify` (modelo de `AGENTE_MODELO`, por defecto gpt-4o-mini) para urgencia de mensajes en flujo “mensajes” + alerta email vía `lib/email.ts` (Resend).
 
 ### Diario de obra
 
@@ -91,13 +91,13 @@ Documento orientado a mentor técnico: inventario de lo **implementado y operati
 
 ### Técnico (stack, tests, arquitectura)
 
-- **Stack**: Next.js **16** (App Router), React **19**, TypeScript **5**, Tailwind **4**, Supabase (`@supabase/ssr` + `@supabase/supabase-js`), OpenAI SDK, Resend, html2canvas + jsPDF (PDF cliente).
+- **Stack**: Next.js **16** (App Router), React **19**, TypeScript **5**, Tailwind **4**, Supabase (`@supabase/ssr` + `@supabase/supabase-js`), OpenAI SDK, Resend, jsPDF (PDF cliente).
 - **Estructura**: `app/` rutas y route handlers; `components/` UI; `lib/` dominio y clientes; `contexts/` estado UI global; `middleware.ts` sesión Supabase + guardas de ruta.
 - **Seguridad**: middleware exige usuario para **cualquier** ` /api/*` (401 si no hay sesión); tests en `middleware.api-protection.test.ts`.
 - **Tests**: **Jest 30** + Testing Library; **77 tests** en **20 suites** cubriendo sobre todo API agente (tools, dictado, tiempo, albaranes, extras), APIs obras/clientes/diario, Gmail auth/urgentes, transcribe, maps, weather, memoria, middleware, modales (email/canvas), obras-context.
 - **CI**: no hay workflows `.github/` en el repositorio (ejecutar tests en local o añadir pipeline pendiente).
 - **Documentación interna**: `DATABASE.md` (esquema orientativo; **desalineado** respecto a columnas reales usadas en código, p. ej. `presupuestos.presupuesto_generado`, `obra_id`, estados extendidos), `AUTH_SETUP.md`, `docs/chuleta-agente.md`.
-- **Rutas legacy / demo**: `app/test-classify`, `app/test-assistant` — útiles en desarrollo.
+- **Rutas legacy / demo**: las páginas de prueba `app/test-classify` y `app/test-assistant` se eliminaron (no estaban enlazadas).
 - **Flujo paralelo “mensajes”**: `app/mensajes` + `app/agente` + `app/historial` + `/api/assistant` + tabla `conversations` / `ai_responses` (aprobar/rechazar respuestas), distinto del agente con tools del dashboard.
 
 ---

@@ -9,6 +9,9 @@ import { useObraModal } from '@/contexts/obra-modal-context';
 import { type ObrasNombreJoin, nombreObraDesdeJoin } from '@/lib/obras-nombre-join';
 import { useDemoTenant } from '@/lib/use-demo-tenant';
 import { DEMO_MOCK_ENABLED, getDemoAlbaranes } from '@/lib/demo-data';
+import Link from 'next/link';
+
+const IVA_OPCIONES = [0, 4, 10, 21] as const;
 
 interface Albaran {
   id: string;
@@ -45,6 +48,11 @@ export default function AlbaranesPage() {
   const [authChecking, setAuthChecking] = useState(true);
   const [albaranes, setAlbaranes] = useState<Albaran[]>([]);
   const [detalleId, setDetalleId] = useState<string | null>(null);
+  const [errorAccion, setErrorAccion] = useState('');
+  const [aFacturar, setAFacturar] = useState<Albaran | null>(null);
+  const [ivaElegido, setIvaElegido] = useState<number>(21);
+  const [facturando, setFacturando] = useState(false);
+  const [facturaCreada, setFacturaCreada] = useState<number | null>(null);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -76,72 +84,72 @@ export default function AlbaranesPage() {
     if (!authChecking) queueMicrotask(() => void loadAlbaranes());
   }, [authChecking, loadAlbaranes]);
 
-  const setEstado = async (id: string, estado: string) => {
+  /** Cambia pendiente/entregado por la API (el navegador no puede escribir en `albaranes`). */
+  const setEstado = async (id: string, estado: 'pendiente' | 'entregado') => {
+    setErrorAccion('');
     if (demo) {
       setAlbaranes((prev) => prev.map((a) => (a.id === id ? { ...a, estado } : a)));
       setDetalleId(null);
       return;
     }
-    if (estado === 'facturado') {
-      const { data: alb, error: selErr } = await supabase
-        .from('albaranes')
-        .select(
-          'id, business_id, cliente_nombre, cliente_id, obra_id, total, numero_albaran'
-        )
-        .eq('id', id)
-        .maybeSingle();
-
-      if (selErr || !alb) {
-        loadAlbaranes();
-        setDetalleId(null);
-        return;
-      }
-
-      const { error: updErr } = await supabase
-        .from('albaranes')
-        .update({ estado: 'facturado' })
-        .eq('id', id);
-
-      if (updErr) {
-        loadAlbaranes();
-        setDetalleId(null);
-        return;
-      }
-
-      const totalNum =
-        alb.total != null && Number.isFinite(Number(alb.total))
-          ? Number(alb.total)
-          : 0;
-      const round2 = (n: number) => Math.round(n * 100) / 100;
-      const ivaPct = 21;
-      const baseImponible = round2(totalNum / (1 + ivaPct / 100));
-      const ivaImporte = round2(totalNum - baseImponible);
-      const numLabel = String(alb.numero_albaran ?? '').trim() || alb.id;
-      const concepto = `Factura generada desde albarán #${numLabel}`;
-
-      const { error: insErr } = await supabase.from('facturas').insert({
-        business_id: alb.business_id,
-        cliente_nombre: alb.cliente_nombre ?? null,
-        cliente_id: alb.cliente_id ?? null,
-        obra_id: alb.obra_id ?? null,
-        descripcion_trabajos: concepto,
-        base_imponible: baseImponible,
-        iva: ivaImporte,
-        total: totalNum,
-        fecha: new Date().toISOString().split('T')[0],
-        estado: 'pendiente',
-        albaran_id: alb.id,
+    try {
+      const res = await fetch(`/api/albaranes/${encodeURIComponent(id)}/estado`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estado }),
       });
-
-      if (insErr) {
-        await supabase.from('albaranes').update({ estado: 'entregado' }).eq('id', id);
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        setErrorAccion(data.error ?? 'No se pudo cambiar el estado del albarán');
+        return;
       }
-    } else {
-      await supabase.from('albaranes').update({ estado }).eq('id', id);
+      await loadAlbaranes();
+      setDetalleId(null);
+    } catch {
+      setErrorAccion('No se pudo cambiar el estado del albarán');
     }
+  };
 
-    loadAlbaranes();
-    setDetalleId(null);
+  const abrirFacturar = (a: Albaran) => {
+    setErrorAccion('');
+    setFacturaCreada(null);
+    setIvaElegido(21);
+    setAFacturar(a);
+  };
+
+  /** Crea la factura por la API: el servidor calcula base e IVA y le da su número correlativo. */
+  const facturar = async (a: Albaran) => {
+    setFacturando(true);
+    setErrorAccion('');
+    if (demo) {
+      setAlbaranes((prev) => prev.map((x) => (x.id === a.id ? { ...x, estado: 'facturado' } : x)));
+      setAFacturar(null);
+      setDetalleId(null);
+      setFacturando(false);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/albaranes/${encodeURIComponent(a.id)}/facturar`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ iva_porcentaje: ivaElegido }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; numero_factura?: number };
+      if (!res.ok) {
+        setErrorAccion(data.error ?? 'No se pudo crear la factura');
+        return;
+      }
+      setFacturaCreada(data.numero_factura ?? null);
+      setAFacturar(null);
+      setDetalleId(null);
+      await loadAlbaranes();
+    } catch {
+      setErrorAccion('No se pudo crear la factura');
+    } finally {
+      setFacturando(false);
+    }
   };
 
   const badgeEstado = (estado: string | null) => {
@@ -169,6 +177,19 @@ export default function AlbaranesPage() {
           <h1 className="text-2xl font-bold text-zinc-900">Historial de albaranes</h1>
           <VolverAlDashboard />
         </div>
+        {errorAccion ? (
+          <p role="alert" className="mb-4 rounded-lg border border-[#A04A2F]/50 bg-[#E5DFD0] px-3 py-2 text-sm text-[#A04A2F]">
+            {errorAccion}
+          </p>
+        ) : null}
+        {facturaCreada != null ? (
+          <p role="status" className="mb-4 rounded-lg border border-[#5a7a4a]/50 bg-[#E5DFD0] px-3 py-2 text-sm text-[#5a7a4a]">
+            Factura nº {facturaCreada} creada.{' '}
+            <Link href="/facturas" className="font-semibold underline">
+              Ver en Facturas
+            </Link>
+          </p>
+        ) : null}
 
         {loading ? (
           <p className="text-zinc-600">Cargando...</p>
@@ -212,7 +233,7 @@ export default function AlbaranesPage() {
                     <button type="button" onClick={() => setEstado(a.id, 'entregado')} className="px-3 py-1.5 text-sm font-medium bg-[#5a7a4a] hover:bg-[#4d6b40] text-white rounded-lg transition-colors">Marcar entregado</button>
                   )}
                   {(a.estado ?? '').toLowerCase() === 'entregado' && (
-                    <button type="button" onClick={() => setEstado(a.id, 'facturado')} className="px-3 py-1.5 text-sm font-medium bg-[#A04A2F] hover:bg-[#8a3f28] text-white rounded-lg transition-colors">Marcar facturado</button>
+                    <button type="button" onClick={() => abrirFacturar(a)} className="px-3 py-1.5 text-sm font-medium bg-[#A04A2F] hover:bg-[#8a3f28] text-white rounded-lg transition-colors">Marcar facturado</button>
                   )}
                 </div>
               </li>
@@ -263,9 +284,46 @@ export default function AlbaranesPage() {
                 <button type="button" onClick={() => setEstado(detalleItem.id, 'entregado')} className="px-4 py-2 text-sm font-medium bg-[#5a7a4a] hover:bg-[#4d6b40] text-white rounded-lg">Marcar entregado</button>
               )}
               {(detalleItem.estado ?? '').toLowerCase() === 'entregado' && (
-                <button type="button" onClick={() => setEstado(detalleItem.id, 'facturado')} className="px-4 py-2 text-sm font-medium bg-[#A04A2F] hover:bg-[#8a3f28] text-white rounded-lg">Marcar facturado</button>
+                <button type="button" onClick={() => abrirFacturar(detalleItem)} className="px-4 py-2 text-sm font-medium bg-[#A04A2F] hover:bg-[#8a3f28] text-white rounded-lg">Marcar facturado</button>
               )}
               <button type="button" onClick={() => setDetalleId(null)} className="px-4 py-2 text-sm font-medium bg-[#E5DFD0] hover:bg-[#D4CCBC] text-zinc-900 rounded-lg">Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {aFacturar && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60" onClick={() => !facturando && setAFacturar(null)} aria-hidden />
+          <div role="dialog" aria-label="Facturar albarán" className="relative w-full max-w-md bg-[#E5DFD0] rounded-xl border border-zinc-400/40 shadow-2xl p-5 space-y-4">
+            <h2 className="text-lg font-bold text-zinc-900">Facturar albarán {aFacturar.numero_albaran ?? ''}</h2>
+            <label className="block text-sm text-zinc-800">
+              IVA
+              <select
+                aria-label="IVA de la factura"
+                value={ivaElegido}
+                onChange={(e) => setIvaElegido(Number(e.target.value))}
+                className="mt-1 block w-full rounded-lg border border-zinc-400/60 bg-white px-3 py-2 text-sm"
+              >
+                {IVA_OPCIONES.map((p) => (
+                  <option key={p} value={p}>
+                    {p}%
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="text-sm text-zinc-700">
+              Se creará la factura del albarán nº {aFacturar.numero_albaran ?? ''} por{' '}
+              {aFacturar.total != null ? String(aFacturar.total) : '—'} € IVA incluido.
+            </p>
+            {errorAccion ? <p role="alert" className="text-sm text-[#A04A2F]">{errorAccion}</p> : null}
+            <div className="flex gap-2">
+              <button type="button" disabled={facturando} onClick={() => void facturar(aFacturar)} className="px-4 py-2 text-sm font-medium bg-[#A04A2F] hover:bg-[#8a3f28] text-white rounded-lg disabled:opacity-60">
+                {facturando ? 'Creando…' : 'Crear factura'}
+              </button>
+              <button type="button" disabled={facturando} onClick={() => setAFacturar(null)} className="px-4 py-2 text-sm font-medium bg-[#D4CCBC] hover:bg-[#c9c0ae] text-zinc-900 rounded-lg">
+                Cancelar
+              </button>
             </div>
           </div>
         </div>

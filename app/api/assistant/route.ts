@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
-import { createServiceClient } from '@/lib/supabase/server';
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+import { createClient } from '@/lib/supabase/server';
+import { modeloAgente, parametrosGeneracion } from '@/lib/agente/modelo';
 
 const SYSTEM_PROMPT = `Eres el asistente virtual de un taller especializado en carpintería de aluminio y PVC en España.
         
@@ -36,7 +33,15 @@ const SYSTEM_PROMPT = `Eres el asistente virtual de un taller especializado en c
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, context, sender_email, business_id } = await request.json();
+    // Solo con sesión. Ya no lee ni guarda el historial de ningún negocio: esa rama usaba la
+    // service role con un business_id del cuerpo sin comprobar nada y nadie la usaba.
+    const supabaseAuth = await createClient();
+    const {
+      data: { user },
+    } = await supabaseAuth.auth.getUser();
+    if (!user?.id) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+
+    const { message } = await request.json();
 
     if (!message) {
       return NextResponse.json(
@@ -45,68 +50,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let history: { role: 'user' | 'assistant'; content: string }[] = [];
-
-    if (sender_email && business_id) {
-      try {
-        const supabase = createServiceClient();
-        const { data: rows } = await supabase
-          .from('conversation_history')
-          .select('role, content')
-          .eq('business_id', business_id)
-          .eq('sender_email', sender_email)
-          .order('created_at', { ascending: false })
-          .limit(6);
-
-        if (rows && rows.length > 0) {
-          history = [...rows]
-            .reverse()
-            .map((r) => ({
-              role: r.role as 'user' | 'assistant',
-              content: r.content,
-            }));
-        }
-      } catch (err) {
-        console.error('Error recuperando historial conversación:', err);
-      }
-    }
-
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       { role: 'system', content: SYSTEM_PROMPT },
-      ...history.map((m) => ({ role: m.role, content: m.content })),
       { role: 'user', content: message },
     ];
 
+    // Cliente creado aquí (no al importar el módulo) para no exigir OPENAI_API_KEY en los tests.
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const modelo = modeloAgente();
     const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
+      model: modelo,
       messages,
-      temperature: 0.7,
-      max_tokens: 500,
+      ...parametrosGeneracion(modelo, { maxTokens: 500, temperature: 0.7 }),
     });
 
     const aiResponse = completion.choices[0].message.content ?? '';
-
-    if (sender_email && business_id && aiResponse) {
-      try {
-        const supabase = createServiceClient();
-        await supabase.from('conversation_history').insert([
-          {
-            business_id,
-            sender_email,
-            role: 'user',
-            content: message,
-          },
-          {
-            business_id,
-            sender_email,
-            role: 'assistant',
-            content: aiResponse,
-          },
-        ]);
-      } catch (err) {
-        console.error('Error guardando historial conversación:', err);
-      }
-    }
 
     return NextResponse.json({
       success: true,

@@ -1,4 +1,5 @@
 import { insertarFacturaConNumeroCorrelativo } from '@/lib/facturas/numero';
+import { crearFacturaDesdeAlbaran } from '@/lib/facturas/desde-albaran';
 import type OpenAI from 'openai';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
@@ -484,7 +485,7 @@ export const DOCUMENTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[
               },
               iva: {
                 type: 'number',
-                description: 'Porcentaje de IVA (por defecto 21)',
+                description: 'Porcentaje de IVA: 0, 4, 10 o 21 (por defecto 21)',
               },
               observaciones: {
                 type: 'string',
@@ -1006,128 +1007,22 @@ export async function handleDocumentosAgent(
     }
     case 'convertir_albaran_a_factura': {
       const albaranId = String(toolArgs.albaran_id ?? '').trim();
-      const ivaPctRaw = toolArgs.iva ?? 21;
-      const observaciones =
-        toolArgs.observaciones != null ? String(toolArgs.observaciones).trim() : '';
-
       if (!albaranId) return { error: 'albaran_id es obligatorio' };
-      const iva_porcentaje = Number(ivaPctRaw);
-      if (!Number.isFinite(iva_porcentaje)) return { error: 'iva debe ser un número' };
+      const ivaPct = Number(toolArgs.iva ?? 21);
+      if (!Number.isFinite(ivaPct)) return { error: 'iva debe ser un número' };
 
-      const { data: aRow, error: aErr } = await supabase
-        .from('albaranes')
-        .select(
-          'id, estado, cliente_nombre, cliente_id, cliente_direccion, descripcion_trabajos, lineas, total'
-        )
-        .eq('id', albaranId)
-        .eq('business_id', businessId)
-        .maybeSingle();
-      if (aErr) return { error: aErr.message };
-      if (!aRow) return { error: 'Albarán no encontrado' };
-
-      const clienteNombre = (aRow.cliente_nombre ?? '') as string;
-      const totalNum =
-        aRow.total != null && Number.isFinite(Number(aRow.total))
-          ? Number(aRow.total)
-          : 0;
-
-      const round2 = (n: number) => Math.round(n * 100) / 100;
-
-      let extrasRows: Array<{
-        importe_total?: number | null;
-        presupuesto_generado?: string | null;
-        mensaje_cliente?: string | null;
-      }> = [];
-
-      const cidAlb = aRow.cliente_id ?? null;
-      const cnTrim = clienteNombre.trim();
-      if (cidAlb || cnTrim) {
-        let extrasQuery = supabase
-          .from('presupuestos')
-          .select('importe_total, presupuesto_generado, mensaje_cliente')
-          .eq('business_id', businessId)
-          .eq('es_extra', true)
-          .eq('estado', 'aceptado');
-        if (cidAlb) {
-          extrasQuery = extrasQuery.eq('cliente_id', cidAlb);
-        } else {
-          extrasQuery = extrasQuery.ilike('cliente_nombre', cnTrim);
-        }
-        const { data: extraData, error: exErr } = await extrasQuery;
-        if (exErr) return { error: exErr.message };
-        extrasRows = (extraData ?? []) as typeof extrasRows;
-      }
-
-      let extrasSum = 0;
-      const extraLines: string[] = [];
-      for (const ex of extrasRows) {
-        const imp =
-          ex.importe_total != null && Number.isFinite(Number(ex.importe_total))
-            ? Number(ex.importe_total)
-            : 0;
-        extrasSum += imp;
-        const texto =
-          (ex.presupuesto_generado ?? '').trim() ||
-          (ex.mensaje_cliente ?? '').trim() ||
-          'Extra';
-        extraLines.push(`- ${texto} (${round2(imp).toFixed(2)} €)`);
-      }
-
-      const totalConExtras = totalNum + extrasSum;
-
-      let descripcionTrabajos = (aRow.descripcion_trabajos ?? '') || '';
-      if (extraLines.length > 0) {
-        const bloque = `Extras aceptados (IVA no incluido en importes de extra):\n${extraLines.join('\n')}`;
-        descripcionTrabajos = descripcionTrabajos.trim()
-          ? `${descripcionTrabajos.trim()}\n\n${bloque}`
-          : bloque;
-      }
-
-      const base_imponible = round2(totalConExtras / (1 + iva_porcentaje / 100));
-      const iva_importe = round2(totalConExtras - base_imponible);
-
-      const insFactura = await insertarFacturaConNumeroCorrelativo(
-        supabase,
-        businessId,
-        {
-          albaran_id: albaranId,
-          cliente_nombre: clienteNombre || null,
-          cliente_id: aRow.cliente_id ?? null,
-          cliente_direccion: aRow.cliente_direccion ?? null,
-          descripcion_trabajos: descripcionTrabajos || null,
-          lineas: aRow.lineas ?? null,
-          base_imponible,
-          iva: iva_importe,
-          total: totalConExtras,
-          fecha: new Date().toISOString().split('T')[0],
-          estado: 'pendiente',
-          observaciones:
-            observaciones.length > 0 ? observaciones : 'Generada desde albarán',
-        },
-        'id, numero_factura'
-      );
-
-      if (!insFactura.ok) return { error: insFactura.error };
-
-      const { error: updErr } = await supabase
-        .from('albaranes')
-        .update({ estado: 'facturado' })
-        .eq('id', albaranId)
-        .eq('business_id', businessId)
-        .select('id')
-        .maybeSingle();
-
-      if (updErr) return { error: updErr.message };
-
-      const extraNote =
-        extrasSum > 0
-          ? ` (incluye extras aceptados: ${round2(extrasSum).toFixed(2)}€)`
-          : '';
-
+      // Misma función que usa la pantalla de albaranes: valida el IVA y es idempotente.
+      const r = await crearFacturaDesdeAlbaran(supabase, businessId, albaranId, {
+        iva_porcentaje: ivaPct,
+        observaciones: toolArgs.observaciones != null ? String(toolArgs.observaciones) : null,
+      });
+      if (!r.ok) return { error: r.error };
+      const cliente = r.cliente_nombre ?? '';
       return {
-        mensaje:
-          `Factura creada correctamente a partir del albarán de ${clienteNombre}.\n` +
-          `Total: ${round2(totalConExtras).toFixed(2)}€${extraNote}. El albarán ha sido marcado como facturado.`,
+        mensaje: r.ya_existia
+          ? `Ese albarán ya tenía factura (nº ${r.numero_factura}, ${r.total.toFixed(2)}€): no se ha creado otra.`
+          : `Factura creada correctamente a partir del albarán de ${cliente}.\n` +
+            `Total: ${r.total.toFixed(2)}€. El albarán ha sido marcado como facturado.`,
       };
     }
     case 'registrar_extra': {

@@ -2,6 +2,8 @@
 
 Documentación de tablas para el proyecto Supabase.
 
+> ⚠️ Orientativo y desactualizado. Antes de tocar migraciones lee `supabase/migrations/README.md` (los timestamps del repo no coinciden con los de la base y **nunca** se hace `supabase db push` contra producción). El esquema real se volcará en `supabase/schema-referencia.sql` (solo documentación, pendiente).
+
 ---
 
 ## Tabla: `materiales`

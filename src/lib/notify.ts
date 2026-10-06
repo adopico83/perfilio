@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin';
+import { destinoPushover, enviarPushover } from '@/lib/notificaciones/pushover';
 
 export interface BichoNotification {
   /** UUID del negocio al que pertenece el aviso. Si falta, se deduce de `obra_id`. */
@@ -11,18 +12,7 @@ export interface BichoNotification {
   slug: string;
 }
 
-type PushoverResponse = {
-  status?: number;
-  errors?: string[];
-};
-
-const PUSHOVER_API_URL = 'https://api.pushover.net/1/messages.json';
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-const PUSHOVER_PRIORITY: Record<BichoNotification['urgency'], number> = {
-  alta: 1,
-  media: 0,
-  baja: -1,
-};
 
 /** Negocio del aviso: el indicado o, si no, el de su obra. null si no se puede saber. */
 async function resolveBusinessId(
@@ -75,32 +65,21 @@ export async function sendBichoNotification(
     return false;
   }
 
-  const token = process.env.PUSHOVER_API_TOKEN ?? process.env.PUSHOVER_TOKEN;
-  const user = process.env.PUSHOVER_USER_KEY ?? process.env.PUSHOVER_USER;
-
-  if (!token || !user) {
-    console.error('[sendBichoNotification] missing Pushover credentials');
+  // Destinatario por negocio: su clave propia o, solo para el dueño de la global (Pino), la global.
+  const destino = await destinoPushover(supabase, businessId);
+  if (!destino) {
+    console.error('[sendBichoNotification] el negocio no tiene destinatario de Pushover');
     return false;
   }
 
-  const response = await fetch(PUSHOVER_API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams({
-      token,
-      user,
-      title: '🐝 El Bicho',
-      message: notification.message,
-      priority: String(PUSHOVER_PRIORITY[notification.urgency]),
-    }),
+  const enviado = await enviarPushover({
+    ...destino,
+    title: '🐝 El Bicho',
+    message: notification.message,
+    urgencia: notification.urgency,
   });
-
-  const pushoverResult = (await response.json()) as PushoverResponse;
-
-  if (pushoverResult.status !== 1) {
-    console.error('[sendBichoNotification] Pushover failed', pushoverResult);
+  if (!enviado) {
+    console.error('[sendBichoNotification] Pushover failed');
     return false;
   }
 

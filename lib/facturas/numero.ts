@@ -43,12 +43,19 @@ function esConflictoPresupuesto(error: unknown): boolean {
   return texto.includes('uq_facturas_presupuesto_id');
 }
 
+/** El 23505 viene del índice «una factura por albarán» (uq_facturas_albaran_id). */
+function esConflictoAlbaran(error: unknown): boolean {
+  const texto = `${campoError(error, 'message')} ${campoError(error, 'details')}`;
+  return texto.includes('uq_facturas_albaran_id');
+}
+
 /**
  * Inserta una factura con el siguiente `numero_factura` del negocio.
  * - 23505 en `facturas_business_numero_unique` (otra alta se llevó el número): relee el máximo y
  *   reintenta una vez.
  * - 23505 en `uq_facturas_presupuesto_id` (ya hay factura de ese presupuesto): NO se reintenta;
  *   se devuelve `conflictoPresupuesto: true` para que el llamador relea la existente.
+ * - 23505 en `uq_facturas_albaran_id` (ya hay factura de ese albarán): igual, `conflictoAlbaran: true`.
  * `campos` no debe fijar el número; `business_id` sale del argumento.
  */
 export async function insertarFacturaConNumeroCorrelativo(
@@ -58,7 +65,7 @@ export async function insertarFacturaConNumeroCorrelativo(
   select: string
 ): Promise<
   | { ok: true; data: Record<string, unknown> }
-  | { ok: false; error: string; conflictoPresupuesto?: true }
+  | { ok: false; error: string; conflictoPresupuesto?: true; conflictoAlbaran?: true }
 > {
   const resto: Record<string, unknown> = { ...campos };
   delete resto.numero_factura;
@@ -81,6 +88,9 @@ export async function insertarFacturaConNumeroCorrelativo(
     const code = campoError(error, 'code');
     if (code === '23505' && esConflictoPresupuesto(error)) {
       return { ok: false, error: 'Este presupuesto ya tiene una factura.', conflictoPresupuesto: true };
+    }
+    if (code === '23505' && esConflictoAlbaran(error)) {
+      return { ok: false, error: 'Este albarán ya tiene una factura.', conflictoAlbaran: true };
     }
     if (code === '23505' && intento < INTENTOS_INSERCION - 1) continue;
     if (code === '23505') return { ok: false, error: MENSAJE_COLISION_NUMERO_FACTURA };
