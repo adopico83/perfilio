@@ -109,4 +109,39 @@ describe('crearFacturaDesdeAlbaran', () => {
     const r = await crearFacturaDesdeAlbaran(d.client, BIZ, 'alb-1', {}, NOW);
     expect(r).toMatchObject({ ok: true, ya_existia: true, factura_id: 'fac-x' });
   });
+
+  describe('si falla marcar el albarán como facturado', () => {
+    const errorUpdate = { code: '42501', message: 'permission denied' };
+    beforeEach(() => jest.spyOn(console, 'warn').mockImplementation(() => undefined));
+
+    it('(a) tras crear la factura devuelve ok con aviso y deja 1 factura', async () => {
+      const d = db();
+      d.erroresUpdate.albaranes = [errorUpdate];
+      const r = await crearFacturaDesdeAlbaran(d.client, BIZ, 'alb-1', { iva_porcentaje: 21 }, NOW);
+      expect(r).toMatchObject({ ok: true, ya_existia: false, numero_factura: 1 });
+      expect((r as { aviso?: string }).aviso).toMatch(/Factura nº 1 creada, pero el albarán no se pudo marcar/);
+      expect(d.tablas.facturas).toHaveLength(1);
+      expect(d.tablas.albaranes[0].estado).toBe('entregado');
+    });
+
+    it('(b) al reintentar: ya_existia, albarán facturado, sin aviso y sigue 1 factura', async () => {
+      const d = db();
+      d.erroresUpdate.albaranes = [errorUpdate];
+      await crearFacturaDesdeAlbaran(d.client, BIZ, 'alb-1', { iva_porcentaje: 21 }, NOW);
+      const r = await crearFacturaDesdeAlbaran(d.client, BIZ, 'alb-1', { iva_porcentaje: 21 }, NOW);
+      expect(r).toMatchObject({ ok: true, ya_existia: true });
+      expect((r as { aviso?: string }).aviso).toBeUndefined();
+      expect(d.tablas.albaranes[0].estado).toBe('facturado');
+      expect(d.tablas.facturas).toHaveLength(1);
+    });
+
+    it('(c) con factura previa y fallo al marcar: ok, ya_existia y aviso', async () => {
+      const d = db({ facturas: [{ id: 'fac-9', business_id: BIZ, albaran_id: 'alb-1', numero_factura: 4, total: 50, cliente_nombre: 'Ana' }] });
+      d.erroresUpdate.albaranes = [errorUpdate];
+      const r = await crearFacturaDesdeAlbaran(d.client, BIZ, 'alb-1', {}, NOW);
+      expect(r).toMatchObject({ ok: true, ya_existia: true, factura_id: 'fac-9' });
+      expect((r as { aviso?: string }).aviso).toMatch(/Factura nº 4 creada, pero/);
+      expect(d.inserts).toHaveLength(0);
+    });
+  });
 });

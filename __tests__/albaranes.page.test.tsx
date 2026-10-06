@@ -69,4 +69,13 @@ describe('Albaranes: facturar por la API', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Crear factura' }));
     await waitFor(() => expect(screen.getAllByText(/El IVA debe ser uno de/).length).toBeGreaterThan(0));
   });
+
+  it('enseña el aviso (no como error) si la factura se creó pero el albarán no se marcó', async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ ok: true, numero_factura: 3, aviso: 'Factura nº 3 creada, pero el albarán no se pudo marcar como facturado.' }) });
+    await abrirDialogo();
+    fireEvent.click(screen.getByRole('button', { name: 'Crear factura' }));
+    await waitFor(() => expect(screen.getByText(/no se pudo marcar como facturado/)).toBeInTheDocument());
+    expect(screen.getByText(/Factura nº 3 creada\./)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
 });

@@ -48,6 +48,15 @@ describe('POST /api/albaranes/[id]/facturar', () => {
     preparar({ tablas: { albaranes: [alb({ estado: 'facturado' })], facturas: [], presupuestos: [] } });
     expect((await POST(req({ iva_porcentaje: 21 }), ctx)).status).toBe(409);
   });
+  it('(d) devuelve el aviso cuando no se pudo marcar el albarán', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const d = preparar();
+    d.erroresUpdate.albaranes = [{ message: 'permission denied' }];
+    const res = await POST(req({ iva_porcentaje: 21 }), ctx);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, numero_factura: 1, aviso: expect.stringMatching(/no se pudo marcar como facturado/) });
+  });
+
   it('200 con número de factura y filtrando por business_id', async () => {
     const d = preparar();
     const res = await POST(req({ iva_porcentaje: 10 }), ctx);

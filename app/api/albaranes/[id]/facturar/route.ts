@@ -58,6 +58,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
       numero_factura: r.numero_factura,
       total: r.total,
       ya_existia: r.ya_existia,
+      ...(r.aviso ? { aviso: r.aviso } : {}),
     });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Error interno' }, { status: 500 });
