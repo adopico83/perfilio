@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { assertUserOwnsBusiness } from '@/lib/supabase/assert-user-owns-business';
+import { ESTADOS_FACTURA, parseEstadoFactura } from '@/lib/facturas/estado';
 
-const ESTADOS_FACTURA = ['pendiente', 'pagada', 'vencida'] as const;
 
 /**
  * Cambia el estado de una factura. `facturas` solo tiene policy de lectura, así que las
@@ -23,8 +23,10 @@ export async function PATCH(
     if (!user?.id) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
 
     const body = (await request.json().catch(() => ({}))) as { estado?: unknown };
-    const estado = typeof body.estado === 'string' ? body.estado.trim().toLowerCase() : '';
-    if (!(ESTADOS_FACTURA as readonly string[]).includes(estado)) {
+    // La API sigue siendo estricta (el cliente manda el estado exacto); los sinónimos («pagado») son cosa del agente.
+    const raw = typeof body.estado === 'string' ? body.estado.trim().toLowerCase() : '';
+    const estado = (ESTADOS_FACTURA as readonly string[]).includes(raw) ? parseEstadoFactura(raw) : null;
+    if (!estado) {
       return NextResponse.json(
         { error: `estado debe ser uno de: ${ESTADOS_FACTURA.join(', ')}` },
         { status: 400 }

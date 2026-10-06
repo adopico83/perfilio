@@ -1,5 +1,11 @@
 import { insertarFacturaConNumeroCorrelativo } from '@/lib/facturas/numero';
 import { crearFacturaDesdeAlbaran } from '@/lib/facturas/desde-albaran';
+import { actualizarFactura } from '@/lib/facturas/editar';
+import { ESTADOS_FACTURA, cambiarEstadoFactura } from '@/lib/facturas/estado';
+import { ivaPorcentajeDeFactura } from '@/lib/facturas/iva';
+import { ESTADOS_ALBARAN_EDITABLES, actualizarAlbaranNoFacturado, cambiarEstadoAlbaran } from '@/lib/albaranes/estado';
+import { failClosed, resolverClientesPorNombre, resultadoResolveATool } from '@/lib/agente/modules/grounding';
+import { localizarDesdeArgs } from '@/lib/agente/modules/documentos-localizar';
 import type OpenAI from 'openai';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
@@ -29,88 +35,92 @@ export function parseEstadoDoc(raw: unknown): EstadoDoc | null {
   return (ESTADOS_DOC as readonly string[]).includes(s) ? (s as EstadoDoc) : null;
 }
 
+/**
+ * Edita una factura pendiente reutilizando `actualizarFactura` (la misma función que el editor de
+ * Facturas y `PATCH /api/facturas/[id]`): mismas validaciones y el servidor recalcula base, IVA y total.
+ * Se localiza por id, número o cliente (`cliente`); `cliente_nombre` es el nombre NUEVO.
+ */
 export async function editar_factura(
   supabase: SupabaseClient,
   businessId: string,
   toolArgs: Record<string, unknown>
-): Promise<{ ok: true; id: string } | { error: string }> {
-  const id = String(toolArgs.id ?? '').trim();
-  if (!id) return { error: 'id es obligatorio' };
-  const updates: {
-    cliente_nombre?: string;
-    total?: number;
-    base_imponible?: number;
-    iva?: number;
-    descripcion_trabajos?: string;
-  } = {};
-  if (toolArgs.cliente_nombre !== undefined) {
-    const c = String(toolArgs.cliente_nombre ?? '').trim().slice(0, 255);
-    if (!c) return { error: 'cliente_nombre no puede estar vacío' };
-    updates.cliente_nombre = c;
-  }
-  if (toolArgs.importe_total !== undefined) {
-    const totalNum = Number(toolArgs.importe_total);
-    if (!Number.isFinite(totalNum) || totalNum < 0) {
-      return { error: 'importe_total debe ser un número válido' };
-    }
-    // Se respeta el IVA que ya tenía la factura (iva / base); solo si no se sabe, 21%.
-    const { data: actual, error: errLeer } = await supabase
-      .from('facturas')
-      .select('id, estado, base_imponible, iva, lineas')
-      .eq('id', id)
-      .eq('business_id', businessId)
-      .maybeSingle();
-    if (errLeer) return { error: errLeer.message };
-    if (!actual?.id) return { error: 'No se encontró la factura o no pertenece a este negocio' };
-    const estado = String((actual as { estado?: string | null }).estado ?? 'pendiente');
-    if (estado !== 'pendiente') {
-      return { error: `Solo se puede cambiar el importe de facturas pendientes; esta está «${estado}».` };
-    }
-    // Con líneas guardadas, cambiar solo el total dejaría el PDF (que lee las líneas) distinto del total.
-    const lineasActuales = (actual as { lineas?: unknown }).lineas;
-    if (Array.isArray(lineasActuales) && lineasActuales.length > 0) {
-      return {
-        error:
-          'Esta factura tiene líneas de detalle: cambia las cantidades y precios desde Facturas > Editar, para que el PDF y el total coincidan.',
-      };
-    }
-    const baseActual = Number((actual as { base_imponible?: unknown }).base_imponible);
-    const ivaActual = Number((actual as { iva?: unknown }).iva);
-    const factorIva =
-      Number.isFinite(baseActual) && Number.isFinite(ivaActual) && baseActual > 0
-        ? ivaActual / baseActual
-        : 0.21;
-    const baseImponible = Math.round((totalNum / (1 + factorIva)) * 100) / 100;
-    updates.total = Math.round(totalNum * 100) / 100;
-    updates.base_imponible = baseImponible;
-    updates.iva = Math.round((updates.total - baseImponible) * 100) / 100;
-  }
+): Promise<Record<string, unknown>> {
+  const loc = await localizarDesdeArgs(supabase, businessId, 'factura', toolArgs);
+  if (!loc.ok) return loc;
+  const id = loc.match.id;
 
-  const descripcionRaw =
-    toolArgs.descripcion !== undefined ? toolArgs.descripcion : toolArgs.descripcion_trabajos;
-  if (descripcionRaw !== undefined) {
-    const d = String(descripcionRaw ?? '').trim();
-    if (!d) return { error: 'descripcion_trabajos no puede estar vacía' };
-    updates.descripcion_trabajos = d;
-  }
-  if (Object.keys(updates).length === 0) {
-    return {
-      error:
-        'Indica al menos un campo a actualizar (cliente_nombre, importe_total o descripcion_trabajos)',
-    };
-  }
-  const { data: row, error } = await supabase
+  const { data: f, error: errLeer } = await supabase
     .from('facturas')
-    .update(updates)
+    .select('id, numero_factura, estado, cliente_nombre, descripcion_trabajos, base_imponible, iva, lineas')
     .eq('id', id)
     .eq('business_id', businessId)
-    .select('id')
     .maybeSingle();
-  if (error) return { error: error.message };
-  if (!row?.id) {
-    return { error: 'No se encontró la factura o no pertenece a este negocio' };
+  if (errLeer) return { error: errLeer.message };
+  if (!f) return { error: 'No se encontró la factura o no pertenece a este negocio' };
+  const fila = f as Record<string, unknown>;
+  const estado = String(fila.estado ?? 'pendiente');
+  if (estado !== 'pendiente') {
+    return { error: `Solo se pueden editar facturas pendientes; esta está «${estado}».` };
   }
-  return { ok: true, id: row.id as string };
+
+  const clienteNuevo = toolArgs.cliente_nombre !== undefined ? String(toolArgs.cliente_nombre ?? '').trim().slice(0, 255) : undefined;
+  if (clienteNuevo !== undefined && !clienteNuevo) return { error: 'cliente_nombre no puede estar vacío' };
+  const descripcionRaw = toolArgs.descripcion !== undefined ? toolArgs.descripcion : toolArgs.descripcion_trabajos;
+  const descripcionNueva = descripcionRaw !== undefined ? String(descripcionRaw ?? '').trim() : undefined;
+  if (descripcionNueva !== undefined && !descripcionNueva) return { error: 'La descripción no puede estar vacía' };
+  const lineasArgs = Array.isArray(toolArgs.lineas) ? (toolArgs.lineas as unknown[]) : null;
+  const hayTotal = toolArgs.importe_total !== undefined;
+  const ivaPct = toolArgs.iva_porcentaje !== undefined ? Number(toolArgs.iva_porcentaje) : undefined;
+
+  if (clienteNuevo === undefined && !lineasArgs && !hayTotal && descripcionNueva === undefined && ivaPct === undefined) {
+    return { error: 'Indica qué cambiar: cliente_nombre, lineas, iva_porcentaje, importe_total o descripcion.' };
+  }
+
+  const lineasActuales = Array.isArray(fila.lineas) ? (fila.lineas as Array<Record<string, unknown>>) : [];
+  let lineas: unknown[];
+  if (lineasArgs) {
+    lineas = lineasArgs;
+  } else if (lineasActuales.length > 0) {
+    // Con líneas guardadas, cambiar solo el total o el texto dejaría el PDF (que lee las líneas) distinto del total.
+    if (hayTotal || descripcionNueva !== undefined) {
+      return {
+        error:
+          'Esta factura tiene líneas de detalle: dime las líneas nuevas (descripción, cantidad y precio) para que el PDF y el total coincidan.',
+      };
+    }
+    lineas = lineasActuales.map((l) => ({
+      descripcion: l.descripcion,
+      cantidad: l.cantidad,
+      precio_unitario: l.precio_unitario,
+      unidad: l.unidad,
+      capitulo: l.capitulo,
+    }));
+  } else {
+    // Factura sin líneas (antigua): se guarda como una sola línea con el texto y la base.
+    const textoActual = String(fila.descripcion_trabajos ?? '').split('\n')[0]?.trim();
+    const descripcion = descripcionNueva ?? (textoActual || 'Trabajos realizados');
+    let base = Number(fila.base_imponible);
+    if (hayTotal) {
+      const total = Number(toolArgs.importe_total);
+      if (!Number.isFinite(total) || total < 0) return { error: 'importe_total debe ser un número válido' };
+      const pct = ivaPct ?? ivaPorcentajeDeFactura(fila.base_imponible, fila.iva);
+      base = Math.round((total / (1 + pct / 100)) * 100) / 100;
+    }
+    lineas = [{ descripcion, cantidad: 1, precio_unitario: Number.isFinite(base) ? base : 0 }];
+  }
+
+  const r = await actualizarFactura(supabase, businessId, id, {
+    cliente_nombre: clienteNuevo ?? String(fila.cliente_nombre ?? ''),
+    lineas,
+    ...(ivaPct !== undefined ? { iva_porcentaje: ivaPct } : {}),
+  });
+  if (!r.ok) return { error: r.error };
+  const total = Number(r.factura.total);
+  return {
+    ok: true,
+    id,
+    mensaje: `Factura${fila.numero_factura != null ? ` nº ${fila.numero_factura}` : ''} actualizada: total ${total.toFixed(2)} € (IVA incluido).`,
+  };
 }
 
 export const DOCUMENTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
@@ -180,18 +190,20 @@ export const DOCUMENTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[
         function: {
           name: 'cambiar_estado_factura',
           description:
-            'Cambia estado de la factura por UUID. Mismos estados que presupuestos. Si no tienes el UUID, primero listar_facturas y usa el id correcto.',
+            'Cambia el estado de una factura: pendiente, pagada o vencida (NO existe «pagado», «aceptado» ni «facturado» en facturas). Localízala por numero o cliente; no pidas UUIDs al usuario.',
           parameters: {
             type: 'object',
             properties: {
-              id: { type: 'string', description: 'UUID de la factura' },
+              id: { type: 'string', description: 'UUID (solo si ya lo tienes de una consulta anterior)' },
+              numero: { type: 'number', description: 'Número del documento tal como lo dice el usuario (p. ej. 3)' },
+              cliente: { type: 'string', description: 'Cliente del documento, si el usuario no dice el número' },
               estado: {
                 type: 'string',
-                enum: [...ESTADOS_DOC],
-                description: 'Nuevo estado',
+                enum: [...ESTADOS_FACTURA],
+                description: 'Nuevo estado de la factura',
               },
             },
-            required: ['id', 'estado'],
+            required: ['estado'],
             additionalProperties: false,
           },
         },
@@ -201,18 +213,20 @@ export const DOCUMENTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[
         function: {
           name: 'cambiar_estado_albaran',
           description:
-            'Cambia estado del albarán por UUID. Mismos estados. Si no tienes el UUID, primero listar_albaranes y usa el id correcto.',
+            'Cambia el estado de un albarán: pendiente o entregado. NO sirve para facturar (para eso, convertir_albaran_a_factura) y un albarán ya facturado no cambia. Localízalo por numero o cliente.',
           parameters: {
             type: 'object',
             properties: {
-              id: { type: 'string', description: 'UUID del albarán' },
+              id: { type: 'string', description: 'UUID (solo si ya lo tienes de una consulta anterior)' },
+              numero: { type: 'number', description: 'Número del documento tal como lo dice el usuario (p. ej. 3)' },
+              cliente: { type: 'string', description: 'Cliente del documento, si el usuario no dice el número' },
               estado: {
                 type: 'string',
-                enum: [...ESTADOS_DOC],
-                description: 'Nuevo estado',
+                enum: [...ESTADOS_ALBARAN_EDITABLES],
+                description: 'Nuevo estado del albarán',
               },
             },
-            required: ['id', 'estado'],
+            required: ['estado'],
             additionalProperties: false,
           },
         },
@@ -222,16 +236,34 @@ export const DOCUMENTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[
         function: {
           name: 'editar_factura',
           description:
-            'Actualiza factura por id: cliente_nombre, total con IVA, descripcion_trabajos. Solo campos que cambien. Si no tienes UUID, listar_facturas antes.',
+            'Edita una factura PENDIENTE. Localízala por numero o cliente. Para cambiar importes manda las lineas completas (descripcion, cantidad, precio_unitario) y, si cambia, iva_porcentaje (0, 4, 10 o 21): el servidor recalcula base, IVA y total. cliente_nombre es el nombre NUEVO del cliente.',
           parameters: {
             type: 'object',
             properties: {
-              id: { type: 'string', description: 'UUID de la factura' },
-              cliente_nombre: { type: 'string', description: 'Nombre del cliente' },
-              importe_total: { type: 'number', description: 'Total con IVA (recalcula base e IVA con el % que ya tenía la factura; no vale si la factura tiene líneas de detalle)' },
-              descripcion: { type: 'string', description: 'Descripción / conceptos (descripcion_trabajos)' },
+              id: { type: 'string', description: 'UUID (solo si ya lo tienes de una consulta anterior)' },
+              numero: { type: 'number', description: 'Número del documento tal como lo dice el usuario (p. ej. 3)' },
+              cliente: { type: 'string', description: 'Cliente del documento, si el usuario no dice el número' },
+              cliente_nombre: { type: 'string', description: 'Nombre NUEVO del cliente en la factura' },
+              lineas: {
+                type: 'array',
+                description: 'Líneas completas de la factura (sustituyen a las actuales)',
+                items: {
+                  type: 'object',
+                  properties: {
+                    descripcion: { type: 'string' },
+                    cantidad: { type: 'number' },
+                    precio_unitario: { type: 'number', description: 'Precio por unidad SIN IVA' },
+                    unidad: { type: 'string' },
+                  },
+                  required: ['descripcion', 'cantidad', 'precio_unitario'],
+                  additionalProperties: false,
+                },
+              },
+              iva_porcentaje: { type: 'number', enum: [0, 4, 10, 21], description: 'IVA de la factura' },
+              importe_total: { type: 'number', description: 'Solo facturas antiguas sin líneas: total con IVA (se recalcula base e IVA)' },
+              descripcion: { type: 'string', description: 'Solo facturas antiguas sin líneas: texto del trabajo' },
             },
-            required: ['id'],
+            required: [],
             additionalProperties: false,
           },
         },
@@ -241,16 +273,18 @@ export const DOCUMENTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[
         function: {
           name: 'editar_albaran',
           description:
-            'Actualiza albarán por id: cliente_nombre, importe_total, descripcion_trabajos. Solo campos que cambien. Si no tienes UUID, listar_albaranes antes.',
+            'Edita un albarán que NO esté facturado: cliente_nombre (nombre NUEVO), importe_total (IVA incluido) o descripcion. Localízalo por numero o cliente.',
           parameters: {
             type: 'object',
             properties: {
-              id: { type: 'string', description: 'UUID del albarán' },
-              cliente_nombre: { type: 'string', description: 'Nombre del cliente' },
-              importe_total: { type: 'number', description: 'Total' },
-              descripcion: { type: 'string', description: 'Descripción de trabajos (descripcion_trabajos)' },
+              id: { type: 'string', description: 'UUID (solo si ya lo tienes de una consulta anterior)' },
+              numero: { type: 'number', description: 'Número del documento tal como lo dice el usuario (p. ej. 3)' },
+              cliente: { type: 'string', description: 'Cliente del documento, si el usuario no dice el número' },
+              cliente_nombre: { type: 'string', description: 'Nombre NUEVO del cliente' },
+              importe_total: { type: 'number', description: 'Total con IVA incluido' },
+              descripcion: { type: 'string', description: 'Descripción de trabajos' },
             },
-            required: ['id'],
+            required: [],
             additionalProperties: false,
           },
         },
@@ -368,7 +402,8 @@ export const DOCUMENTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[
                 type: 'string',
                 description: 'Descripción o conceptos de la factura',
               },
-              total: { type: 'number', description: 'Total con IVA si aplica' },
+              total: { type: 'number', description: 'Total con IVA. Solo el que haya dicho el usuario: si no lo dijo, pregúntaselo' },
+              cliente_nombre: { type: 'string', description: 'Nombre del cliente (se busca su ficha; si no existe o hay varios, se pregunta)' },
               cliente_id: {
                 type: 'string',
                 description: 'UUID de ficha de cliente si existe en el sistema',
@@ -471,28 +506,21 @@ export const DOCUMENTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[
     },
   },
   {
-    type: 'function',
-    function: {
-      name: 'convertir_albaran_a_factura',
+        type: 'function',
+        function: {
+          name: 'convertir_albaran_a_factura',
           description:
-            'Albarán → factura (copia datos; IVA opcional; marca albarán facturado).',
+            'Albarán → factura (copia datos, calcula base e IVA y marca el albarán facturado; es idempotente: si ya tiene factura la devuelve). Localiza el albarán por numero o cliente. El total del albarán se entiende con IVA incluido.',
           parameters: {
             type: 'object',
             properties: {
-              albaran_id: {
-                type: 'string',
-                description: 'UUID del albarán a convertir',
-              },
-              iva: {
-                type: 'number',
-                description: 'Porcentaje de IVA: 0, 4, 10 o 21 (por defecto 21)',
-              },
-              observaciones: {
-                type: 'string',
-                description: 'Observaciones para la factura',
-              },
+              albaran_id: { type: 'string', description: 'UUID del albarán (solo si ya lo tienes de una consulta anterior)' },
+              numero: { type: 'number', description: 'Número del albarán tal como lo dice el usuario' },
+              cliente: { type: 'string', description: 'Cliente del albarán, si el usuario no dice el número' },
+              iva: { type: 'number', enum: [0, 4, 10, 21], description: 'Porcentaje de IVA: 0, 4, 10 o 21 (por defecto 21)' },
+              observaciones: { type: 'string', description: 'Observaciones para la factura' },
             },
-            required: ['albaran_id'],
+            required: [],
             additionalProperties: false,
           },
         },
@@ -677,59 +705,28 @@ export async function handleDocumentosAgent(
       }
     }
     case 'cambiar_estado_factura': {
-      const id = String(toolArgs.id ?? '').trim();
-      const estado = parseEstadoDoc(toolArgs.estado);
-      if (!id) return { error: 'id es obligatorio' };
-      if (!estado) {
-        return {
-          error:
-            'estado inválido; use uno de: pendiente, aceptado, rechazado, facturado, pagado',
-        };
-      }
-      const { data: row, error } = await supabase
-        .from('facturas')
-        .update({ estado })
-        .eq('id', id)
-        .eq('business_id', businessId)
-        .select('id')
-        .maybeSingle();
-      if (error) return { error: error.message };
-      if (!row?.id) {
-        return { error: 'No se encontró la factura o no pertenece a este negocio' };
-      }
-      return { ok: true, id: row.id as string };
+      const loc = await localizarDesdeArgs(supabase, businessId, 'factura', toolArgs);
+      if (!loc.ok) return loc;
+      // La regla del estado vive en lib/facturas/estado.ts (la misma que usa la API de Facturas).
+      const r = await cambiarEstadoFactura(supabase, businessId, loc.match.id, toolArgs.estado);
+      if (!r.ok) return { error: r.error };
+      return { ok: true, id: r.id, estado: r.estado, mensaje: `Factura${loc.match.numero != null ? ` nº ${loc.match.numero}` : ''} marcada como «${r.estado}».` };
     }
     case 'cambiar_estado_albaran': {
-      const id = String(toolArgs.id ?? '').trim();
-      const estado = parseEstadoDoc(toolArgs.estado);
-      if (!id) return { error: 'id es obligatorio' };
-      if (!estado) {
-        return {
-          error:
-            'estado inválido; use uno de: pendiente, aceptado, rechazado, facturado, pagado',
-        };
-      }
-      const { data: row, error } = await supabase
-        .from('albaranes')
-        .update({ estado })
-        .eq('id', id)
-        .eq('business_id', businessId)
-        .select('id')
-        .maybeSingle();
-      if (error) return { error: error.message };
-      if (!row?.id) {
-        return { error: 'No se encontró el albarán o no pertenece a este negocio' };
-      }
-      return { ok: true, id: row.id as string };
+      const loc = await localizarDesdeArgs(supabase, businessId, 'albaran', toolArgs);
+      if (!loc.ok) return loc;
+      // Misma regla que la API: solo pendiente/entregado y un albarán facturado no cambia.
+      const r = await cambiarEstadoAlbaran(supabase, businessId, loc.match.id, toolArgs.estado);
+      if (!r.ok) return { error: r.error };
+      return { ok: true, id: r.id, mensaje: `Albarán${loc.match.numero != null ? ` nº ${loc.match.numero}` : ''} actualizado.` };
     }
     case 'editar_factura': {
       return editar_factura(supabase, String(businessId ?? ''), toolArgs);
     }
     case 'editar_albaran': {
-      const id = String(toolArgs.id ?? '').trim();
-      if (!id) return { error: 'id es obligatorio' };
-      const updates: { cliente_nombre?: string; total?: number; descripcion_trabajos?: string } =
-        {};
+      const loc = await localizarDesdeArgs(supabase, businessId, 'albaran', toolArgs);
+      if (!loc.ok) return loc;
+      const updates: { cliente_nombre?: string; total?: number; descripcion_trabajos?: string } = {};
       if (toolArgs.cliente_nombre !== undefined) {
         const c = String(toolArgs.cliente_nombre ?? '').trim().slice(0, 255);
         if (!c) return { error: 'cliente_nombre no puede estar vacío' };
@@ -737,7 +734,7 @@ export async function handleDocumentosAgent(
       }
       if (toolArgs.importe_total !== undefined) {
         const n = Number(toolArgs.importe_total);
-        if (!Number.isFinite(n)) return { error: 'importe_total debe ser un número válido' };
+        if (!Number.isFinite(n) || n < 0) return { error: 'importe_total debe ser un número válido' };
         updates.total = n;
       }
       if (toolArgs.descripcion !== undefined) {
@@ -748,18 +745,10 @@ export async function handleDocumentosAgent(
       if (Object.keys(updates).length === 0) {
         return { error: 'Indica al menos un campo a actualizar (cliente_nombre, importe_total o descripcion)' };
       }
-      const { data: row, error } = await supabase
-        .from('albaranes')
-        .update(updates)
-        .eq('id', id)
-        .eq('business_id', businessId)
-        .select('id')
-        .maybeSingle();
-      if (error) return { error: error.message };
-      if (!row?.id) {
-        return { error: 'No se encontró el albarán o no pertenece a este negocio' };
-      }
-      return { ok: true, id: row.id as string };
+      // Un albarán facturado no se edita (y la condición va en el propio UPDATE).
+      const r = await actualizarAlbaranNoFacturado(supabase, businessId, loc.match.id, updates);
+      if (!r.ok) return { error: r.error };
+      return { ok: true, id: r.id, mensaje: `Albarán${loc.match.numero != null ? ` nº ${loc.match.numero}` : ''} actualizado.` };
     }
     case 'crear_presupuesto': {
       const texto = String(toolArgs.texto_presupuesto ?? '').trim();
@@ -894,6 +883,23 @@ export async function handleDocumentosAgent(
       const cr = await resolveClienteIdOpcional(supabase, businessId, toolArgs.cliente_id);
       if (!cr.ok) return { error: cr.error };
 
+      // Cliente por nombre (sin inventar): una coincidencia → su ficha; ninguna o varias → se pregunta.
+      let clienteIdFactura = cr.id;
+      let clienteNombreFactura = String(toolArgs.cliente_nombre ?? '').trim().slice(0, 255);
+      if (clienteIdFactura == null && clienteNombreFactura) {
+        const res = await resolverClientesPorNombre(supabase, businessId, clienteNombreFactura);
+        if (res.status === 'none') {
+          return failClosed(`No tengo a «${clienteNombreFactura}» entre tus clientes. ¿Lo creo primero o es otro nombre?`);
+        }
+        const r = resultadoResolveATool(res, clienteNombreFactura, 'cliente');
+        if (!r.ok) return r;
+        clienteIdFactura = r.match.id;
+        clienteNombreFactura = r.match.nombre ?? clienteNombreFactura;
+      } else if (clienteIdFactura != null && !clienteNombreFactura) {
+        const { data: cli } = await supabase.from('clientes').select('nombre').eq('id', clienteIdFactura).eq('business_id', businessId).maybeSingle();
+        clienteNombreFactura = String((cli as { nombre?: string | null } | null)?.nombre ?? '').trim();
+      }
+
       const explicitObra =
         typeof toolArgs.obra_id === 'string' && toolArgs.obra_id.trim()
           ? String(toolArgs.obra_id).trim()
@@ -909,9 +915,9 @@ export async function handleDocumentosAgent(
       if (!obraRes.ok) return aclaracionObra(obraRes);
       const obraIdFinal = obraRes.obra_id ?? '';
 
-      let clienteIdFinal = cr.id;
-      let clienteNombreFinal: string | null = null;
-      if (obraIdFinal && cr.id == null) {
+      let clienteIdFinal = clienteIdFactura;
+      let clienteNombreFinal: string | null = clienteNombreFactura || null;
+      if (obraIdFinal && clienteIdFinal == null) {
         const { cliente_id: cidO, cliente_nombre: cnO } = await clienteDesdeObraSiAplica(
           supabase,
           businessId,
@@ -1006,13 +1012,20 @@ export async function handleDocumentosAgent(
       return { ok: true };
     }
     case 'convertir_albaran_a_factura': {
-      const albaranId = String(toolArgs.albaran_id ?? '').trim();
-      if (!albaranId) return { error: 'albaran_id es obligatorio' };
       const ivaPct = Number(toolArgs.iva ?? 21);
       if (!Number.isFinite(ivaPct)) return { error: 'iva debe ser un número' };
+      // Por id, número o cliente (entre los NO facturados si se busca por cliente).
+      const loc = await localizarDesdeArgs(
+        supabase,
+        businessId,
+        'albaran',
+        { ...toolArgs, id: toolArgs.albaran_id ?? toolArgs.id, cliente: toolArgs.cliente ?? toolArgs.cliente_nombre },
+        { excluirEstado: 'facturado' }
+      );
+      if (!loc.ok) return loc;
 
       // Misma función que usa la pantalla de albaranes: valida el IVA y es idempotente.
-      const r = await crearFacturaDesdeAlbaran(supabase, businessId, albaranId, {
+      const r = await crearFacturaDesdeAlbaran(supabase, businessId, loc.match.id, {
         iva_porcentaje: ivaPct,
         observaciones: toolArgs.observaciones != null ? String(toolArgs.observaciones) : null,
       });

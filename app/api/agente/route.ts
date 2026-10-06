@@ -59,7 +59,6 @@ import {
 import {
   DOCUMENTOS_AGENT_TOOLS,
   DOCUMENTOS_HANDLED_TOOLS,
-  editar_factura,
   handleDocumentosAgent,
 } from '@/lib/agente/modules/documentos';
 import {
@@ -220,17 +219,6 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { mensaje, business_id, historial, imagen, imagen_mime, imagenesUrls } = body;
-    const directToolName =
-      typeof body?.tool_name === 'string'
-        ? body.tool_name.trim()
-        : typeof body?.tool === 'string'
-          ? body.tool.trim()
-          : '';
-    const directToolArgs =
-      body?.args && typeof body.args === 'object' && !Array.isArray(body.args)
-        ? (body.args as Record<string, unknown>)
-        : {};
-
     const historialValido = Array.isArray(historial)
       ? historial.filter(
           (m: unknown) =>
@@ -285,7 +273,7 @@ export async function POST(request: NextRequest) {
         : imagenesNormalizadas.filter((u) => u.startsWith('data:image/'));
 
     const hayConfirmarAccion = body?.confirmar_accion !== undefined && body?.confirmar_accion !== null;
-    if (!mensajeTrim && imagenesNormalizadas.length === 0 && !directToolName && !hayConfirmarAccion) {
+    if (!mensajeTrim && imagenesNormalizadas.length === 0 && !hayConfirmarAccion) {
       return NextResponse.json(
         {
           error:
@@ -668,19 +656,6 @@ export async function POST(request: NextRequest) {
         canvas: canvasParaCliente,
         obra_modal: obraFichaParaCliente,
       });
-    }
-
-    // Atajo heredado: el editor de facturas ya guarda por PATCH /api/facturas/[id] (con líneas e IVA
-    // calculados en el servidor). Se mantiene solo por compatibilidad con clientes antiguos.
-    if (directToolName) {
-      if (directToolName !== 'editar_factura') {
-        return NextResponse.json({ error: 'tool no permitida' }, { status: 400 });
-      }
-      const result = await editar_factura(supabase, businessIdStr, directToolArgs);
-      if ('error' in result) {
-        return NextResponse.json(result, { status: 400 });
-      }
-      return NextResponse.json(result);
     }
 
     const nombre = profile.nombre ?? 'el negocio';
@@ -1158,6 +1133,10 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
                     businessId: businessIdStr,
                     runTool,
                     mensajeUsuario: mensajeTrim,
+                    historialUsuario: historialValido
+                      .filter((m: { role: string }) => m.role === 'user')
+                      .slice(-3)
+                      .map((m: { content: string }) => m.content),
                   });
                   if (prep.tipo === 'pendiente') {
                     accionPendiente = prep.accion;

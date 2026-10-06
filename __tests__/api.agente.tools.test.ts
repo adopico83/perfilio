@@ -760,24 +760,20 @@ describe('POST /api/agente — tools', () => {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
         update: jest.fn().mockReturnThis(),
-        maybeSingle: jest.fn()
-          .mockResolvedValueOnce({
-            data: {
-              id: albaranId,
-              estado: 'entregado',
-              cliente_nombre: 'Cliente X',
-              cliente_id: 'cli-2',
-              cliente_direccion: 'Calle 123',
-              descripcion_trabajos: 'Trabajos',
-              lineas: [{ concepto: 'A' }],
-              total,
-            },
-            error: null,
-          })
-          .mockResolvedValueOnce({
-            data: { id: albaranId },
-            error: null,
-          }),
+        // Se lee el albarán dos veces: al localizarlo (por id) y dentro de crearFacturaDesdeAlbaran.
+        maybeSingle: jest.fn().mockResolvedValue({
+          data: {
+            id: albaranId,
+            estado: 'entregado',
+            cliente_nombre: 'Cliente X',
+            cliente_id: 'cli-2',
+            cliente_direccion: 'Calle 123',
+            descripcion_trabajos: 'Trabajos',
+            lineas: [{ concepto: 'A' }],
+            total,
+          },
+          error: null,
+        }),
       };
 
       // La factura ahora toma su número correlativo POR NEGOCIO (insertarFacturaConNumeroCorrelativo):
