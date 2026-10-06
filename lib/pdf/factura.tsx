@@ -9,6 +9,7 @@ import {
 } from '@react-pdf/renderer';
 import type { EmpresaEmisor } from './empresa';
 import { formatEuro } from './parser';
+import { DEFECTO_FACTURA, MARCA_VACIA, type MarcaPdf } from './marca';
 
 export interface FacturaPdfProps {
   factura: {
@@ -35,19 +36,23 @@ export interface FacturaPdfProps {
   empresa: EmpresaEmisor;
   /** Porcentaje IVA aplicado al documento (p. ej. 21). */
   porcentajeIva: number;
+  /** Marca del negocio; sin ella, el aspecto de siempre. */
+  marca?: MarcaPdf;
 }
 
-const NAVY = '#1a365d';
-const GRIS_FONDO = '#f5f5f5';
-const GRIS_FILA = '#fafafa';
-
-const styles = StyleSheet.create({
+/** Estilos de la factura. Con la marca vacía salen exactamente los de siempre. */
+export function crearEstilosFactura(marca: MarcaPdf) {
+  const NAVY = marca.colorPrimario ?? DEFECTO_FACTURA.primario;
+  const GRIS_FONDO = marca.colorSecundario ?? DEFECTO_FACTURA.fondoCaja;
+  const GRIS_FILA = marca.colorSecundario ?? DEFECTO_FACTURA.fondoFila;
+  const tipografia = marca.tipografia ?? DEFECTO_FACTURA.tipografia;
+  return StyleSheet.create({
   page: {
     paddingTop: 24,
     paddingBottom: 28,
     paddingHorizontal: 24,
     fontSize: 9,
-    fontFamily: 'Helvetica',
+    fontFamily: tipografia,
     color: '#111',
   },
   /** Sección 1 */
@@ -258,7 +263,8 @@ const styles = StyleSheet.create({
     fontSize: 8.5,
     color: '#444',
   },
-});
+  });
+}
 
 function fmtCant(n: number): string {
   return new Intl.NumberFormat('es-ES', {
@@ -285,6 +291,7 @@ function splitDirCiudad(full: string | undefined): { dir: string; ciudad: string
 
 export function FacturaPdfDocument(props: FacturaPdfProps) {
   const { factura, logoUrl, porcentajeIva, empresa } = props;
+  const styles = crearEstilosFactura(props.marca ?? MARCA_VACIA);
   const pct = Number.isFinite(porcentajeIva) ? porcentajeIva : 21;
   const fechaOp = factura.fecha_operacion?.trim() ? factura.fecha_operacion : '—';
   const { dir: clienteDir, ciudad: clienteCiudad } = splitDirCiudad(factura.cliente_direccion);

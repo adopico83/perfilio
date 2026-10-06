@@ -10,19 +10,33 @@ import {
 import { lineasPresupuestoEmisor } from './empresa';
 import type { PresupuestoPdfProps } from './types';
 import { formatEuro } from './parser';
+import {
+  DEFECTO_PRESUPUESTO,
+  MARCA_VACIA,
+  OBSERVACIONES_PRESUPUESTO_DEFECTO,
+  type MarcaPdf,
+} from './marca';
 
 export { formatEuro };
 
-const OBSERVACIONES_TEXTO =
-  'La presente oferta sólo incluye los trabajos en ella expresamente indicados... Todo trabajo fuera de presupuesto tendrá un importe de 30€/hora más el material empleado.';
-
-const styles = StyleSheet.create({
+/**
+ * Estilos del presupuesto. Con la marca vacía salen EXACTAMENTE los de siempre: solo cambian los
+ * campos que el negocio ha rellenado.
+ */
+export function crearEstilosPresupuesto(marca: MarcaPdf) {
+  const primario = marca.colorPrimario ?? DEFECTO_PRESUPUESTO.primario;
+  const tipografia = marca.tipografia ?? DEFECTO_PRESUPUESTO.tipografia;
+  // Los títulos eran negro; solo se tiñen si el negocio eligió color primario.
+  const colorTitulo = marca.colorPrimario ?? '#111';
+  const fondo = marca.colorSecundario ? { backgroundColor: marca.colorSecundario } : {};
+  return StyleSheet.create({
+  rowPartidaAlt: fondo,
   page: {
     paddingTop: 32,
     paddingBottom: 36,
     paddingHorizontal: 32,
     fontSize: 8,
-    fontFamily: 'Helvetica',
+    fontFamily: tipografia,
     color: '#111',
   },
   headerRow: {
@@ -52,6 +66,7 @@ const styles = StyleSheet.create({
     padding: 8,
     fontSize: 7.5,
     lineHeight: 1.35,
+    ...fondo,
   },
   metaRow: {
     flexDirection: 'row',
@@ -64,7 +79,7 @@ const styles = StyleSheet.create({
   },
   tableHeader: {
     flexDirection: 'row',
-    backgroundColor: '#1e3a8a',
+    backgroundColor: primario,
     color: '#fff',
     paddingVertical: 5,
     paddingHorizontal: 6,
@@ -78,12 +93,14 @@ const styles = StyleSheet.create({
   thPrecio: { width: '21%', textAlign: 'right' },
   thImporte: { width: '21%', textAlign: 'right' },
   tituloGeneral: {
+    color: colorTitulo,
     marginTop: 8,
     marginBottom: 6,
     fontWeight: 'bold',
     fontSize: 9,
   },
   capTitulo: {
+    color: colorTitulo,
     marginTop: 10,
     marginBottom: 4,
     fontWeight: 'bold',
@@ -122,6 +139,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     fontSize: 8.5,
     fontWeight: 'bold',
+    ...fondo,
   },
   pieCol: { width: '22%' },
   obs: {
@@ -161,7 +179,8 @@ const styles = StyleSheet.create({
     lineHeight: 1.35,
     fontFamily: 'Courier',
   },
-});
+  });
+}
 
 function fmtNum(n: number): string {
   return new Intl.NumberFormat('es-ES', {
@@ -192,6 +211,8 @@ function esCapituloGenerico(nombre: string): boolean {
 export function PresupuestoPdfDocument(props: PresupuestoPdfProps) {
   const { logoUrl, empresa, numeroPresupuesto, referencia, fecha, parsed, textoPlanoFallback } =
     props;
+  const marca = props.marca ?? MARCA_VACIA;
+  const styles = crearEstilosPresupuesto(marca);
   const lineasEmisor = lineasPresupuestoEmisor(empresa);
   const showTabla = parsed.capitulos.length > 0;
   const showPie =
@@ -257,7 +278,11 @@ export function PresupuestoPdfDocument(props: PresupuestoPdfProps) {
                   <Text style={styles.capTitulo}>.-{cap.nombre.toUpperCase()}</Text>
                 ) : null}
                 {cap.partidas.map((p, j) => (
-                  <View key={`${idx}-${j}`} style={styles.rowPartida} wrap={false}>
+                  <View
+                    key={`${idx}-${j}`}
+                    style={j % 2 === 1 ? [styles.rowPartida, styles.rowPartidaAlt] : styles.rowPartida}
+                    wrap={false}
+                  >
                     <Text style={styles.tdConcepto}>{p.concepto}</Text>
                     <Text style={styles.tdCant}>{fmtNum(p.cantidad)}</Text>
                     <Text style={styles.tdPrecio}>{formatEuro(p.precio)}</Text>
@@ -293,7 +318,7 @@ export function PresupuestoPdfDocument(props: PresupuestoPdfProps) {
 
         <Text style={styles.obs}>
           <Text style={{ fontWeight: 'bold' }}>OBSERVACIONES: </Text>
-          {OBSERVACIONES_TEXTO}
+          {marca.observacionesPresupuesto ?? OBSERVACIONES_PRESUPUESTO_DEFECTO}
         </Text>
 
         <View style={styles.firmas}>

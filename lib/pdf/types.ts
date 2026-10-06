@@ -1,6 +1,7 @@
 /** Tipos compartidos para documentos PDF generados en el servidor. */
 
 import type { EmpresaEmisor } from './empresa';
+import type { MarcaPdf } from './marca';
 
 export type PartidaPresupuestoPdf = {
   concepto: string;
@@ -35,4 +36,6 @@ export type PresupuestoPdfProps = {
   parsed: PresupuestoGeneradoParseado;
   /** Texto original si el parseo no produjo capítulos (fallback). */
   textoPlanoFallback: string;
+  /** Marca del negocio; sin ella, el aspecto de siempre. */
+  marca?: MarcaPdf;
 };

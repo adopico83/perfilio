@@ -6,6 +6,7 @@
 import { GASTO_CATEGORIAS } from '@/lib/gastos-categoria';
 import type { LineaPresupuestoMetrica } from '@/lib/demo-metricas';
 import type { EmpresaEmisor } from '@/lib/pdf/empresa';
+import type { MarcaPdf } from '@/lib/pdf/marca';
 import {
   DEMO_BUSINESS_ID,
   DEMO_CLIENTES,
@@ -52,6 +53,18 @@ export const DEMO_EMPRESA_EMISOR: EmpresaEmisor = {
   web: null,
   instagram: null,
   cuentasBancarias: [],
+};
+
+/**
+ * Marca del estudio demo (Orbegozo) para sus PDF. Colores sacados del verde oliva del logo
+ * (`public/demo/orbegozo-logo.png`): el primario es un tono más oscuro para que el texto blanco de
+ * las cabeceras de tabla se lea bien. Cámbialos aquí si se quiere otra apariencia.
+ */
+export const DEMO_MARCA: MarcaPdf = {
+  colorPrimario: '#7A7A1E',
+  colorSecundario: '#F3F3DC',
+  tipografia: 'Helvetica',
+  observacionesPresupuesto: null,
 };
 
 /** Interruptor global del mock. Con `false` el tenant demo vuelve a leer de Supabase. */

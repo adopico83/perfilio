@@ -1,6 +1,7 @@
 import { renderToBuffer } from '@react-pdf/renderer';
 import { loadEmpresaEmisor, type EmpresaEmisor, type EmpresaLoaderClient } from '@/lib/pdf/empresa';
 import { FacturaPdfDocument, type FacturaPdfProps } from '@/lib/pdf/factura';
+import type { MarcaPdf } from '@/lib/pdf/marca';
 
 /** Columnas de `facturas` que necesita el render del PDF. */
 export const FACTURA_PDF_COLUMNS =
@@ -93,7 +94,7 @@ export async function renderFacturaPdf(
 }
 
 export async function renderFacturaPdfConEmisor(
-  emisor: { empresa: EmpresaEmisor; logoUrl: string | null },
+  emisor: { empresa: EmpresaEmisor; logoUrl: string | null; marca?: MarcaPdf },
   fac: FacturaPdfRow
 ): Promise<RenderFacturaPdfResult> {
   const createdAt = fac.created_at;
@@ -130,6 +131,7 @@ export async function renderFacturaPdfConEmisor(
       logoUrl={emisor.logoUrl}
       empresa={emisor.empresa}
       porcentajeIva={porcentajeIva}
+      marca={emisor.marca}
     />
   );
   return { ok: true, buffer, fecha, numero_factura };

@@ -2,6 +2,7 @@ import { renderToBuffer } from '@react-pdf/renderer';
 import { loadEmpresaEmisor, type EmpresaEmisor, type EmpresaLoaderClient } from '@/lib/pdf/empresa';
 import { parsePresupuestoGenerado } from '@/lib/pdf/parser';
 import { PresupuestoPdfDocument } from '@/lib/pdf/presupuesto';
+import type { MarcaPdf } from '@/lib/pdf/marca';
 
 /** Columnas de `presupuestos` que necesita el render oficial del PDF. */
 export const PRESUPUESTO_PDF_COLUMNS =
@@ -49,7 +50,7 @@ export async function renderPresupuestoPdf(
 }
 
 /** Datos del emisor ya resueltos (los de un negocio real o los del mock demo). */
-export type EmisorPdf = { empresa: EmpresaEmisor; logoUrl: string | null };
+export type EmisorPdf = { empresa: EmpresaEmisor; logoUrl: string | null; marca?: MarcaPdf };
 
 /** Mismo render que `renderPresupuestoPdf`, sin consultar nada: el emisor llega resuelto. */
 export async function renderPresupuestoPdfConEmisor(
@@ -88,6 +89,7 @@ export async function renderPresupuestoPdfConEmisor(
       fecha={fecha}
       parsed={parsed}
       textoPlanoFallback={texto.trim() || '—'}
+      marca={emisor.marca}
     />
   );
 
