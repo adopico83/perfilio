@@ -120,6 +120,7 @@ import { GROUNDING_REGLAS_SISTEMA } from '@/lib/agente/modules/grounding';
 import {
   type AgentIntentCategory,
   PRESUPUESTOS_AGENT_SYSTEM_PROMPT_PREFIX,
+  intentPorPalabrasClave,
   intentPorSenalExplicita,
   parseAgentIntentCategory,
   toolsForAgentIntent,
@@ -996,10 +997,14 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
     const intentExplicito = intentPorSenalExplicita(mensajeTrim);
     const intentCategory: AgentIntentCategory =
       intentExplicito ??
-      (await parseAgentIntentCategory(textoUsuario, {
-        borradorActivo: hasBorradorActivo,
-        ultimoAsistente: ultimoAsistenteRouter?.content,
-      }));
+      (await (async () => {
+        const jev = await parseAgentIntentCategory(textoUsuario, {
+          borradorActivo: hasBorradorActivo,
+          ultimoAsistente: ultimoAsistenteRouter?.content,
+        });
+        // Sin Jev (o si falla / no está seguro) → respaldo local por palabras clave antes de `general`.
+        return jev !== 'general' ? jev : (intentPorPalabrasClave(mensajeTrim) ?? 'general');
+      })());
     const memoriaNegocioBlockNoPresupuestos =
       intentCategory === 'presupuesto' ? '' : memoriaNegocioBlock;
 

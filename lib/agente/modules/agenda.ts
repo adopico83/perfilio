@@ -1,3 +1,5 @@
+import { cargarResumenDia } from '@/lib/resumen-diario/datos';
+import { textoResumen } from '@/lib/resumen-diario/calcular';
 import type OpenAI from 'openai';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -464,6 +466,7 @@ function esConfirmacionUsuario(raw: string): boolean {
 
 export const AGENDA_HANDLED_TOOLS = new Set([
   'obtener_agenda',
+  'resumen_del_dia',
   'crear_recordatorio',
   'editar_recordatorio',
   'eliminar_recordatorio',
@@ -472,6 +475,15 @@ export const AGENDA_HANDLED_TOOLS = new Set([
 ]);
 
 export const AGENDA_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+  {
+    type: 'function' as const,
+    function: {
+      name: 'resumen_del_dia',
+      description:
+        'Solo lectura. Resumen del día del negocio: citas de hoy y de mañana, obras paradas, margen en riesgo, obras que terminan sin factura, presupuestos sin respuesta y facturas pendientes o vencidas. Úsala para «¿qué tengo hoy?», «cómo va el día», «qué hay pendiente». Sin parámetros. Cuenta lo que devuelve el campo texto, sin inventar nada más.',
+      parameters: { type: 'object', properties: {}, additionalProperties: false },
+    },
+  },
   {
     type: 'function' as const,
     function: {
@@ -712,6 +724,15 @@ export async function handleAgenda(
   }
 
   switch (toolName) {
+    case 'resumen_del_dia': {
+      // Misma función que el MCP (lib/mcp/execute-tool.ts): una sola fuente de verdad.
+      try {
+        const resumen = await cargarResumenDia(supabase, bid);
+        return { ...resumen, todo_en_orden: resumen.todoEnOrden, texto: textoResumen(resumen) };
+      } catch (e) {
+        return { error: e instanceof Error ? e.message : 'No se pudo calcular el resumen del día' };
+      }
+    }
     case 'obtener_agenda': {
       const fechaAg = String(toolArgs.fecha ?? '').trim();
       if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaAg)) {
