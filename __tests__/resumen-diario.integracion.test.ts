@@ -88,7 +88,7 @@ describe('cron /api/cron/resumen-diario', () => {
     expect((await llamar('http://x/api/cron/resumen-diario', 'Bearer otro')).status).toBe(403);
   });
 
-  it('a las 7:30 de Madrid (verano, 05:30 UTC) genera el resumen de cada negocio', async () => {
+  it('genera el resumen de cada negocio con el slug del día', async () => {
     jest.setSystemTime(new Date('2026-10-05T05:30:00Z'));
     const insert = jest.fn().mockResolvedValue({ error: null });
     const q: Record<string, unknown> = {};
@@ -107,19 +107,70 @@ describe('cron /api/cron/resumen-diario', () => {
     expect(json).toMatchObject({ ok: true, negocios: 2, creados: 2 });
     expect(mockCargar).toHaveBeenCalledTimes(2);
     expect(insert.mock.calls.map((c) => c[0].business_id)).toEqual(['a', 'b']);
+    expect(insert.mock.calls.every((c) => c[0].slug === 'resumen-diario-2026-10-05')).toBe(true);
   });
 
-  it('en invierno la entrada de 06:30 UTC es la buena y la de 05:30 UTC se descarta', async () => {
-    jest.setSystemTime(new Date('2026-12-05T05:30:00Z')); // 6:30 en Madrid
-    expect(await (await llamar('http://x/api/cron/resumen-diario', 'Bearer secreto')).json()).toMatchObject({
-      skipped: true,
+  const insertar = jest.fn();
+  /** Negocios 'a' y 'b'; `existentes` = negocios que ya tienen el resumen del día. */
+  function montarBase(existentes: string[] = []) {
+    insertar.mockReset().mockResolvedValue({ error: null });
+    mockFrom.mockImplementation((t: string) => {
+      if (t === 'business_profiles') {
+        return { select: async () => ({ data: [{ id: 'a' }, { id: 'b' }], error: null }) };
+      }
+      let negocio = '';
+      const q: Record<string, unknown> = {};
+      q.select = () => q;
+      q.eq = (c: string, v: string) => (c === 'business_id' && (negocio = v), q);
+      q.limit = () => q;
+      q.maybeSingle = async () => ({ data: existentes.includes(negocio) ? { id: 'x' } : null, error: null });
+      q.insert = insertar;
+      return q;
     });
-    jest.setSystemTime(new Date('2026-12-05T06:30:00Z')); // 7:30 en Madrid
-    mockFrom.mockImplementation(() => ({ select: async () => ({ data: [], error: null }) }));
-    expect(await (await llamar('http://x/api/cron/resumen-diario', 'Bearer secreto')).json()).toMatchObject({
-      ok: true,
-      negocios: 0,
-    });
+    mockCargar.mockResolvedValue(vacio);
+  }
+
+  it.each([
+    ['05:00 Madrid (límite inferior, verano)', '2026-10-05T03:00:00Z'],
+    ['07:30 Madrid (verano)', '2026-10-05T05:30:00Z'],
+    ['08:43 Madrid (retraso del plan Hobby)', '2026-10-05T06:43:00Z'],
+    ['07:30 Madrid (invierno, 06:30 UTC)', '2026-12-05T06:30:00Z'],
+    ['12:00 Madrid (límite superior, invierno)', '2026-12-05T11:00:00Z'],
+  ])('genera el resumen si la llamada cae a las %s', async (_n, instante) => {
+    jest.setSystemTime(new Date(instante));
+    montarBase();
+    const json = await (await llamar('http://x/api/cron/resumen-diario', 'Bearer secreto')).json();
+    expect(json).toMatchObject({ ok: true, creados: 2 });
+    expect(json.skipped).toBeUndefined();
+  });
+
+  it.each([
+    ['04:59 Madrid', '2026-10-05T02:59:00Z'],
+    ['12:01 Madrid', '2026-12-05T11:01:00Z'],
+    ['23:30 Madrid', '2026-10-05T21:30:00Z'],
+  ])('descarta la llamada de las %s (fuera de 05:00–12:00)', async (_n, instante) => {
+    jest.setSystemTime(new Date(instante));
+    montarBase();
+    const json = await (await llamar('http://x/api/cron/resumen-diario', 'Bearer secreto')).json();
+    expect(json).toMatchObject({ ok: true, skipped: true });
+    expect(mockCargar).not.toHaveBeenCalled();
+    expect(insertar).not.toHaveBeenCalled();
+  });
+
+  it('solo genera el resumen de los negocios que todavía no lo tienen', async () => {
+    jest.setSystemTime(new Date('2026-10-05T06:43:00Z'));
+    montarBase(['a']);
+    const json = await (await llamar('http://x/api/cron/resumen-diario', 'Bearer secreto')).json();
+    expect(json).toMatchObject({ creados: 1, yaExistian: 1 });
+    expect(insertar.mock.calls.map((c) => c[0].business_id)).toEqual(['b']);
+  });
+
+  it('llamarlo dos veces el mismo día no duplica nada', async () => {
+    jest.setSystemTime(new Date('2026-10-05T05:30:00Z'));
+    montarBase(['a', 'b']); // el resumen de hoy ya existe
+    const json = await (await llamar('http://x/api/cron/resumen-diario', 'Bearer secreto')).json();
+    expect(json).toMatchObject({ ok: true, creados: 0, yaExistian: 2 });
+    expect(insertar).not.toHaveBeenCalled();
   });
 
   it('?force=1 se salta la comprobación de hora', async () => {

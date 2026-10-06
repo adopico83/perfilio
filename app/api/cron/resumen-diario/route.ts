@@ -3,22 +3,27 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { cargarResumenDia } from '@/lib/resumen-diario/datos';
 import { guardarResumenComoNotificacion } from '@/lib/resumen-diario/guardar';
 
-/** Hora de Madrid a la que debe salir el resumen (7:30). */
-const HORA_MADRID = 7;
+/** Ventana (hora de Madrid, ambos extremos incluidos) en la que se acepta la llamada del cron. */
+const VENTANA_INICIO_MIN = 5 * 60;
+const VENTANA_FIN_MIN = 12 * 60;
 
-function horaMadrid(d: Date): number {
+function minutosMadrid(d: Date): number {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Europe/Madrid',
     hour: 'numeric',
+    minute: 'numeric',
     hourCycle: 'h23',
   }).formatToParts(d);
-  return Number(parts.find((p) => p.type === 'hour')?.value ?? '0');
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? '0');
+  return get('hour') * 60 + get('minute');
 }
 
 /**
- * Vercel Cron solo entiende UTC. Para que sea las 7:30 en Madrid todo el año hay dos entradas
- * en vercel.json (05:30 UTC en verano y 06:30 UTC en invierno) y aquí se descarta la que no
- * cae a las 7 en Madrid. `?force=1` salta esa comprobación para lanzarlo a mano.
+ * Cron diario de Vercel (una sola entrada en vercel.json: 05:30 UTC = 7:30 o 6:30 en Madrid).
+ * En el plan Hobby Vercel lo lanza en cualquier minuto de esa hora, así que no se exige una
+ * hora exacta: vale cualquier llamada entre las 05:00 y las 12:00 de Madrid. Es seguro llamarlo
+ * varias veces: el resumen del día (slug `resumen-diario-AAAA-MM-DD`) solo se crea si todavía
+ * no existe. `?force=1` salta la comprobación de ventana para lanzarlo a mano.
  */
 export async function GET(request: NextRequest) {
   const auth = request.headers.get('authorization') ?? '';
@@ -29,8 +34,13 @@ export async function GET(request: NextRequest) {
 
   const now = new Date();
   const force = request.nextUrl.searchParams.get('force') === '1';
-  if (!force && horaMadrid(now) !== HORA_MADRID) {
-    return NextResponse.json({ ok: true, skipped: true, motivo: 'Fuera de las 7:xx de Madrid' });
+  const minutos = minutosMadrid(now);
+  if (!force && (minutos < VENTANA_INICIO_MIN || minutos > VENTANA_FIN_MIN)) {
+    return NextResponse.json({
+      ok: true,
+      skipped: true,
+      motivo: 'Fuera de la ventana 05:00–12:00 de Madrid',
+    });
   }
 
   try {
