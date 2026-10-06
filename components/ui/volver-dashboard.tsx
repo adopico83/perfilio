@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import { useDemoTenant } from '@/lib/use-demo-tenant';
 
 const VOLVER_CLASS =
   'inline-flex items-center gap-1 text-sm font-medium text-[#ed8936] border border-[#ed8936] rounded-lg px-4 py-2 bg-transparent hover:bg-[#ed8936]/10 transition-colors';
@@ -10,16 +9,14 @@ type VolverAlDashboardProps = {
   className?: string;
 };
 
+/** Salida a /dashboard. Se ve SIEMPRE (también en demo): ninguna pantalla puede quedarse sin salida. */
 export default function VolverAlDashboard({ className }: VolverAlDashboardProps) {
-  const isDemo = useDemoTenant();
-  if (isDemo) return null;
-
   return (
     <Link
       href="/dashboard"
       className={[VOLVER_CLASS, className].filter(Boolean).join(' ')}
     >
-      ← Volver al dashboard
+      ← Volver al Dashboard
     </Link>
   );
 }

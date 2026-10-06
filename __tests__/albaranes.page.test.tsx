@@ -41,7 +41,7 @@ async function abrirDialogo() {
 }
 
 describe('Albaranes: facturar por la API', () => {
-  it('tiene botón para volver al dashboard', async () => {
+  it('tiene botón para volver al dashboard (con demo y sin demo)', async () => {
     render(<AlbaranesPage />);
     await waitFor(() => expect(screen.getByText('Historial de albaranes')).toBeInTheDocument());
     expect(screen.getByRole('link', { name: /Volver al Dashboard/i })).toBeInTheDocument();
