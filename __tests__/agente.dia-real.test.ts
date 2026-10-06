@@ -5,6 +5,7 @@ import { parseEstadoPresupuesto } from '@/lib/presupuestos/estado';
 import { modificarPartidasPresupuesto } from '@/lib/presupuestos/editar-partidas';
 import { IDS, NEGOCIO_A, USUARIO, crearBaseSimulada } from '../evals/base-simulada';
 import { crearFakeDb } from './helpers/fake-db';
+import { prepararAccionPendiente } from '@/lib/agente/confirmacion';
 
 jest.mock('openai', () => ({ __esModule: true, default: jest.fn() }));
 
@@ -125,7 +126,7 @@ describe('clientes con el mismo apellido', () => {
       titulo: 'Visita', fecha: '2026-10-15', hora: '12:00', cliente_id: IDS.clienteAinhoaEtxeberria,
     });
     expect(r).toMatchObject({ ok: true });
-    expect(db.tablas.agenda.find((a) => a.titulo === 'Visita')).toMatchObject({ cliente_id: IDS.clienteAinhoaEtxeberria });
+    expect(db.tablas.agenda.find((a) => a.titulo === 'Visita con Ainhoa Etxeberria')).toMatchObject({ cliente_id: IDS.clienteAinhoaEtxeberria });
   });
   it('«Etxeberria» a secas pregunta cuál y no guarda nada', async () => {
     const db = crearFakeDb(crearBaseSimulada());
@@ -153,5 +154,143 @@ describe('clientes con el mismo apellido', () => {
     };
     expect(r.necesita_aclaracion).toBe(true);
     expect(db.updates).toHaveLength(0);
+  });
+});
+
+describe('ronda 3: partida correcta al cambiar y quitar', () => {
+  const nPres11 = IDS.presupuestoAinhoaPendiente;
+
+  it('«2 metros más de alicatado» toca «Alicatar 18 m2», no «Quitar alicatado y plato viejo»', async () => {
+    const db = crearFakeDb(crearBaseSimulada());
+    const r = await modificarPartidasPresupuesto(db.client, NEGOCIO_A, nPres11, { cambiar: [{ partida: 'alicatado', sumar_cantidad: 2, unidad: 'metros' }] }, { aplicar: true });
+    expect(r).toMatchObject({ ok: true, aplicado: true });
+    const texto = String(db.tablas.presupuestos.find((p) => p.id === nPres11)!.presupuesto_generado);
+    expect(texto).toContain('Alicatar 18 m2 | Cantidad: 20');
+    expect(texto).toContain('Quitar alicatado y plato viejo | Cantidad: 1 ');
+  });
+  it('«quítale la mampara» no borra la partida de 900 €: pregunta entera o renombrar', async () => {
+    const db = crearFakeDb(crearBaseSimulada());
+    const r = await modificarPartidasPresupuesto(db.client, NEGOCIO_A, nPres11, { quitar: ['mampara'] }, { aplicar: true });
+    expect(r).toMatchObject({ ok: false, necesita_aclaracion: true });
+    expect((r as { candidatos: unknown[] }).candidatos).toHaveLength(2);
+    expect(db.updates).toHaveLength(0);
+  });
+  it('quitarle algo a una partida = cambiarle el nombre y el precio', async () => {
+    const db = crearFakeDb(crearBaseSimulada());
+    const r = await modificarPartidasPresupuesto(
+      db.client, NEGOCIO_A, nPres11,
+      { cambiar: [{ partida: 'plato de ducha con mampara', nuevo_concepto: 'Plato de ducha', precio_unitario: 600 }] },
+      { aplicar: true }
+    );
+    expect(r).toMatchObject({ ok: true, total_nuevo: 1.21 * (150 + 720 + 600) });
+    const texto = String(db.tablas.presupuestos.find((p) => p.id === nPres11)!.presupuesto_generado);
+    expect(texto).toContain('Plato de ducha | Cantidad: 1');
+    expect(texto).not.toMatch(/mampara/i);
+  });
+  it('si solo existe la partida de retirada, «alicatado» pregunta en vez de adivinar', async () => {
+    const base = crearBaseSimulada();
+    const fila = base.presupuestos.find((p) => p.id === nPres11)!;
+    fila.presupuesto_generado = String(fila.presupuesto_generado).replace(/\n2\. Alicatar[^\n]*/, '');
+    const db = crearFakeDb(base);
+    const r = await modificarPartidasPresupuesto(db.client, NEGOCIO_A, nPres11, { cambiar: [{ partida: 'alicatado', sumar_cantidad: 2 }] }, { aplicar: true });
+    expect(r).toMatchObject({ ok: false, necesita_aclaracion: true });
+    expect(db.updates).toHaveLength(0);
+  });
+  it('dos partidas que encajan → pregunta con las dos', async () => {
+    const base = crearBaseSimulada();
+    const fila = base.presupuestos.find((p) => p.id === nPres11)!;
+    fila.presupuesto_generado = String(fila.presupuesto_generado).replace('Plato de ducha con mampara', 'Alicatar zócalo');
+    const db = crearFakeDb(base);
+    const r = await modificarPartidasPresupuesto(db.client, NEGOCIO_A, nPres11, { cambiar: [{ partida: 'alicatar', cantidad: 5 }] }, { aplicar: true });
+    expect(r).toMatchObject({ ok: false, necesita_aclaracion: true });
+  });
+});
+
+describe('ronda 3: NIF del cliente antes del «sí»', () => {
+  const deps = (db: ReturnType<typeof crearFakeDb>) => ({
+    supabase: db.client,
+    businessId: NEGOCIO_A,
+    runTool: async () => ({}),
+    mensajeUsuario: 'factúralo',
+  });
+
+  it('facturar a un cliente sin NIF lo pregunta ANTES de pedir el «sí» y no escribe', async () => {
+    const db = crearFakeDb(crearBaseSimulada());
+    const r = await prepararAccionPendiente('convertir_presupuesto_a_factura', { numero: 11 }, deps(db));
+    expect(r.tipo).toBe('resultado');
+    expect(JSON.stringify((r as { result: unknown }).result)).toMatch(/me falta el NIF/);
+    expect(db.inserts).toHaveLength(0);
+  });
+  it('actualizar_cliente pide confirmación con el dato real y luego lo guarda; después ya se puede facturar', async () => {
+    const db = crearFakeDb(crearBaseSimulada());
+    const prep = await prepararAccionPendiente('actualizar_cliente', { cliente_nombre: 'Ainhoa Etxeberria', nif: '44444444b', direccion: 'Calle Ainhoa 4' }, deps(db));
+    expect(prep.tipo).toBe('pendiente');
+    const accion = (prep as { accion: { tool: string; args: Record<string, unknown>; resumen: string } }).accion;
+    expect(accion.args.cliente_id).toBe(IDS.clienteAinhoaEtxeberria);
+    expect(accion.resumen).toContain('Ainhoa Etxeberria');
+    expect(db.updates).toHaveLength(0); // todavía nada guardado
+
+    const { handleObrasClientesAgent } = await import('@/lib/agente/modules/obras-clientes');
+    const r = await handleObrasClientesAgent(accion.tool, accion.args, NEGOCIO_A, USUARIO, db.client as never);
+    expect(r).toMatchObject({ ok: true });
+    expect(db.tablas.clientes.find((c) => c.id === IDS.clienteAinhoaEtxeberria)).toMatchObject({ nif: '44444444B', direccion: 'Calle Ainhoa 4' });
+
+    const otra = await prepararAccionPendiente('convertir_presupuesto_a_factura', { numero: 11 }, deps(db));
+    expect(otra.tipo).toBe('pendiente');
+  });
+  it('actualizar_cliente no toca a un cliente de otro negocio', async () => {
+    const db = crearFakeDb(crearBaseSimulada());
+    const { handleObrasClientesAgent } = await import('@/lib/agente/modules/obras-clientes');
+    const r = await handleObrasClientesAgent('actualizar_cliente', { cliente_id: 'cli-b-lola', nif: '99999999R' }, NEGOCIO_A, USUARIO, db.client as never);
+    expect(r).toMatchObject({ ok: false });
+    expect(db.tablas.clientes.find((c) => c.id === 'cli-b-lola')!.nif).toBe('B99999999');
+  });
+});
+
+describe('ronda 3: mover una cita avisa del choque', () => {
+  it('a una hora ocupada, la vista previa avisa (y no escribe)', async () => {
+    const db = crearFakeDb(crearBaseSimulada());
+    const r = (await agenda(db, 'modificar_evento_agenda', { evento_id: 'ev-mikel', nueva_fecha: '2026-10-14', solo_vista_previa: true })) as { mensaje: string };
+    expect(r.mensaje).toContain('choca con «Visita obra Olabide»');
+    expect(db.updates).toHaveLength(0);
+  });
+  it('a una hora libre no avisa', async () => {
+    const db = crearFakeDb(crearBaseSimulada());
+    const r = (await agenda(db, 'modificar_evento_agenda', { evento_id: 'ev-mikel', nueva_fecha: '2026-10-14', nueva_hora: '16:00', solo_vista_previa: true })) as { mensaje: string };
+    expect(r.mensaje).not.toContain('choca');
+  });
+  it('el motivo no va al título: el título lleva el cliente', async () => {
+    const db = crearFakeDb(crearBaseSimulada());
+    await agenda(db, 'crear_recordatorio', { titulo: 'Cita', fecha: '2026-10-20', hora: '09:00', cliente: 'Mikel Etxeberria', notas: 'ver azulejos' });
+    const fila = db.tablas.agenda.find((a) => a.fecha === '2026-10-20')!;
+    expect(fila.titulo).toBe('Cita con Mikel Etxeberria');
+    expect(String(fila.description)).toContain('ver azulejos');
+  });
+});
+
+describe('ronda 3: operarios, PDF y mensajes', () => {
+  it('si no encuentra al operario, lista los que hay', async () => {
+    const db = crearFakeDb(crearBaseSimulada());
+    const { ejecutarConsultarHorasOperario } = await import('@/lib/agente/modules/operarios');
+    const r = (await ejecutarConsultarHorasOperario(db.client as never, NEGOCIO_A, { operario_nombre: 'Zacarías' })) as { error?: string };
+    expect(r.error).toMatch(/Iker Etxeberria/);
+    expect(r.error).toMatch(/Mikel Goñi/);
+  });
+  it('cambiar el estado devuelve un mensaje con datos reales', async () => {
+    const db = crearFakeDb(crearBaseSimulada());
+    const r = (await presupuestos(db, 'cambiar_estado_presupuesto', { numero: 10, estado: 'aceptado' })) as { mensaje?: string };
+    expect(r.mensaje).toBe('Presupuesto nº 10 de Mikel Etxeberria marcado como aceptado.');
+  });
+  it('el PDF de un presupuesto en borrador se da, avisando de que es borrador', async () => {
+    const db = crearFakeDb(crearBaseSimulada());
+    jest.doMock('@/lib/pdf/presupuesto-render', () => ({
+      PRESUPUESTO_PDF_COLUMNS: 'id, business_id, numero_presupuesto, cliente_nombre',
+      nombreArchivoPresupuestoPdf: () => 'presupuesto.pdf',
+      renderPresupuestoPdf: async () => ({ ok: true, buffer: Buffer.from('%PDF'), fecha: '2026-10-06' }),
+    }));
+    const { handleEnlacesPdf } = await import('@/lib/agente/modules/enlaces-pdf');
+    const r = (await handleEnlacesPdf('obtener_enlace_pdf_presupuesto', { numero: 'el 10' }, NEGOCIO_A, USUARIO, db.client)) as { ok?: boolean; mensaje?: string };
+    expect(r.ok).toBe(true);
+    expect(r.mensaje).toContain('BORRADOR');
   });
 });

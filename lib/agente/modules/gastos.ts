@@ -757,7 +757,16 @@ export async function handleGastosAgent(
           `• Categoría: ${categoria}`,
         ];
         if (descripcionFinal.length > 0) lineas.push(`• Concepto: ${descripcionFinal}`);
-        if (obraIdFinal) lineas.push('• Obra: vinculada (resuelta en servidor).');
+        if (obraIdFinal) {
+          const { data: obraRow } = await supabase
+            .from('obras')
+            .select('nombre')
+            .eq('id', obraIdFinal)
+            .eq('business_id', businessIdGasto)
+            .maybeSingle();
+          const nombreObra = String((obraRow as { nombre?: string | null } | null)?.nombre ?? '').trim();
+          lineas.push(`• Obra: ${nombreObra || 'la obra indicada'}`);
+        }
         return {
           mensaje: lineas.join('\n'),
           pendiente_confirmacion: true,

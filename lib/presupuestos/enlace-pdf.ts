@@ -23,6 +23,8 @@ export type EnlacePdfOk = {
   presupuesto_id: string;
   numero_presupuesto: number | null;
   cliente_nombre: string | null;
+  /** true si el presupuesto aún no estaba confirmado (solo si quien llama lo permitió). */
+  borrador?: boolean;
 };
 
 type FilaEnlace = PresupuestoPdfRow & {
@@ -49,7 +51,9 @@ function mensajeStorage(message: string): string {
 export async function obtenerEnlacePdfPresupuesto(
   ctx: McpContext,
   args: Record<string, unknown>,
-  now: Date = new Date()
+  now: Date = new Date(),
+  /** El MCP sigue exigiendo un presupuesto confirmado; el agente interno puede pedir también borradores (marcados). */
+  opciones: { permitirBorrador?: boolean } = {}
 ): Promise<EnlacePdfOk | ErrorEnlace> {
   const id = typeof args.id === 'string' ? args.id.trim() : '';
   const numeroRaw = args.numero;
@@ -94,7 +98,8 @@ export async function obtenerEnlacePdfPresupuesto(
   if (!data) return { ok: false, code: 'no_encontrado', error: MSG_NO_ENCONTRADO };
 
   const row = data as unknown as FilaEnlace;
-  if (!esPresupuestoConfirmado(row)) {
+  const esBorrador = !esPresupuestoConfirmado(row);
+  if (esBorrador && !opciones.permitirBorrador) {
     return {
       ok: false,
       code: 'no_confirmado',
@@ -132,5 +137,6 @@ export async function obtenerEnlacePdfPresupuesto(
     presupuesto_id: row.id,
     numero_presupuesto: row.numero_presupuesto ?? null,
     cliente_nombre: row.cliente_nombre ?? null,
+    ...(esBorrador ? { borrador: true } : {}),
   };
 }

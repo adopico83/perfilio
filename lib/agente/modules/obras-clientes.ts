@@ -1,4 +1,5 @@
 import type OpenAI from 'openai';
+import { construirCambiosCliente } from '@/lib/clientes/cambios';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   esQueryListadoObras,
@@ -130,6 +131,7 @@ export const OBRAS_CLIENTES_HANDLED_TOOLS = new Set([
   'ver_ficha_obra',
   'asociar_documentos_a_obra',
   'crear_cliente',
+  'actualizar_cliente',
   'buscar_cliente',
   'ver_cliente',
 ]);
@@ -273,6 +275,28 @@ export const OBRAS_CLIENTES_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionT
               enum: ['presupuestos', 'facturas', 'albaranes', 'gastos', 'diario'],
             },
           },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'actualizar_cliente',
+      description:
+        'Cambia datos de la FICHA de un cliente existente: NIF, dirección, teléfono, email, nombre o notas. Úsala cuando el usuario dicte el NIF o la dirección de un cliente (p. ej. para poder facturarle). Es la ÚNICA forma de guardar datos de un cliente: guardar_memoria NO sirve para eso. Localiza al cliente por cliente_id o cliente_nombre (nombre y apellido). Solo pasa los campos que cambian.',
+      parameters: {
+        type: 'object',
+        properties: {
+          cliente_id: { type: 'string', description: 'UUID del cliente si ya lo conoces' },
+          cliente_nombre: { type: 'string', description: 'Nombre del cliente a localizar (todas las palabras)' },
+          nuevo_nombre: { type: 'string', description: 'Nombre nuevo (solo si lo está renombrando)' },
+          nif: { type: 'string', description: 'NIF/CIF' },
+          direccion: { type: 'string', description: 'Dirección' },
+          telefono: { type: 'string', description: 'Teléfono' },
+          email: { type: 'string', description: 'Email' },
+          notas: { type: 'string', description: 'Notas internas' },
         },
         additionalProperties: false,
       },
@@ -892,6 +916,38 @@ export async function handleObrasClientesAgent(
           return {
             id: nuevoId,
             mensaje: `Cliente ${nombreCli} creado correctamente.`,
+          };
+        }
+        case 'actualizar_cliente': {
+          const idCli = String(toolArgs.cliente_id ?? toolArgs.id ?? '').trim();
+          if (!idCli) {
+            return { ok: false, error: 'Falta cliente_id: localiza primero al cliente.' };
+          }
+          const cambios = construirCambiosCliente({
+            nombre: toolArgs.nuevo_nombre,
+            telefono: toolArgs.telefono,
+            email: toolArgs.email,
+            direccion: toolArgs.direccion,
+            nif: toolArgs.nif,
+            notas: toolArgs.notas,
+          });
+          if (!cambios.ok) return { ok: false, error: cambios.error };
+          const { data: actualizado, error: errAct } = await supabase
+            .from('clientes')
+            .update({ updated_at: new Date().toISOString(), ...cambios.cambios })
+            .eq('id', idCli)
+            .eq('business_id', bid)
+            .select('id, nombre, nif, direccion, telefono, email')
+            .maybeSingle();
+          if (errAct) return { ok: false, error: errAct.message };
+          if (!actualizado?.id) {
+            return { ok: false, error: 'No encuentro ese cliente en tu negocio. No he cambiado nada.' };
+          }
+          const campos = Object.keys(cambios.cambios).join(', ');
+          return {
+            ok: true,
+            id: actualizado.id as string,
+            mensaje: `Ficha de ${(actualizado as { nombre?: string }).nombre ?? 'cliente'} actualizada (${campos}).`,
           };
         }
         case 'buscar_cliente': {

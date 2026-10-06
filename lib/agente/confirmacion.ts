@@ -1,10 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolverObraDocumentoAgente } from '@/lib/obras-context';
-import { resolverPresupuestosPorTexto, toolFailDesdePresupuestoResolve } from '@/lib/agente/modules/grounding';
+import { resolverClientesPorNombre, resolverPresupuestosPorTexto, resultadoResolveATool, toolFailDesdePresupuestoResolve } from '@/lib/agente/modules/grounding';
 import { describirDocumento, localizarDesdeArgs, type TipoDocumento } from '@/lib/agente/modules/documentos-localizar';
 import { requiereValidacionCreacion, validarCreacionDocumento } from '@/lib/agente/modules/documentos-validacion';
 import { parseEstadoFactura, MENSAJE_ESTADO_FACTURA } from '@/lib/facturas/estado';
 import { ESTADOS_FACTURABLES, MENSAJE_ESTADO_PRESUPUESTO, parseEstadoPresupuesto } from '@/lib/presupuestos/estado';
+import { construirCambiosCliente } from '@/lib/clientes/cambios';
 import { IVA_PORCENTAJES_PERMITIDOS } from '@/lib/facturas/iva';
 import { ESTADOS_ALBARAN_EDITABLES, esFacturado } from '@/lib/albaranes/estado';
 
@@ -40,6 +41,7 @@ export const TOOLS_REQUIEREN_CONFIRMACION: ReadonlySet<string> = new Set([
   'gestionar_tarifas',
   // Clientes y obras
   'crear_cliente',
+  'actualizar_cliente',
   'crear_obra',
   'actualizar_obra',
   'asociar_documentos_a_obra',
@@ -169,6 +171,7 @@ const NOMBRES_TOOL: Record<string, string> = {
   modificar_partidas_presupuesto: 'cambiar las partidas de un presupuesto',
   gestionar_tarifas: 'cambiar las tarifas',
   crear_cliente: 'crear un cliente',
+  actualizar_cliente: 'actualizar la ficha de un cliente',
   crear_obra: 'crear una obra',
   actualizar_obra: 'actualizar una obra',
   asociar_documentos_a_obra: 'asociar documentos a una obra',
@@ -264,6 +267,52 @@ const TOOLS_DE_PRESUPUESTO_EXISTENTE = new Set([
   'cambiar_estado_presupuesto',
   'editar_presupuesto',
 ]);
+
+/**
+ * Una factura exige NIF y dirección del cliente. Se comprueba ANTES de pedir el «sí» (si no, el usuario
+ * confirmaba y fallaba después). Si faltan, se preguntan; el agente los guarda con `actualizar_cliente`.
+ */
+async function faltanDatosParaFacturar(
+  supabase: SupabaseClient,
+  businessId: string,
+  presupuestoId: string
+): Promise<Record<string, unknown> | null> {
+  const { data: pres } = await supabase
+    .from('presupuestos')
+    .select('cliente_id, cliente_nombre')
+    .eq('id', presupuestoId)
+    .eq('business_id', businessId)
+    .maybeSingle();
+  const clienteId = String((pres as { cliente_id?: string | null } | null)?.cliente_id ?? '').trim();
+  const nombrePres = String((pres as { cliente_nombre?: string | null } | null)?.cliente_nombre ?? '').trim();
+  if (!clienteId) {
+    return {
+      ok: false,
+      error: `Este presupuesto no está vinculado a ninguna ficha de cliente${nombrePres ? ` («${nombrePres}»)` : ''}, y una factura necesita su NIF y dirección. Dime a qué cliente corresponde (o créalo) y su NIF y dirección.`,
+      faltan_datos_cliente: ['cliente', 'nif', 'direccion'],
+    };
+  }
+  const { data: cli } = await supabase
+    .from('clientes')
+    .select('id, nombre, nif, direccion')
+    .eq('id', clienteId)
+    .eq('business_id', businessId)
+    .maybeSingle();
+  if (!cli) return null; // lo dirá la propia conversión
+  const c = cli as { id: string; nombre?: string | null; nif?: string | null; direccion?: string | null };
+  const faltan: string[] = [];
+  if (!String(c.nif ?? '').trim()) faltan.push('nif');
+  if (!String(c.direccion ?? '').trim()) faltan.push('direccion');
+  if (faltan.length === 0) return null;
+  const quien = c.nombre ?? nombrePres ?? 'el cliente';
+  const que = faltan.map((f) => (f === 'nif' ? 'el NIF' : 'la dirección')).join(' y ');
+  return {
+    ok: false,
+    error: `Para facturar a ${quien} me falta ${que} (una factura necesita NIF y dirección). Dímelo y lo guardo en su ficha antes de facturar.`,
+    faltan_datos_cliente: faltan,
+    cliente_id: c.id,
+  };
+}
 
 export type DepsPreparacion = {
   supabase: SupabaseClient;
@@ -438,6 +487,10 @@ export async function prepararAccionPendiente(
           `El presupuesto ${quien} está «${estadoActual}»: para facturarlo primero tiene que estar aceptado. Si el cliente ya ha dicho que sí, dime «márcalo aceptado».`
         );
       }
+      if (tool === 'convertir_presupuesto_a_factura' && estadoActual !== 'facturado') {
+        const falta = await faltanDatosParaFacturar(deps.supabase, deps.businessId, p.id);
+        if (falta) return { tipo: 'resultado', result: falta };
+      }
       if (tool === 'cambiar_estado_presupuesto') {
         const nuevo = parseEstadoPresupuesto(args.estado);
         if (!nuevo) return resultadoError(MENSAJE_ESTADO_PRESUPUESTO);
@@ -456,6 +509,56 @@ export async function prepararAccionPendiente(
       return { tipo: 'pendiente', accion: { tool, args, resumen: frase[tool] } };
     }
     return resultadoError('¿Qué presupuesto? Dime el número o el cliente (por ejemplo «el 3»).');
+  }
+
+  if (tool === 'actualizar_cliente') {
+    const id = String(args.cliente_id ?? args.id ?? '').trim();
+    const nombreBuscado = String(args.cliente_nombre ?? args.cliente ?? '').trim();
+    type FichaCliente = { id: string; nombre: string | null; nif: string | null; direccion: string | null; telefono: string | null; email: string | null };
+    let cli = null as FichaCliente | null;
+    if (id) {
+      const { data } = await deps.supabase
+        .from('clientes')
+        .select('id, nombre, nif, direccion, telefono, email')
+        .eq('id', id)
+        .eq('business_id', deps.businessId)
+        .maybeSingle();
+      cli = (data as FichaCliente | null) ?? null;
+      if (!cli) return resultadoError('No encuentro ese cliente en tu negocio. No he cambiado nada.');
+    } else {
+      if (!nombreBuscado) return resultadoError('¿De qué cliente? Dime su nombre.');
+      const r = await resolverClientesPorNombre(deps.supabase, deps.businessId, nombreBuscado);
+      const t = resultadoResolveATool(r, nombreBuscado, 'cliente');
+      if (!t.ok) return { tipo: 'resultado', result: t as unknown as Record<string, unknown> };
+      const { data } = await deps.supabase
+        .from('clientes')
+        .select('id, nombre, nif, direccion, telefono, email')
+        .eq('id', t.match.id)
+        .eq('business_id', deps.businessId)
+        .maybeSingle();
+      cli = (data as FichaCliente | null) ?? null;
+      if (!cli) return resultadoError('No encuentro ese cliente en tu negocio. No he cambiado nada.');
+    }
+    const cambios = construirCambiosCliente({
+      nombre: args.nuevo_nombre,
+      telefono: args.telefono,
+      email: args.email,
+      direccion: args.direccion,
+      nif: args.nif,
+      notas: args.notas,
+    });
+    if (!cambios.ok) return resultadoError('¿Qué dato del cliente quieres cambiar: NIF, dirección, teléfono, email o nombre?');
+    const etiquetas: Record<string, string> = { nombre: 'nombre', nif: 'NIF', direccion: 'dirección', telefono: 'teléfono', email: 'email', notas: 'notas' };
+    const actual = cli as unknown as Record<string, string | null>;
+    const partes = Object.entries(cambios.cambios).map(
+      ([k, v]) => `${etiquetas[k] ?? k}: ${actual[k] ? `${actual[k]} → ` : ''}${v ?? '(vacío)'}`
+    );
+    const argsFinales: Record<string, unknown> = { cliente_id: cli.id };
+    for (const k of ['nuevo_nombre', 'telefono', 'email', 'direccion', 'nif', 'notas']) if (args[k] !== undefined) argsFinales[k] = args[k];
+    return {
+      tipo: 'pendiente',
+      accion: { tool, args: argsFinales, resumen: `Voy a actualizar la ficha de ${cli.nombre ?? 'el cliente'} (${partes.join(', ')}).` },
+    };
   }
 
   if (tool === 'crear_entrada_diario') {
@@ -523,4 +626,9 @@ export async function prepararAccionPendiente(
 /** «crear una factura» → para «Hecho: crear una factura.» cuando la tool no devuelve mensaje propio. */
 export function fraseAccionHecha(tool: string): string {
   return NOMBRES_TOOL[tool] ?? `ejecutar ${tool}`;
+}
+
+/** «Hecho: crear un recordatorio en la agenda (título: Visita, fecha: 2026-10-15).» con los datos reales. */
+export function fraseHechoConDatos(tool: string, args: Record<string, unknown>): string {
+  return describirAccionGenerica(tool, args).replace(/^Voy a /, 'Hecho: ');
 }
