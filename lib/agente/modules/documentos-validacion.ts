@@ -80,25 +80,6 @@ export async function validarCreacionDocumento(
   const tipo = tool === 'crear_factura' ? 'la factura' : tool === 'crear_albaran' ? 'el albarán' : 'el presupuesto';
   const textos = [deps.mensajeUsuario, ...(deps.historialUsuario ?? [])].filter(Boolean);
 
-  // ── Importe ──────────────────────────────────────────────────────────────────────────────
-  const campoImporte = tool === 'crear_presupuesto' ? 'importe_total' : 'total';
-  const importe = aNumero(args[campoImporte]);
-  if (tool === 'crear_factura' && (importe == null || importe <= 0)) {
-    return { ok: false, result: failClosed('¿Qué importe le pongo a la factura? Dime el total (con IVA).') };
-  }
-  if (importe != null && importe > 0) {
-    // En un presupuesto el importe también puede salir del propio texto del documento.
-    const extra = tool === 'crear_presupuesto' ? [String(args.texto_presupuesto ?? '')] : [];
-    if (!importeSaleDe(importe, [...textos, ...extra])) {
-      return {
-        ok: false,
-        result: failClosed(
-          `No me has dicho ese importe (${new Intl.NumberFormat('es-ES').format(importe)} €). ¿Qué importe le pongo a ${tipo}?`
-        ),
-      };
-    }
-  }
-
   // ── Cliente ──────────────────────────────────────────────────────────────────────────────
   const clienteId = String(args.cliente_id ?? '').trim();
   const clienteNombre = String(args.cliente_nombre ?? '').trim();
@@ -133,6 +114,26 @@ export async function validarCreacionDocumento(
     // Factura/albarán sin cliente ni obra: no hay a quién ponérsela.
     if (tool !== 'crear_presupuesto' && !String(args.cliente_id ?? '').trim() && !String(args.cliente_nombre ?? '').trim() && !obra.obra_id) {
       return { ok: false, result: failClosed(`¿Para qué cliente u obra es ${tipo}?`) };
+    }
+  }
+
+  // El importe se mira el último: antes hay que saber de QUIÉN es el documento (cliente y obra sin ambigüedad).
+  // ── Importe ──────────────────────────────────────────────────────────────────────────────
+  const campoImporte = tool === 'crear_presupuesto' ? 'importe_total' : 'total';
+  const importe = aNumero(args[campoImporte]);
+  if (tool === 'crear_factura' && (importe == null || importe <= 0)) {
+    return { ok: false, result: failClosed('¿Qué importe le pongo a la factura? Dime el total (con IVA).') };
+  }
+  if (importe != null && importe > 0) {
+    // En un presupuesto el importe también puede salir del propio texto del documento.
+    const extra = tool === 'crear_presupuesto' ? [String(args.texto_presupuesto ?? '')] : [];
+    if (!importeSaleDe(importe, [...textos, ...extra])) {
+      return {
+        ok: false,
+        result: failClosed(
+          `No me has dicho ese importe (${new Intl.NumberFormat('es-ES').format(importe)} €). ¿Qué importe le pongo a ${tipo}?`
+        ),
+      };
     }
   }
 

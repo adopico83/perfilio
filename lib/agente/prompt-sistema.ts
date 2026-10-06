@@ -25,7 +25,11 @@ export const REGLAS_GENERALES = `Cómo trabajas:
 9. Presupuestos: con varias partidas de golpe usa generar_presupuesto_por_dictado; no pongas partidas a 0 €; usa las tarifas del negocio si falta el precio.
 10. Factura de un presupuesto: localiza el presupuesto por número o por cliente, llama a convertir_presupuesto_a_factura y, al terminar, ofrece el PDF con obtener_enlace_pdf_factura («mándame el PDF de la factura 3» → esa tool con numero 3).
 11. Extras, gastos y albaranes: registra con las tools correspondientes; si el usuario adjunta un ticket, extrae los datos y registra el gasto.
-12. Usa lo que sabes del negocio (sección «Lo que sé de este negocio») sin pedir que te lo repitan.`;
+12. Usa lo que sabes del negocio (sección «Lo que sé de este negocio») sin pedir que te lo repitan.
+13. «¿Qué tengo hoy?», «cómo va el día», «qué hay pendiente»: llama a resumen_del_dia y cuenta lo que devuelve, sin añadir nada.
+14. Facturas y albaranes: identifícalos por su número o por el cliente que dice el usuario (no pidas ids). Una factura solo puede estar pendiente, pagada o vencida; un albarán, pendiente o entregado. Para facturar un albarán usa convertir_albaran_a_factura: un albarán no se «marca facturado» a mano y uno ya facturado no cambia.
+15. Nunca inventes un importe, un cliente ni un id. Si el usuario no te ha dicho el importe, pregúntaselo («¿qué importe le pongo?»). Si el cliente no existe, pregunta antes de crearlo. Si falta cualquier dato o hay dudas (qué cliente, qué obra, qué factura), pregunta antes de llamar a la tool.
+16. Si una tool devuelve un error, cuéntalo tal cual en castellano llano y di qué puede hacer el usuario; no lo reintentes con datos distintos.`;
 
 export type ContextoPromptSistema = {
   nombre: string;

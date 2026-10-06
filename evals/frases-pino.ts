@@ -11,7 +11,13 @@
  */
 import { IDS } from './base-simulada';
 
-export type ComportamientoAgente = 'pide_confirmacion' | 'ejecuta' | 'pregunta_opciones' | 'solo_lectura';
+export type ComportamientoAgente =
+  | 'pide_confirmacion'
+  | 'ejecuta'
+  | 'pregunta_opciones'
+  | 'solo_lectura'
+  /** No escribe nada y el usuario recibe una pregunta o un error claro (en `respuestaContiene`). */
+  | 'pregunta_o_error';
 
 export type CasoAgente = {
   /** La frase de Pino. */
@@ -155,6 +161,107 @@ export const CASOS_FRASES_PINO: CasoAgente[] = [
     frase: 'Hola, buenas',
     comportamiento: 'solo_lectura',
     nota: 'Un saludo no dispara ninguna tool.',
+  },
+  // ── Agente completo: resumen, facturas y albaranes por número, y nada de inventar ──────────────
+  {
+    frase: '¿Qué tengo hoy?',
+    intencionJev: 'agenda',
+    toolEsperada: 'resumen_del_dia',
+    argsEsperados: {},
+    comportamiento: 'solo_lectura',
+    nota: 'Solo lectura: el mismo resumen que el MCP.',
+  },
+  {
+    frase: 'Factúrame el albarán 12',
+    intencionJev: 'factura',
+    toolEsperada: 'convertir_albaran_a_factura',
+    argsEsperados: { numero: 12 },
+    comportamiento: 'pide_confirmacion',
+    resueltoA: { albaran_id: IDS.albaran12 },
+    respuestaContiene: ['nº 12', 'Paqui', '1.210'],
+    nota: 'El albarán nº 12 del otro negocio no debe confundirse.',
+  },
+  {
+    frase: 'Marca la factura 3 como pagada',
+    intencionJev: 'factura',
+    toolEsperada: 'cambiar_estado_factura',
+    argsEsperados: { numero: 3, estado: 'pagado' },
+    comportamiento: 'pide_confirmacion',
+    resueltoA: { id: IDS.factura3, estado: 'pagada' },
+    respuestaContiene: ['factura nº 3 de Paqui', '«pagada»'],
+    nota: 'Aunque el modelo diga «pagado», se guarda «pagada» (el estado que entiende la pantalla de Facturas).',
+  },
+  {
+    frase: 'Hazle la factura a García',
+    intencionJev: 'factura',
+    toolEsperada: 'crear_factura',
+    argsEsperados: { descripcion_trabajos: 'Trabajos', cliente_nombre: 'García', total: 600 },
+    comportamiento: 'pregunta_opciones',
+    respuestaContiene: ['García Norte', 'García Sur'],
+    nota: 'Dos Garcías: se pregunta cuál antes de pedir confirmación.',
+  },
+  {
+    frase: 'Ponle 6 horas a Iker',
+    intencionJev: 'horas',
+    toolEsperada: 'registrar_jornada',
+    argsEsperados: { operario_nombre: 'Iker', horas: 6 },
+    comportamiento: 'pregunta_o_error',
+    respuestaContiene: ['obra'],
+    nota: 'Sin obra: se pregunta en qué obra.',
+  },
+  {
+    frase: 'Hazme una factura de 800 para la obra del baño',
+    intencionJev: 'factura',
+    toolEsperada: 'crear_factura',
+    argsEsperados: { descripcion_trabajos: 'Obra del baño', total: 800 },
+    comportamiento: 'pregunta_opciones',
+    respuestaContiene: ['baño Norte', 'baño Sur'],
+    nota: 'Dos obras con «baño».',
+  },
+  {
+    frase: 'Factura el albarán',
+    intencionJev: 'factura',
+    toolEsperada: 'convertir_albaran_a_factura',
+    argsEsperados: {},
+    comportamiento: 'pregunta_o_error',
+    respuestaContiene: ['número o el cliente'],
+    nota: 'Sin número ni cliente: se pregunta cuál.',
+  },
+  {
+    frase: 'Haz una factura para Paqui',
+    intencionJev: 'factura',
+    toolEsperada: 'crear_factura',
+    argsEsperados: { descripcion_trabajos: 'Reforma', cliente_nombre: 'Paqui' },
+    comportamiento: 'pregunta_o_error',
+    respuestaContiene: ['¿Qué importe'],
+    nota: 'Sin importe: nunca se inventa.',
+  },
+  {
+    frase: 'Hazle una factura de 500 a Paqui',
+    intencionJev: 'factura',
+    toolEsperada: 'crear_factura',
+    argsEsperados: { descripcion_trabajos: 'Reforma', cliente_nombre: 'Paqui', total: 1500 },
+    comportamiento: 'pregunta_o_error',
+    respuestaContiene: ['No me has dicho ese importe'],
+    nota: 'El modelo se inventa 1.500 en vez de los 500 que dijo el usuario.',
+  },
+  {
+    frase: 'Cambia el albarán 14 a pendiente',
+    intencionJev: 'factura',
+    toolEsperada: 'cambiar_estado_albaran',
+    argsEsperados: { numero: 14, estado: 'pendiente' },
+    comportamiento: 'pregunta_o_error',
+    respuestaContiene: ['ya está facturado'],
+    nota: 'Un albarán facturado no vuelve a pendiente.',
+  },
+  {
+    frase: 'Mete la factura de Txema de 300 euros',
+    intencionJev: 'factura',
+    toolEsperada: 'crear_factura',
+    argsEsperados: { descripcion_trabajos: 'Trabajos', cliente_nombre: 'Txema', total: 300 },
+    comportamiento: 'pregunta_o_error',
+    respuestaContiene: ['No tengo a «Txema»'],
+    nota: 'Txema no existe: se pregunta antes de crearlo.',
   },
   {
     frase: 'Sí',

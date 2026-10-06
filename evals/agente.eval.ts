@@ -9,8 +9,8 @@
  * esperada. Imprime una tabla frase → tool elegida → OK/KO y falla solo si el acierto baja del
  * umbral `EVAL_UMBRAL` (por defecto 0,8).
  *
- * Sin `JEV_API_KEY` la intención es «general» (todas las tools disponibles): es más difícil que en
- * producción con Jev, así que el acierto medido es una cota pesimista.
+ * Sin `JEV_API_KEY` la intención sale del respaldo local por palabras clave (`intentPorPalabrasClave`),
+ * igual que en el servidor; si tampoco acierta, «general» (todas las tools): cota pesimista.
  */
 import OpenAI from 'openai';
 import { modeloAgente, parametrosGeneracion } from '@/lib/agente/modelo';
@@ -86,7 +86,7 @@ if (!hayClave) {
   console.warn('[eval:agente] OPENAI_API_KEY no está definida: se salta la eval contra el modelo real.');
 }
 if (!process.env.JEV_API_KEY?.trim()) {
-  console.warn('[eval:agente] Sin JEV_API_KEY la intención es «general» (todas las tools): el acierto es una cota pesimista.');
+  console.warn('[eval:agente] Sin JEV_API_KEY se usa el respaldo local por palabras clave para la intención.');
 }
 
 describeEval(`eval del agente contra ${modeloAgente()} (umbral ${umbral})`, () => {
@@ -102,9 +102,11 @@ describeEval(`eval del agente contra ${modeloAgente()} (umbral ${umbral})`, () =
     for (const caso of casos) {
       // Con Jev el servidor recorta las tools por intención; aquí se hace igual si hay categoría.
       const intencion = caso.intencionJev as JevIntentCategory | undefined;
-      const tools = intencion && router.JEV_TO_AGENT_INTENT[intencion] && process.env.JEV_API_KEY
-        ? router.toolsForAgentIntent(router.JEV_TO_AGENT_INTENT[intencion], TOOLS)
-        : TOOLS;
+      // Sin Jev, el servidor usa el respaldo local por palabras clave: aquí también.
+      const categoria = process.env.JEV_API_KEY
+        ? intencion && router.JEV_TO_AGENT_INTENT[intencion]
+        : router.intentPorPalabrasClave(caso.frase);
+      const tools = categoria ? router.toolsForAgentIntent(categoria, TOOLS) : TOOLS;
       const r = await openai.chat.completions.create({
         model: modelo,
         messages: [

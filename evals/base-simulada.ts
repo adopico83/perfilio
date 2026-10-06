@@ -30,6 +30,11 @@ export const IDS = {
   operarioMikelGoni: 'op-mikel-goni',
   operarioMikelRuiz: 'op-mikel-ruiz',
   obraPaquiAjena: 'obra-b-paqui',
+  obraBanoNorte: 'obra-bano-norte',
+  obraBanoSur: 'obra-bano-sur',
+  albaran12: 'aaaaaaaa-2222-4000-8000-000000000012',
+  albaran12Ajeno: 'bbbbbbbb-2222-4000-8000-000000000012',
+  albaran14Facturado: 'aaaaaaaa-2222-4000-8000-000000000014',
 } as const;
 
 /** Líneas del presupuesto nº 7 (formato de `presupuesto_generado`): hacen falta para poder facturarlo. */
@@ -65,6 +70,9 @@ export function crearBaseSimulada(): Record<string, Fila[]> {
       { id: IDS.obraPaqui, business_id: NEGOCIO_A, nombre: 'Reforma Paqui', direccion: 'Calle Mayor 1, Irún', estado: 'en_curso', cliente_id: IDS.clientePaqui, created_at: '2026-04-01T10:00:00Z' },
       { id: IDS.obraOlabide9, business_id: NEGOCIO_A, nombre: 'Obra Olabide 9', direccion: 'Olabide 9, Ondarribia', estado: 'en_curso', cliente_id: null, created_at: '2026-04-02T10:00:00Z' },
       { id: IDS.obraOlabide12, business_id: NEGOCIO_A, nombre: 'Obra Olabide 12', direccion: 'Olabide 12, Ondarribia', estado: 'abierta', cliente_id: null, created_at: '2026-04-03T10:00:00Z' },
+      // Dos obras con «baño» (la frase «la obra del baño» es ambigua a propósito).
+      { id: IDS.obraBanoNorte, business_id: NEGOCIO_A, nombre: 'Reforma baño Norte', direccion: 'Calle Norte 2', estado: 'abierta', cliente_id: null, created_at: '2026-04-04T10:00:00Z' },
+      { id: IDS.obraBanoSur, business_id: NEGOCIO_A, nombre: 'Reforma baño Sur', direccion: 'Calle Sur 3', estado: 'abierta', cliente_id: null, created_at: '2026-04-05T10:00:00Z' },
       { id: IDS.obraPaquiAjena, business_id: NEGOCIO_B, nombre: 'Reforma Paqui', direccion: 'Otra calle 5', estado: 'en_curso', cliente_id: null, created_at: '2026-04-01T10:00:00Z' },
     ],
     operarios: [
@@ -92,7 +100,12 @@ export function crearBaseSimulada(): Record<string, Fila[]> {
     memoria_negocio: [],
     diario_obra: [],
     registros_jornada: [],
-    albaranes: [],
+    albaranes: [
+      // El albarán nº 12 de Paqui (A) y OTRO nº 12 en el negocio B: nunca deben confundirse.
+      { id: IDS.albaran12, business_id: NEGOCIO_A, numero_albaran: 12, cliente_nombre: 'Paqui', cliente_id: IDS.clientePaqui, obra_id: IDS.obraPaqui, total: 1210, estado: 'entregado', descripcion_trabajos: 'Cambio de plato de ducha', lineas: null, created_at: '2026-10-01T10:00:00Z' },
+      { id: IDS.albaran12Ajeno, business_id: NEGOCIO_B, numero_albaran: 12, cliente_nombre: 'Lola Ajena', cliente_id: 'cli-b-lola', obra_id: null, total: 90, estado: 'entregado', descripcion_trabajos: 'Arreglo', lineas: null, created_at: '2026-10-01T10:00:00Z' },
+      { id: IDS.albaran14Facturado, business_id: NEGOCIO_A, numero_albaran: 14, cliente_nombre: 'García Sur', cliente_id: IDS.clienteGarciaSur, obra_id: null, total: 300, estado: 'facturado', descripcion_trabajos: 'Pintura', lineas: null, created_at: '2026-09-20T10:00:00Z' },
+    ],
     gastos: [],
     tarifas: [],
   };

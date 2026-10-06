@@ -11,6 +11,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { CASOS_FRASES_PINO, type CasoAgente } from '../evals/frases-pino';
 import { IDS, NEGOCIO_A, NEGOCIO_B, USUARIO, crearBaseSimulada } from '../evals/base-simulada';
 import { crearFakeDb } from './helpers/fake-db';
+import { reiniciarContadorEnMemoria } from '@/lib/ia/limite-uso';
 
 jest.mock('@/lib/supabase/assert-user-owns-business', () => ({
   assertUserOwnsBusiness: jest.fn().mockResolvedValue(true),
@@ -46,6 +47,7 @@ type Llamada = { messages: Array<{ role: string; content?: unknown }>; tools?: A
 let db: ReturnType<typeof crearFakeDb>;
 
 function preparar(caso: CasoAgente) {
+  reiniciarContadorEnMemoria(); // cada frase es «un usuario nuevo»: el límite de uso del agente no debe cortar la batería
   db = crearFakeDb(crearBaseSimulada());
   (createServiceClient as jest.Mock).mockReturnValue(db.client);
   (createClient as jest.Mock).mockResolvedValue({
@@ -157,6 +159,12 @@ describe('frases de Pino con OpenAI simulado', () => {
         expect(escrituras()).toBe(antes);
         break;
       }
+      case 'pregunta_o_error': {
+        // No confirma, no escribe y el usuario recibe la pregunta o el error claro.
+        expect(json.accion_pendiente).toBeUndefined();
+        expect(escrituras()).toBe(antes);
+        break;
+      }
     }
     for (const texto of caso.respuestaContiene ?? []) expect(respuesta).toContain(texto);
 
@@ -234,5 +242,29 @@ describe('elegir una opción en el turno siguiente', () => {
     const texto = JSON.stringify(usuario?.content);
     expect(texto).toContain(`id exacto: ${opciones[1]!.id}`);
     expect(texto).not.toContain('"la 2"');
+  });
+});
+
+describe('sin Jev: respaldo local por palabras clave', () => {
+  it('«¿Qué tengo hoy?» solo recibe las tools de agenda (no ~70) y puede usar resumen_del_dia', async () => {
+    const caso = CASOS_FRASES_PINO.find((c) => c.frase === '¿Qué tengo hoy?')!;
+    preparar(caso);
+    delete process.env.JEV_API_KEY; // sin clasificador externo
+    await postAgente({ mensaje: caso.frase });
+    const primera = createMock.mock.calls[0]![0] as Llamada;
+    const tools = nombresTools(primera);
+    expect(tools).toContain('resumen_del_dia');
+    expect(tools).not.toContain('crear_factura');
+    expect(tools.length).toBeLessThan(25);
+  });
+
+  it('un mensaje que no apunta a una sola área sigue en «general» (todas las tools)', async () => {
+    const caso = CASOS_FRASES_PINO.find((c) => c.frase === 'Hola, buenas')!;
+    preparar(caso);
+    delete process.env.JEV_API_KEY;
+    await postAgente({ mensaje: caso.frase });
+    const tools = nombresTools(createMock.mock.calls[0]![0] as Llamada);
+    expect(tools).toContain('crear_factura');
+    expect(tools).toContain('resumen_del_dia');
   });
 });
