@@ -186,8 +186,11 @@ export function esUuid(raw: unknown): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
 }
 
-function etiquetaCliente(row: { id: string; nombre?: string | null }): CandidatoGrounding {
-  return { id: row.id, etiqueta: String(row.nombre ?? '').trim() || row.id };
+function etiquetaCliente(row: { id: string; nombre?: string | null; direccion?: string | null }): CandidatoGrounding {
+  const nombre = String(row.nombre ?? '').trim() || row.id;
+  const dir = String(row.direccion ?? '').trim();
+  // La dirección distingue dos obras (o clientes) con nombre parecido.
+  return { id: row.id, etiqueta: dir ? `${nombre} · ${dir}` : nombre };
 }
 
 function preguntaVarios(tipo: string, candidatos: CandidatoGrounding[]): string {
@@ -243,7 +246,7 @@ export async function resolverObrasPorNombre(
   supabase: SupabaseClient,
   businessId: string,
   nombre: string
-): Promise<ResolveResult<{ id: string; nombre: string | null }>> {
+): Promise<ResolveResult<{ id: string; nombre: string | null; direccion?: string | null }>> {
   const needle = String(nombre ?? '').trim();
   if (!needle) return { status: 'none' };
   const safe = escapeIlikeGrounding(needle).slice(0, 120);
@@ -251,13 +254,16 @@ export async function resolverObrasPorNombre(
   const pat = `%${safe}%`;
   const { data, error } = await supabase
     .from('obras')
-    .select('id, nombre')
+    .select('id, nombre, direccion')
     .eq('business_id', businessId)
     .ilike('nombre', pat)
     .order('created_at', { ascending: false })
     .limit(20);
   if (error) return { status: 'none' };
-  return colapsarResolve((data ?? []) as Array<{ id: string; nombre: string | null }>, needle);
+  return colapsarResolve(
+    (data ?? []) as Array<{ id: string; nombre: string | null; direccion: string | null }>,
+    needle
+  );
 }
 
 export type PresupuestoMatch = {
@@ -266,20 +272,30 @@ export type PresupuestoMatch = {
   cliente_nombre: string | null;
   estado: string | null;
   importe_total: number | null;
+  numero_presupuesto?: number | null;
 };
 
 export async function resolverPresupuestosPorTexto(
   supabase: SupabaseClient,
   businessId: string,
-  opts: { id?: string; clienteNombre?: string }
+  opts: { id?: string; clienteNombre?: string; numero?: number | string | null }
 ): Promise<ResolveResult<PresupuestoMatch>> {
   const id = String(opts.id ?? '').trim();
-  if (id && esUuid(id)) {
+  const numeroRaw = opts.numero;
+  const numero =
+    typeof numeroRaw === 'number'
+      ? numeroRaw
+      : typeof numeroRaw === 'string' && /^\d+$/.test(numeroRaw.trim())
+        ? Number(numeroRaw.trim())
+        : null;
+  const porClave = id && esUuid(id) ? { col: 'id', val: id } : numero != null && Number.isInteger(numero) && numero > 0 ? { col: 'numero_presupuesto', val: numero } : null;
+  if (porClave) {
+    // Por uuid o por número correlativo: siempre dentro del negocio (nunca el de otro).
     const { data, error } = await supabase
       .from('presupuestos')
-      .select('id, cliente_nombre, estado, importe_total')
+      .select('id, cliente_nombre, estado, importe_total, numero_presupuesto')
       .eq('business_id', businessId)
-      .eq('id', id)
+      .eq(porClave.col, porClave.val)
       .maybeSingle();
     if (error || !data?.id) return { status: 'none' };
     const row = data as {
@@ -287,6 +303,7 @@ export async function resolverPresupuestosPorTexto(
       cliente_nombre?: string | null;
       estado?: string | null;
       importe_total?: number | null;
+      numero_presupuesto?: number | null;
     };
     return {
       status: 'one',
@@ -296,6 +313,7 @@ export async function resolverPresupuestosPorTexto(
         cliente_nombre: row.cliente_nombre ?? null,
         estado: row.estado ?? null,
         importe_total: row.importe_total ?? null,
+        numero_presupuesto: row.numero_presupuesto ?? null,
       },
     };
   }
@@ -318,6 +336,7 @@ export async function resolverPresupuestosPorTexto(
       cliente_nombre?: string | null;
       estado?: string | null;
       importe_total?: number | null;
+      numero_presupuesto?: number | null;
     }> | null
   ) => {
     for (const r of rows ?? []) {
@@ -328,6 +347,7 @@ export async function resolverPresupuestosPorTexto(
         cliente_nombre: r.cliente_nombre ?? null,
         estado: r.estado ?? null,
         importe_total: r.importe_total ?? null,
+        numero_presupuesto: r.numero_presupuesto ?? null,
       });
     }
   };
@@ -335,7 +355,7 @@ export async function resolverPresupuestosPorTexto(
   if (pat) {
     const { data, error } = await supabase
       .from('presupuestos')
-      .select('id, cliente_nombre, estado, importe_total, cliente_id')
+      .select('id, cliente_nombre, estado, importe_total, cliente_id, numero_presupuesto')
       .eq('business_id', businessId)
       .ilike('cliente_nombre', pat)
       .order('created_at', { ascending: false })
@@ -347,6 +367,7 @@ export async function resolverPresupuestosPorTexto(
           cliente_nombre?: string | null;
           estado?: string | null;
           importe_total?: number | null;
+          numero_presupuesto?: number | null;
         }>
       );
     }
@@ -354,7 +375,7 @@ export async function resolverPresupuestosPorTexto(
   if (clienteIds.length > 0) {
     const { data, error } = await supabase
       .from('presupuestos')
-      .select('id, cliente_nombre, estado, importe_total, cliente_id')
+      .select('id, cliente_nombre, estado, importe_total, cliente_id, numero_presupuesto')
       .eq('business_id', businessId)
       .in('cliente_id', clienteIds)
       .order('created_at', { ascending: false })
@@ -366,6 +387,7 @@ export async function resolverPresupuestosPorTexto(
           cliente_nombre?: string | null;
           estado?: string | null;
           importe_total?: number | null;
+          numero_presupuesto?: number | null;
         }>
       );
     }
@@ -391,7 +413,7 @@ export function toolFailDesdePresupuestoResolve(
   if (resolved.status === 'many') {
     const cands: CandidatoGrounding[] = resolved.candidatos.map((p) => ({
       id: p.id,
-      etiqueta: `${p.cliente_nombre ?? 'sin cliente'} · ${p.estado ?? '—'} · ${
+      etiqueta: `${p.numero_presupuesto != null ? `nº ${p.numero_presupuesto} · ` : ''}${p.cliente_nombre ?? 'sin cliente'} · ${p.estado ?? '—'} · ${
         p.importe_total != null ? `${p.importe_total} €` : 'sin importe'
       }`,
     }));

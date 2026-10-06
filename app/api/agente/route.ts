@@ -78,6 +78,25 @@ import {
   handleCalcularMedicion,
 } from '@/lib/agente/modules/calculo';
 import { applyPerfilioGuardrails } from '@/lib/agente/guardrails';
+import { modeloAgente, parametrosGeneracion } from '@/lib/agente/modelo';
+import {
+  ENLACES_PDF_AGENT_TOOLS,
+  ENLACES_PDF_HANDLED_TOOLS,
+  handleEnlacesPdf,
+} from '@/lib/agente/modules/enlaces-pdf';
+import {
+  TOOLS_CON_VISTA_PREVIA,
+  confirmacionActiva,
+  describirAccionGenerica,
+  fraseAccionHecha,
+  limpiarTextoVistaPrevia,
+  preguntaConfirmacion,
+  prepararAccionPendiente,
+  requiereConfirmacion,
+  validarAccionConfirmada,
+  type AccionPendiente,
+} from '@/lib/agente/confirmacion';
+import { construirPromptSistema, promptEspecialidad } from '@/lib/agente/prompt-sistema';
 import {
   AGENTE_PROSA_TEMPERATURE,
   AGENTE_TOOLS_TEMPERATURE,
@@ -87,9 +106,12 @@ import {
   hechosMutacionDesdeEjecutado,
   idsParaPlanEjecutado,
   logAgenteTurno,
+  marcaOpcionesParaHistorial,
+  opcionesDeResultados,
   pareceAccionQueRequiereTool,
   plannedToolsFromAssistantToolCalls,
   prosaAncladaDirectaSiAplica,
+  resolverEleccionOpcion,
   resumirToolResultParaLog,
   type PlanFuente,
 } from '@/lib/agente/orquestacion';
@@ -204,7 +226,29 @@ export async function POST(request: NextRequest) {
         ? (body.args as Record<string, unknown>)
         : {};
 
-    const mensajeTrim = typeof mensaje === 'string' ? mensaje.trim() : '';
+    const historialValido = Array.isArray(historial)
+      ? historial.filter(
+          (m: unknown) =>
+            m &&
+            typeof m === 'object' &&
+            'role' in m &&
+            'content' in m &&
+            (m as { role: string }).role !== 'system' &&
+            typeof (m as { content: unknown }).content === 'string'
+        ).map((m: { role: string; content: string }) => ({
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+        }))
+      : [];
+
+    // «la 2» / «la de Olabide» tras una pregunta con opciones: se reescribe con el id exacto de la
+    // opción (viaja en el historial en un comentario invisible, ver marcaOpcionesParaHistorial).
+    const ultimoAsistenteHistorial = [...historialValido]
+      .reverse()
+      .find((m) => m.role === 'assistant' && m.content.trim().length > 0);
+    const mensajeOriginalTrim = typeof mensaje === 'string' ? mensaje.trim() : '';
+    const mensajeTrim =
+      resolverEleccionOpcion(mensajeOriginalTrim, ultimoAsistenteHistorial?.content) ?? mensajeOriginalTrim;
     const imagenesVisionUrls: string[] = [];
     if (Array.isArray(imagenesUrls)) {
       for (const raw of imagenesUrls) {
@@ -235,7 +279,8 @@ export async function POST(request: NextRequest) {
         ? []
         : imagenesNormalizadas.filter((u) => u.startsWith('data:image/'));
 
-    if (!mensajeTrim && imagenesNormalizadas.length === 0 && !directToolName) {
+    const hayConfirmarAccion = body?.confirmar_accion !== undefined && body?.confirmar_accion !== null;
+    if (!mensajeTrim && imagenesNormalizadas.length === 0 && !directToolName && !hayConfirmarAccion) {
       return NextResponse.json(
         {
           error:
@@ -251,20 +296,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const historialValido = Array.isArray(historial)
-      ? historial.filter(
-          (m: unknown) =>
-            m &&
-            typeof m === 'object' &&
-            'role' in m &&
-            'content' in m &&
-            (m as { role: string }).role !== 'system' &&
-            typeof (m as { content: unknown }).content === 'string'
-        ).map((m: { role: string; content: string }) => ({
-          role: m.role as 'user' | 'assistant',
-          content: m.content,
-        }))
-      : [];
 
     const supabase = createServiceClient();
     const supabaseAuth = await createClient();
@@ -292,451 +323,6 @@ export async function POST(request: NextRequest) {
         { error: 'No se encontró el perfil del negocio' },
         { status: 404 }
       );
-    }
-
-    if (directToolName) {
-      if (directToolName !== 'editar_factura') {
-        return NextResponse.json({ error: 'tool no permitida' }, { status: 400 });
-      }
-      const result = await editar_factura(supabase, businessIdStr, directToolArgs);
-      if ('error' in result) {
-        return NextResponse.json(result, { status: 400 });
-      }
-      return NextResponse.json(result);
-    }
-
-    const nombre = profile.nombre ?? 'el negocio';
-    const nombreUsuario = (() => {
-      const md = (authUser?.user_metadata ?? {}) as Record<string, unknown>;
-      const candidatos = [md.nombre, md.name, md.full_name, md.first_name, authUser?.email];
-      for (const c of candidatos) {
-        const s = String(c ?? '').trim();
-        if (s) return s;
-      }
-      return 'compa';
-    })();
-    const sector = profile.sector ?? 'no especificado';
-    const descripcion = profile.descripcion ?? '';
-    const servicios = profile.servicios ?? '';
-    const tarifas = profile.tarifas ?? '';
-    const contexto_adicional = profile.contexto_adicional ?? '';
-    const ciudadNegocio = String(
-      (profile as { ciudad?: string | null }).ciudad ?? ''
-    ).trim();
-    const ubicacionMeteoPrompt = ciudadNegocio
-      ? `\n\nUbicación del negocio: ${ciudadNegocio}. Usa esta ciudad por defecto para consultas meteorológicas cuando el usuario no especifique otra ubicación.`
-      : '';
-
-    const fechaActual = new Date().toLocaleDateString('es-ES', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-    const ahora = new Date().toLocaleString('es-ES', {
-      timeZone: 'Europe/Madrid',
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-
-    let agendaContextoPrimerMensaje = '';
-    const esPrimerMensajeConversacion =
-      historialValido.length === 0 || historialValido.length === 1;
-    const tzAgenda = 'Europe/Madrid';
-    const hoyYmd = formatYmdInTimeZone(new Date(), tzAgenda);
-    const mananaYmd = addDaysToYmd(hoyYmd, 1);
-
-    if (esPrimerMensajeConversacion) {
-      const { data: agendaRows, error: agendaError } = await supabase
-        .from('agenda')
-        .select('titulo, fecha, hora')
-        .eq('business_id', business_id)
-        .in('fecha', [hoyYmd, mananaYmd])
-        .order('fecha', { ascending: true });
-
-      if (!agendaError && agendaRows && agendaRows.length > 0) {
-        const lineas = agendaRows.map(
-          (row: { titulo?: string | null; fecha?: string | null; hora?: string | null }) => {
-            const titulo = String(row.titulo ?? '').trim() || 'Evento';
-            const fecha = row.fecha ?? '';
-            const cuando =
-              fecha === hoyYmd ? 'hoy' : fecha === mananaYmd ? 'mañana' : fecha;
-            const horaStr = row.hora != null && String(row.hora).trim()
-              ? ` a las ${String(row.hora).trim()}`
-              : '';
-            return `- ${titulo} (${cuando}${horaStr})`;
-          }
-        );
-        agendaContextoPrimerMensaje = `
-
-PRIMER MENSAJE — Eventos en agenda (solo hoy y mañana; fechas en calendario local del negocio):
-${lineas.join('\n')}
-
-Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con este formato: "Aupa ${nombreUsuario}, soy Bicho. [resumen breve y natural de lo relevante de hoy/mañana]". No hagas una lista numerada ni viñetas en ese saludo; después continúa con la petición del usuario.`;
-      }
-    }
-
-    let memoriaRows: Array<{ categoria: string; clave: string; valor_texto: string }> = [];
-    const { data: memoriaData, error: memoriaErr } = await supabase
-      .from('memoria_negocio')
-      .select('categoria, clave, valor_texto')
-      .eq('business_id', business_id)
-      .order('categoria', { ascending: true })
-      .order('clave', { ascending: true });
-    if (!memoriaErr && memoriaData) {
-      memoriaRows = memoriaData as typeof memoriaRows;
-    }
-    const memoriaNegocioBlock = buildMemoriaNegocioPromptBlock(memoriaRows);
-
-    const { data: obrasAbiertas } = await supabase
-      .from('obras')
-      .select('id, nombre, cliente_id, direccion')
-      .eq('business_id', business_id)
-      .in('estado', ['abierta', 'en_curso'])
-      .order('created_at', { ascending: false })
-      .limit(10);
-
-    const { data: clientesActivos } = await supabase
-      .from('clientes')
-      .select('id, nombre, email, telefono')
-      .eq('business_id', business_id)
-      .order('created_at', { ascending: false })
-      .limit(10);
-
-    const { data: operariosActivosRows } = await supabase
-      .from('operarios')
-      .select('nombre')
-      .eq('business_id', business_id)
-      .eq('activo', true)
-      .order('nombre', { ascending: true });
-    const nombresOperariosNegocio = (operariosActivosRows ?? [])
-      .map((r: { nombre?: string | null }) => String(r.nombre ?? '').trim())
-      .filter((n) => n.length > 0);
-    const bloqueOperariosPrompt =
-      nombresOperariosNegocio.length > 0
-        ? `Tienes acceso a la gestión de operarios. Puedes registrar horas de trabajo por obra, listar operarios y consultar resúmenes de horas. Los operarios de este negocio son: ${nombresOperariosNegocio.join(', ')}. Cuando registres horas, si el usuario no distingue entre reales y convenio, guarda el mismo valor en ambos.`
-        : `Tienes acceso a la gestión de operarios. Puedes registrar horas de trabajo por obra, listar operarios y consultar resúmenes de horas. Aún no hay operarios activos listados en el sistema para este negocio. Cuando registres horas, si el usuario no distingue entre reales y convenio, guarda el mismo valor en ambos.`;
-
-    const obrasCtx =
-      (obrasAbiertas ?? []).length > 0
-        ? `\nOBRAS ABIERTAS ACTUALES:\n${(obrasAbiertas ?? [])
-            .map(
-              (o) =>
-                `- ${o.nombre} (id: ${o.id})${o.direccion ? ', dir: ' + o.direccion : ''}`
-            )
-            .join('\n')}`
-        : '\nNo hay obras abiertas actualmente.';
-
-    const clientesCtx =
-      (clientesActivos ?? []).length > 0
-        ? `\nCLIENTES REGISTRADOS:\n${(clientesActivos ?? [])
-            .map(
-              (c) =>
-                `- ${c.nombre} (id: ${c.id})${c.email ? ', email: ' + c.email : ''}${c.telefono ? ', tel: ' + c.telefono : ''}`
-            )
-            .join('\n')}`
-        : '\nNo hay clientes registrados.';
-
-    const systemPrompt = `Tu nombre es Bicho. Si el usuario te llama por tu nombre al inicio de una petición ('Oye Bicho...', 'Bicho escucha...', 'Bicho añade...', 'Eh Bicho...' o similar), ignora el nombre y ejecuta directamente lo que pide a continuación. No respondas al nombre, no lo confirmes, simplemente actúa.
-
-Para cualquier acción que cree, edite o consulte datos en el sistema: DEBES invocar la herramienta (tool) correspondiente en este mismo turno.
-PROHIBIDO decir "voy a hacerlo", "procederé a...", "un momento" u otras promesas sin haber llamado ya a la tool.
-Responder solo en texto cuando debías llamar a una tool = error crítico.
-Si faltan datos: pregunta al usuario o usa listar_* / buscar_* según corresponda.
-Nunca inventes ni simules resultados de base de datos, estados ni IDs.
-Las consultas a datos del negocio requieren invocar tools de listado o búsqueda, no narrar como si ya hubieras consultado.
-
-${GROUNDING_REGLAS_SISTEMA}
-
-Español, profesional, conciso.
-
-Obra ≠ cliente (inconfundibles); no intercambiar nombres. Antes de crear cliente u obra, busca duplicados por nombre.
-Orden típico: cliente → obra → documentos; usa actualizar_obra para asociar cliente_id cuando corresponda. Si hay ambigüedad entre obras, pregunta.
-Si el usuario pide crear una obra con un cliente que no existe en el sistema: (1) llama a crear_cliente con los datos disponibles, (2) llama a crear_obra pasando el cliente_id devuelto por crear_cliente. NUNCA crees la obra sin cliente si el usuario ha proporcionado nombre de cliente. NUNCA entres en bucle repitiendo buscar_cliente — si no existe, créalo.
-SDD (crear presupuesto, factura, albarán o generar_presupuesto_por_dictado): solo tras resumen al usuario + confirmación explícita ("sí", "adelante", "genéralo"); nunca partidas a 0€. Usa memoria/tarifas del perfil para precios cuando falten.
-CREACIÓN DE PRESUPUESTOS: Al usar generar_presupuesto_por_dictado: primera llamada siempre con solo_vista_previa: true para mostrar borrador. Solo llamar de nuevo con solo_vista_previa: false tras confirmación explícita del usuario.
-Solo consultas: listar_* u obtener_*_pendientes; no crees documentos nuevos si no los piden. Estados: pendiente, aceptado, rechazado, facturado, pagado.
-Extras: registrar_extra (confirmar antes de notificar al cliente). Gastos con imagen: registrar_gasto_ticket tras confirmación en un mensaje siguiente; si mencionan obra, obra_nombre u obra_id. En registrar_gasto_ticket incluye categoria cuando puedas inferirla del texto (material, herramienta, vertido, subcontrata, transporte, otros); si no está claro, omite el campo o usa material. Si el OCR o el texto sugiere devolución/descuento/abono/nota de crédito/negativo, registra base, IVA y total en negativo; si ya viene negativo, respétalo. vincular_gasto si indica documento. gestionar_tarifas. Emails: criterios de urgencia habituales; usa tools de lectura.
-Ofrece convertir_presupuesto_a_albaran / convertir_albaran_a_factura cuando aplique. Diario: crear_entrada_diario y generar_pdf_diario según petición. Menciona mensajes de clientes pendientes de aprobar al inicio si encaja. Aplica el bloque "## Lo que sé de este negocio" al final sin pedir repetición.
-
-Fecha y hora: ${ahora}. Negocio: ${nombre} (${sector}).
-${descripcion}
-Servicios: ${servicios}
-Tarifas: ${tarifas}
-Contexto extra: ${contexto_adicional}${ubicacionMeteoPrompt}
-Fecha presupuestos: ${fechaActual}.${obrasCtx}${clientesCtx}
-
-${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
-
-    const ALL_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
-      ...DOCUMENTOS_AGENT_TOOLS,
-      ...OBRAS_CLIENTES_AGENT_TOOLS,
-      {
-        type: 'function',
-        function: {
-          name: 'obtener_mensajes_pendientes',
-          description:
-            'Respuestas IA del negocio pendientes de aprobación (texto, borrador, conversación).',
-          parameters: {
-            type: 'object',
-            properties: {},
-            additionalProperties: false,
-          },
-        },
-      },
-      ...CORREO_AGENT_TOOLS,
-      ...AGENDA_AGENT_TOOLS,
-      ...CALCULO_AGENT_TOOLS,
-      {
-        type: 'function',
-        function: {
-          name: 'get_directions',
-          description:
-            'Genera un enlace de Google Maps para una dirección. Usar cuando pregunten cómo llegar, indicaciones o ubicación de obra/cliente.',
-          parameters: {
-            type: 'object',
-            properties: {
-              direccion: {
-                type: 'string',
-                description: 'Dirección o ubicación a buscar en Maps',
-              },
-              nombre_lugar: {
-                type: 'string',
-                description: 'Etiqueta opcional (ej. Casa García, Cliente Martínez)',
-              },
-            },
-            required: ['direccion'],
-            additionalProperties: false,
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'consultar_tiempo',
-          description:
-            'Previsión meteorológica para ciudad o dirección de obra. Tiempo, lluvia, obras en agenda.',
-          parameters: {
-            type: 'object',
-            properties: {
-              ubicacion: {
-                type: 'string',
-                description: 'Ciudad o dirección (ej. Madrid, Zarautz, Calle Mayor 1 Bilbao)',
-              },
-              dias: {
-                type: 'number',
-                description: '1 o 2 días de previsión (hoy y/o mañana)',
-                enum: [1, 2],
-              },
-            },
-            required: ['ubicacion'],
-            additionalProperties: false,
-          },
-        },
-      },
-      ...GASTOS_AGENT_TOOLS,
-      ...DIARIO_AGENT_TOOLS,
-      {
-        type: 'function',
-        function: {
-          name: 'guardar_memoria',
-          description: `Guarda o actualiza un dato persistente del negocio (preferencia, corrección, proveedor habitual, formato, precio, etc.). Upsert por clave única por negocio. Llama sin pedir confirmación si el usuario corrige con claridad o declara preferencias duraderas. Categorías válidas: ${MEMORIA_CATEGORIAS.join(', ')}. Usa clave en snake_case corta (ej. cemento_exterior). Responde muy breve ("Anotado…").`,
-          parameters: {
-            type: 'object',
-            properties: {
-              categoria: {
-                type: 'string',
-                enum: [...MEMORIA_CATEGORIAS],
-                description: 'Tipo de memoria',
-              },
-              clave: {
-                type: 'string',
-                description: 'Identificador único en snake_case por negocio (ej. cemento_exterior)',
-              },
-              valor_texto: {
-                type: 'string',
-                description: 'Texto completo del dato o preferencia a recordar',
-              },
-            },
-            required: ['categoria', 'clave', 'valor_texto'],
-            additionalProperties: false,
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'eliminar_memoria',
-          description:
-            'Elimina una entrada de memoria del negocio por su clave (misma convención snake_case que al guardar). Usa cuando pida olvidar o quitar una clave concreta.',
-          parameters: {
-            type: 'object',
-            properties: {
-              clave: {
-                type: 'string',
-                description: 'Clave de la entrada a eliminar',
-              },
-            },
-            required: ['clave'],
-            additionalProperties: false,
-          },
-        },
-      },
-      ...OPERARIOS_AGENT_TOOLS,
-      ...PRESUPUESTOS_AGENT_TOOLS,
-      ...CANVAS_AGENT_TOOLS,
-    ];
-
-    const textoUsuario =
-      mensajeTrim ||
-      '(El usuario adjuntó una imagen, posiblemente un ticket o factura. Analízala e indica qué datos ves.)';
-
-    const userContent: OpenAI.Chat.ChatCompletionContentPart[] = [
-      { type: 'text', text: textoUsuario },
-    ];
-    for (const u of imagenesNormalizadas) {
-      userContent.push({
-        type: 'image_url',
-        image_url: { url: u, detail: 'auto' },
-      });
-    }
-
-    let hasBorradorActivo = false;
-    if (authUser?.id) {
-      const borradorRes = await supabase
-        .from('presupuesto_borrador')
-        .select('id')
-        .eq('business_id', business_id)
-        .eq('user_id', authUser.id)
-        .eq('estado', 'en_construccion')
-        .limit(1);
-      const rows = borradorRes.data;
-      hasBorradorActivo = Array.isArray(rows)
-        ? rows.length > 0 && Boolean((rows[0] as { id?: string } | undefined)?.id)
-        : Boolean(
-            rows &&
-              typeof rows === 'object' &&
-              'id' in (rows as object) &&
-              String((rows as { id?: unknown }).id ?? '').trim().length > 0
-          );
-    }
-
-    const ultimoAsistenteRouter = [...historialValido]
-      .reverse()
-      .find((m) => m.role === 'assistant' && m.content.trim().length > 0);
-
-    const intentExplicito = intentPorSenalExplicita(mensajeTrim);
-    const intentCategory: AgentIntentCategory =
-      intentExplicito ??
-      (await parseAgentIntentCategory(textoUsuario, {
-        borradorActivo: hasBorradorActivo,
-        ultimoAsistente: ultimoAsistenteRouter?.content,
-      }));
-    const memoriaNegocioBlockNoPresupuestos =
-      intentCategory === 'presupuesto' ? '' : memoriaNegocioBlock;
-
-    let tools = toolsForAgentIntent(intentCategory, ALL_AGENT_TOOLS);
-    if (tools.length === 0) {
-      tools = ALL_AGENT_TOOLS;
-    }
-
-    const fechaHoyMadrid = new Date().toLocaleDateString('es-ES', {
-      timeZone: 'Europe/Madrid',
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-
-    const systemPromptEfectivo =
-      intentCategory === 'presupuesto'
-        ? `${PRESUPUESTOS_AGENT_SYSTEM_PROMPT_PREFIX}${PRESUPUESTOS_AGENT_SYSTEM_PROMPT}\n\n${GROUNDING_REGLAS_SISTEMA}\n\n---\nContexto del negocio (solo referencia; mantén tus reglas de brevedad).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
-        : intentCategory === 'diario'
-          ? `${DIARIO_AGENT_SYSTEM_PROMPT}\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
-          : intentCategory === 'agenda'
-            ? `Hoy es ${fechaHoyMadrid} en Irún, España.\n\n${AGENDA_AGENT_SYSTEM_PROMPT}\n\nFecha actual: ${fechaActual}. Fecha hoy en formato ISO: ${hoyYmd}. Mañana en formato ISO: ${mananaYmd}.\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
-            : intentCategory === 'operarios'
-              ? `${OPERARIOS_AGENT_SYSTEM_PROMPT}\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
-            : intentCategory === 'gastos'
-              ? `${GASTOS_AGENT_SYSTEM_PROMPT}\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
-            : systemPrompt;
-
-    const historialLimitado = historialValido.slice(-10);
-
-    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-      { role: 'system', content: systemPromptEfectivo },
-      ...historialLimitado.map((m) => ({ role: m.role, content: m.content })),
-      { role: 'user', content: userContent },
-    ];
-
-    const maxTokensAgente = imagenesNormalizadas.length > 0 ? 1600 : 800;
-
-    const mensajeLower = mensajeTrim.toLowerCase();
-    const esConfirmacion = hasBorradorActivo && (
-      mensajeLower.includes('confirma') ||
-      mensajeLower.includes('finaliza') ||
-      mensajeLower.includes('guarda') ||
-      mensajeLower.includes('listo') ||
-      mensajeLower.includes('ya está') ||
-      mensajeLower.includes('cierra')
-    );
-
-    const parallelToolCallsOpt =
-      intentCategory === 'presupuesto' ||
-      intentCategory === 'diario' ||
-      intentCategory === 'agenda' ||
-      intentCategory === 'gastos'
-        ? { parallel_tool_calls: false as const }
-        : {};
-
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages,
-      tools,
-      tool_choice: esConfirmacion
-        ? { type: 'function', function: { name: 'confirmar_borrador' } }
-        : 'auto',
-      ...parallelToolCallsOpt,
-      temperature: AGENTE_TOOLS_TEMPERATURE,
-      max_tokens: maxTokensAgente,
-    });
-
-    let firstMessage = completion.choices[0]?.message;
-    let firstToolCalls = firstMessage?.tool_calls;
-    let planFuente: PlanFuente = firstToolCalls?.length ? 'tool_calls_nativos' : 'ninguno';
-
-    if (
-      !firstToolCalls?.length &&
-      !esConfirmacion &&
-      pareceAccionQueRequiereTool(mensajeTrim)
-    ) {
-      const retryMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-        ...messages,
-        {
-          role: 'system',
-          content:
-            'El usuario pide una acción sobre datos del negocio. Debes invocar la herramienta correspondiente en este turno. No respondas solo con texto.',
-        },
-      ];
-      const retryCompletion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: retryMessages,
-        tools,
-        tool_choice: 'required',
-        ...parallelToolCallsOpt,
-        temperature: AGENTE_TOOLS_TEMPERATURE,
-        max_tokens: maxTokensAgente,
-      });
-      const retryMessage = retryCompletion.choices[0]?.message;
-      if (retryMessage?.tool_calls?.length) {
-        firstMessage = retryMessage;
-        firstToolCalls = retryMessage.tool_calls;
-        planFuente = 'reintento_required';
-      }
     }
 
     const runTool = async (toolName: string, toolArgs: Record<string, unknown>) => {
@@ -818,6 +404,10 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
             mensaje: typeof mensaje === 'string' ? mensaje : mensajeTrim,
           }
         );
+      }
+
+      if (ENLACES_PDF_HANDLED_TOOLS.has(toolName)) {
+        return handleEnlacesPdf(toolName, toolArgs, bidRun, authUser?.id ?? null, supabase);
       }
 
       if (CORREO_HANDLED_TOOLS.has(toolName)) {
@@ -1028,10 +618,495 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
       canvasParaCliente = { tipo, titulo, datos };
     };
 
+    // ── Confirmación del usuario: «Sí, hazlo» en el panel ─────────────────────────────────────
+    // El navegador reenvía la acción pendiente (`confirmar_accion`). Aquí, ya con el control de acceso
+    // hecho, se comprueba que la tool está en la lista blanca de acciones confirmables y se ejecuta
+    // directamente, sin volver a pasar por el modelo.
+    if (hayConfirmarAccion) {
+      const valida = validarAccionConfirmada(body.confirmar_accion);
+      if (!valida.ok) {
+        return NextResponse.json({ error: valida.error }, { status: 400 });
+      }
+      const guardConfirm = applyPerfilioGuardrails([{ tool: valida.tool, args: valida.args }], '');
+      if (!guardConfirm.ok) {
+        return NextResponse.json({ respuesta: guardConfirm.error, email_pendiente: null, canvas: null, obra_modal: null });
+      }
+      let resultadoConfirmado: unknown;
+      try {
+        resultadoConfirmado = await runTool(valida.tool, valida.args);
+      } catch (e) {
+        console.error('[agente] confirmar_accion:', valida.tool, e);
+        resultadoConfirmado = { error: e instanceof Error ? e.message : 'Error al ejecutar la acción' };
+      }
+      const emailConf = capturarEmailPendiente(resultadoConfirmado);
+      if (emailConf) emailPendienteParaCliente = emailConf;
+      capturarCanvas(resultadoConfirmado);
+      const obraConf = capturarObraFicha(resultadoConfirmado);
+      if (obraConf) obraFichaParaCliente = obraConf;
+
+      const hechosConf = hechosMutacionDesdeEjecutado([{ tool: valida.tool, result: resultadoConfirmado }]);
+      const prosaConf =
+        prosaAncladaDirectaSiAplica(hechosConf) ??
+        (typeof (resultadoConfirmado as { mensaje?: unknown })?.mensaje === 'string'
+          ? String((resultadoConfirmado as { mensaje: string }).mensaje)
+          : `Hecho: ${fraseAccionHecha(valida.tool)}.`);
+      logAgenteTurno({
+        evento: 'agente_turno',
+        intent: 'confirmar_accion',
+        tools_pedidas: [valida.tool],
+        plan: { fuente: 'ninguno', ejecutado: [valida.tool] },
+        result: { n: 1, resumen: [{ tool: valida.tool, result: resumirToolResultParaLog(resultadoConfirmado) }] },
+      });
+      return NextResponse.json({
+        respuesta: enriquecerTextoConMaps(prosaConf),
+        email_pendiente: emailPendienteParaCliente,
+        canvas: canvasParaCliente,
+        obra_modal: obraFichaParaCliente,
+      });
+    }
+
+    if (directToolName) {
+      if (directToolName !== 'editar_factura') {
+        return NextResponse.json({ error: 'tool no permitida' }, { status: 400 });
+      }
+      const result = await editar_factura(supabase, businessIdStr, directToolArgs);
+      if ('error' in result) {
+        return NextResponse.json(result, { status: 400 });
+      }
+      return NextResponse.json(result);
+    }
+
+    const nombre = profile.nombre ?? 'el negocio';
+    const nombreUsuario = (() => {
+      const md = (authUser?.user_metadata ?? {}) as Record<string, unknown>;
+      const candidatos = [md.nombre, md.name, md.full_name, md.first_name, authUser?.email];
+      for (const c of candidatos) {
+        const s = String(c ?? '').trim();
+        if (s) return s;
+      }
+      return 'compa';
+    })();
+    const sector = profile.sector ?? 'no especificado';
+    const descripcion = profile.descripcion ?? '';
+    const servicios = profile.servicios ?? '';
+    const tarifas = profile.tarifas ?? '';
+    const contexto_adicional = profile.contexto_adicional ?? '';
+    const ciudadNegocio = String(
+      (profile as { ciudad?: string | null }).ciudad ?? ''
+    ).trim();
+    const ubicacionMeteoPrompt = ciudadNegocio
+      ? `\n\nUbicación del negocio: ${ciudadNegocio}. Usa esta ciudad por defecto para consultas meteorológicas cuando el usuario no especifique otra ubicación.`
+      : '';
+
+    const fechaActual = new Date().toLocaleDateString('es-ES', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+    const ahora = new Date().toLocaleString('es-ES', {
+      timeZone: 'Europe/Madrid',
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    let agendaContextoPrimerMensaje = '';
+    const esPrimerMensajeConversacion =
+      historialValido.length === 0 || historialValido.length === 1;
+    const tzAgenda = 'Europe/Madrid';
+    const hoyYmd = formatYmdInTimeZone(new Date(), tzAgenda);
+    const mananaYmd = addDaysToYmd(hoyYmd, 1);
+
+    if (esPrimerMensajeConversacion) {
+      const { data: agendaRows, error: agendaError } = await supabase
+        .from('agenda')
+        .select('titulo, fecha, hora')
+        .eq('business_id', business_id)
+        .in('fecha', [hoyYmd, mananaYmd])
+        .order('fecha', { ascending: true });
+
+      if (!agendaError && agendaRows && agendaRows.length > 0) {
+        const lineas = agendaRows.map(
+          (row: { titulo?: string | null; fecha?: string | null; hora?: string | null }) => {
+            const titulo = String(row.titulo ?? '').trim() || 'Evento';
+            const fecha = row.fecha ?? '';
+            const cuando =
+              fecha === hoyYmd ? 'hoy' : fecha === mananaYmd ? 'mañana' : fecha;
+            const horaStr = row.hora != null && String(row.hora).trim()
+              ? ` a las ${String(row.hora).trim()}`
+              : '';
+            return `- ${titulo} (${cuando}${horaStr})`;
+          }
+        );
+        agendaContextoPrimerMensaje = `
+
+PRIMER MENSAJE — Eventos en agenda (solo hoy y mañana; fechas en calendario local del negocio):
+${lineas.join('\n')}
+
+Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con este formato: "Aupa ${nombreUsuario}, soy Bicho. [resumen breve y natural de lo relevante de hoy/mañana]". No hagas una lista numerada ni viñetas en ese saludo; después continúa con la petición del usuario.`;
+      }
+    }
+
+    let memoriaRows: Array<{ categoria: string; clave: string; valor_texto: string }> = [];
+    const { data: memoriaData, error: memoriaErr } = await supabase
+      .from('memoria_negocio')
+      .select('categoria, clave, valor_texto')
+      .eq('business_id', business_id)
+      .order('categoria', { ascending: true })
+      .order('clave', { ascending: true });
+    if (!memoriaErr && memoriaData) {
+      memoriaRows = memoriaData as typeof memoriaRows;
+    }
+    const memoriaNegocioBlock = buildMemoriaNegocioPromptBlock(memoriaRows);
+
+    const { data: obrasAbiertas } = await supabase
+      .from('obras')
+      .select('id, nombre, cliente_id, direccion')
+      .eq('business_id', business_id)
+      .in('estado', ['abierta', 'en_curso'])
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    const { data: clientesActivos } = await supabase
+      .from('clientes')
+      .select('id, nombre, email, telefono')
+      .eq('business_id', business_id)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    const { data: operariosActivosRows } = await supabase
+      .from('operarios')
+      .select('nombre')
+      .eq('business_id', business_id)
+      .eq('activo', true)
+      .order('nombre', { ascending: true });
+    const nombresOperariosNegocio = (operariosActivosRows ?? [])
+      .map((r: { nombre?: string | null }) => String(r.nombre ?? '').trim())
+      .filter((n) => n.length > 0);
+    const bloqueOperariosPrompt =
+      nombresOperariosNegocio.length > 0
+        ? `Tienes acceso a la gestión de operarios. Puedes registrar horas de trabajo por obra, listar operarios y consultar resúmenes de horas. Los operarios de este negocio son: ${nombresOperariosNegocio.join(', ')}. Cuando registres horas, si el usuario no distingue entre reales y convenio, guarda el mismo valor en ambos.`
+        : `Tienes acceso a la gestión de operarios. Puedes registrar horas de trabajo por obra, listar operarios y consultar resúmenes de horas. Aún no hay operarios activos listados en el sistema para este negocio. Cuando registres horas, si el usuario no distingue entre reales y convenio, guarda el mismo valor en ambos.`;
+
+    const obrasCtx =
+      (obrasAbiertas ?? []).length > 0
+        ? `\nOBRAS ABIERTAS ACTUALES:\n${(obrasAbiertas ?? [])
+            .map(
+              (o) =>
+                `- ${o.nombre} (id: ${o.id})${o.direccion ? ', dir: ' + o.direccion : ''}`
+            )
+            .join('\n')}`
+        : '\nNo hay obras abiertas actualmente.';
+
+    const clientesCtx =
+      (clientesActivos ?? []).length > 0
+        ? `\nCLIENTES REGISTRADOS:\n${(clientesActivos ?? [])
+            .map(
+              (c) =>
+                `- ${c.nombre} (id: ${c.id})${c.email ? ', email: ' + c.email : ''}${c.telefono ? ', tel: ' + c.telefono : ''}`
+            )
+            .join('\n')}`
+        : '\nNo hay clientes registrados.';
+
+    const systemPrompt = construirPromptSistema({
+      nombre,
+      sector,
+      descripcion,
+      servicios,
+      tarifas,
+      contextoAdicional: contexto_adicional,
+      ubicacionMeteoPrompt,
+      ahora,
+      fechaActual,
+      obrasCtx,
+      clientesCtx,
+      bloqueOperarios: bloqueOperariosPrompt,
+      agendaContextoPrimerMensaje,
+      memoriaNegocioBlock,
+    });
+
+    const ALL_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+      ...DOCUMENTOS_AGENT_TOOLS,
+      ...OBRAS_CLIENTES_AGENT_TOOLS,
+      {
+        type: 'function',
+        function: {
+          name: 'obtener_mensajes_pendientes',
+          description:
+            'Respuestas IA del negocio pendientes de aprobación (texto, borrador, conversación).',
+          parameters: {
+            type: 'object',
+            properties: {},
+            additionalProperties: false,
+          },
+        },
+      },
+      ...CORREO_AGENT_TOOLS,
+      ...AGENDA_AGENT_TOOLS,
+      ...CALCULO_AGENT_TOOLS,
+      {
+        type: 'function',
+        function: {
+          name: 'get_directions',
+          description:
+            'Genera un enlace de Google Maps para una dirección. Usar cuando pregunten cómo llegar, indicaciones o ubicación de obra/cliente.',
+          parameters: {
+            type: 'object',
+            properties: {
+              direccion: {
+                type: 'string',
+                description: 'Dirección o ubicación a buscar en Maps',
+              },
+              nombre_lugar: {
+                type: 'string',
+                description: 'Etiqueta opcional (ej. Casa García, Cliente Martínez)',
+              },
+            },
+            required: ['direccion'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'consultar_tiempo',
+          description:
+            'Previsión meteorológica para ciudad o dirección de obra. Tiempo, lluvia, obras en agenda.',
+          parameters: {
+            type: 'object',
+            properties: {
+              ubicacion: {
+                type: 'string',
+                description: 'Ciudad o dirección (ej. Madrid, Zarautz, Calle Mayor 1 Bilbao)',
+              },
+              dias: {
+                type: 'number',
+                description: '1 o 2 días de previsión (hoy y/o mañana)',
+                enum: [1, 2],
+              },
+            },
+            required: ['ubicacion'],
+            additionalProperties: false,
+          },
+        },
+      },
+      ...GASTOS_AGENT_TOOLS,
+      ...DIARIO_AGENT_TOOLS,
+      {
+        type: 'function',
+        function: {
+          name: 'guardar_memoria',
+          description: `Guarda o actualiza un dato persistente del negocio (preferencia, corrección, proveedor habitual, formato, precio, etc.). Upsert por clave única por negocio. Llama sin pedir confirmación si el usuario corrige con claridad o declara preferencias duraderas. Categorías válidas: ${MEMORIA_CATEGORIAS.join(', ')}. Usa clave en snake_case corta (ej. cemento_exterior). Responde muy breve ("Anotado…").`,
+          parameters: {
+            type: 'object',
+            properties: {
+              categoria: {
+                type: 'string',
+                enum: [...MEMORIA_CATEGORIAS],
+                description: 'Tipo de memoria',
+              },
+              clave: {
+                type: 'string',
+                description: 'Identificador único en snake_case por negocio (ej. cemento_exterior)',
+              },
+              valor_texto: {
+                type: 'string',
+                description: 'Texto completo del dato o preferencia a recordar',
+              },
+            },
+            required: ['categoria', 'clave', 'valor_texto'],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'eliminar_memoria',
+          description:
+            'Elimina una entrada de memoria del negocio por su clave (misma convención snake_case que al guardar). Usa cuando pida olvidar o quitar una clave concreta.',
+          parameters: {
+            type: 'object',
+            properties: {
+              clave: {
+                type: 'string',
+                description: 'Clave de la entrada a eliminar',
+              },
+            },
+            required: ['clave'],
+            additionalProperties: false,
+          },
+        },
+      },
+      ...OPERARIOS_AGENT_TOOLS,
+      ...PRESUPUESTOS_AGENT_TOOLS,
+      ...ENLACES_PDF_AGENT_TOOLS,
+      ...CANVAS_AGENT_TOOLS,
+    ];
+
+    const textoUsuario =
+      mensajeTrim ||
+      '(El usuario adjuntó una imagen, posiblemente un ticket o factura. Analízala e indica qué datos ves.)';
+
+    const userContent: OpenAI.Chat.ChatCompletionContentPart[] = [
+      { type: 'text', text: textoUsuario },
+    ];
+    for (const u of imagenesNormalizadas) {
+      userContent.push({
+        type: 'image_url',
+        image_url: { url: u, detail: 'auto' },
+      });
+    }
+
+    let hasBorradorActivo = false;
+    if (authUser?.id) {
+      const borradorRes = await supabase
+        .from('presupuesto_borrador')
+        .select('id')
+        .eq('business_id', business_id)
+        .eq('user_id', authUser.id)
+        .eq('estado', 'en_construccion')
+        .limit(1);
+      const rows = borradorRes.data;
+      hasBorradorActivo = Array.isArray(rows)
+        ? rows.length > 0 && Boolean((rows[0] as { id?: string } | undefined)?.id)
+        : Boolean(
+            rows &&
+              typeof rows === 'object' &&
+              'id' in (rows as object) &&
+              String((rows as { id?: unknown }).id ?? '').trim().length > 0
+          );
+    }
+
+    const ultimoAsistenteRouter = [...historialValido]
+      .reverse()
+      .find((m) => m.role === 'assistant' && m.content.trim().length > 0);
+
+    const intentExplicito = intentPorSenalExplicita(mensajeTrim);
+    const intentCategory: AgentIntentCategory =
+      intentExplicito ??
+      (await parseAgentIntentCategory(textoUsuario, {
+        borradorActivo: hasBorradorActivo,
+        ultimoAsistente: ultimoAsistenteRouter?.content,
+      }));
+    const memoriaNegocioBlockNoPresupuestos =
+      intentCategory === 'presupuesto' ? '' : memoriaNegocioBlock;
+
+    let tools = toolsForAgentIntent(intentCategory, ALL_AGENT_TOOLS);
+    if (tools.length === 0) {
+      tools = ALL_AGENT_TOOLS;
+    }
+
+    const fechaHoyMadrid = new Date().toLocaleDateString('es-ES', {
+      timeZone: 'Europe/Madrid',
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+
+    const systemPromptEfectivo =
+      intentCategory === 'presupuesto'
+        ? `${promptEspecialidad(`${PRESUPUESTOS_AGENT_SYSTEM_PROMPT_PREFIX}${PRESUPUESTOS_AGENT_SYSTEM_PROMPT}`)}\n\n${GROUNDING_REGLAS_SISTEMA}\n\n---\nContexto del negocio (solo referencia; mantén tus reglas de brevedad).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
+        : intentCategory === 'diario'
+          ? `${promptEspecialidad(DIARIO_AGENT_SYSTEM_PROMPT)}\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
+          : intentCategory === 'agenda'
+            ? `Hoy es ${fechaHoyMadrid} en Irún, España.\n\n${promptEspecialidad(AGENDA_AGENT_SYSTEM_PROMPT)}\n\nFecha actual: ${fechaActual}. Fecha hoy en formato ISO: ${hoyYmd}. Mañana en formato ISO: ${mananaYmd}.\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
+            : intentCategory === 'operarios'
+              ? `${promptEspecialidad(OPERARIOS_AGENT_SYSTEM_PROMPT)}\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
+            : intentCategory === 'gastos'
+              ? `${promptEspecialidad(GASTOS_AGENT_SYSTEM_PROMPT)}\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
+            : systemPrompt;
+
+    const historialLimitado = historialValido.slice(-10);
+
+    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      { role: 'system', content: systemPromptEfectivo },
+      ...historialLimitado.map((m) => ({ role: m.role, content: m.content })),
+      { role: 'user', content: userContent },
+    ];
+
+    const maxTokensAgente = imagenesNormalizadas.length > 0 ? 1600 : 800;
+
+    const mensajeLower = mensajeTrim.toLowerCase();
+    const esConfirmacion = hasBorradorActivo && (
+      mensajeLower.includes('confirma') ||
+      mensajeLower.includes('finaliza') ||
+      mensajeLower.includes('guarda') ||
+      mensajeLower.includes('listo') ||
+      mensajeLower.includes('ya está') ||
+      mensajeLower.includes('cierra')
+    );
+
+    const parallelToolCallsOpt =
+      intentCategory === 'presupuesto' ||
+      intentCategory === 'diario' ||
+      intentCategory === 'agenda' ||
+      intentCategory === 'gastos'
+        ? { parallel_tool_calls: false as const }
+        : {};
+
+    const modelo = modeloAgente();
+    const paramsTools = parametrosGeneracion(modelo, {
+      maxTokens: maxTokensAgente,
+      temperature: AGENTE_TOOLS_TEMPERATURE,
+    });
+
+    const completion = await openai.chat.completions.create({
+      model: modelo,
+      messages,
+      tools,
+      tool_choice: esConfirmacion
+        ? { type: 'function', function: { name: 'confirmar_borrador' } }
+        : 'auto',
+      ...parallelToolCallsOpt,
+      ...paramsTools,
+    });
+
+    let firstMessage = completion.choices[0]?.message;
+    let firstToolCalls = firstMessage?.tool_calls;
+    let planFuente: PlanFuente = firstToolCalls?.length ? 'tool_calls_nativos' : 'ninguno';
+
+    if (
+      !firstToolCalls?.length &&
+      !esConfirmacion &&
+      pareceAccionQueRequiereTool(mensajeTrim)
+    ) {
+      const retryMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+        ...messages,
+        {
+          role: 'system',
+          content:
+            'El usuario pide una acción sobre datos del negocio. Debes invocar la herramienta correspondiente en este turno. No respondas solo con texto.',
+        },
+      ];
+      const retryCompletion = await openai.chat.completions.create({
+        model: modelo,
+        messages: retryMessages,
+        tools,
+        tool_choice: 'required',
+        ...parallelToolCallsOpt,
+        ...paramsTools,
+      });
+      const retryMessage = retryCompletion.choices[0]?.message;
+      if (retryMessage?.tool_calls?.length) {
+        firstMessage = retryMessage;
+        firstToolCalls = retryMessage.tool_calls;
+        planFuente = 'reintento_required';
+      }
+    }
+
     let respuesta =
       typeof firstMessage?.content === 'string' ? firstMessage.content : '';
 
     const ejecutadoResumen: Array<{ tool: string; result: unknown }> = [];
+    const resultadosDelTurno: unknown[] = [];
+    let accionPendiente: AccionPendiente | null = null;
 
     if (firstToolCalls?.length) {
       const plan = plannedToolsFromAssistantToolCalls(firstToolCalls);
@@ -1058,7 +1133,61 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
             const step = validated[i];
             let toolResult: unknown;
             try {
-              toolResult = await runTool(step.tool, step.args);
+              if (requiereConfirmacion(step.tool, step.args)) {
+                // BARRERA: no se ejecuta. Se prepara la acción y se le pregunta al usuario.
+                if (accionPendiente) {
+                  toolResult = {
+                    ok: false,
+                    pendiente_confirmacion: true,
+                    error: 'Una cosa cada vez: confirma primero la anterior y luego te preparo esta.',
+                  };
+                } else {
+                  const prep = await prepararAccionPendiente(step.tool, step.args, {
+                    supabase,
+                    businessId: businessIdStr,
+                    runTool,
+                    mensajeUsuario: mensajeTrim,
+                  });
+                  if (prep.tipo === 'pendiente') {
+                    accionPendiente = prep.accion;
+                    toolResult = {
+                      ok: false,
+                      pendiente_confirmacion: true,
+                      error: preguntaConfirmacion(prep.accion.resumen),
+                    };
+                  } else {
+                    toolResult = prep.result;
+                  }
+                }
+              } else {
+                toolResult = await runTool(step.tool, step.args);
+                // Vista previa propia de la tool (p. ej. registrar_jornada con solo_vista_previa):
+                // se convierte en la misma acción pendiente con botones.
+                const r = toolResult as Record<string, unknown> | null;
+                if (
+                  confirmacionActiva() &&
+                  !accionPendiente &&
+                  r?.pendiente_confirmacion === true &&
+                  TOOLS_CON_VISTA_PREVIA.has(step.tool)
+                ) {
+                  const texto = [r.mensaje, r.error].find((x) => typeof x === 'string' && x.trim());
+                  const resumen =
+                    limpiarTextoVistaPrevia(String(texto ?? '')) ||
+                    describirAccionGenerica(step.tool, step.args);
+                  accionPendiente = {
+                    tool: step.tool,
+                    args: { ...step.args, solo_vista_previa: false },
+                    resumen,
+                  };
+                  // El usuario lee el resumen limpio (sin las instrucciones pensadas para el modelo).
+                  toolResult = {
+                    ...r,
+                    ok: false,
+                    pendiente_confirmacion: true,
+                    error: preguntaConfirmacion(resumen),
+                  };
+                }
+              }
             } catch (e) {
               console.error('[agente] runTool:', step.tool, e);
               toolResult = {
@@ -1076,6 +1205,7 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
               args: step.args,
               result: toolResult,
             });
+            resultadosDelTurno.push(toolResult);
             ejecutadoResumen.push({
               tool: step.tool,
               result: resumirToolResultParaLog(toolResult),
@@ -1083,7 +1213,13 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
           }
 
           const hechos = hechosMutacionDesdeEjecutado(executed);
-          const prosaDirecta = prosaAncladaDirectaSiAplica(hechos);
+          // Si hay una acción pendiente (vista previa de una tool que el prefijo no clasifica como
+          // «mutación», p. ej. generar_presupuesto_por_dictado), la pregunta sale tal cual, sin modelo.
+          const prosaDirecta =
+            prosaAncladaDirectaSiAplica(hechos) ??
+            (accionPendiente && hechos.exitos.length === 0
+              ? preguntaConfirmacion(accionPendiente.resumen)
+              : null);
           if (prosaDirecta) {
             respuesta = prosaDirecta;
           } else {
@@ -1093,10 +1229,12 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
             ];
             try {
               const finalCompletion = await openai.chat.completions.create({
-                model: 'gpt-4o-mini',
+                model: modelo,
                 messages: finalMessages,
-                temperature: AGENTE_PROSA_TEMPERATURE,
-                max_tokens: maxTokensAgente,
+                ...parametrosGeneracion(modelo, {
+                  maxTokens: maxTokensAgente,
+                  temperature: AGENTE_PROSA_TEMPERATURE,
+                }),
               });
               const finalText = finalCompletion.choices[0]?.message?.content;
               if (typeof finalText === 'string' && finalText.trim()) {
@@ -1150,13 +1288,29 @@ ${bloqueOperariosPrompt}${agendaContextoPrimerMensaje}${memoriaNegocioBlock}`;
         'No he podido generar una respuesta en texto. Prueba a reformular la pregunta o inténtalo de nuevo.';
     }
 
+    // El enlace al PDF debe verse sí o sí: si el modelo no lo copió en su texto, se añade.
+    for (const r of resultadosDelTurno) {
+      const o = (r && typeof r === 'object' ? r : {}) as { ok?: unknown; url?: unknown; mensaje?: unknown };
+      if (o.ok === true && typeof o.url === 'string' && typeof o.mensaje === 'string' && !respuesta.includes(o.url)) {
+        respuesta = `${respuesta}\n\n${o.mensaje}`.trim();
+      }
+    }
+
     respuesta = enriquecerTextoConMaps(String(respuesta ?? ''));
+
+    // Opciones numeradas de las aclaraciones («¿cuál de estas obras?») con sus ids, en un comentario
+    // HTML invisible: así «la 2» se resuelve al id exacto en el turno siguiente.
+    const opciones = opcionesDeResultados(resultadosDelTurno);
+    if (opciones.length > 0) respuesta += marcaOpcionesParaHistorial(opciones);
 
     return NextResponse.json({
       respuesta,
       email_pendiente: emailPendienteParaCliente,
       canvas: canvasParaCliente,
       obra_modal: obraFichaParaCliente,
+      // Solo cuando existen (las claves de siempre no cambian): botones «Sí, hazlo / No» y opciones.
+      ...(accionPendiente ? { accion_pendiente: accionPendiente } : {}),
+      ...(opciones.length > 0 ? { opciones } : {}),
     });
   } catch (error) {
     console.error('Error en /api/agente:', error);

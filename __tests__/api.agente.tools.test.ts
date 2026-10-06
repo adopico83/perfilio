@@ -67,6 +67,16 @@ const businessProfileChain = (() => {
   return bp;
 })();
 
+// Estos tests comprueban lo que hace cada tool al EJECUTARSE dentro del turno del agente. La barrera de
+// confirmación del servidor (que ahora retiene las tools de escritura hasta que el usuario dice «sí»)
+// se apaga aquí con su interruptor de emergencia y se prueba aparte en `agente.confirmacion.test.ts`.
+beforeAll(() => {
+  process.env.AGENTE_CONFIRMACION = 'off';
+});
+afterAll(() => {
+  delete process.env.AGENTE_CONFIRMACION;
+});
+
 describe('POST /api/agente — tools', () => {
   let POST: (req: NextRequest) => Promise<Response>;
 
@@ -770,15 +780,28 @@ describe('POST /api/agente — tools', () => {
           }),
       };
 
-      const insertMockFactura = jest.fn().mockResolvedValue({ data: null, error: null });
+      // La factura ahora toma su número correlativo POR NEGOCIO (insertarFacturaConNumeroCorrelativo):
+      // lee el último número (select…maybeSingle) y luego inserta con .select().single().
+      const insertMockFactura = jest.fn(() => ({
+        select: () => ({
+          single: async () => ({ data: { id: 'fac-1', numero_factura: 8 }, error: null }),
+        }),
+      }));
+      const facturasChain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        not: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        maybeSingle: jest.fn().mockResolvedValue({ data: { numero_factura: 7 }, error: null }),
+        insert: insertMockFactura,
+      };
 
       const res = await postWithTool(
         'convertir_albaran_a_factura',
         {
           albaranes: albaranesChain as unknown as ReturnType<typeof makeThenableResult>,
-          facturas: {
-            insert: insertMockFactura,
-          } as unknown as ReturnType<typeof makeThenableResult>,
+          facturas: facturasChain as unknown as ReturnType<typeof makeThenableResult>,
           presupuestos: makeThenableResult({ data: [], error: null }),
         },
         JSON.stringify({ albaran_id: albaranId, iva: 21 })
@@ -793,6 +816,7 @@ describe('POST /api/agente — tools', () => {
       expect(insertMockFactura).toHaveBeenCalledWith(
         expect.objectContaining({
           albaran_id: albaranId,
+          numero_factura: 8, // siguiente al último del negocio (7)
         })
       );
     });

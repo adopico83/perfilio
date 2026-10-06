@@ -1,0 +1,99 @@
+/**
+ * Negocio de mentira para probar el agente SIN tocar la base de datos real.
+ * Lo usan la batería de tests (`__tests__/agente.evals-simuladas.test.ts`) y el script opcional
+ * contra el modelo real (`npm run eval:agente`).
+ *
+ * Hay DOS negocios con datos parecidos a propósito: el de Pino (A) y otro (B) con un presupuesto
+ * nº 7, una factura nº 3 y una «Reforma Paqui» también. Así se comprueba que un número o un nombre
+ * nunca se resuelve contra el negocio equivocado.
+ */
+import type { Fila } from '../__tests__/helpers/fake-db';
+
+export const NEGOCIO_A = '8784450e-08a4-420a-8c37-d30bff8f0d39';
+export const NEGOCIO_B = '900ed462-7640-4893-9030-a41163219f7a';
+export const USUARIO = 'user-pino';
+
+export const IDS = {
+  clientePaqui: 'cli-paqui',
+  clienteGarciaNorte: 'cli-garcia-norte',
+  clienteGarciaSur: 'cli-garcia-sur',
+  obraPaqui: 'obra-paqui',
+  obraOlabide9: 'obra-olabide-9',
+  obraOlabide12: 'obra-olabide-12',
+  presupuesto7: 'aaaaaaaa-0000-4000-8000-000000000007',
+  presupuesto7Ajeno: 'bbbbbbbb-0000-4000-8000-000000000007',
+  presupuestoGarciaNorte: 'aaaaaaaa-0000-4000-8000-000000000008',
+  presupuestoGarciaSur: 'aaaaaaaa-0000-4000-8000-000000000009',
+  factura3: 'aaaaaaaa-1111-4000-8000-000000000003',
+  factura3Ajena: 'bbbbbbbb-1111-4000-8000-000000000003',
+  operarioIker: 'op-iker',
+  operarioMikelGoni: 'op-mikel-goni',
+  operarioMikelRuiz: 'op-mikel-ruiz',
+  obraPaquiAjena: 'obra-b-paqui',
+} as const;
+
+/** Líneas del presupuesto nº 7 (formato de `presupuesto_generado`): hacen falta para poder facturarlo. */
+const TEXTO_PRESUPUESTO = [
+  'CAPÍTULO BAÑO',
+  '1. Alicatado de paredes | Cantidad: 12 | Precio: 40,00 € | Importe: 480,00 €',
+  'TOTAL BAÑO: 480,00 €',
+  'BASE IMPONIBLE: 480,00 € | IVA (21%): 100,80 € | TOTAL: 580,80 €',
+].join('\n');
+
+const perfil = (id: string, nombre: string): Fila => ({
+  id,
+  nombre,
+  sector: 'Reformas',
+  descripcion: '',
+  servicios: '',
+  tarifas: '',
+  contexto_adicional: '',
+  ciudad: 'Irún',
+  direccion: null,
+});
+
+export function crearBaseSimulada(): Record<string, Fila[]> {
+  return {
+    business_profiles: [perfil(NEGOCIO_A, 'Pino Albañilería'), perfil(NEGOCIO_B, 'Estudio Orbegozo')],
+    clientes: [
+      { id: IDS.clientePaqui, business_id: NEGOCIO_A, nombre: 'Paqui', nif: '12345678Z', direccion: 'Calle Mayor 1, Irún', telefono: '600111222' },
+      { id: IDS.clienteGarciaNorte, business_id: NEGOCIO_A, nombre: 'García Norte', nif: 'B11111111', direccion: 'Calle Norte 2', telefono: null },
+      { id: IDS.clienteGarciaSur, business_id: NEGOCIO_A, nombre: 'García Sur', nif: 'B22222222', direccion: 'Calle Sur 3', telefono: null },
+      { id: 'cli-b-lola', business_id: NEGOCIO_B, nombre: 'Lola Ajena', nif: 'B99999999', direccion: 'Calle Ajena 9', telefono: null },
+    ],
+    obras: [
+      { id: IDS.obraPaqui, business_id: NEGOCIO_A, nombre: 'Reforma Paqui', direccion: 'Calle Mayor 1, Irún', estado: 'en_curso', cliente_id: IDS.clientePaqui, created_at: '2026-04-01T10:00:00Z' },
+      { id: IDS.obraOlabide9, business_id: NEGOCIO_A, nombre: 'Obra Olabide 9', direccion: 'Olabide 9, Ondarribia', estado: 'en_curso', cliente_id: null, created_at: '2026-04-02T10:00:00Z' },
+      { id: IDS.obraOlabide12, business_id: NEGOCIO_A, nombre: 'Obra Olabide 12', direccion: 'Olabide 12, Ondarribia', estado: 'abierta', cliente_id: null, created_at: '2026-04-03T10:00:00Z' },
+      { id: IDS.obraPaquiAjena, business_id: NEGOCIO_B, nombre: 'Reforma Paqui', direccion: 'Otra calle 5', estado: 'en_curso', cliente_id: null, created_at: '2026-04-01T10:00:00Z' },
+    ],
+    operarios: [
+      { id: IDS.operarioIker, business_id: NEGOCIO_A, nombre: 'Iker Etxeberria', activo: true },
+      { id: IDS.operarioMikelGoni, business_id: NEGOCIO_A, nombre: 'Mikel Goñi', activo: true },
+      { id: IDS.operarioMikelRuiz, business_id: NEGOCIO_A, nombre: 'Mikel Ruiz', activo: true },
+    ],
+    presupuestos: [
+      { id: IDS.presupuesto7, business_id: NEGOCIO_A, numero_presupuesto: 7, cliente_nombre: 'Paqui', cliente_id: IDS.clientePaqui, obra_id: IDS.obraPaqui, estado: 'aceptado', importe_total: 8871, fecha: '2026-04-10', created_at: '2026-04-10T10:00:00Z', presupuesto_generado: TEXTO_PRESUPUESTO },
+      { id: IDS.presupuestoGarciaNorte, business_id: NEGOCIO_A, numero_presupuesto: 8, cliente_nombre: 'García Norte', cliente_id: IDS.clienteGarciaNorte, obra_id: null, estado: 'aceptado', importe_total: 1200, fecha: '2026-04-12', created_at: '2026-04-12T10:00:00Z', presupuesto_generado: '' },
+      { id: IDS.presupuestoGarciaSur, business_id: NEGOCIO_A, numero_presupuesto: 9, cliente_nombre: 'García Sur', cliente_id: IDS.clienteGarciaSur, obra_id: null, estado: 'aceptado', importe_total: 3400, fecha: '2026-04-14', created_at: '2026-04-14T10:00:00Z', presupuesto_generado: '' },
+      // Mismo número 7 en OTRO negocio: nunca debe resolverse desde el negocio A.
+      { id: IDS.presupuesto7Ajeno, business_id: NEGOCIO_B, numero_presupuesto: 7, cliente_nombre: 'Lola Ajena', cliente_id: 'cli-b-lola', obra_id: null, estado: 'aceptado', importe_total: 500, fecha: '2026-04-10', created_at: '2026-04-10T10:00:00Z', presupuesto_generado: '' },
+    ],
+    facturas: [
+      { id: IDS.factura3, business_id: NEGOCIO_A, numero_factura: 3, cliente_nombre: 'Paqui', total: 1000, estado: 'pendiente', presupuesto_id: null },
+      { id: IDS.factura3Ajena, business_id: NEGOCIO_B, numero_factura: 3, cliente_nombre: 'Lola Ajena', total: 50, estado: 'pendiente', presupuesto_id: null },
+    ],
+    presupuesto_borrador: [
+      { id: 'bor-1', business_id: NEGOCIO_A, user_id: USUARIO, estado: 'en_construccion', cliente_nombre: 'Paqui', cliente_id: IDS.clientePaqui, obra_id: null, iva_porcentaje: 21, created_at: '2026-10-06T09:00:00Z' },
+    ],
+    presupuesto_borrador_items: [],
+    presupuesto_previews: [],
+    agenda: [],
+    memoria_negocio: [],
+    diario_obra: [],
+    registros_jornada: [],
+    albaranes: [],
+    gastos: [],
+    tarifas: [],
+  };
+}

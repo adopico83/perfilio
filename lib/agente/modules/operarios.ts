@@ -1,6 +1,6 @@
 import type OpenAI from 'openai';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { resolverObraDocumentoAgente } from '@/lib/obras-context';
+import { resolverObraDocumentoAgente, aclaracionObra } from '@/lib/obras-context';
 
 function escapeIlikePattern(s: string): string {
   return s.replace(/[%_*]/g, '');
@@ -232,9 +232,7 @@ export const OPERARIOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[]
   },
 ];
 
-export const OPERARIOS_AGENT_SYSTEM_PROMPT = `Tu nombre es Bicho. Si el usuario te llama por tu nombre al inicio de una petición ('Oye Bicho...', 'Bicho escucha...', 'Bicho añade...', 'Eh Bicho...' o similar), ignora el nombre y ejecuta directamente lo que pide a continuación. No respondas al nombre, no lo confirmes, simplemente actúa.
-
-Eres el especialista en operarios de Perfilio. Tu único trabajo es registrar y consultar jornadas de operarios por obra con precisión.
+export const OPERARIOS_AGENT_SYSTEM_PROMPT = `Eres el especialista en operarios de Perfilio. Tu único trabajo es registrar y consultar jornadas de operarios por obra con precisión.
 
 NORMALIZACIÓN DE NOMBRES: Antes de concluir que un operario no existe, compara el nombre recibido con la lista de operarios activos del negocio usando similitud fonética y ortográfica. Ejemplos de equivalencias conocidas: 'Archie' → 'Artxi', 'Archi' → 'Artxi', 'Archi' → 'Artxi'. Si el nombre recibido no coincide exactamente pero hay un candidato razonable en la lista, usa ese candidato directamente sin preguntar. Solo responde que no existe si no hay ningún candidato razonable.
 
@@ -243,6 +241,22 @@ REGLAS ABSOLUTAS:
 2. Si falta obra u operario y hay ambigüedad, pide aclaración antes de ejecutar.
 3. En registrar_jornada, respeta el flujo SDD: primera llamada con solo_vista_previa true, y solo guarda tras confirmación explícita del usuario.
 4. Si el usuario no distingue horas reales y convenio, usa el mismo valor en ambos campos.`;
+
+/**
+ * Varios operarios encajan con el nombre: se pregunta con opciones (`necesita_aclaracion` +
+ * `candidatos` con su id) en vez de adivinar. Mantiene `mensaje` por compatibilidad.
+ */
+function operariosAmbiguos(filas: Array<{ id: string; nombre: string }>): Record<string, unknown> {
+  const lista = filas.map((o, i) => `${i + 1}. ${o.nombre}`).join('\n');
+  const mensaje = `Hay varios operarios que encajan:\n${lista}\nIndica el nombre completo o más concreto.`;
+  return {
+    ok: false,
+    error: mensaje,
+    mensaje,
+    necesita_aclaracion: true,
+    candidatos: filas.map((o) => ({ id: o.id, etiqueta: o.nombre })),
+  };
+}
 
 export async function ejecutarRegistrarJornada(
   supabase: SupabaseClient,
@@ -265,10 +279,7 @@ export async function ejecutarRegistrarJornada(
     return { error: `No encontré un operario activo que coincida con «${operarioNombre}».` };
   }
   if (opRes.filas.length > 1) {
-    const lista = opRes.filas.map((o, i) => `${i + 1}. ${o.nombre}`).join('\n');
-    return {
-      mensaje: `Hay varios operarios que encajan:\n${lista}\nIndica el nombre completo o más concreto.`,
-    };
+    return operariosAmbiguos(opRes.filas);
   }
   const operario = opRes.filas[0]!;
 
@@ -285,7 +296,7 @@ export async function ejecutarRegistrarJornada(
     textoBusqueda,
     'documento'
   );
-  if (!obraRes.ok) return { mensaje: obraRes.mensaje };
+  if (!obraRes.ok) return aclaracionObra(obraRes);
   if (!obraRes.obra_id) {
     return { error: 'Indica la obra (nombre, dirección u obra_id) para registrar la jornada.' };
   }
@@ -440,7 +451,7 @@ export async function ejecutarConsultarHorasObra(
     textoBusqueda,
     'documento'
   );
-  if (!obraRes.ok) return { mensaje: obraRes.mensaje };
+  if (!obraRes.ok) return aclaracionObra(obraRes);
   if (!obraRes.obra_id) {
     return { error: 'Indica la obra para consultar las horas (nombre u obra_id).' };
   }
@@ -530,10 +541,7 @@ export async function ejecutarConsultarHorasOperario(
     return { error: `No encontré un operario activo que coincida con «${nombreFrag}».` };
   }
   if (opRes.filas.length > 1) {
-    const lista = opRes.filas.map((o, i) => `${i + 1}. ${o.nombre}`).join('\n');
-    return {
-      mensaje: `Hay varios operarios que encajan:\n${lista}\nIndica el nombre completo o más concreto.`,
-    };
+    return operariosAmbiguos(opRes.filas);
   }
   const operario = opRes.filas[0]!;
 
@@ -702,10 +710,7 @@ export async function ejecutarEliminarRegistroJornada(
     return { mensaje: 'No he encontrado ningún registro de jornada que coincida.' };
   }
   if (opRes.filas.length > 1) {
-    const lista = opRes.filas.map((o, i) => `${i + 1}. ${o.nombre}`).join('\n');
-    return {
-      mensaje: `Hay varios operarios que encajan:\n${lista}\nIndica el nombre completo o más concreto.`,
-    };
+    return operariosAmbiguos(opRes.filas);
   }
   const operario = opRes.filas[0]!;
 
@@ -722,7 +727,7 @@ export async function ejecutarEliminarRegistroJornada(
     textoBusqueda,
     'documento'
   );
-  if (!obraRes.ok) return { mensaje: obraRes.mensaje };
+  if (!obraRes.ok) return aclaracionObra(obraRes);
   if (!obraRes.obra_id) {
     return { error: 'Indica la obra (nombre, dirección u obra_id) para localizar el registro de jornada.' };
   }

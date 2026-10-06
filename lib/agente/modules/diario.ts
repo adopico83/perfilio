@@ -13,7 +13,7 @@ import {
   signDiarioObraEntriesMedia,
   uploadDiarioObraMediaToBucket,
 } from '@/lib/diario-obra';
-import { resolverObraDocumentoAgente } from '@/lib/obras-context';
+import { resolverObraDocumentoAgente, aclaracionObra } from '@/lib/obras-context';
 
 /** YYYY-MM-DD del instante dado en la zona horaria indicada (p. ej. Europa/Madrid). */
 function formatYmdInTimeZone(date: Date, timeZone: string): string {
@@ -41,19 +41,19 @@ export const DIARIO_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = 
     function: {
       name: 'crear_entrada_diario',
       description:
-        'Entrada en diario de obra: texto y opcionalmente fotos/vídeos. Obligatorio obra_nombre; el servidor resuelve obra_id. Si el usuario adjuntó imágenes en este mensaje, el servidor las gestiona automáticamente: NO pongas nada en el campo fotos, déjalo sin definir. Para URLs o rutas que el usuario pegue manualmente, usa el array fotos. NO inventes URLs. Ejecuta la tool con el obra_nombre que dio el usuario; no pidas aclarar ambigüedad antes — solo si la tool devuelve mensaje de ambigüedad.',
+        'Anota una entrada en el diario de obra (texto y, si las hay, fotos). Pasa obra_id (uuid, si lo sabes por una consulta previa con buscar_obra) u obra_nombre. Si la obra está clara, llama a la tool directamente; si encaja con varias obras, la tool devuelve las opciones y entonces preguntas al usuario cuál es. Si el usuario adjuntó imágenes en este mensaje, el servidor las gestiona solo: NO pongas nada en fotos. Para rutas que el usuario pegue a mano usa fotos. NO inventes URLs.',
       parameters: {
         type: 'object',
         properties: {
           obra_nombre: {
             type: 'string',
             description:
-              "Nombre o identificador de la obra (ej: 'Reforma Calle Mayor', 'Casa García')",
+              "Nombre de la obra tal como lo dijo el usuario (ej: 'Reforma Calle Mayor'). Alternativa a obra_id.",
           },
           obra_id: {
             type: 'string',
             description:
-              'UUID de la obra (opcional). Si no se indica, se detecta por obra_nombre y el mensaje del usuario.',
+              'UUID exacto de la obra (de buscar_obra o de OBRAS ABIERTAS). Si lo pasas, manda sobre obra_nombre.',
           },
           obra_direccion: {
             type: 'string',
@@ -77,7 +77,6 @@ export const DIARIO_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = 
               'Solo rutas/URLs reales del bucket para vídeos ya subidos; no inventes enlaces.',
           },
         },
-        required: ['obra_nombre'],
         additionalProperties: false,
       },
     },
@@ -132,27 +131,17 @@ export const DIARIO_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = 
   },
 ];
 
-export const DIARIO_AGENT_SYSTEM_PROMPT = `Tu nombre es Bicho. Si el usuario te llama por tu nombre al inicio de una petición ('Oye Bicho...', 'Bicho escucha...', 'Bicho añade...', 'Eh Bicho...' o similar), ignora el nombre y ejecuta directamente lo que pide a continuación. No respondas al nombre, no lo confirmes, simplemente actúa.
+export const DIARIO_AGENT_SYSTEM_PROMPT = `Eres el especialista en diario de obra. Tu trabajo es anotar entradas en el diario de la obra correcta.
 
-ERES EL ESPECIALISTA EN DIARIO DE OBRA DE PERFILIO. TU ÚNICO TRABAJO ES REGISTRAR ENTRADAS EN EL DIARIO.
-
-REGLAS ABSOLUTAS — NUNCA LAS INCUMPLAS:
-
-1. NUNCA digas 'Anotado', 'Registrado', 'Guardado' ni ninguna confirmación SIN haber recibido TOOL RESULT de crear_entrada_diario con ok:true. Si no tienes el TOOL RESULT, no puedes confirmar. Llama a la tool primero.
-
-2. NUNCA inventes ni asumas una obra. Si el usuario no especifica la obra claramente, pregunta: '¿En qué obra anoto esto? ¿Es [obra X] o [obra Y]?' Espera la respuesta antes de llamar a cualquier tool.
-
-3. Si hay imágenes en el mensaje, SIEMPRE inclúyelas en la entrada. Nunca ignores fotos. Si no puedes procesarlas, dilo explícitamente.
-
-4. NUNCA llames a crear_entrada_diario con obra_id null o vacío. Si no tienes el obra_id resuelto, usa primero la tool de búsqueda de obras para encontrarlo.
-
-5. Después de cada entrada creada, confirma SIEMPRE con este formato exacto: 'Anotado en el diario de [nombre obra] ([fecha]): [resumen breve de lo anotado]'
-
-6. Si recibes un error de cualquier tool, comunícalo al usuario de forma clara. NUNCA silencies un error.
-
-7. NUNCA hagas dos acciones a la vez. Primero resuelve la obra, luego crea la entrada. Secuencial siempre. Usa parallel_tool_calls: false.
-
-8. Si el usuario dice algo ambiguo como 'anota esto' sin más contexto, pregunta qué quiere anotar y en qué obra antes de actuar.`;
+Reglas:
+1. No digas «Anotado», «Registrado» ni «Guardado» hasta recibir el resultado de crear_entrada_diario con ok:true.
+2. Si la obra está clara (la nombra el usuario o hay un obra_id en las OBRAS ABIERTAS), llama a crear_entrada_diario con obra_id u obra_nombre. No pidas aclaraciones de más.
+3. Si la tool devuelve varias obras candidatas, pregunta al usuario cuál es y muestra las opciones numeradas. Si no sabes de qué obra habla («anota esto»), pregunta qué quiere anotar y en qué obra.
+4. Si no tienes el id y dudas, usa antes buscar_obra para encontrarlo. Nunca inventes una obra.
+5. Si hay imágenes en el mensaje, van incluidas en la entrada (las gestiona el servidor). Nunca las ignores.
+6. Haz una acción cada vez: primero la obra, luego la entrada.
+7. Si una tool devuelve un error, díselo al usuario con claridad.
+8. Al confirmar, usa este formato: «Anotado en el diario de [obra] ([fecha]): [resumen breve]».`;
 
 export type HandleDiarioCtx = {
   mensajeTrim?: string;
@@ -297,7 +286,7 @@ export async function handleDiario(
         textoBusObraDiario,
         'entrada_diario'
       );
-      if (!obraResDiario.ok) return { mensaje: obraResDiario.mensaje };
+      if (!obraResDiario.ok) return aclaracionObra(obraResDiario);
       if (!obraResDiario.obra_id) {
         return { error: 'Indica la obra (obra_nombre u obra_id) para localizar la entrada del diario.' };
       }
@@ -379,8 +368,9 @@ export async function handleDiario(
       );
 
       const obraNombreDiario = String(toolArgs.obra_nombre ?? '').trim();
-      if (!obraNombreDiario) {
-        return { error: 'obra_nombre es obligatorio' };
+      const obraIdDiarioArg = typeof toolArgs.obra_id === 'string' ? toolArgs.obra_id.trim() : '';
+      if (!obraNombreDiario && !obraIdDiarioArg) {
+        return { error: 'Indica obra_id u obra_nombre' };
       }
       const businessIdDiario =
         typeof businessId === 'string' ? businessId : String(businessId ?? '');
@@ -423,7 +413,10 @@ export async function handleDiario(
         textoDetDiario,
         'entrada_diario'
       );
-      if (!obraDiarioRes.ok) return { mensaje: obraDiarioRes.mensaje };
+      if (!obraDiarioRes.ok) return aclaracionObra(obraDiarioRes);
+      if (obraIdDiarioArg && !obraNombreDiario && !obraDiarioRes.obra_id) {
+        return { ok: false, error: 'obra_id no existe, no está abierta o no pertenece a este negocio.' };
+      }
 
       const pathsSubidaAdjunto: string[] = [];
       for (let ix = 0; ix < imagenesNormalizadas.length; ix++) {

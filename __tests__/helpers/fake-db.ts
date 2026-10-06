@@ -21,6 +21,9 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
     const filtros: Array<[string, unknown]> = [];
     const notNull: string[] = [];
     const patrones: Array<[string, string]> = [];
+    const enLista: Array<[string, unknown[]]> = [];
+    const distintos: Array<[string, unknown]> = [];
+    const esNulo: string[] = [];
     let orden: { col: string; asc: boolean } | null = null;
     let limite: number | null = null;
     let modo: 'select' | 'insert' | 'update' = 'select';
@@ -32,11 +35,19 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
         (r) =>
           filtros.every(([c, v]) => r[c] === v) &&
           notNull.every((c) => r[c] != null) &&
-          patrones.every(([c, p]) => String(r[c] ?? '').toLowerCase().includes(p))
+          patrones.every(([c, p]) => String(r[c] ?? '').toLowerCase().includes(p)) &&
+          enLista.every(([c, vs]) => vs.includes(r[c])) &&
+          distintos.every(([c, v]) => r[c] !== v) &&
+          esNulo.every((c) => r[c] == null)
       );
       if (orden) {
         const { col, asc } = orden;
-        rows = [...rows].sort((a, b) => (asc ? 1 : -1) * (Number(a[col]) - Number(b[col])));
+        rows = [...rows].sort((a, b) => {
+          const x = a[col];
+          const y = b[col];
+          const cmp = typeof x === 'number' && typeof y === 'number' ? x - y : String(x ?? '') < String(y ?? '') ? -1 : String(x ?? '') > String(y ?? '') ? 1 : 0;
+          return (asc ? 1 : -1) * cmp;
+        });
       }
       if (limite != null) rows = rows.slice(0, limite);
       return rows;
@@ -84,6 +95,18 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
         filtros.push([c, v]);
         return chain;
       },
+      in(c: string, valores: unknown[]) {
+        enLista.push([c, valores]);
+        return chain;
+      },
+      neq(c: string, v: unknown) {
+        distintos.push([c, v]);
+        return chain;
+      },
+      is(c: string, v: unknown) {
+        if (v === null) esNulo.push(c);
+        return chain;
+      },
       ilike(c: string, patron: string) {
         patrones.push([c, patron.replace(/%/g, '').toLowerCase()]);
         return chain;
@@ -118,8 +141,25 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
     return chain;
   }
 
+  /** Storage mínimo: registra las subidas y devuelve URLs firmadas falsas. */
+  const subidas: Array<{ bucket: string; path: string }> = [];
+  const storage = {
+    from(bucket: string) {
+      return {
+        async upload(path: string) {
+          subidas.push({ bucket, path });
+          return { data: { path }, error: null };
+        },
+        async createSignedUrl(path: string, expiresIn: number) {
+          return { data: { signedUrl: `https://storage.test/${bucket}/${path}?exp=${expiresIn}` }, error: null };
+        },
+      };
+    },
+  };
+
   return {
-    client: { from } as never,
+    subidas,
+    client: { from, storage } as never,
     tablas,
     inserts,
     updates,

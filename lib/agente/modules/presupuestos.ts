@@ -81,9 +81,7 @@ export const PRESUPUESTOS_HANDLED_TOOLS = new Set([
   'obtener_borrador_activo',
 ]);
 
-export const PRESUPUESTOS_AGENT_SYSTEM_PROMPT = `Tu nombre es Bicho. Si el usuario te llama por tu nombre al inicio de una petición ('Oye Bicho...', 'Bicho escucha...', 'Bicho añade...', 'Eh Bicho...' o similar), ignora el nombre y ejecuta directamente lo que pide a continuación. No respondas al nombre, no lo confirmes, simplemente actúa.
-
-Eres el especialista en presupuestos de Perfilio. Tu único trabajo es crear y gestionar presupuestos de obra.
+export const PRESUPUESTOS_AGENT_SYSTEM_PROMPT = `Eres el especialista en presupuestos de Perfilio. Tu único trabajo es crear y gestionar presupuestos de obra.
 
 REGLAS DE RESPUESTA:
 - REGLA CRÍTICA: Cada vez que el usuario dicte una partida, DEBES llamar a la tool agregar_partida_borrador. Está terminantemente prohibido confirmar una partida en el texto de respuesta si no has recibido el éxito de la ejecución de dicha tool. Sin TOOL RESULT con ok:true, no puedes decir Añadido.
@@ -144,10 +142,14 @@ export const PRESUPUESTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
     function: {
       name: 'buscar_presupuesto',
       description:
-        'Localiza presupuestos reales por nombre de cliente o UUID. 1 coincidencia, varios o ninguno. No crea nada. Úsala antes de editar, cambiar estado o añadir partidas a un presupuesto existente cuando Pino habla sin IDs.',
+        'Localiza presupuestos reales por número, nombre de cliente o UUID. 1 coincidencia, varios o ninguno. No crea nada. Úsala antes de editar, cambiar estado, facturar o añadir partidas a un presupuesto existente cuando el usuario habla sin IDs («el presupuesto 7», «el de Paqui»).',
       parameters: {
         type: 'object',
         properties: {
+          numero: {
+            type: 'integer',
+            description: 'Número del presupuesto (numero_presupuesto), p. ej. 7 para «el presupuesto 7»',
+          },
           query: {
             type: 'string',
             description: 'Nombre del cliente u otro texto para encontrar el presupuesto',
@@ -238,13 +240,15 @@ export const PRESUPUESTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
     type: 'function',
     function: {
       name: 'convertir_presupuesto_a_factura',
-      description: 'Genera una factura desde un presupuesto aceptado usando sus líneas de borrador vinculadas.',
+      description:
+        'Crea la factura de un presupuesto aceptado o aprobado (con sus líneas reales). Es idempotente: si ya tiene factura, la devuelve. Indica presupuesto_id (uuid), o numero (el número del presupuesto), o query (nombre del cliente; si hay varios presupuestos devuelve opciones para elegir). Tras crearla, ofrece el PDF con obtener_enlace_pdf_factura.',
       parameters: {
         type: 'object',
         properties: {
-          presupuesto_id: { type: 'string' },
+          presupuesto_id: { type: 'string', description: 'UUID del presupuesto (si se conoce)' },
+          numero: { type: 'integer', description: 'Número del presupuesto, alternativa a presupuesto_id' },
+          query: { type: 'string', description: 'Nombre del cliente, alternativa si no hay id ni número' },
         },
-        required: ['presupuesto_id'],
         additionalProperties: false,
       },
     },
@@ -636,7 +640,7 @@ export async function handlePresupuestos(
     case 'listar_presupuestos': {
       const { data, error } = await supabase
         .from('presupuestos')
-        .select('id, cliente_nombre, cliente_id, importe_total, fecha, estado')
+        .select('id, numero_presupuesto, cliente_nombre, cliente_id, importe_total, fecha, estado')
         .eq('business_id', businessId)
         .order('fecha', { ascending: false })
         .limit(10);
@@ -645,6 +649,7 @@ export async function handlePresupuestos(
         items: (data ?? []).map(
           (r: {
             id?: string;
+            numero_presupuesto?: number | null;
             cliente_nombre?: string | null;
             cliente_id?: string | null;
             importe_total?: number | null;
@@ -652,6 +657,7 @@ export async function handlePresupuestos(
             estado?: string | null;
           }) => ({
             id: r.id ?? null,
+            numero_presupuesto: r.numero_presupuesto ?? null,
             cliente: r.cliente_nombre ?? null,
             cliente_id: r.cliente_id ?? null,
             importe_total: r.importe_total ?? null,
@@ -681,17 +687,20 @@ export async function handlePresupuestos(
     case 'buscar_presupuesto': {
       const query = String(toolArgs.query ?? '').trim();
       const id = String(toolArgs.id ?? '').trim();
-      if (!query && !id) {
-        return failClosed('Indica el nombre del cliente o el id del presupuesto.');
+      const numero = toolArgs.numero;
+      const hayNumero = numero != null && String(numero).trim() !== '';
+      if (!query && !id && !hayNumero) {
+        return failClosed('Indica el número, el nombre del cliente o el id del presupuesto.');
       }
       const resolved = await resolverPresupuestosPorTexto(supabase, businessId, {
         id: id || undefined,
+        numero: hayNumero ? (numero as number | string) : undefined,
         clienteNombre: query || undefined,
       });
       if (resolved.status === 'none') {
         return {
           ok: false,
-          error: `No encuentro ningún presupuesto para «${query || id}».`,
+          error: `No encuentro ningún presupuesto para «${query || id || `nº ${String(numero)}`}».`,
           items: [] as const,
           resolve: 'none' as const,
         };
@@ -704,6 +713,7 @@ export async function handlePresupuestos(
           items: [
             {
               id: p.id,
+              numero_presupuesto: p.numero_presupuesto ?? null,
               cliente_nombre: p.cliente_nombre,
               estado: p.estado,
               importe_total: p.importe_total,
@@ -711,12 +721,13 @@ export async function handlePresupuestos(
           ],
         };
       }
-      const mapped = toolFailDesdePresupuestoResolve(resolved, query || id);
+      const mapped = toolFailDesdePresupuestoResolve(resolved, query || id || `nº ${String(numero)}`);
       return {
         ...mapped,
         resolve: 'many' as const,
         items: resolved.candidatos.map((p) => ({
           id: p.id,
+          numero_presupuesto: p.numero_presupuesto ?? null,
           cliente_nombre: p.cliente_nombre,
           estado: p.estado,
           importe_total: p.importe_total,
@@ -892,12 +903,27 @@ export async function handlePresupuestos(
       };
     }
     case 'convertir_presupuesto_a_factura': {
-      const presupuestoId = String(toolArgs.presupuesto_id ?? '').trim();
-      if (!presupuestoId) return { error: 'presupuesto_id es obligatorio' };
+      // El presupuesto se localiza por uuid, por número o por nombre de cliente. Con el nombre puede
+      // haber varios: entonces NO se adivina, se devuelven las opciones para que el usuario elija.
+      const presupuestoIdArg = String(toolArgs.presupuesto_id ?? toolArgs.id ?? '').trim();
+      const numeroArg = toolArgs.numero;
+      const hayNumero = numeroArg != null && String(numeroArg).trim() !== '';
+      const queryArg = String(toolArgs.query ?? '').trim();
+      if (!presupuestoIdArg && !hayNumero && !queryArg) {
+        return failClosed('Indica el número del presupuesto o el nombre del cliente.');
+      }
+      const resuelto = await resolverPresupuestosPorTexto(supabase, businessId, {
+        id: presupuestoIdArg || undefined,
+        numero: hayNumero ? (numeroArg as number | string) : undefined,
+        clienteNombre: presupuestoIdArg || hayNumero ? undefined : queryArg,
+      });
+      const etiquetaBusqueda = presupuestoIdArg || (hayNumero ? `nº ${String(numeroArg)}` : queryArg);
+      const loc = toolFailDesdePresupuestoResolve(resuelto, etiquetaBusqueda);
+      if (!loc.ok) return loc;
 
       // La lógica vive en lib/facturas/desde-presupuesto.ts (la comparten agente, API y MCP).
-      const r = await crearFacturaDesdePresupuesto(supabase, businessId, presupuestoId);
-      if (!r.ok) return { error: r.error, code: r.code, cliente_id: r.cliente_id ?? null };
+      const r = await crearFacturaDesdePresupuesto(supabase, businessId, loc.match.id);
+      if (!r.ok) return { ...failClosed(r.error), code: r.code, cliente_id: r.cliente_id ?? null };
       return {
         ok: true,
         factura_id: r.factura_id,
@@ -905,6 +931,9 @@ export async function handlePresupuestos(
         total: r.total,
         cliente_nombre: r.cliente_nombre,
         ya_existia: r.ya_existia,
+        mensaje: r.ya_existia
+          ? `Ese presupuesto ya tenía la factura nº ${r.numero_factura}.`
+          : `Factura nº ${r.numero_factura} creada para ${r.cliente_nombre ?? 'el cliente'} (${r.total} €).`,
       };
     }
     case 'iniciar_borrador_presupuesto': {

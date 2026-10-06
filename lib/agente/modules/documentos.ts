@@ -1,3 +1,4 @@
+import { insertarFacturaConNumeroCorrelativo } from '@/lib/facturas/numero';
 import type OpenAI from 'openai';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
@@ -13,7 +14,7 @@ import {
 import { insertarPresupuestoConNumeroCorrelativo } from '@/lib/presupuestos/numero';
 import { generarTextoCanonico } from '@/lib/presupuestos/texto-canonico';
 import { TARIFAS_BASE_ALBANILERIA } from '@/lib/tarifas-base';
-import { resolverObraDocumentoAgente } from '@/lib/obras-context';
+import { resolverObraDocumentoAgente, aclaracionObra } from '@/lib/obras-context';
 import {
   clienteDesdeObraSiAplica,
   resolveClienteIdOpcional,
@@ -786,7 +787,7 @@ export async function handleDocumentosAgent(
           textoObra,
           'documento'
         );
-        if (!obraRes.ok) return { mensaje: obraRes.mensaje };
+        if (!obraRes.ok) return aclaracionObra(obraRes);
         obraIdFinal = obraRes.obra_id ?? '';
       }
 
@@ -873,7 +874,7 @@ export async function handleDocumentosAgent(
         textoObra,
         'documento'
       );
-      if (!obraRes.ok) return { mensaje: obraRes.mensaje };
+      if (!obraRes.ok) return aclaracionObra(obraRes);
       const obraIdFinal = obraRes.obra_id ?? '';
 
       let clienteIdFinal = cr.id;
@@ -890,21 +891,26 @@ export async function handleDocumentosAgent(
         }
       }
 
-      const { error } = await supabase.from('facturas').insert({
-        business_id: businessId,
-        cliente_nombre: clienteNombreFinal,
-        descripcion_trabajos: desc,
-        base_imponible: Number.isFinite(baseImponible) ? baseImponible : 0,
-        iva: Number.isFinite(iva) ? iva : 0,
-        total: Number.isFinite(totalNum) ? totalNum : 0,
-        fecha: new Date().toISOString().split('T')[0],
-        estado: 'pendiente',
-        ...(clienteIdFinal != null && { cliente_id: clienteIdFinal }),
-        ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
-      });
+      // Número correlativo POR NEGOCIO (antes cogía el contador global de la base de datos).
+      const ins = await insertarFacturaConNumeroCorrelativo(
+        supabase,
+        businessId,
+        {
+          cliente_nombre: clienteNombreFinal,
+          descripcion_trabajos: desc,
+          base_imponible: Number.isFinite(baseImponible) ? baseImponible : 0,
+          iva: Number.isFinite(iva) ? iva : 0,
+          total: Number.isFinite(totalNum) ? totalNum : 0,
+          fecha: new Date().toISOString().split('T')[0],
+          estado: 'pendiente',
+          ...(clienteIdFinal != null && { cliente_id: clienteIdFinal }),
+          ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
+        },
+        'id, numero_factura'
+      );
 
-      if (error) return { error: error.message };
-      return { ok: true };
+      if (!ins.ok) return { error: ins.error };
+      return { ok: true, numero_factura: ins.data.numero_factura ?? null };
     }
     case 'crear_albaran': {
       const desc = String(toolArgs.descripcion_trabajos ?? '').trim();
@@ -936,7 +942,7 @@ export async function handleDocumentosAgent(
         textoObra,
         'documento'
       );
-      if (!obraRes.ok) return { mensaje: obraRes.mensaje };
+      if (!obraRes.ok) return aclaracionObra(obraRes);
       const obraIdFinal = obraRes.obra_id ?? '';
 
       let clienteIdFinal = cr.id;
@@ -1049,24 +1055,28 @@ export async function handleDocumentosAgent(
       const base_imponible = round2(totalConExtras / (1 + iva_porcentaje / 100));
       const iva_importe = round2(totalConExtras - base_imponible);
 
-      const { error: insertErr } = await supabase.from('facturas').insert({
-        business_id: businessId,
-        albaran_id: albaranId,
-        cliente_nombre: clienteNombre || null,
-        cliente_id: aRow.cliente_id ?? null,
-        cliente_direccion: aRow.cliente_direccion ?? null,
-        descripcion_trabajos: descripcionTrabajos || null,
-        lineas: aRow.lineas ?? null,
-        base_imponible,
-        iva: iva_importe,
-        total: totalConExtras,
-        fecha: new Date().toISOString().split('T')[0],
-        estado: 'pendiente',
-        observaciones:
-          observaciones.length > 0 ? observaciones : 'Generada desde albarán',
-      });
+      const insFactura = await insertarFacturaConNumeroCorrelativo(
+        supabase,
+        businessId,
+        {
+          albaran_id: albaranId,
+          cliente_nombre: clienteNombre || null,
+          cliente_id: aRow.cliente_id ?? null,
+          cliente_direccion: aRow.cliente_direccion ?? null,
+          descripcion_trabajos: descripcionTrabajos || null,
+          lineas: aRow.lineas ?? null,
+          base_imponible,
+          iva: iva_importe,
+          total: totalConExtras,
+          fecha: new Date().toISOString().split('T')[0],
+          estado: 'pendiente',
+          observaciones:
+            observaciones.length > 0 ? observaciones : 'Generada desde albarán',
+        },
+        'id, numero_factura'
+      );
 
-      if (insertErr) return { error: insertErr.message };
+      if (!insFactura.ok) return { error: insFactura.error };
 
       const { error: updErr } = await supabase
         .from('albaranes')
@@ -1174,7 +1184,7 @@ export async function handleDocumentosAgent(
         textoObraExtra,
         'extra'
       );
-      if (!obraExtraRes.ok) return { mensaje: obraExtraRes.mensaje };
+      if (!obraExtraRes.ok) return aclaracionObra(obraExtraRes);
       const obraIdExtra = obraExtraRes.obra_id ?? '';
 
       const { error: insErr } = await supabase.from('presupuestos').insert({
@@ -1336,7 +1346,7 @@ export async function handleDocumentosAgent(
           textoObra,
           'documento'
         );
-        if (!obraRes.ok) return { mensaje: obraRes.mensaje };
+        if (!obraRes.ok) return aclaracionObra(obraRes);
         obraIdFinal = obraRes.obra_id ?? '';
       }
 

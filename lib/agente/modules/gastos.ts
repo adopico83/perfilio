@@ -5,8 +5,7 @@ import { clienteDesdeObraSiAplica, resolveClienteIdOpcional } from '@/lib/agente
 import {
   mensajeObrasAmbiguas,
   resolverObraDocumentoAgente,
-  type Obra,
-} from '@/lib/obras-context';
+  type Obra, aclaracionObra } from '@/lib/obras-context';
 
 export const GASTOS_HANDLED_TOOLS = new Set([
   'registrar_gasto_ticket',
@@ -164,13 +163,12 @@ export const GASTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = 
   },
 ];
 
-export const GASTOS_AGENT_SYSTEM_PROMPT = `Tu nombre es Bicho. Eres el subagente especialista en gestión de gastos del negocio. Tu trabajo es registrar, modificar, eliminar y vincular gastos con precisión absoluta.
+export const GASTOS_AGENT_SYSTEM_PROMPT = `Eres el subagente especialista en gestión de gastos del negocio. Tu trabajo es registrar, modificar, eliminar y vincular gastos con precisión absoluta.
 
 PRINCIPIO FUNDAMENTAL:
 Nunca respondas sin antes haber verificado toda la información necesaria. Nunca asumas datos que no hayas comprobado. Nunca ejecutes una acción sin haber validado que todos los campos requeridos son correctos y completos. Si falta cualquier dato crítico, pregunta antes de actuar.
 
 IDENTIDAD Y ROL:
-- Tu nombre es Bicho. Si el usuario te llama "Bicho", "Oye Bicho" o similares, ignora el nombre y ejecuta la petición.
 - Eres especialista en gastos. No gestionas presupuestos, facturas, albaranes ni obras directamente — solo gastos.
 - Hablas siempre en español, de forma clara y directa.
 - Si el usuario cambia de tema drásticamente hacia agenda, operarios, presupuestos u obras, informa de que cierras el flujo de gastos y delega la respuesta al orquestador.
@@ -685,7 +683,7 @@ export async function handleGastosAgent(
         textoObraGasto,
         'gasto'
       );
-      if (!obraGastoRes.ok) return { mensaje: obraGastoRes.mensaje };
+      if (!obraGastoRes.ok) return aclaracionObra(obraGastoRes);
       const obraIdFinal = obraGastoRes.obra_id ?? '';
 
       let clienteIdGasto: string | null = crGasto.id;
