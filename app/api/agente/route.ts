@@ -102,6 +102,8 @@ import {
   anclarProsaAHechos,
   buildMensajeSistemaProsaAnclada,
   buildToolLoopMessages,
+  esToolMutacion,
+  prometeSinHacer,
   hechosMutacionDesdeEjecutado,
   idsParaPlanEjecutado,
   logAgenteTurno,
@@ -214,6 +216,14 @@ function normalizarImagenVision(
   }
 
   return `data:${mime};base64,${b64}`;
+}
+
+/** Máximo de rondas de tools por mensaje: la primera + hasta 3 de lectura. */
+const MAX_RONDAS_TURNO = 4;
+
+/** ¿Todos los pasos de la ronda solo leen (ninguno escribe ni pide confirmación)? */
+function rondaSoloLectura(pasos: Array<{ tool: string; args: Record<string, unknown> }>): boolean {
+  return pasos.every((p) => !esToolMutacion(p.tool) && !requiereConfirmacion(p.tool, p.args));
 }
 
 export async function POST(request: NextRequest) {
@@ -1067,7 +1077,10 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
     if (
       !firstToolCalls?.length &&
       !esConfirmacion &&
-      pareceAccionQueRequiereTool(mensajeTrim)
+      (pareceAccionQueRequiereTool(mensajeTrim) ||
+        // «Voy a comprobar…» sin haber llamado a nada: se reintenta forzando una tool en vez de dejar
+        // al usuario esperando.
+        prometeSinHacer(typeof firstMessage?.content === 'string' ? firstMessage.content : ''))
     ) {
       const retryMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
         ...messages,
@@ -1098,7 +1111,7 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
 
     const ejecutadoResumen: Array<{ tool: string; result: unknown }> = [];
     const resultadosDelTurno: unknown[] = [];
-    let accionPendiente: AccionPendiente | null = null;
+    let accionPendiente = null as AccionPendiente | null; // se asigna dentro de procesarPasos (TS no ve esas asignaciones)
 
     if (firstToolCalls?.length) {
       const plan = plannedToolsFromAssistantToolCalls(firstToolCalls);
@@ -1121,91 +1134,129 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
             result: unknown;
           }> = [];
 
-          for (let i = 0; i < validated.length; i++) {
-            const step = validated[i];
-            let toolResult: unknown;
-            try {
-              if (requiereConfirmacion(step.tool, step.args)) {
-                // BARRERA: no se ejecuta. Se prepara la acción y se le pregunta al usuario.
-                if (accionPendiente) {
-                  toolResult = {
-                    ok: false,
-                    pendiente_confirmacion: true,
-                    error: 'Una cosa cada vez: confirma primero la anterior y luego te preparo esta.',
-                  };
-                } else {
-                  const prep = await prepararAccionPendiente(step.tool, step.args, {
-                    supabase,
-                    businessId: businessIdStr,
-                    runTool,
-                    mensajeUsuario: mensajeTrim,
-                    historialUsuario: historialValido
-                      .filter((m: { role: string }) => m.role === 'user')
-                      .slice(-3)
-                      .map((m: { content: string }) => m.content),
-                  });
-                  if (prep.tipo === 'pendiente') {
-                    accionPendiente = prep.accion;
+          /** Ejecuta (o retiene, si necesita confirmación) los pasos de UNA ronda. */
+          const procesarPasos = async (
+            validated: typeof guard.plan,
+            ids: string[]
+          ) => {
+            for (let i = 0; i < validated.length; i++) {
+              const step = validated[i];
+              let toolResult: unknown;
+              try {
+                if (requiereConfirmacion(step.tool, step.args)) {
+                  // BARRERA: no se ejecuta. Se prepara la acción y se le pregunta al usuario.
+                  if (accionPendiente) {
                     toolResult = {
                       ok: false,
                       pendiente_confirmacion: true,
-                      error: preguntaConfirmacion(prep.accion.resumen),
+                      error: 'Una cosa cada vez: confirma primero la anterior y luego te preparo esta.',
                     };
                   } else {
-                    toolResult = prep.result;
+                    const prep = await prepararAccionPendiente(step.tool, step.args, {
+                      supabase,
+                      businessId: businessIdStr,
+                      runTool,
+                      mensajeUsuario: mensajeTrim,
+                      historialUsuario: historialValido
+                        .filter((m: { role: string }) => m.role === 'user')
+                        .slice(-3)
+                        .map((m: { content: string }) => m.content),
+                    });
+                    if (prep.tipo === 'pendiente') {
+                      accionPendiente = prep.accion;
+                      toolResult = {
+                        ok: false,
+                        pendiente_confirmacion: true,
+                        error: preguntaConfirmacion(prep.accion.resumen),
+                      };
+                    } else {
+                      toolResult = prep.result;
+                    }
+                  }
+                } else {
+                  toolResult = await runTool(step.tool, step.args);
+                  // Vista previa propia de la tool (p. ej. registrar_jornada con solo_vista_previa):
+                  // se convierte en la misma acción pendiente con botones.
+                  const r = toolResult as Record<string, unknown> | null;
+                  if (
+                    confirmacionActiva() &&
+                    !accionPendiente &&
+                    r?.pendiente_confirmacion === true &&
+                    TOOLS_CON_VISTA_PREVIA.has(step.tool)
+                  ) {
+                    const texto = [r.mensaje, r.error].find((x) => typeof x === 'string' && x.trim());
+                    const resumen =
+                      limpiarTextoVistaPrevia(String(texto ?? '')) ||
+                      describirAccionGenerica(step.tool, step.args);
+                    accionPendiente = {
+                      tool: step.tool,
+                      args: { ...step.args, solo_vista_previa: false },
+                      resumen,
+                    };
+                    // El usuario lee el resumen limpio (sin las instrucciones pensadas para el modelo).
+                    toolResult = {
+                      ...r,
+                      ok: false,
+                      pendiente_confirmacion: true,
+                      error: preguntaConfirmacion(resumen),
+                    };
                   }
                 }
-              } else {
-                toolResult = await runTool(step.tool, step.args);
-                // Vista previa propia de la tool (p. ej. registrar_jornada con solo_vista_previa):
-                // se convierte en la misma acción pendiente con botones.
-                const r = toolResult as Record<string, unknown> | null;
-                if (
-                  confirmacionActiva() &&
-                  !accionPendiente &&
-                  r?.pendiente_confirmacion === true &&
-                  TOOLS_CON_VISTA_PREVIA.has(step.tool)
-                ) {
-                  const texto = [r.mensaje, r.error].find((x) => typeof x === 'string' && x.trim());
-                  const resumen =
-                    limpiarTextoVistaPrevia(String(texto ?? '')) ||
-                    describirAccionGenerica(step.tool, step.args);
-                  accionPendiente = {
-                    tool: step.tool,
-                    args: { ...step.args, solo_vista_previa: false },
-                    resumen,
-                  };
-                  // El usuario lee el resumen limpio (sin las instrucciones pensadas para el modelo).
-                  toolResult = {
-                    ...r,
-                    ok: false,
-                    pendiente_confirmacion: true,
-                    error: preguntaConfirmacion(resumen),
-                  };
-                }
+              } catch (e) {
+                console.error('[agente] runTool:', step.tool, e);
+                toolResult = {
+                  error: e instanceof Error ? e.message : 'Error al ejecutar la herramienta',
+                };
               }
-            } catch (e) {
-              console.error('[agente] runTool:', step.tool, e);
-              toolResult = {
-                error: e instanceof Error ? e.message : 'Error al ejecutar la herramienta',
-              };
+              const emailCapturado = capturarEmailPendiente(toolResult);
+              if (emailCapturado) emailPendienteParaCliente = emailCapturado;
+              capturarCanvas(toolResult);
+              const obraCapturada = capturarObraFicha(toolResult);
+              if (obraCapturada) obraFichaParaCliente = obraCapturada;
+              executed.push({
+                id: ids[i],
+                tool: step.tool,
+                args: step.args,
+                result: toolResult,
+              });
+              resultadosDelTurno.push(toolResult);
+              ejecutadoResumen.push({
+                tool: step.tool,
+                result: resumirToolResultParaLog(toolResult),
+              });
             }
-            const emailCapturado = capturarEmailPendiente(toolResult);
-            if (emailCapturado) emailPendienteParaCliente = emailCapturado;
-            capturarCanvas(toolResult);
-            const obraCapturada = capturarObraFicha(toolResult);
-            if (obraCapturada) obraFichaParaCliente = obraCapturada;
-            executed.push({
-              id: ids[i],
-              tool: step.tool,
-              args: step.args,
-              result: toolResult,
+          };
+
+          await procesarPasos(validated, ids);
+
+          // Varias rondas de LECTURA por turno (p. ej. buscar la obra y luego el cliente): tras cada ronda
+          // que solo ha leído, se le devuelven los resultados al modelo por si necesita pedir más datos.
+          // Se PARA en cuanto algo necesita confirmación (accionPendiente), en la primera escritura, si el
+          // modelo ya no pide tools o al llegar a MAX_RONDAS_TURNO (nunca bucles infinitos ni gasto sin tope).
+          let rondaActual = validated;
+          let respuestaTrasLectura = '';
+          for (let ronda = 1; ronda < MAX_RONDAS_TURNO; ronda++) {
+            if (accionPendiente || !rondaSoloLectura(rondaActual)) break;
+            const siguiente = await getOpenAI().chat.completions.create({
+              model: modelo,
+              messages: buildToolLoopMessages(messages, executed),
+              tools,
+              tool_choice: 'auto',
+              ...parallelToolCallsOpt,
+              ...paramsTools,
             });
-            resultadosDelTurno.push(toolResult);
-            ejecutadoResumen.push({
-              tool: step.tool,
-              result: resumirToolResultParaLog(toolResult),
-            });
+            const llamadas = siguiente.choices[0]?.message?.tool_calls;
+            if (!llamadas?.length) {
+              // Ya no pide más tools: lo que escribe es la respuesta final (así no hace falta otra llamada).
+              const texto = siguiente.choices[0]?.message?.content;
+              if (typeof texto === 'string' && texto.trim()) respuestaTrasLectura = texto;
+              break;
+            }
+            const planSig = plannedToolsFromAssistantToolCalls(llamadas);
+            const guardSig = applyPerfilioGuardrails(planSig, mensajeTrim);
+            if (planSig.length === 0 || !guardSig.ok) break;
+            await procesarPasos(guardSig.plan, idsParaPlanEjecutado(guardSig.plan, llamadas));
+            rondaActual = guardSig.plan;
           }
 
           const hechos = hechosMutacionDesdeEjecutado(executed);
@@ -1218,6 +1269,8 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
               : null);
           if (prosaDirecta) {
             respuesta = prosaDirecta;
+          } else if (respuestaTrasLectura) {
+            respuesta = anclarProsaAHechos(respuestaTrasLectura, hechos);
           } else {
             const finalMessages = [
               ...buildToolLoopMessages(messages, executed),
