@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { X } from 'lucide-react';
 import LogoutButton from '@/app/dashboard/logout-button';
-import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
 import { useDemoTenant } from '@/lib/use-demo-tenant';
 import {
@@ -232,8 +232,22 @@ export default function AjustesMarcaPage() {
         mobileDrawerFooter={<LogoutButton />}
       />
 
-      <div className="max-w-3xl mx-auto px-6 pt-3 pb-1">
-        <VolverAlDashboard />
+      {/* Salida de la pantalla: «← Volver» arriba a la izquierda y, en móvil, una X arriba a la derecha.
+          Los dos van al dashboard (la misma ruta que el logo/«Inicio» del menú) y se ven también en la demo. */}
+      <div className="max-w-3xl mx-auto flex items-center justify-between px-6 pt-3 pb-1">
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center gap-1 rounded-lg border border-[#A04A2F] px-4 py-2 text-sm font-medium text-[#A04A2F] transition-colors hover:bg-[#A04A2F]/10"
+        >
+          <span aria-hidden>←</span> Volver
+        </Link>
+        <Link
+          href="/dashboard"
+          aria-label="Cerrar y volver al dashboard"
+          className="md:hidden inline-flex size-10 items-center justify-center rounded-lg border border-zinc-400/40 text-zinc-800 transition-colors hover:bg-zinc-900/5"
+        >
+          <X className="size-5" aria-hidden />
+        </Link>
       </div>
 
       <main className="max-w-3xl mx-auto px-6 py-6 space-y-6">
