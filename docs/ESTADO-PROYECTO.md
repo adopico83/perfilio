@@ -91,7 +91,7 @@ Documento orientado a mentor técnico: inventario de lo **implementado y operati
 
 ### Técnico (stack, tests, arquitectura)
 
-- **Stack**: Next.js **16** (App Router), React **19**, TypeScript **5**, Tailwind **4**, Supabase (`@supabase/ssr` + `@supabase/supabase-js`), OpenAI SDK, Resend, html2canvas + jsPDF (PDF cliente).
+- **Stack**: Next.js **16** (App Router), React **19**, TypeScript **5**, Tailwind **4**, Supabase (`@supabase/ssr` + `@supabase/supabase-js`), OpenAI SDK, Resend, jsPDF (PDF cliente).
 - **Estructura**: `app/` rutas y route handlers; `components/` UI; `lib/` dominio y clientes; `contexts/` estado UI global; `middleware.ts` sesión Supabase + guardas de ruta.
 - **Seguridad**: middleware exige usuario para **cualquier** ` /api/*` (401 si no hay sesión); tests en `middleware.api-protection.test.ts`.
 - **Tests**: **Jest 30** + Testing Library; **77 tests** en **20 suites** cubriendo sobre todo API agente (tools, dictado, tiempo, albaranes, extras), APIs obras/clientes/diario, Gmail auth/urgentes, transcribe, maps, weather, memoria, middleware, modales (email/canvas), obras-context.
