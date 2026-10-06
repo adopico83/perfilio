@@ -39,7 +39,7 @@ describe('actualizarFactura con IVA deducido o carrera de estado', () => {
     let lecturas = 0;
     const from = (d.client as unknown as { from: (t: string) => Record<string, unknown> }).from;
     const client = {
-      ...d.client,
+      ...(d.client as object),
       from: (t: string) => {
         const q = from(t) as { update: (v: Fila) => unknown };
         const upd = q.update.bind(q);
