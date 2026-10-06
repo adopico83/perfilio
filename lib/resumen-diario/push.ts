@@ -2,15 +2,16 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { textoResumen, type ResumenDia } from '@/lib/resumen-diario/calcular';
 import { urgenciaResumen } from '@/lib/resumen-diario/guardar';
 import {
-  credencialesPushover,
+  destinoPushover,
   enviarPushover,
   recortarMensaje,
+  tokenPushover,
 } from '@/lib/notificaciones/pushover';
 import { configurarWebPush, webpush } from '@/lib/notificaciones/web-push';
 
 export const TITULO_PUSH_RESUMEN = 'Perfilio · Resumen del día';
 
-export type EstadoPushover = 'enviado' | 'sin_credenciales' | 'error' | 'desactivado';
+export type EstadoPushover = 'enviado' | 'sin_credenciales' | 'sin_destinatario' | 'error' | 'desactivado';
 export type EstadoWebPush = 'enviado' | 'sin_suscripciones' | 'sin_credenciales' | 'error' | 'desactivado';
 export type ResultadoPushResumen = { pushover: EstadoPushover; webpush: EstadoWebPush };
 
@@ -40,12 +41,13 @@ export async function enviarPushResumen(
 
     const mensaje = recortarMensaje(textoResumen(resumen));
 
-    const cred = credencialesPushover();
-    if (!cred) {
-      resultado.pushover = 'sin_credenciales';
+    const destino = await destinoPushover(supabase, businessId);
+    if (!destino) {
+      // Sin token de app = no hay credenciales; con token pero sin clave del negocio = sin destinatario.
+      resultado.pushover = tokenPushover() ? 'sin_destinatario' : 'sin_credenciales';
     } else {
       const ok = await enviarPushover({
-        ...cred,
+        ...destino,
         title: TITULO_PUSH_RESUMEN,
         message: mensaje,
         urgencia: urgenciaResumen(resumen),

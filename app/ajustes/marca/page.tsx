@@ -5,6 +5,7 @@ import { createBrowserClient } from '@supabase/ssr';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { X } from 'lucide-react';
+import AvisosMovil from '@/components/ajustes/avisos-movil';
 import LogoutButton from '@/app/dashboard/logout-button';
 import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
 import { useDemoTenant } from '@/lib/use-demo-tenant';
@@ -239,7 +240,7 @@ export default function AjustesMarcaPage() {
           href="/dashboard"
           className="inline-flex items-center gap-1 rounded-lg border border-[#A04A2F] px-4 py-2 text-sm font-medium text-[#A04A2F] transition-colors hover:bg-[#A04A2F]/10"
         >
-          <span aria-hidden>←</span> Volver
+          <span aria-hidden>←</span> Volver al Dashboard
         </Link>
         <Link
           href="/dashboard"
@@ -339,6 +340,8 @@ export default function AjustesMarcaPage() {
             </div>
           ) : null}
         </section>
+
+        <AvisosMovil demo={demo} businessId={businessId} />
 
         <section className="rounded-xl border border-zinc-400/40 bg-[#D4CCBC] p-5 space-y-4" aria-label="Colores y tipografía">
           <h2 className="text-lg font-bold">Colores y tipografía</h2>

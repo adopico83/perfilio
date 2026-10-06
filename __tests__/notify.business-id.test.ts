@@ -66,4 +66,8 @@ describe('src/lib/notify: guarda siempre business_id', () => {
     expect(await sendBichoNotification({ ...base, business_id: UUID })).toBe(false);
     expect(global.fetch).not.toHaveBeenCalled();
   });
+  it('otro negocio sin clave propia no envía Pushover (no se usa la clave global de Pino)', async () => {
+    expect(await sendBichoNotification({ ...base, business_id: '900ed462-7640-4893-9030-a41163219f7a' })).toBe(false);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
 });

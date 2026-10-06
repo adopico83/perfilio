@@ -110,3 +110,14 @@ describe('Salida de la pantalla de Ajustes', () => {
     expect(cerrar.className).toContain('md:hidden');
   });
 });
+
+describe('Ajustes: avisos al móvil y salida', () => {
+  it('«← Volver al Dashboard» y la sección Avisos al móvil aparecen también en demo', async () => {
+    mockUseDemo.mockReturnValue(true);
+    render(<AjustesMarcaPage />);
+    const volver = (await screen.findByRole('link', { name: /Volver al Dashboard/ })) as HTMLAnchorElement;
+    expect(volver.getAttribute('href')).toBe('/dashboard');
+    expect(screen.getByRole('region', { name: 'Avisos al móvil' })).toBeTruthy();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+});
