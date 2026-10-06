@@ -436,33 +436,10 @@ function extraerCampoPlantillaDescripcion(desc: string, prefijo: '📞' | '📍'
   return v;
 }
 
-/** Mensajes cortos de confirmación (p. ej. tras vista previa SDD). Evita bucles si el modelo repite solo_vista_previa true. */
-function esConfirmacionUsuario(raw: string): boolean {
-  const s = raw
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '');
-  if (!s) return false;
-  const t = s.replace(/\s+/g, ' ').replace(/[¡!?¿.]/g, '').trim();
-  if (/^(no|nop|no gracias|mejor no|cancela|cancelar|dejalo|déjalo|olvida|olvídalo)\b/.test(t)) {
-    return false;
-  }
-  if (t.length <= 40) {
-    if (
-      /^(sí|si|vale|ok|okay|adelante|confirmo|correcto|exacto|hazlo|claro|genial|perfecto|listo)$/.test(t)
-    ) {
-      return true;
-    }
-    if (/^(si|sí)(\s+(por favor|vale|ok|adelante|elimina|borra))?$/.test(t)) {
-      return true;
-    }
-    if (/^(elimina|eliminar|borra|borrar|elimínalo|borralo)$/.test(t)) {
-      return true;
-    }
-  }
-  return false;
-}
+// REGLA: una vista previa (`solo_vista_previa: true`) NUNCA escribe, diga lo que diga el último mensaje del
+// usuario («vale», «sí»…). Antes un «vale» saltaba la vista previa y la cita se guardaba sin pasar por la
+// barrera de confirmación (lib/agente/confirmacion.ts). Ahora la única forma de escribir es que la barrera
+// ejecute la tool con `solo_vista_previa: false` tras el «Sí, hazlo» del usuario.
 
 export const AGENDA_HANDLED_TOOLS = new Set([
   'obtener_agenda',
@@ -715,7 +692,6 @@ export async function handleAgenda(
 ): Promise<Record<string, unknown>> {
   void userId;
   void _openai;
-  const mensajeTrim = ctx.mensajeTrim ?? '';
 
   const bid =
     typeof businessId === 'string' ? businessId : String(businessId ?? '');
@@ -820,7 +796,6 @@ export async function handleAgenda(
       const soloVistaCrear =
         toolArgs.solo_vista_previa === true ||
         String(toolArgs.solo_vista_previa ?? '').toLowerCase() === 'true';
-      const userConfirmaCrear = esConfirmacionUsuario(mensajeTrim);
 
       const { value: minutosAntelacion, error: errMinAnt } = parseMinutosAntelacion(
         toolArgs.minutos_antelacion
@@ -993,7 +968,7 @@ export async function handleAgenda(
       };
       if (horaFinal) insertPayload.hora = horaFinal;
 
-      if (soloVistaCrear && !userConfirmaCrear) {
+      if (soloVistaCrear) {
         return {
           mensaje:
             `Vista previa del evento (no guardado):\n• ${titulo}\n• ${fechaRaw} ${
@@ -1133,7 +1108,6 @@ export async function handleAgenda(
       const soloVR =
         toolArgs.solo_vista_previa === true ||
         String(toolArgs.solo_vista_previa ?? '').toLowerCase() === 'true';
-      const userConfirms = esConfirmacionUsuario(mensajeTrim);
 
       const previewElimRec = async () => {
         const { data: ev, error: evErr } = await supabase
@@ -1158,7 +1132,7 @@ export async function handleAgenda(
         } as const;
       };
 
-      if (soloVR && !userConfirms) {
+      if (soloVR) {
         const prev = await previewElimRec();
         if ('error' in prev && prev.error) return { error: prev.error };
         return prev;
@@ -1184,7 +1158,6 @@ export async function handleAgenda(
       const soloVAg =
         toolArgs.solo_vista_previa === true ||
         String(toolArgs.solo_vista_previa ?? '').toLowerCase() === 'true';
-      const userConfirms = esConfirmacionUsuario(mensajeTrim);
       const eventoIdAg =
         typeof toolArgs.evento_id === 'string' && toolArgs.evento_id.trim()
           ? toolArgs.evento_id.trim()
@@ -1193,7 +1166,7 @@ export async function handleAgenda(
       const fechaAg = String(toolArgs.fecha ?? '').trim();
 
       if (eventoIdAg) {
-        if (soloVAg && !userConfirms) {
+        if (soloVAg) {
           const { data: ev, error: evErr } = await supabase
             .from('agenda')
             .select('id, titulo, fecha, hora')
@@ -1274,7 +1247,7 @@ export async function handleAgenda(
       }
 
       const unoEv = evList[0]!;
-      if (soloVAg && !userConfirms) {
+      if (soloVAg) {
         return {
           mensaje:
             `¿Eliminar este recordatorio?\n` +
@@ -1286,13 +1259,6 @@ export async function handleAgenda(
           evento_id: unoEv.id,
         };
       }
-      if (!soloVAg && !userConfirms) {
-        return {
-          error:
-            'Para borrar con seguridad, primero muestra la vista prevía con solo_vista_previa true.',
-        };
-      }
-
       const { data: delUno, error: delUnoErr } = await supabase
         .from('agenda')
         .delete()
