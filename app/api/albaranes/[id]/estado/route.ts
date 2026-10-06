@@ -49,15 +49,31 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       return NextResponse.json({ error: 'Un albarán facturado ya no cambia de estado.' }, { status: 409 });
     }
 
+    // La condición va EN el UPDATE (no solo en la lectura de arriba): si otra petición factura el
+    // albarán justo entre la lectura y la escritura, este UPDATE no toca ninguna fila.
+    // `.or('estado.is.null,…')` y no solo `.neq`: en SQL `NULL <> 'facturado'` no es verdadero, así
+    // que un albarán con estado NULL (la columna lo admite) no se actualizaría nunca.
     const { data: filas, error: updErr } = await supabase
       .from('albaranes')
       .update({ estado })
       .eq('id', id)
       .eq('business_id', businessId)
+      .or('estado.is.null,estado.neq.facturado')
       .select('id');
     if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
     if (!filas || filas.length === 0) {
-      return NextResponse.json({ error: 'Albarán no encontrado' }, { status: 404 });
+      // Ninguna fila cambió: se ha facturado mientras tanto (o ya no existe).
+      const { data: ahora } = await supabase
+        .from('albaranes')
+        .select('id')
+        .eq('id', id)
+        .eq('business_id', businessId)
+        .maybeSingle();
+      if (!ahora) return NextResponse.json({ error: 'Albarán no encontrado' }, { status: 404 });
+      return NextResponse.json(
+        { error: 'El albarán se ha facturado mientras tanto: ya no cambia de estado.' },
+        { status: 409 }
+      );
     }
     return NextResponse.json({ ok: true, id, estado });
   } catch (e) {
