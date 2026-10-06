@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { createClient } from '@/lib/supabase/server';
+import { comprobarLimiteIARuta, respuestaLimiteIA } from '@/lib/ia/limite-uso';
 import { modeloAgente, parametrosGeneracion } from '@/lib/agente/modelo';
 
 const SYSTEM_PROMPT = `Eres el asistente virtual de un taller especializado en carpintería de aluminio y PVC en España.
@@ -49,6 +50,10 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Límite de uso (cupo común con la otra ruta de IA): 429 antes de gastar OpenAI.
+    const limite = await comprobarLimiteIARuta(supabaseAuth, user.id);
+    if (!limite.permitido) return respuestaLimiteIA(limite);
 
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       { role: 'system', content: SYSTEM_PROMPT },

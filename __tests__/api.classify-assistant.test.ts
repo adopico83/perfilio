@@ -15,11 +15,18 @@ jest.mock('@/lib/supabase/server', () => ({
   createServiceClient: () => ({ from: (...a: unknown[]) => fromMock(...a) }),
 }));
 
+const mockLimite = jest.fn();
+jest.mock('@/lib/ia/limite-uso', () => ({
+  comprobarLimiteIARuta: (...a: unknown[]) => mockLimite(...a),
+  respuestaLimiteIA: jest.requireActual('@/lib/ia/limite-uso').respuestaLimiteIA,
+}));
+
 const ENV = { ...process.env };
 beforeEach(() => {
   jest.clearAllMocks();
   process.env = { ...ENV, OPENAI_API_KEY: 'k' };
   delete process.env.AGENTE_MODELO;
+  mockLimite.mockResolvedValue({ permitido: true });
   mockUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'pino@x.es' } } });
   createMock.mockResolvedValue({ choices: [{ message: { content: 'urgent' } }], usage: { total_tokens: 5 } });
 });
@@ -85,5 +92,33 @@ describe('POST /api/assistant', () => {
     expect(fromMock).not.toHaveBeenCalled();
     const mensajes = createMock.mock.calls[0][0].messages;
     expect(mensajes).toHaveLength(2); // system + user, sin historial
+  });
+});
+
+describe('límite de uso de la IA', () => {
+  const limite = { permitido: false, motivo: 'minuto', reintentarEnS: 30 };
+
+  it.each([
+    ['classify', '@/app/api/classify/route', { message: 'hola' }],
+    ['assistant', '@/app/api/assistant/route', { message: 'hola' }],
+  ])('%s: 429 con Retry-After y sin llamar a OpenAI', async (_n, ruta, cuerpo) => {
+    mockLimite.mockResolvedValue(limite);
+    const res = await (await import(ruta)).POST(post(cuerpo));
+    expect(res.status).toBe(429);
+    expect(res.headers.get('Retry-After')).toBe('30');
+    expect((await res.json()).error).toMatch(/demasiadas consultas a la IA.*30 s/);
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['classify', '@/app/api/classify/route'],
+    ['assistant', '@/app/api/assistant/route'],
+  ])('%s: orden 401 → 400 → límite (sin mensaje no gasta cupo; sin sesión tampoco)', async (_n, ruta) => {
+    const { POST } = await import(ruta);
+    expect((await POST(post({}))).status).toBe(400);
+    expect(mockLimite).not.toHaveBeenCalled();
+    mockUser.mockResolvedValue({ data: { user: null } });
+    expect((await POST(post({ message: 'hola' }))).status).toBe(401);
+    expect(mockLimite).not.toHaveBeenCalled();
   });
 });
