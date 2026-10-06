@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { renderToBuffer } from '@react-pdf/renderer';
 import { createClient } from '@/lib/supabase/server';
 import { isDemoReformasTenant } from '@/lib/demo-tenant';
-import { DEMO_EMPRESA_EMISOR, DEMO_MOCK_ENABLED, getDemoFacturas, getDemoPresupuestos } from '@/lib/demo-data';
+import { DEMO_EMPRESA_EMISOR, DEMO_MARCA, DEMO_MOCK_ENABLED, getDemoFacturas, getDemoPresupuestos } from '@/lib/demo-data';
 import { FacturaPdfDocument, type FacturaPdfProps } from '@/lib/pdf/factura';
 import { nombreArchivoPresupuestoPdf, renderPresupuestoPdfConEmisor } from '@/lib/pdf/presupuesto-render';
 
@@ -45,7 +45,10 @@ export async function GET(
     if (tipo === 'presupuesto') {
       const pres = getDemoPresupuestos().find((p) => p.id === id);
       if (!pres) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
-      const res = await renderPresupuestoPdfConEmisor({ empresa: DEMO_EMPRESA_EMISOR, logoUrl: await logoDemoDataUri() }, pres);
+      const res = await renderPresupuestoPdfConEmisor(
+        { empresa: DEMO_EMPRESA_EMISOR, logoUrl: await logoDemoDataUri(), marca: DEMO_MARCA },
+        pres
+      );
       if (!res.ok) return NextResponse.json({ error: res.error }, { status: 500 });
       return pdfResponse(res.buffer, nombreArchivoPresupuestoPdf(res.fecha));
     }
@@ -83,6 +86,7 @@ export async function GET(
           logoUrl={await logoDemoDataUri()}
           empresa={DEMO_EMPRESA_EMISOR}
           porcentajeIva={porcentajeIva}
+          marca={DEMO_MARCA}
         />
       );
       return pdfResponse(buffer, `factura-${fecha.replace(/[^0-9-]/g, '')}-${numero}.pdf`);

@@ -5,6 +5,9 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+/** Whisper no admite archivos de más de 25 MB. */
+const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
@@ -23,7 +26,13 @@ export async function POST(request: NextRequest) {
     }
 
     const blob = audioBlob as unknown as Blob;
-    console.log('Tamaño blob:', blob.size, 'Tipo:', blob.type);
+
+    if (blob.size > MAX_AUDIO_BYTES) {
+      return NextResponse.json(
+        { error: 'El audio es demasiado grande (máximo 25 MB). Graba un fragmento más corto.' },
+        { status: 413 }
+      );
+    }
 
     if (blob.size < 1000) {
       return NextResponse.json(

@@ -10,6 +10,7 @@ import {
   Users,
   Wallet,
   HardHat,
+  Settings,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -85,5 +86,11 @@ export const DEMO_NAV_ITEMS: {
     label: 'Operarios',
     icon: HardHat,
     match: (p) => p.startsWith('/operarios'),
+  },
+  {
+    href: '/ajustes/marca',
+    label: 'Ajustes',
+    icon: Settings,
+    match: (p) => p.startsWith('/ajustes'),
   },
 ];

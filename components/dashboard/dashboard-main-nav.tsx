@@ -14,7 +14,8 @@ export type DashboardNavActive =
   | 'diario'
   | 'obras'
   | 'clientes'
-  | 'operarios';
+  | 'operarios'
+  | 'ajustes';
 
 const NAV_ITEMS: { key: DashboardNavActive; href: string; label: string }[] = [
   { key: 'mensajes', href: '/mensajes', label: 'Mensajes' },
@@ -26,6 +27,7 @@ const NAV_ITEMS: { key: DashboardNavActive; href: string; label: string }[] = [
   { key: 'obras', href: '/obras', label: 'Obras' },
   { key: 'clientes', href: '/clientes', label: 'Clientes' },
   { key: 'operarios', href: '/operarios', label: 'Operarios' },
+  { key: 'ajustes', href: '/ajustes/marca', label: 'Ajustes' },
 ];
 
 const PRIMARY_ORDER: DashboardNavActive[] = ['obras', 'operarios', 'diario'];
@@ -36,6 +38,7 @@ const MORE_KEYS = new Set<DashboardNavActive>([
   'facturas',
   'gastos',
   'clientes',
+  'ajustes',
 ]);
 
 function itemMeta(key: DashboardNavActive) {

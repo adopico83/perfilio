@@ -40,6 +40,15 @@ interface Factura {
   obras?: ObrasNombreJoin;
 }
 
+/** «21%», «10%»… calculado como iva / base imponible (no fijo). «—» si no se puede calcular. */
+function porcentajeIvaTexto(f: Pick<Factura, 'iva' | 'base_imponible'>): string {
+  const base = Number(f.base_imponible);
+  const iva = Number(f.iva);
+  if (!Number.isFinite(base) || !Number.isFinite(iva) || base <= 0) return '—';
+  const pct = Math.round((iva / base) * 1000) / 10;
+  return `${String(pct).replace('.', ',')}%`;
+}
+
 export default function FacturasPage() {
   const { abrirObra } = useObraModal();
   const router = useRouter();
@@ -60,6 +69,7 @@ export default function FacturasPage() {
   const [editandoDetalle, setEditandoDetalle] = useState(false);
   const [guardandoEdicion, setGuardandoEdicion] = useState(false);
   const [editError, setEditError] = useState('');
+  const [estadoError, setEstadoError] = useState('');
   const [facturaGuardadaId, setFacturaGuardadaId] = useState<string | null>(null);
   const [editorDataRevision, setEditorDataRevision] = useState(0);
   const [emisor, setEmisor] = useState<{
@@ -116,7 +126,19 @@ export default function FacturasPage() {
     if (demo) {
       setFacturas((prev) => prev.map((f) => (f.id === id ? { ...f, estado } : f)));
     } else {
-      await supabase.from('facturas').update({ estado }).eq('id', id);
+      // `facturas` solo permite leer desde el navegador: el cambio va por la API (service role).
+      const res = await fetch(`/api/facturas/${encodeURIComponent(id)}/estado`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ estado }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        setEstadoError(data.error ?? 'No se pudo cambiar el estado de la factura');
+        return;
+      }
+      setEstadoError('');
       loadFacturas();
     }
     setDetalleId(null);
@@ -280,6 +302,11 @@ export default function FacturasPage() {
           <h1 className="text-2xl font-bold text-zinc-900">Historial de facturas</h1>
           <VolverAlDashboard />
         </div>
+        {estadoError ? (
+          <p role="alert" className="mb-4 rounded-lg border border-[#A04A2F]/50 bg-[#E5DFD0] px-3 py-2 text-sm text-[#A04A2F]">
+            {estadoError}
+          </p>
+        ) : null}
 
         {loading ? (
           <p className="text-zinc-600">Cargando...</p>
@@ -315,7 +342,7 @@ export default function FacturasPage() {
                         Base: {f.base_imponible != null ? String(f.base_imponible) : '—'} €
                       </p>
                       <p className="text-zinc-700">
-                        IVA (21%): {f.iva != null ? String(f.iva) : '—'} €
+                        IVA ({porcentajeIvaTexto(f)}): {f.iva != null ? String(f.iva) : '—'} €
                       </p>
                       <p className="font-semibold">
                         Total: {f.total != null ? String(f.total) : '—'} €
@@ -453,7 +480,7 @@ export default function FacturasPage() {
                 {detalleItem.base_imponible != null ? String(detalleItem.base_imponible) : '—'} €
               </p>
               <p>
-                <span className="text-zinc-600">IVA:</span>{' '}
+                <span className="text-zinc-600">IVA ({porcentajeIvaTexto(detalleItem)}):</span>{' '}
                 {detalleItem.iva != null ? String(detalleItem.iva) : '—'} €
               </p>
               <p>

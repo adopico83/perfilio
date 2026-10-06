@@ -1,3 +1,5 @@
+import { MARCA_PROFILE_COLUMNS, MARCA_VACIA, marcaDesdePerfil, type MarcaPdf, type MarcaPerfilRow } from './marca';
+
 /**
  * Emisor de presupuestos y facturas. Sale de `business_profiles` del tenant.
  * Un campo vacío es null y el documento no pinta esa línea.
@@ -20,7 +22,10 @@ export type EmpresaEmisor = {
 export const EMPRESA_PROFILE_COLUMNS =
   'razon_social, nif, rea, direccion_fiscal, localidad_fiscal, telefono, email, web, instagram, iban, logo_url';
 
-export type BusinessProfileEmisorRow = {
+/** Columnas del emisor + las de marca (migración 20261006130000). */
+export const EMPRESA_PROFILE_COLUMNS_CON_MARCA = `${EMPRESA_PROFILE_COLUMNS}, ${MARCA_PROFILE_COLUMNS}`;
+
+export type BusinessProfileEmisorRow = MarcaPerfilRow & {
   razon_social?: string | null;
   nif?: string | null;
   rea?: string | null;
@@ -128,7 +133,7 @@ type ProfileQuery = {
     ) => {
       maybeSingle: () => Promise<{
         data: BusinessProfileEmisorRow | null;
-        error: { message: string } | null;
+        error: { message: string; code?: string } | null;
       }>;
     };
   };
@@ -150,18 +155,28 @@ export type EmpresaLoaderClient = {
 };
 
 export type EmpresaCargada =
-  | { ok: true; empresa: EmpresaEmisor; logoUrl: string | null }
+  | { ok: true; empresa: EmpresaEmisor; logoUrl: string | null; marca: MarcaPdf }
   | { ok: false; error: string };
+
+function columnaNoExiste(error: { message: string; code?: string }): boolean {
+  return error.code === '42703' || /column .* does not exist|marca_/i.test(error.message);
+}
 
 export async function loadEmpresaEmisor(
   supabase: EmpresaLoaderClient,
   businessId: string
 ): Promise<EmpresaCargada> {
   const query = supabase.from('business_profiles') as ProfileQuery;
-  const { data, error } = await query
-    .select(EMPRESA_PROFILE_COLUMNS)
+  let { data, error } = await query
+    .select(EMPRESA_PROFILE_COLUMNS_CON_MARCA)
     .eq('id', businessId)
     .maybeSingle();
+
+  // Si la migración de marca aún no está aplicada, la columna no existe (Postgres 42703): se
+  // vuelve a pedir solo el emisor para que los PDF sigan saliendo, con el aspecto de siempre.
+  if (error && columnaNoExiste(error)) {
+    ({ data, error } = await query.select(EMPRESA_PROFILE_COLUMNS).eq('id', businessId).maybeSingle());
+  }
 
   if (error) return { ok: false, error: error.message };
 
@@ -176,5 +191,5 @@ export async function loadEmpresaEmisor(
     }
   }
 
-  return { ok: true, empresa: empresaDesdePerfil(row), logoUrl };
+  return { ok: true, empresa: empresaDesdePerfil(row), logoUrl, marca: row ? marcaDesdePerfil(row) : MARCA_VACIA };
 }
