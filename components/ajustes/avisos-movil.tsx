@@ -19,12 +19,16 @@ export default function AvisosMovil({ demo, businessId }: { demo: boolean; busin
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
 
+  // GET y PATCH trabajan SIEMPRE sobre el mismo negocio (el activo en Ajustes): `business_id` va en los dos.
+  const urlGet = businessId ? `/api/negocio/avisos?business_id=${encodeURIComponent(businessId)}` : null;
+
   useEffect(() => {
-    if (demo) return;
+    // Hasta saber el negocio no se llama a nada (los controles siguen bloqueados).
+    if (demo || !urlGet) return;
     let cancelado = false;
     void (async () => {
       try {
-        const res = await fetch('/api/negocio/avisos', { credentials: 'include' });
+        const res = await fetch(urlGet, { credentials: 'include' });
         const json = (await res.json().catch(() => ({}))) as Partial<Estado> & { error?: string };
         if (cancelado) return;
         if (!res.ok) {
@@ -44,7 +48,7 @@ export default function AvisosMovil({ demo, businessId }: { demo: boolean; busin
     return () => {
       cancelado = true;
     };
-  }, [demo]);
+  }, [demo, urlGet]);
 
   const guardar = async (cambios: { resumen_push?: boolean; pushover_user_key?: string | null }, ok: string) => {
     setGuardando(true);
@@ -63,7 +67,7 @@ export default function AvisosMovil({ demo, businessId }: { demo: boolean; busin
       }
       setAviso({ tipo: 'ok', texto: json.aviso ? `${ok} ${json.aviso}` : ok });
       setClave('');
-      const recarga = await fetch('/api/negocio/avisos', { credentials: 'include' });
+      const recarga = await fetch(urlGet ?? '/api/negocio/avisos', { credentials: 'include' });
       if (recarga.ok) setEstado((await recarga.json()) as Estado);
     } catch {
       setAviso({ tipo: 'error', texto: 'Error de conexión al guardar' });
