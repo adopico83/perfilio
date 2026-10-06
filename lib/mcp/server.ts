@@ -86,6 +86,36 @@ export function createPerfilioMcpServer(ctx: McpContext): McpServer {
   );
 
   server.registerTool(
+    'crear_factura_desde_presupuesto',
+    {
+      description:
+        'Crea la factura de un presupuesto aceptado o aprobado del negocio de esta conexión. Pide confirmación explícita al usuario antes de llamarla. Es idempotente: si ya existe la factura de ese presupuesto, la devuelve en vez de duplicarla (ya_existia: true). Indica el id (uuid) o el numero del presupuesto. El cliente debe tener NIF y dirección.',
+      inputSchema: {
+        id: z.string().optional().describe('UUID del presupuesto'),
+        numero: z.number().optional().describe('Número correlativo del presupuesto, alternativa a id'),
+      },
+    },
+    async (args) => toolTextResult(await executeMcpTool('crear_factura_desde_presupuesto', args, ctx))
+  );
+
+  server.registerTool(
+    'obtener_enlace_pdf_factura',
+    {
+      description:
+        'Genera el PDF oficial de una factura del negocio de esta conexión y devuelve un enlace firmado y temporal para descargarlo. Indica el id (uuid) o el numero de la factura. El enlace caduca en dias_validez días (1 a 30, por defecto 7).',
+      inputSchema: {
+        id: z.string().optional().describe('UUID de la factura'),
+        numero: z.number().optional().describe('Número de factura, alternativa a id'),
+        dias_validez: z
+          .number()
+          .optional()
+          .describe('Días de validez del enlace, entero entre 1 y 30. Por defecto 7'),
+      },
+    },
+    async (args) => toolTextResult(await executeMcpTool('obtener_enlace_pdf_factura', args, ctx))
+  );
+
+  server.registerTool(
     'resumen_del_dia',
     {
       description:

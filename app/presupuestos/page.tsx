@@ -156,16 +156,20 @@ function PresupuestosPageContent() {
     );
   };
 
-  const errorRequiereEstadoAceptado = (msg: string) =>
-    msg.includes('Solo se puede convertir') || msg.includes('estado aceptado');
+  /** Resultado de «Generar factura» / «Ver factura», que se enseña en un aviso con botones. */
+  type AvisoFactura =
+    | { tipo: 'ok'; facturaId: string | null; numero: number | null; yaExistia: boolean; demo?: boolean }
+    | { tipo: 'error'; mensaje: string; clienteId: string | null };
+  const [avisoFactura, setAvisoFactura] = useState<AvisoFactura | null>(null);
 
   const generarFactura = async (p: Presupuesto) => {
     if (demo) {
       setPresupuestos((prev) => prev.map((x) => (x.id === p.id ? { ...x, estado: 'facturado' } : x)));
       cerrarModal();
+      setAvisoFactura({ tipo: 'ok', facturaId: null, numero: null, yaExistia: false, demo: true });
       return;
     }
-    const intentar = async () => {
+    try {
       const res = await fetch('/api/presupuestos/generar-factura', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -175,33 +179,63 @@ function PresupuestosPageContent() {
       const data = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         error?: string;
+        code?: string;
+        cliente_id?: string | null;
+        factura_id?: string;
         numero_factura?: number;
+        ya_existia?: boolean;
       };
       if (!res.ok || !data.ok) {
-        return { ok: false as const, error: data.error ?? 'No se pudo generar la factura' };
+        setAvisoFactura({
+          tipo: 'error',
+          mensaje: data.error ?? 'No se pudo generar la factura',
+          clienteId: data.code === 'cliente_incompleto' ? (data.cliente_id ?? null) : null,
+        });
+        return;
       }
-      return {
-        ok: true as const,
-        numero_factura: data.numero_factura as number,
-      };
-    };
-
-    let r = await intentar();
-    if (
-      !r.ok &&
-      (p.estado ?? '').toLowerCase() === 'aprobado' &&
-      errorRequiereEstadoAceptado(r.error)
-    ) {
-      await supabase.from('presupuestos').update({ estado: 'aceptado' }).eq('id', p.id);
-      r = await intentar();
-    }
-
-    if (r.ok) {
-      alert(`Factura #${r.numero_factura} generada correctamente`);
+      cerrarModal();
+      setAvisoFactura({
+        tipo: 'ok',
+        facturaId: data.factura_id ?? null,
+        numero: data.numero_factura ?? null,
+        yaExistia: Boolean(data.ya_existia),
+      });
       await loadPresupuestos();
-    } else {
-      alert(r.error);
+    } catch (e) {
+      setAvisoFactura({
+        tipo: 'error',
+        mensaje: e instanceof Error ? e.message : 'No se pudo generar la factura',
+        clienteId: null,
+      });
     }
+  };
+
+  /** Presupuesto ya facturado: busca su factura (por presupuesto_id) y enseña el mismo aviso. */
+  const verFactura = async (p: Presupuesto) => {
+    if (demo) {
+      router.push('/facturas');
+      return;
+    }
+    const { data } = await supabase
+      .from('facturas')
+      .select('id, numero_factura')
+      .eq('presupuesto_id', p.id)
+      .maybeSingle();
+    if (!data?.id) {
+      setAvisoFactura({
+        tipo: 'error',
+        mensaje: 'No encuentro la factura de este presupuesto. Búscala en Facturas.',
+        clienteId: null,
+      });
+      return;
+    }
+    cerrarModal();
+    setAvisoFactura({
+      tipo: 'ok',
+      facturaId: data.id as string,
+      numero: (data.numero_factura as number | null) ?? null,
+      yaExistia: true,
+    });
   };
 
   const puedeGenerarFactura = (estado: string | null) => {
@@ -323,6 +357,15 @@ function PresupuestosPageContent() {
                       Generar factura
                     </button>
                   )}
+                  {(p.estado ?? '').toLowerCase() === 'facturado' && (
+                    <button
+                      type="button"
+                      onClick={() => void verFactura(p)}
+                      className="px-3 py-1.5 text-sm font-medium bg-[#E5DFD0] hover:bg-[#D4CCBC] text-zinc-900 border border-zinc-400/50 rounded-lg transition-colors"
+                    >
+                      Ver factura
+                    </button>
+                  )}
                   {(p.estado ?? 'borrador') === 'borrador' && (
                     <>
                       <button
@@ -424,8 +467,95 @@ function PresupuestosPageContent() {
                   Generar factura
                 </button>
               )}
+              {(modalItem.estado ?? '').toLowerCase() === 'facturado' && (
+                <button
+                  type="button"
+                  onClick={() => void verFactura(modalItem)}
+                  className="px-4 py-2 text-sm font-medium bg-[#E5DFD0] hover:bg-[#D4CCBC] text-zinc-900 rounded-lg"
+                >
+                  Ver factura
+                </button>
+              )}
               <button type="button" onClick={cerrarModal} className="px-4 py-2 text-sm font-medium bg-[#E5DFD0] hover:bg-[#D4CCBC] text-zinc-900 rounded-lg">Cerrar</button>
             </div>
+          </div>
+        </div>
+      )}
+      {avisoFactura && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Resultado de la factura"
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setAvisoFactura(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-zinc-400/40 bg-[#EFEADF] p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {avisoFactura.tipo === 'ok' ? (
+              <>
+                <h2 className="text-lg font-bold text-zinc-900">
+                  {avisoFactura.demo
+                    ? 'Factura creada (simulación de la demo)'
+                    : avisoFactura.yaExistia
+                      ? `La factura nº ${avisoFactura.numero ?? ''} ya existía`
+                      : `Factura nº ${avisoFactura.numero ?? ''} creada`}
+                </h2>
+                <p className="mt-1 text-sm text-zinc-700">
+                  {avisoFactura.yaExistia
+                    ? 'Este presupuesto ya tenía factura; no se ha creado otra.'
+                    : 'El presupuesto ha pasado a «facturado».'}
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {avisoFactura.facturaId && (
+                    <>
+                      <a
+                        href={`/api/pdf/factura/${encodeURIComponent(avisoFactura.facturaId)}`}
+                        className="px-4 py-2 text-sm font-medium bg-[#A04A2F] hover:bg-[#8a3f28] text-white rounded-lg"
+                      >
+                        Descargar PDF
+                      </a>
+                      <a
+                        href={`/facturas?id=${encodeURIComponent(avisoFactura.facturaId)}`}
+                        className="px-4 py-2 text-sm font-medium bg-[#5a7a4a] hover:bg-[#4d6b40] text-white rounded-lg"
+                      >
+                        Ver en facturas
+                      </a>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setAvisoFactura(null)}
+                    className="px-4 py-2 text-sm font-medium bg-[#E5DFD0] hover:bg-[#D4CCBC] text-zinc-900 rounded-lg"
+                  >
+                    Cerrar
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2 className="text-lg font-bold text-zinc-900">No se ha podido crear la factura</h2>
+                <p className="mt-1 text-sm text-zinc-700">{avisoFactura.mensaje}</p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {avisoFactura.clienteId && (
+                    <a
+                      href={`/clientes/${encodeURIComponent(avisoFactura.clienteId)}`}
+                      className="px-4 py-2 text-sm font-medium bg-[#A04A2F] hover:bg-[#8a3f28] text-white rounded-lg"
+                    >
+                      Completar la ficha del cliente
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setAvisoFactura(null)}
+                    className="px-4 py-2 text-sm font-medium bg-[#E5DFD0] hover:bg-[#D4CCBC] text-zinc-900 rounded-lg"
+                  >
+                    Cerrar
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

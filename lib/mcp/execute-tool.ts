@@ -6,6 +6,7 @@ import {
   type DiarioObraFotoSource,
 } from '@/lib/diario-obra-ingest';
 import { crearCitaAgenda, listarCitasAgenda } from '@/lib/mcp/citas';
+import { crearFacturaDesdePresupuestoMcp, obtenerEnlacePdfFactura } from '@/lib/mcp/facturas';
 import { cargarResumenDia } from '@/lib/resumen-diario/datos';
 import { textoResumen } from '@/lib/resumen-diario/calcular';
 import { obtenerEnlacePdfPresupuesto } from '@/lib/presupuestos/enlace-pdf';
@@ -147,6 +148,10 @@ export async function executeMcpTool(
       if (error) return { error: error.message };
       return { items: data ?? [] };
     }
+    case 'crear_factura_desde_presupuesto':
+      return crearFacturaDesdePresupuestoMcp(ctx, toolArgs);
+    case 'obtener_enlace_pdf_factura':
+      return obtenerEnlacePdfFactura(ctx, toolArgs);
     case 'resumen_del_dia': {
       try {
         const resumen = await cargarResumenDia(ctx.supabase, ctx.businessId);
