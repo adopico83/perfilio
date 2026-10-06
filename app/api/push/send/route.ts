@@ -1,17 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as webpush from 'web-push';
+import { configurarWebPush, webpush } from '@/lib/notificaciones/web-push';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { assertUserOwnsBusiness } from '@/lib/supabase/assert-user-owns-business';
-
-function configureWebPush() {
-  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-  const privateKey = process.env.VAPID_PRIVATE_KEY;
-  const subject = process.env.VAPID_MAILTO ?? 'mailto:hello@perfilio.app';
-  if (!publicKey || !privateKey) {
-    throw new Error('VAPID keys no configuradas');
-  }
-  webpush.setVapidDetails(subject, publicKey, privateKey);
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -44,7 +34,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No tienes acceso a este negocio' }, { status: 403 });
     }
 
-    configureWebPush();
+    configurarWebPush();
 
     const supabase = createServiceClient();
     const { data: rows, error } = await supabase

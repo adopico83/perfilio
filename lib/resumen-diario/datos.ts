@@ -9,8 +9,11 @@ import {
   ymdMadrid,
   type CitaRow,
   type DiarioRow,
+  type FacturaObraRow,
   type FacturaRow,
+  type JornadaRow,
   type ObraRow,
+  type PresupuestoObraRow,
   type PresupuestoRow,
   type ResumenDia,
 } from '@/lib/resumen-diario/calcular';
@@ -41,7 +44,7 @@ export async function cargarResumenDia(
       .eq('completado', false),
     supabase
       .from('obras')
-      .select('id, nombre, estado, created_at, fecha_inicio')
+      .select('id, nombre, estado, created_at, fecha_inicio, fecha_fin')
       .eq('business_id', businessId)
       .in('estado', ESTADOS_OBRA_ACTIVA),
     supabase
@@ -61,13 +64,42 @@ export async function cargarResumenDia(
       .in('estado', ESTADOS_FACTURA_ABIERTA),
   ]);
 
+  const obrasActivas = filas<ObraRow>('obras', obras);
+  const idsObras = obrasActivas.map((o) => o.id);
+
+  // Margen y «termina sin factura» solo miran las obras activas: sin ellas no hay nada que consultar.
+  let jornadas: JornadaRow[] = [];
+  let presupuestosObra: PresupuestoObraRow[] = [];
+  let facturasObra: FacturaObraRow[] = [];
+  if (idsObras.length > 0) {
+    const [j, po, fo] = await Promise.all([
+      supabase
+        .from('registros_jornada')
+        .select('obra_id, horas_reales')
+        .eq('business_id', businessId)
+        .in('obra_id', idsObras),
+      supabase
+        .from('presupuestos')
+        .select('obra_id, importe_total, estado')
+        .eq('business_id', businessId)
+        .in('obra_id', idsObras),
+      supabase.from('facturas').select('obra_id').eq('business_id', businessId).in('obra_id', idsObras),
+    ]);
+    jornadas = filas<JornadaRow>('registros_jornada', j);
+    presupuestosObra = filas<PresupuestoObraRow>('presupuestos de obra', po);
+    facturasObra = filas<FacturaObraRow>('facturas de obra', fo);
+  }
+
   return calcularResumenDia(
     {
       citas: filas<CitaRow>('agenda', citas),
-      obras: filas<ObraRow>('obras', obras),
+      obras: obrasActivas,
       diario: filas<DiarioRow>('diario', diario),
       presupuestos: filas<PresupuestoRow>('presupuestos', presupuestos),
       facturas: filas<FacturaRow>('facturas', facturas),
+      jornadas,
+      presupuestosObra,
+      facturasObra,
     },
     now
   );

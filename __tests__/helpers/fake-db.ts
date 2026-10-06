@@ -15,6 +15,8 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
   /** Gancho que se ejecuta justo antes de cada insert (para simular otra escritura concurrente). */
   const ganchos: { antesDeInsertar?: (tabla: string) => void } = {};
   const updates: Array<{ tabla: string; valores: Fila; filtros: Array<[string, unknown]> }> = [];
+  /** Una entrada por cada select ejecutado, con sus filtros `eq` (para comprobar que filtra por business_id). */
+  const consultas: Array<{ tabla: string; select: string | null; filtros: Array<[string, unknown]> }> = [];
   let contador = 0;
 
   function from(tabla: string) {
@@ -24,6 +26,7 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
     const enLista: Array<[string, unknown[]]> = [];
     const distintos: Array<[string, unknown]> = [];
     const esNulo: string[] = [];
+    const mayorIgual: Array<[string, unknown]> = [];
     let orden: { col: string; asc: boolean } | null = null;
     let limite: number | null = null;
     let modo: 'select' | 'insert' | 'update' = 'select';
@@ -38,7 +41,8 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
           patrones.every(([c, p]) => String(r[c] ?? '').toLowerCase().includes(p)) &&
           enLista.every(([c, vs]) => vs.includes(r[c])) &&
           distintos.every(([c, v]) => r[c] !== v) &&
-          esNulo.every((c) => r[c] == null)
+          esNulo.every((c) => r[c] == null) &&
+          mayorIgual.every(([c, v]) => r[c] != null && String(r[c]) >= String(v))
       );
       if (orden) {
         const { col, asc } = orden;
@@ -73,6 +77,7 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
         updates.push({ tabla, valores, filtros: [...filtros] });
         return { data: rows.map(proyectar), error: null };
       }
+      consultas.push({ tabla, select: cols, filtros: [...filtros] });
       return { data: filas().map(proyectar), error: null };
     };
 
@@ -97,6 +102,10 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
       },
       in(c: string, valores: unknown[]) {
         enLista.push([c, valores]);
+        return chain;
+      },
+      gte(c: string, v: unknown) {
+        mayorIgual.push([c, v]);
         return chain;
       },
       neq(c: string, v: unknown) {
@@ -163,6 +172,7 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
     tablas,
     inserts,
     updates,
+    consultas,
     erroresInsert,
     ganchos,
   };

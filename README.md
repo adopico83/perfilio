@@ -210,6 +210,7 @@ Crear `.env.local`. **Nunca commitear secretos.**
 | `RESEND_API_KEY` | Emails transaccionales |
 | `OPENWEATHER_API_KEY` | Tiempo en obra |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Push PWA |
+| `PUSHOVER_API_TOKEN` (o `PUSHOVER_TOKEN`) / `PUSHOVER_USER_KEY` (o `PUSHOVER_USER`) | Pushover: avisos del Bicho y aviso push del resumen del día (solo para negocios con `business_profiles.resumen_push = true`) |
 | `CRON_SECRET` | Protege `/api/cron/*` |
 | `MCP_API_TOKEN` | Bearer de `/api/mcp` |
 | `MCP_BUSINESS_ID` | Negocio que operan las tools de esa conexión |

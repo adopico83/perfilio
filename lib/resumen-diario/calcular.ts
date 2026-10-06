@@ -9,6 +9,13 @@ export const DIAS_OBRA_PARADA = 5;
 /** Un presupuesto enviado hace más de N días sin respuesta se avisa. */
 export const DIAS_PRESUPUESTO_SIN_RESPUESTA = 7;
 
+/** Coste por hora de trabajo que se usa para estimar el gasto en mano de obra (mismo valor que el aviso diario antiguo). */
+export const COSTE_HORA_EUR = 32;
+/** Si el coste de las horas supera este % del presupuesto de la obra, el margen está en riesgo. */
+export const UMBRAL_MARGEN = 0.8;
+/** Se avisa de una obra sin factura cuando termina en menos de N días (o ya terminó). */
+export const DIAS_AVISO_FIN_OBRA = 7;
+
 export const ESTADOS_OBRA_ACTIVA = ['abierta', 'en_curso', 'activa'];
 /** `pendiente` = enviado y a la espera del OK del cliente (no hay fecha de envío propia). */
 export const ESTADOS_PRESUPUESTO_SIN_RESPUESTA = ['pendiente', 'enviado'];
@@ -21,6 +28,7 @@ export type ObraRow = {
   estado: string | null;
   created_at?: string | null;
   fecha_inicio?: string | null;
+  fecha_fin?: string | null;
 };
 export type DiarioRow = { obra_id: string | null; fecha: string | null };
 export type PresupuestoRow = {
@@ -32,6 +40,16 @@ export type PresupuestoRow = {
   fecha?: string | null;
   created_at?: string | null;
 };
+/** Horas reales registradas en una obra (una fila por jornada). */
+export type JornadaRow = { obra_id: string | null; horas_reales: number | string | null };
+/** Presupuesto ligado a una obra, del estado que sea (se descartan los rechazados al calcular). */
+export type PresupuestoObraRow = {
+  obra_id: string | null;
+  importe_total: number | string | null;
+  estado: string | null;
+};
+/** Factura ligada a una obra (solo importa si existe). */
+export type FacturaObraRow = { obra_id: string | null };
 export type FacturaRow = {
   id: string;
   estado: string | null;
@@ -44,6 +62,8 @@ export type FacturaRow = {
 export type ResumenTipo =
   | 'cita'
   | 'obra_parada'
+  | 'margen_riesgo'
+  | 'obra_sin_factura'
   | 'presupuesto_sin_respuesta'
   | 'factura_pendiente'
   | 'factura_vencida';
@@ -61,6 +81,8 @@ export type ResumenDia = {
   citasHoy: ResumenItem[];
   citasManana: ResumenItem[];
   obrasParadas: ResumenItem[];
+  margenEnRiesgo: ResumenItem[];
+  obrasSinFactura: ResumenItem[];
   presupuestosSinRespuesta: ResumenItem[];
   facturasPendientes: ResumenItem[];
   facturasVencidas: ResumenItem[];
@@ -75,6 +97,12 @@ export type ResumenDatos = {
   diario: DiarioRow[];
   presupuestos: PresupuestoRow[];
   facturas: FacturaRow[];
+  /** Horas reales de las obras activas (para el margen). Opcional: sin ellas no hay aviso de margen. */
+  jornadas?: JornadaRow[];
+  /** Presupuestos de las obras activas, de cualquier estado (para el margen). */
+  presupuestosObra?: PresupuestoObraRow[];
+  /** Facturas con obra_id de las obras activas (para «termina sin factura»). */
+  facturasObra?: FacturaObraRow[];
 };
 
 export function ymdMadrid(d: Date): string {
@@ -162,6 +190,89 @@ export function calcularObrasParadas(obras: ObraRow[], diario: DiarioRow[], hoy:
   return items;
 }
 
+function dmy(ymd: string): string {
+  const [y, m, d] = ymd.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+function esObraActiva(o: ObraRow): boolean {
+  return ESTADOS_OBRA_ACTIVA.includes(norm(o.estado) || 'abierta');
+}
+
+/**
+ * Obras activas cuyo coste en horas (horas reales × COSTE_HORA_EUR) supera el UMBRAL_MARGEN del
+ * presupuesto de la obra. El presupuesto es el mayor de los no rechazados de esa obra (así un
+ * presupuesto duplicado o reabierto no suma dos veces). Sin presupuesto no hay aviso.
+ */
+export function calcularMargenEnRiesgo(
+  obras: ObraRow[],
+  jornadas: JornadaRow[],
+  presupuestos: PresupuestoObraRow[]
+): ResumenItem[] {
+  const horasPorObra = new Map<string, number>();
+  for (const j of jornadas) {
+    if (!j.obra_id) continue;
+    const h = Number(j.horas_reales ?? 0);
+    if (!Number.isFinite(h)) continue;
+    horasPorObra.set(j.obra_id, (horasPorObra.get(j.obra_id) ?? 0) + h);
+  }
+  const importePorObra = new Map<string, number>();
+  for (const p of presupuestos) {
+    if (!p.obra_id || norm(p.estado) === 'rechazado') continue;
+    const importe = Number(p.importe_total ?? 0);
+    if (!Number.isFinite(importe) || importe <= 0) continue;
+    importePorObra.set(p.obra_id, Math.max(importePorObra.get(p.obra_id) ?? 0, importe));
+  }
+  const items: ResumenItem[] = [];
+  for (const o of obras) {
+    if (!esObraActiva(o)) continue;
+    const importe = importePorObra.get(o.id) ?? 0;
+    if (importe <= 0) continue;
+    const horas = horasPorObra.get(o.id) ?? 0;
+    const coste = horas * COSTE_HORA_EUR;
+    if (coste <= importe * UMBRAL_MARGEN) continue;
+    const pct = Math.round((coste / importe) * 100);
+    items.push({
+      tipo: 'margen_riesgo',
+      id: o.id,
+      titulo: (o.nombre ?? '').trim() || 'Obra sin nombre',
+      detalle: `${euros(coste)} en horas (${pct}% de ${euros(importe)} presupuestados)`,
+      href: `/obras?id=${encodeURIComponent(o.id)}`,
+    });
+  }
+  return items.sort((a, b) => a.titulo.localeCompare(b.titulo, 'es'));
+}
+
+/**
+ * Obras activas que terminan en los próximos DIAS_AVISO_FIN_OBRA días (o ya han terminado, siguen
+ * activas y nadie las ha facturado) y todavía no tienen ninguna factura asociada.
+ */
+export function calcularObrasSinFactura(
+  obras: ObraRow[],
+  facturasObra: FacturaObraRow[],
+  hoy: string
+): ResumenItem[] {
+  const conFactura = new Set(facturasObra.map((f) => f.obra_id).filter((id): id is string => Boolean(id)));
+  const limite = sumarDias(hoy, DIAS_AVISO_FIN_OBRA);
+  const items: Array<ResumenItem & { fin: string }> = [];
+  for (const o of obras) {
+    if (!esObraActiva(o) || conFactura.has(o.id)) continue;
+    const fin = aYmd(o.fecha_fin);
+    if (!fin || fin > limite) continue;
+    items.push({
+      tipo: 'obra_sin_factura',
+      id: o.id,
+      titulo: (o.nombre ?? '').trim() || 'Obra sin nombre',
+      detalle: `${fin >= hoy ? 'termina' : 'terminó'} el ${dmy(fin)} y no tiene factura`,
+      href: `/obras?id=${encodeURIComponent(o.id)}`,
+      fin,
+    });
+  }
+  return items
+    .sort((a, b) => a.fin.localeCompare(b.fin))
+    .map((i) => ({ tipo: i.tipo, id: i.id, titulo: i.titulo, detalle: i.detalle, href: i.href }));
+}
+
 export function calcularPresupuestosSinRespuesta(rows: PresupuestoRow[], hoy: string): ResumenItem[] {
   return rows
     .filter((p) => ESTADOS_PRESUPUESTO_SIN_RESPUESTA.includes(norm(p.estado)))
@@ -221,12 +332,20 @@ export function calcularResumenDia(datos: ResumenDatos, now: Date = new Date()):
   const citasHoy = itemsCitas(citas, hoy);
   const citasManana = itemsCitas(citas, manana);
   const obrasParadas = calcularObrasParadas(datos.obras, datos.diario, hoy);
+  const margenEnRiesgo = calcularMargenEnRiesgo(
+    datos.obras,
+    datos.jornadas ?? [],
+    datos.presupuestosObra ?? []
+  );
+  const obrasSinFactura = calcularObrasSinFactura(datos.obras, datos.facturasObra ?? [], hoy);
   const presupuestosSinRespuesta = calcularPresupuestosSinRespuesta(datos.presupuestos, hoy);
   const { pendientes, vencidas } = calcularFacturas(datos.facturas, hoy);
   const totalAvisos =
     citasHoy.length +
     citasManana.length +
     obrasParadas.length +
+    margenEnRiesgo.length +
+    obrasSinFactura.length +
     presupuestosSinRespuesta.length +
     pendientes.length +
     vencidas.length;
@@ -235,6 +354,8 @@ export function calcularResumenDia(datos: ResumenDatos, now: Date = new Date()):
     citasHoy,
     citasManana,
     obrasParadas,
+    margenEnRiesgo,
+    obrasSinFactura,
     presupuestosSinRespuesta,
     facturasPendientes: pendientes,
     facturasVencidas: vencidas,
@@ -247,6 +368,8 @@ const SECCIONES: Array<[keyof ResumenDia, string]> = [
   ['citasHoy', 'Citas de hoy'],
   ['citasManana', 'Citas de mañana'],
   ['obrasParadas', 'Obras paradas'],
+  ['margenEnRiesgo', 'Margen en riesgo'],
+  ['obrasSinFactura', 'Obras que terminan sin factura'],
   ['presupuestosSinRespuesta', 'Presupuestos sin respuesta'],
   ['facturasVencidas', 'Facturas vencidas'],
   ['facturasPendientes', 'Facturas pendientes de cobro'],
@@ -257,7 +380,7 @@ export function textoResumen(r: ResumenDia): string {
   if (r.todoEnOrden) return 'Resumen del día: todo en orden.';
   const lineas = ['Resumen del día:'];
   for (const [clave, titulo] of SECCIONES) {
-    const items = r[clave] as ResumenItem[];
+    const items = (r[clave] as ResumenItem[] | undefined) ?? [];
     if (items.length === 0) continue;
     lineas.push(`${titulo} (${items.length}):`);
     for (const i of items) lineas.push(`- ${unir(i.titulo, i.detalle)}`);

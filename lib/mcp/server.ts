@@ -119,7 +119,7 @@ export function createPerfilioMcpServer(ctx: McpContext): McpServer {
     'resumen_del_dia',
     {
       description:
-        'Solo lectura. Resumen del día del negocio: citas de hoy y de mañana, obras activas paradas (sin entradas en el diario en 5 días), presupuestos enviados hace más de 7 días sin respuesta, y facturas pendientes de cobro y vencidas. Cada punto trae su enlace (href) y el campo texto trae el resumen ya redactado. Úsala cuando el usuario pregunte qué hay para hoy o qué tiene pendiente. Si todo_en_orden es true no hay nada que avisar: díselo así, sin inventar tareas.',
+        'Solo lectura. Resumen del día del negocio: citas de hoy y de mañana, obras activas paradas (sin entradas en el diario en 5 días), presupuestos enviados hace más de 7 días sin respuesta, obras con el margen en riesgo (el coste de las horas supera el 80% del presupuesto), obras que terminan en menos de 7 días (o ya terminaron) sin factura, y facturas pendientes de cobro y vencidas. Cada punto trae su enlace (href) y el campo texto trae el resumen ya redactado. Úsala cuando el usuario pregunte qué hay para hoy o qué tiene pendiente. Si todo_en_orden es true no hay nada que avisar: díselo así, sin inventar tareas.',
       inputSchema: {},
     },
     async () => toolTextResult(await executeMcpTool('resumen_del_dia', {}, ctx))

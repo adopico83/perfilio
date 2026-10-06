@@ -7,6 +7,19 @@ export function slugResumen(fecha: string): string {
   return `resumen-diario-${fecha}`;
 }
 
+/** Margen en riesgo = alta; facturas vencidas, obras paradas u obras sin factura = media; el resto, baja. */
+export function urgenciaResumen(resumen: ResumenDia): 'alta' | 'media' | 'baja' {
+  if ((resumen.margenEnRiesgo ?? []).length > 0) return 'alta';
+  if (
+    resumen.facturasVencidas.length > 0 ||
+    resumen.obrasParadas.length > 0 ||
+    (resumen.obrasSinFactura ?? []).length > 0
+  ) {
+    return 'media';
+  }
+  return 'baja';
+}
+
 /**
  * Guarda el resumen como notificación del negocio. Es idempotente: si ya existe la del día
  * (mismo business_id + slug) no duplica nada. Devuelve true solo si ha creado una nueva.
@@ -32,7 +45,7 @@ export async function guardarResumenComoNotificacion(
     business_id: businessId,
     type: TIPO_NOTIFICACION_RESUMEN,
     slug,
-    urgency: resumen.facturasVencidas.length > 0 || resumen.obrasParadas.length > 0 ? 'media' : 'baja',
+    urgency: urgenciaResumen(resumen),
     message: textoResumen(resumen),
     metadata: resumen,
     is_read: false,

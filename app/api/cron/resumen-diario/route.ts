@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { cargarResumenDia } from '@/lib/resumen-diario/datos';
 import { guardarResumenComoNotificacion } from '@/lib/resumen-diario/guardar';
+import { enviarPushResumen, type ResultadoPushResumen } from '@/lib/resumen-diario/push';
 
 /** Ventana (hora de Madrid, ambos extremos incluidos) en la que se acepta la llamada del cron. */
 const VENTANA_INICIO_MIN = 5 * 60;
@@ -53,13 +54,20 @@ export async function GET(request: NextRequest) {
     let creados = 0;
     let yaExistian = 0;
     const errores: Array<{ business_id: string; error: string }> = [];
+    const push: Array<{ business_id: string } & ResultadoPushResumen> = [];
 
     for (const negocio of (negocios ?? []) as Array<{ id: string }>) {
       try {
         const resumen = await cargarResumenDia(supabase, negocio.id, now);
         const nuevo = await guardarResumenComoNotificacion(supabase, negocio.id, resumen);
-        if (nuevo) creados += 1;
-        else yaExistian += 1;
+        if (nuevo) {
+          creados += 1;
+          // El aviso push solo sale con el resumen recién creado: si el cron se repite no se duplica.
+          const estado = await enviarPushResumen(supabase, negocio.id, resumen);
+          if (estado.pushover !== 'desactivado' || estado.webpush !== 'desactivado') {
+            push.push({ business_id: negocio.id, ...estado });
+          }
+        } else yaExistian += 1;
       } catch (e) {
         errores.push({ business_id: negocio.id, error: e instanceof Error ? e.message : 'error' });
       }
@@ -70,6 +78,7 @@ export async function GET(request: NextRequest) {
       negocios: (negocios ?? []).length,
       creados,
       yaExistian,
+      push: push.length > 0 ? push : undefined,
       errores: errores.length > 0 ? errores : undefined,
     });
   } catch (e) {
