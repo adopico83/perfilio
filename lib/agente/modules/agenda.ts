@@ -612,7 +612,7 @@ export const AGENDA_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = 
           titulo: {
             type: 'string',
             description:
-              'Título del evento. Si no viene, el servidor puede armarlo con tipo + " con " + cliente cuando ambos existan.',
+              'Título corto: tipo + cliente/obra («Cita con Mikel Etxeberria»). NO metas el motivo («ver azulejos») en el título: va en notas. Si no viene, el servidor lo arma con tipo + " con " + cliente.',
           },
           tipo: {
             type: 'string',
@@ -643,7 +643,7 @@ export const AGENDA_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = 
               "Usa este campo en lugar de fecha cuando el usuario dice 'mañana', 'pasado mañana', 'el lunes', 'el martes', etc. El backend calculará la fecha exacta. Valores válidos: 'mañana', 'pasado mañana', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'",
           },
           hora: { type: 'string', description: 'Formato HH:MM (opcional)' },
-          notas: { type: 'string', description: 'Texto libre del usuario para el campo Notas de la descripción' },
+          notas: { type: 'string', description: 'Motivo o detalles de la cita («ver azulejos», «llevar muestras»). Va a las notas, no al título.' },
           duracion_minutos: {
             type: 'integer',
             description: 'Duración del evento en minutos (15–1440). Por defecto 60.',
@@ -1027,6 +1027,14 @@ export async function handleAgenda(
         anticipoPendiente = await hayPresupuestoAceptadoSinFacturaObra(supabase, bid, obraMatch.id);
       } else if (clienteMatch?.id) {
         anticipoPendiente = await hayPresupuestoAceptadoSinFacturaCliente(supabase, bid, clienteMatch.id);
+      }
+
+      // El título lleva siempre el cliente («Cita con Mikel Etxeberria»); el motivo («ver azulejos») va en notas.
+      if (clienteMatch?.nombre) {
+        const primera = palabrasNombre(clienteMatch.nombre)[0];
+        if (primera && !palabrasNombre(titulo).includes(primera)) {
+          titulo = `${titulo} con ${clienteMatch.nombre}`;
+        }
       }
 
       let descripcion =
@@ -1503,11 +1511,27 @@ export async function handleAgenda(
         }
       }
 
+      // ¿Choca la nueva hora con otro evento ese día? Se avisa en la vista previa (lo decide el usuario).
+      let avisoChoque = '';
+      const iniNuevoM = horaN ? horaTextoAMinutos(horaN) : null;
+      if (iniNuevoM != null) {
+        const ocupadosM = await cargarIntervalosDiaAgenda(supabase, bid, fechaN, DURACION_DEFECTO_MIN, idEv);
+        const slotM: IntervaloMin = { id: idEv, titulo: titN, inicio: iniNuevoM, fin: iniNuevoM + DURACION_DEFECTO_MIN };
+        const choques = ocupadosM.filter((o) => intervalosSolapan(slotM, o));
+        if (choques.length > 0) {
+          const hueco = sugerirHuecoLibre(iniNuevoM, DURACION_DEFECTO_MIN, ocupadosM);
+          avisoChoque =
+            `⚠️ Esa hora choca con ${choques.map((c) => `«${c.titulo}» (${formatMinutesToHm(c.inicio)})`).join(', ')}.` +
+            (hueco ? ` El hueco libre más cercano es a las ${hueco}.` : '');
+        }
+      }
+
       const prevLines = [
         'Cambios propuestos en el evento (no guardados aún):',
         `• Título: ${titAct} → ${titN}`,
         `• Fecha: ${fechaActE} → ${fechaN}`,
         `• Hora: ${horaAct || '—'} → ${horaN ?? '—'}`,
+        ...(avisoChoque ? [avisoChoque] : []),
         '',
         'Si el usuario confirma, vuelve a llamar a modificar_evento_agenda con el mismo evento_id y solo_vista_previa false.',
       ];
@@ -1517,6 +1541,7 @@ export async function handleAgenda(
           mensaje: prevLines.join('\n'),
           pendiente_confirmacion: true,
           evento_id: idEv,
+          ...(avisoChoque ? { aviso_choque: true } : {}),
         };
       }
 

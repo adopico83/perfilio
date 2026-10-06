@@ -2,7 +2,7 @@ import type OpenAI from 'openai';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { obtenerEnlacePdfFactura } from '@/lib/mcp/facturas';
 import { obtenerEnlacePdfPresupuesto } from '@/lib/presupuestos/enlace-pdf';
-import { failClosed } from '@/lib/agente/modules/grounding';
+import { failClosed, parseNumeroDocumento } from '@/lib/agente/modules/grounding';
 import type { McpContext } from '@/lib/mcp/context';
 
 /**
@@ -37,7 +37,7 @@ export const ENLACES_PDF_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool
     function: {
       name: 'obtener_enlace_pdf_presupuesto',
       description:
-        'Devuelve un enlace temporal para descargar el PDF de un presupuesto confirmado (enviado, aceptado, aprobado o facturado). Pasa id o numero (nº de presupuesto). Solo lectura.',
+        'Devuelve un enlace temporal para descargar el PDF de un presupuesto (también en borrador: entonces avisa de que es un borrador). Pasa id o numero (nº de presupuesto). Solo lectura.',
       parameters: parametros,
     },
   },
@@ -55,12 +55,12 @@ export async function handleEnlacesPdf(
   const ctx: McpContext = { supabase, businessId, userId: userId ?? 'agente' };
   const args: Record<string, unknown> = {};
   if (toolArgs.id != null) args.id = toolArgs.id;
-  if (toolArgs.numero != null) args.numero = toolArgs.numero;
+  if (toolArgs.numero != null) args.numero = parseNumeroDocumento(toolArgs.numero) ?? toolArgs.numero;
   if (toolArgs.dias_validez != null) args.dias_validez = toolArgs.dias_validez;
 
   const r = (toolName === 'obtener_enlace_pdf_factura'
     ? await obtenerEnlacePdfFactura(ctx, args)
-    : await obtenerEnlacePdfPresupuesto(ctx, args)) as ResultadoEnlace;
+    : await obtenerEnlacePdfPresupuesto(ctx, args, new Date(), { permitirBorrador: true })) as ResultadoEnlace;
 
   if (!r.ok) return failClosed(String(r.error ?? 'No se pudo generar el enlace al PDF.'));
   const tipo = toolName === 'obtener_enlace_pdf_factura' ? 'factura' : 'presupuesto';
@@ -69,6 +69,8 @@ export async function handleEnlacesPdf(
   return {
     ...r,
     ok: true,
-    mensaje: `[Descargar PDF de la ${tipo}${numero != null ? ` nº ${numero}` : ''}](${r.url}) (el enlace caduca en ${r.dias_validez} días).`,
+    mensaje:
+      `[Descargar PDF de la ${tipo}${numero != null ? ` nº ${numero}` : ''}](${r.url}) (el enlace caduca en ${r.dias_validez} días).` +
+      (r.borrador ? ' ⚠️ Es un BORRADOR: el presupuesto aún no está confirmado, el PDF no es definitivo.' : ''),
   };
 }

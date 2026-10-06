@@ -53,7 +53,8 @@ describe('presupuestos por número', () => {
     const db = crearFakeDb(crearBaseSimulada());
     const r = (await presupuestos(db, 'convertir_presupuesto_a_factura', { numero: 7 })) as Record<string, unknown>;
     expect(r).toMatchObject({ ok: true, numero_factura: 4, cliente_nombre: 'Paqui', ya_existia: false });
-    expect(r.mensaje).toBe('Factura nº 4 creada para Paqui (580.8 €).');
+    expect(String(r.mensaje)).toContain('Factura nº 4 creada para Paqui (580.8 €).');
+    expect(String(r.mensaje)).toMatch(/\[Descargar PDF de la factura nº 4\]\(https:/); // ya devuelve el enlace del PDF
     expect(db.tablas.facturas.find((f) => f.presupuesto_id === IDS.presupuesto7)).toMatchObject({ business_id: NEGOCIO_A, numero_factura: 4 });
   });
   it('convertir por nombre con varios presupuestos pide aclaración y no crea nada', async () => {

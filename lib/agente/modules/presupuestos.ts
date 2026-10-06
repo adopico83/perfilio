@@ -1,3 +1,4 @@
+import { handleEnlacesPdf } from '@/lib/agente/modules/enlaces-pdf';
 import { AGENTE_MODELO_POR_DEFECTO } from '@/lib/agente/modelo';
 import { crearFacturaDesdePresupuesto } from '@/lib/facturas/desde-presupuesto';
 import type OpenAI from 'openai';
@@ -249,7 +250,7 @@ export const PRESUPUESTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
     function: {
       name: 'modificar_partidas_presupuesto',
       description:
-        'Cambia, quita o añade PARTIDAS de un presupuesto ya guardado («quítale la mampara y pon 2 metros más de alicatado»). Localiza el presupuesto por numero, query (cliente) o presupuesto_id. Tú solo dices QUÉ cambia: el servidor recalcula base, IVA y total. Para una cantidad «más» usa sumar_cantidad; para un valor nuevo, cantidad. Nunca inventes un precio: si falta, pregúntalo. No sirve en presupuestos ya facturados.',
+        'Cambia, quita o añade PARTIDAS de un presupuesto ya guardado («quítale la mampara y pon 2 metros más de alicatado»). Localiza el presupuesto por numero, query (cliente) o presupuesto_id. Tú solo dices QUÉ cambia: el servidor recalcula base, IVA y total. Para una cantidad «más» usa sumar_cantidad; para un valor nuevo, cantidad. Quitar ALGO de una partida («quítale la mampara» a «Plato de ducha con mampara») = cambiarle el nombre (nuevo_concepto) y el precio, no borrarla entera. Si la partida no está clara, el servidor devuelve opciones: pregúntaselas al usuario. Nunca inventes un precio: si falta, pregúntalo. No sirve en presupuestos ya facturados.',
       parameters: {
         type: 'object',
         properties: {
@@ -266,7 +267,9 @@ export const PRESUPUESTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
                 cantidad: { type: 'number', description: 'Cantidad NUEVA (sustituye a la actual)' },
                 sumar_cantidad: { type: 'number', description: 'Cantidad a SUMAR a la actual («2 metros más» → 2)' },
                 precio_unitario: { type: 'number', description: 'Precio unitario nuevo, sin IVA' },
-                concepto: { type: 'string', description: 'Nuevo texto de la partida' },
+                nuevo_concepto: { type: 'string', description: 'NUEVO nombre de la partida (p. ej. «Plato de ducha» cuando le quitan la mampara). Si cambia lo que incluye, pregunta el precio nuevo: no lo inventes' },
+                concepto: { type: 'string', description: 'Sinónimo de nuevo_concepto' },
+                unidad: { type: 'string', description: 'Unidad que dijo el usuario («2 metros más» → "m2"), para no confundir partidas' },
               },
               required: ['partida'],
               additionalProperties: false,
@@ -811,13 +814,18 @@ export async function handlePresupuestos(
         .update({ estado })
         .eq('id', loc.id)
         .eq('business_id', businessId)
-        .select('id')
+        .select('id, numero_presupuesto, cliente_nombre')
         .maybeSingle();
       if (error) return failClosed(error.message);
       if (!row?.id) {
         return failClosed('No se encontró el presupuesto o no pertenece a este negocio');
       }
-      return { ok: true, id: row.id as string };
+      const fila = row as { numero_presupuesto?: number | null; cliente_nombre?: string | null };
+      return {
+        ok: true,
+        id: row.id as string,
+        mensaje: `Presupuesto ${fila.numero_presupuesto != null ? `nº ${fila.numero_presupuesto} de ` : 'de '}${fila.cliente_nombre ?? 'sin cliente'} marcado como ${estado}.`,
+      };
     }
     case 'editar_presupuesto': {
       const loc = await resolverIdPresupuestoExistente(
@@ -983,6 +991,17 @@ export async function handlePresupuestos(
       // La lógica vive en lib/facturas/desde-presupuesto.ts (la comparten agente, API y MCP).
       const r = await crearFacturaDesdePresupuesto(supabase, businessId, loc.match.id);
       if (!r.ok) return { ...failClosed(r.error), code: r.code, cliente_id: r.cliente_id ?? null };
+      const mensajeFactura = r.ya_existia
+        ? `Ese presupuesto ya tenía la factura nº ${r.numero_factura}.`
+        : `Factura nº ${r.numero_factura} creada para ${r.cliente_nombre ?? 'el cliente'} (${r.total} €).`;
+      // Se devuelve ya el enlace al PDF de la factura (si falla, la factura sigue creada y se dice).
+      let enlacePdf = '';
+      try {
+        const pdf = await handleEnlacesPdf('obtener_enlace_pdf_factura', { numero: r.numero_factura }, businessId, userId, supabase);
+        if (pdf && pdf.ok !== false && typeof pdf.mensaje === 'string') enlacePdf = pdf.mensaje;
+      } catch {
+        /* sin enlace: se puede pedir después */
+      }
       return {
         ok: true,
         factura_id: r.factura_id,
@@ -990,9 +1009,8 @@ export async function handlePresupuestos(
         total: r.total,
         cliente_nombre: r.cliente_nombre,
         ya_existia: r.ya_existia,
-        mensaje: r.ya_existia
-          ? `Ese presupuesto ya tenía la factura nº ${r.numero_factura}.`
-          : `Factura nº ${r.numero_factura} creada para ${r.cliente_nombre ?? 'el cliente'} (${r.total} €).`,
+        ...(enlacePdf ? { pdf: enlacePdf } : {}),
+        mensaje: enlacePdf ? `${mensajeFactura}\n${enlacePdf}` : mensajeFactura,
       };
     }
     case 'modificar_partidas_presupuesto': {

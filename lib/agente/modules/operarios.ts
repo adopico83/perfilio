@@ -102,6 +102,31 @@ async function buscarOperariosPorNombre(
   };
 }
 
+/** «No encuentro a X»… pero con los operarios que sí hay, para que el usuario elija sin adivinar. */
+async function operarioNoEncontrado(
+  supabase: SupabaseClient,
+  businessId: string,
+  nombre: string
+): Promise<{ ok: false; error: string; operarios_activos: string[] }> {
+  const { data } = await supabase
+    .from('operarios')
+    .select('nombre')
+    .eq('business_id', businessId)
+    .eq('activo', true)
+    .order('nombre', { ascending: true })
+    .limit(30);
+  const nombres = ((data ?? []) as Array<{ nombre: string | null }>)
+    .map((r) => String(r.nombre ?? '').trim())
+    .filter(Boolean);
+  return {
+    ok: false,
+    error:
+      `No encontré un operario activo que coincida con «${nombre}».` +
+      (nombres.length > 0 ? ` Los operarios que tengo son: ${nombres.join(', ')}. ¿Cuál es?` : ' No tienes ningún operario activo dado de alta.'),
+    operarios_activos: nombres,
+  };
+}
+
 export const OPERARIOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: 'function',
@@ -276,7 +301,7 @@ export async function ejecutarRegistrarJornada(
   const opRes = await buscarOperariosPorNombre(supabase, businessId, operarioNombre);
   if (!opRes.ok) return { error: opRes.error };
   if (opRes.filas.length === 0) {
-    return { error: `No encontré un operario activo que coincida con «${operarioNombre}».` };
+    return operarioNoEncontrado(supabase, businessId, operarioNombre);
   }
   if (opRes.filas.length > 1) {
     return operariosAmbiguos(opRes.filas);
@@ -538,7 +563,7 @@ export async function ejecutarConsultarHorasOperario(
   const opRes = await buscarOperariosPorNombre(supabase, businessId, nombreFrag);
   if (!opRes.ok) return { error: opRes.error };
   if (opRes.filas.length === 0) {
-    return { error: `No encontré un operario activo que coincida con «${nombreFrag}».` };
+    return operarioNoEncontrado(supabase, businessId, nombreFrag);
   }
   if (opRes.filas.length > 1) {
     return operariosAmbiguos(opRes.filas);
@@ -707,7 +732,7 @@ export async function ejecutarEliminarRegistroJornada(
   const opRes = await buscarOperariosPorNombre(supabase, businessId, operarioNombre);
   if (!opRes.ok) return { error: opRes.error };
   if (opRes.filas.length === 0) {
-    return { mensaje: 'No he encontrado ningún registro de jornada que coincida.' };
+    return operarioNoEncontrado(supabase, businessId, operarioNombre);
   }
   if (opRes.filas.length > 1) {
     return operariosAmbiguos(opRes.filas);

@@ -87,7 +87,7 @@ import {
   TOOLS_CON_VISTA_PREVIA,
   confirmacionActiva,
   describirAccionGenerica,
-  fraseAccionHecha,
+  fraseHechoConDatos,
   limpiarTextoVistaPrevia,
   preguntaConfirmacion,
   prepararAccionPendiente,
@@ -536,6 +536,13 @@ export async function POST(request: NextRequest) {
           const valor_texto = String(toolArgs.valor_texto ?? '').trim();
           if (!clave) return { error: 'clave es obligatoria' };
           if (!valor_texto) return { error: 'valor_texto es obligatorio' };
+          if (/\b[XYZ]?\d{7,8}[-\s.]?[A-Z]\b|\b[ABCDEFGHJNPQRSUVW][-\s.]?\d{7}[-\s.]?[0-9A-J]\b/i.test(valor_texto)) {
+            return {
+              ok: false,
+              error:
+                'Eso parece un NIF/CIF. Los datos de un cliente van en su ficha (actualizar_cliente), no en la memoria del negocio. No he guardado nada.',
+            };
+          }
           if (!esCategoriaMemoriaValida(categoria)) {
             return {
               error: `categoria inválida. Usa: ${MEMORIA_CATEGORIAS.join(', ')}`,
@@ -549,7 +556,7 @@ export async function POST(request: NextRequest) {
             valor_texto
           );
           if (!r.ok) return { error: r.error };
-          return { ok: true, mensaje: 'Memoria guardada.' };
+          return { ok: true, mensaje: 'Memoria del negocio guardada (no es la ficha de ningún cliente).' };
         }
         case 'eliminar_memoria': {
           const claveDel = String(toolArgs.clave ?? '').trim();
@@ -653,7 +660,7 @@ export async function POST(request: NextRequest) {
         prosaAncladaDirectaSiAplica(hechosConf) ??
         (typeof (resultadoConfirmado as { mensaje?: unknown })?.mensaje === 'string'
           ? String((resultadoConfirmado as { mensaje: string }).mensaje)
-          : `Hecho: ${fraseAccionHecha(valida.tool)}.`);
+          : fraseHechoConDatos(valida.tool, valida.args));
       logAgenteTurno({
         evento: 'agente_turno',
         intent: 'confirmar_accion',
@@ -899,7 +906,7 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
         type: 'function',
         function: {
           name: 'guardar_memoria',
-          description: `Guarda o actualiza un dato persistente del negocio (preferencia, corrección, proveedor habitual, formato, precio, etc.). Upsert por clave única por negocio. Llama sin pedir confirmación si el usuario corrige con claridad o declara preferencias duraderas. Categorías válidas: ${MEMORIA_CATEGORIAS.join(', ')}. Usa clave en snake_case corta (ej. cemento_exterior). Responde muy breve ("Anotado…").`,
+          description: `Guarda o actualiza un dato persistente del negocio (preferencia, corrección, proveedor habitual, formato, precio, etc.). Upsert por clave única por negocio. Llama sin pedir confirmación si el usuario corrige con claridad o declara preferencias duraderas. PROHIBIDO guardar aquí datos de un CLIENTE (NIF, dirección, teléfono, email): eso va en su ficha con actualizar_cliente. Nunca digas que has guardado algo que no hayas guardado de verdad. Categorías válidas: ${MEMORIA_CATEGORIAS.join(', ')}. Usa clave en snake_case corta (ej. cemento_exterior). Responde muy breve ("Anotado…").`,
           parameters: {
             type: 'object',
             properties: {

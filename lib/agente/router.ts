@@ -76,6 +76,8 @@ export type AgentIntentRouterContext = {
 };
 
 export const INTENT_TOOL_NAMES_DOCUMENTOS = new Set([
+  // Para guardar el NIF/dirección que falta antes de facturar.
+  'actualizar_cliente',
   'obtener_facturas_pendientes',
   'obtener_albaranes_pendientes',
   'listar_facturas',
@@ -133,6 +135,7 @@ export const INTENT_TOOL_NAMES_AGENDA = new Set([
   'buscar_cliente',
   'buscar_obra',
   'crear_cliente',
+  'actualizar_cliente',
   'ver_cliente',
   'ver_ficha_obra',
   'get_directions',
@@ -166,6 +169,7 @@ export const INTENT_TOOL_NAMES_DIARIO = new Set([
 
 export const INTENT_TOOL_NAMES_CLIENTES = new Set([
   'crear_cliente',
+  'actualizar_cliente',
   'buscar_cliente',
   'ver_cliente',
   'mostrar_vista_visual',
@@ -198,6 +202,7 @@ export const INTENT_TOOL_NAMES_PRESUPUESTO = new Set([
   // podía mandar «el pdf de ese presu» y acababa proponiendo facturar OTRO presupuesto.
   ...ENLACES_PDF_HANDLED_TOOLS,
   'generar_presupuesto_por_dictado',
+  'actualizar_cliente',
   'buscar_cliente',
   'ver_cliente',
   'buscar_obra',

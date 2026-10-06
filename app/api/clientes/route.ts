@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { assertUserOwnsBusiness } from '@/lib/supabase/assert-user-owns-business';
+import { construirCambiosCliente } from '@/lib/clientes/cambios';
 
 function sanitizeIlikeFragment(s: string): string {
   return s.replace(/[%_*]/g, '').slice(0, 120);
@@ -222,21 +223,11 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'No tienes acceso a este negocio' }, { status: 403 });
     }
 
-    const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
-    if (typeof b.nombre === 'string') {
-      const n = b.nombre.trim();
-      if (!n) return NextResponse.json({ error: 'nombre no puede estar vacío' }, { status: 400 });
-      updates.nombre = n;
+    const construidos = construirCambiosCliente(b);
+    if (!construidos.ok) {
+      return NextResponse.json({ error: construidos.error }, { status: 400 });
     }
-    if (typeof b.telefono === 'string') updates.telefono = b.telefono.trim() || null;
-    if (typeof b.email === 'string') updates.email = b.email.trim() || null;
-    if (typeof b.direccion === 'string') updates.direccion = b.direccion.trim() || null;
-    if (typeof b.nif === 'string') updates.nif = b.nif.trim() || null;
-    if (typeof b.notas === 'string') updates.notas = b.notas.trim() || null;
-
-    if (Object.keys(updates).length <= 1) {
-      return NextResponse.json({ error: 'No hay campos para actualizar' }, { status: 400 });
-    }
+    const updates: Record<string, unknown> = { updated_at: new Date().toISOString(), ...construidos.cambios };
 
     const { data, error } = await supabase
       .from('clientes')

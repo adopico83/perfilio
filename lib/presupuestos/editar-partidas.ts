@@ -20,6 +20,10 @@ export type CambiosPartidas = {
     sumar_cantidad?: number;
     precio_unitario?: number;
     concepto?: string;
+    /** Sinónimo de `concepto`: el NUEVO nombre de la partida («Plato de ducha» sin mampara). */
+    nuevo_concepto?: string;
+    /** Unidad que dijo el usuario («metros» → m2) para no confundir partidas. */
+    unidad?: string;
   }>;
   anadir?: Array<{ concepto: string; cantidad: number; precio_unitario?: number; capitulo?: string }>;
   iva_porcentaje?: number;
@@ -51,21 +55,103 @@ type Partida = { concepto: string; cantidad: number; precio: number; capitulo: s
 const euros = (n: number) => `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 2, useGrouping: 'always' }).format(n)} €`;
 const num = (n: number) => new Intl.NumberFormat('es-ES', { maximumFractionDigits: 4 }).format(n);
 
-/** Busca UNA partida por fragmento (sin tildes ni mayúsculas); varias → pregunta, ninguna → error. */
-function buscarUna(
-  partidas: Partida[],
-  fragmento: string
-): { ok: true; indice: number } | { ok: false; error: string; necesita_aclaracion?: true; candidatos?: Array<{ id: string; etiqueta: string }> } {
-  const f = normalizarNombreComparable(fragmento);
-  if (!f) return { ok: false, error: 'Falta decir qué partida (por ejemplo «la mampara»).' };
-  const idx = partidas.flatMap((p, i) => (normalizarNombreComparable(p.concepto).includes(f) ? [i] : []));
-  if (idx.length === 1) return { ok: true, indice: idx[0] };
+const PALABRAS_VACIAS = new Set([
+  'de', 'del', 'la', 'el', 'los', 'las', 'y', 'e', 'con', 'sin', 'en', 'a', 'al', 'un', 'una', 'para', 'por', 'que',
+  'm', 'm2', 'm3', 'ml', 'ud', 'uds', 'metro', 'metros', 'unidad', 'unidades', 'partida', 'mas',
+]);
+/** Trabajos de retirada: «Quitar alicatado y plato viejo» NO es el alicatado nuevo. */
+const RAICES_DEMOLICION = new Set(['quit', 'retir', 'demol', 'desmont', 'pic', 'levant', 'desescomb', 'tir']);
+
+/** Raíz de una palabra: sin tildes, plural ni terminación (alicatado ≈ alicatar ≈ alicatados). */
+export function raizPalabra(palabra: string): string {
+  let w = normalizarNombreComparable(palabra);
+  for (let pasada = 0; pasada < 2; pasada++) {
+    const antes = w;
+    for (const suf of ['aciones', 'acion', 'adores', 'ador', 'ados', 'adas', 'ado', 'ada', 'ando', 'ar', 'er', 'ir', 'es', 's', 'o', 'a']) {
+      if (w.endsWith(suf) && w.length - suf.length >= 4) {
+        w = w.slice(0, -suf.length);
+        break;
+      }
+    }
+    if (w === antes) break;
+  }
+  return w;
+}
+
+function raices(texto: string): string[] {
+  return normalizarNombreComparable(texto)
+    .split(/[^a-z0-9ñ]+/)
+    .filter((w) => w && !PALABRAS_VACIAS.has(w) && !/^\d+$/.test(w))
+    .map(raizPalabra);
+}
+
+type PreguntaPartida = { ok: false; error: string; necesita_aclaracion: true; candidatos: Array<{ id: string; etiqueta: string }> };
+type ResultadoBusqueda = { ok: true; indice: number } | { ok: false; error: string } | PreguntaPartida;
+
+const etiquetaPartida = (p: Partida) => `${p.concepto} (${num(p.cantidad)} × ${euros(p.precio)})`;
+
+function pregunta(error: string, candidatos: Array<{ id: string; etiqueta: string }>): PreguntaPartida {
+  const lista = candidatos.map((c, n) => `${n + 1}. ${c.etiqueta}`).join('\n');
+  return { ok: false, error: `${error}\n${lista}`, necesita_aclaracion: true, candidatos };
+}
+
+/**
+ * Busca UNA partida por fragmento comparando raíces (sin tildes, plural ni terminación) y exigiendo
+ * todas las palabras. No adivina: con varias candidatas, o con una coincidencia parcial (la palabra es
+ * solo una parte pequeña del nombre), pregunta con opciones.
+ * `modo` solo cambia lo que se ofrece cuando la coincidencia es parcial al quitar.
+ */
+function buscarUna(partidas: Partida[], fragmento: string, modo: 'cambiar' | 'quitar', unidad?: string): ResultadoBusqueda {
+  const frag = [...new Set(raices(fragmento))];
+  if (frag.length === 0) return { ok: false, error: 'Falta decir qué partida (por ejemplo «la mampara»).' };
+  const pideDemolicion = frag.some((r) => RAICES_DEMOLICION.has(r));
+
+  let idx = partidas.flatMap((p, i) => {
+    const rc = new Set(raices(p.concepto));
+    return frag.every((r) => rc.has(r)) ? [i] : [];
+  });
   if (idx.length === 0) {
     return { ok: false, error: `No encuentro ninguna partida con «${fragmento}» en ese presupuesto. No he cambiado nada.` };
   }
-  const candidatos = idx.map((i) => ({ id: `partida-${i + 1}`, etiqueta: `${partidas[i].concepto} (${num(partidas[i].cantidad)} × ${euros(partidas[i].precio)})` }));
-  const lista = candidatos.map((c, n) => `${n + 1}. ${c.etiqueta}`).join('\n');
-  return { ok: false, error: `Hay varias partidas con «${fragmento}». ¿Cuál es?\n${lista}`, necesita_aclaracion: true, candidatos };
+  // «Metros»: si la partida dice otra unidad (p. ej. «ud»), no es esa.
+  if (unidad && idx.length > 1) {
+    const esMetro = /^(m|m2|m²|m3|ml|metros?)$/i.test(unidad.trim());
+    const conUnidadDistinta = (p: Partida) => (esMetro ? /\b(ud|uds|unidad(es)?)\b/i.test(p.concepto) : /\b(m2|m²|ml)\b/i.test(p.concepto));
+    const filtrado = idx.filter((i) => !conUnidadDistinta(partidas[i]));
+    if (filtrado.length > 0) idx = filtrado;
+  }
+  if (idx.length > 1 && !pideDemolicion) {
+    const sinDemolicion = idx.filter((i) => !RAICES_DEMOLICION.has(raices(partidas[i].concepto)[0] ?? ''));
+    if (sinDemolicion.length > 0) idx = sinDemolicion;
+  }
+  if (idx.length > 1) {
+    return pregunta(
+      `Hay varias partidas con «${fragmento}». ¿Cuál es? No he cambiado nada.`,
+      idx.map((i) => ({ id: `partida-${i + 1}`, etiqueta: etiquetaPartida(partidas[i]) }))
+    );
+  }
+  const i = idx[0];
+  const p = partidas[i];
+  const cobertura = frag.length / Math.max(1, new Set(raices(p.concepto)).size);
+  if (cobertura < 0.5) {
+    if (modo === 'quitar') {
+      return pregunta(
+        `«${fragmento}» es solo una parte de la partida «${p.concepto}» (${euros(p.cantidad * p.precio)}). ¿Qué hago? No he cambiado nada.`,
+        [
+          { id: `partida-${i + 1}-quitar`, etiqueta: `Quitar la partida entera «${p.concepto}» (${euros(p.cantidad * p.precio)})` },
+          {
+            id: `partida-${i + 1}-renombrar`,
+            etiqueta: `Dejar la partida pero cambiándole el nombre y/o el precio (dime cómo debe quedar y a cuánto, p. ej. «Plato de ducha» sin «${fragmento}»)`,
+          },
+        ]
+      );
+    }
+    return pregunta(
+      `Solo encuentro «${p.concepto}», que contiene «${fragmento}» pero parece otra cosa. ¿Es esa la partida? No he cambiado nada.`,
+      [{ id: `partida-${i + 1}`, etiqueta: etiquetaPartida(p) }]
+    );
+  }
+  return { ok: true, indice: i };
 }
 
 export async function modificarPartidasPresupuesto(
@@ -121,16 +207,17 @@ export async function modificarPartidasPresupuesto(
   const frases: string[] = [];
 
   for (const frag of cambios.quitar ?? []) {
-    const r = buscarUna(partidas, frag);
+    const r = buscarUna(partidas, frag, 'quitar');
     if (!r.ok) return r;
     const [q] = partidas.splice(r.indice, 1);
     frases.push(`quitar «${q.concepto}» (${euros(q.cantidad * q.precio)})`);
   }
   for (const c of cambios.cambiar ?? []) {
-    const r = buscarUna(partidas, c.partida);
+    const r = buscarUna(partidas, c.partida, 'cambiar', c.unidad);
     if (!r.ok) return r;
     const p = partidas[r.indice];
     const antes = `${num(p.cantidad)} × ${euros(p.precio)}`;
+    const conceptoAntes = p.concepto;
     if (c.sumar_cantidad !== undefined) {
       if (!Number.isFinite(c.sumar_cantidad)) return { ok: false, error: 'La cantidad a sumar no es válida.' };
       p.cantidad = p.cantidad + c.sumar_cantidad;
@@ -143,8 +230,9 @@ export async function modificarPartidasPresupuesto(
       if (!Number.isFinite(c.precio_unitario) || c.precio_unitario < 0) return { ok: false, error: 'El precio no es válido.' };
       p.precio = c.precio_unitario;
     }
-    if (c.concepto?.trim()) p.concepto = c.concepto.trim();
-    frases.push(`«${p.concepto}»: ${antes} → ${num(p.cantidad)} × ${euros(p.precio)}`);
+    const nuevoNombre = (c.nuevo_concepto ?? c.concepto)?.trim();
+    if (nuevoNombre) p.concepto = nuevoNombre;
+    frases.push(`«${conceptoAntes}»${p.concepto !== conceptoAntes ? ` pasa a «${p.concepto}»` : ''}: ${antes} → ${num(p.cantidad)} × ${euros(p.precio)}`);
   }
   for (const a of cambios.anadir ?? []) {
     const concepto = String(a.concepto ?? '').trim();

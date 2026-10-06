@@ -60,6 +60,16 @@ const TEXTO_PRESUPUESTO_MIKEL = [
   'BASE IMPONIBLE: 750,00 € | IVA (21%): 157,50 € | TOTAL: 907,50 €',
 ].join('\n');
 
+/** Presupuesto nº 11: partidas con nombres parecidos a propósito («Quitar alicatado…» ≠ «Alicatar»). */
+const TEXTO_PRESUPUESTO_TRAMPA = [
+  'CAPÍTULO BAÑO',
+  '1. Quitar alicatado y plato viejo | Cantidad: 1 | Precio: 150,00 € | Importe: 150,00 €',
+  '2. Alicatar 18 m2 | Cantidad: 18 | Precio: 40,00 € | Importe: 720,00 €',
+  '3. Plato de ducha con mampara | Cantidad: 1 | Precio: 900,00 € | Importe: 900,00 €',
+  'TOTAL BAÑO: 1.770,00 €',
+  'BASE IMPONIBLE: 1.770,00 € | IVA (21%): 371,70 € | TOTAL: 2.141,70 €',
+].join('\n');
+
 const perfil = (id: string, nombre: string): Fila => ({
   id,
   nombre,
@@ -81,7 +91,7 @@ export function crearBaseSimulada(): Record<string, Fila[]> {
       { id: IDS.clienteGarciaSur, business_id: NEGOCIO_A, nombre: 'García Sur', nif: 'B22222222', direccion: 'Calle Sur 3', telefono: null },
       // Tres Etxeberria: «Mikel Etxeberria» NUNCA puede acabar siendo Ainhoa ni Amaia (comparten apellido).
       { id: IDS.clienteMikelEtxeberria, business_id: NEGOCIO_A, nombre: 'Mikel Etxeberria', nif: '33333333A', direccion: 'Calle Mikel 3, Irún', telefono: '611000333' },
-      { id: IDS.clienteAinhoaEtxeberria, business_id: NEGOCIO_A, nombre: 'Ainhoa Etxeberria', nif: '44444444B', direccion: 'Calle Ainhoa 4', telefono: '622000444' },
+      { id: IDS.clienteAinhoaEtxeberria, business_id: NEGOCIO_A, nombre: 'Ainhoa Etxeberria', nif: null, direccion: 'Calle Ainhoa 4', telefono: '622000444' },
       { id: IDS.clienteAmaiaEtxeberria, business_id: NEGOCIO_A, nombre: 'Amaia Etxeberria', nif: '55555555C', direccion: 'Calle Amaia 5', telefono: '633000555' },
       { id: 'cli-b-lola', business_id: NEGOCIO_B, nombre: 'Lola Ajena', nif: 'B99999999', direccion: 'Calle Ajena 9', telefono: null },
     ],
@@ -104,9 +114,9 @@ export function crearBaseSimulada(): Record<string, Fila[]> {
       { id: IDS.presupuesto7, business_id: NEGOCIO_A, numero_presupuesto: 7, cliente_nombre: 'Paqui', cliente_id: IDS.clientePaqui, obra_id: IDS.obraPaqui, estado: 'aceptado', importe_total: 8871, fecha: '2026-04-10', created_at: '2026-04-10T10:00:00Z', presupuesto_generado: TEXTO_PRESUPUESTO },
       { id: IDS.presupuestoGarciaNorte, business_id: NEGOCIO_A, numero_presupuesto: 8, cliente_nombre: 'García Norte', cliente_id: IDS.clienteGarciaNorte, obra_id: null, estado: 'aceptado', importe_total: 1200, fecha: '2026-04-12', created_at: '2026-04-12T10:00:00Z', presupuesto_generado: '' },
       { id: IDS.presupuestoGarciaSur, business_id: NEGOCIO_A, numero_presupuesto: 9, cliente_nombre: 'García Sur', cliente_id: IDS.clienteGarciaSur, obra_id: null, estado: 'aceptado', importe_total: 3400, fecha: '2026-04-14', created_at: '2026-04-14T10:00:00Z', presupuesto_generado: '' },
-      // Nº 10: dictado y guardado como «borrador» (así lo deja el dictado); nº 11: de otra Etxeberria.
+      // Nº 10: dictado y guardado como «borrador» (así lo deja el dictado); nº 11: de Ainhoa (SIN NIF), aceptado, con partidas trampa.
       { id: IDS.presupuestoMikelBorrador, business_id: NEGOCIO_A, numero_presupuesto: 10, cliente_nombre: 'Mikel Etxeberria', cliente_id: IDS.clienteMikelEtxeberria, obra_id: IDS.obraMikelEtxeberria, estado: 'borrador', importe_total: 907.5, fecha: '2026-10-05', created_at: '2026-10-05T10:00:00Z', presupuesto_generado: TEXTO_PRESUPUESTO_MIKEL },
-      { id: IDS.presupuestoAinhoaPendiente, business_id: NEGOCIO_A, numero_presupuesto: 11, cliente_nombre: 'Ainhoa Etxeberria', cliente_id: IDS.clienteAinhoaEtxeberria, obra_id: null, estado: 'pendiente', importe_total: 600, fecha: '2026-10-05', created_at: '2026-10-05T11:00:00Z', presupuesto_generado: TEXTO_PRESUPUESTO_MIKEL },
+      { id: IDS.presupuestoAinhoaPendiente, business_id: NEGOCIO_A, numero_presupuesto: 11, cliente_nombre: 'Ainhoa Etxeberria', cliente_id: IDS.clienteAinhoaEtxeberria, obra_id: null, estado: 'aceptado', importe_total: 2141.7, fecha: '2026-10-05', created_at: '2026-10-05T11:00:00Z', presupuesto_generado: TEXTO_PRESUPUESTO_TRAMPA },
       // Mismo número 7 en OTRO negocio: nunca debe resolverse desde el negocio A.
       { id: IDS.presupuesto7Ajeno, business_id: NEGOCIO_B, numero_presupuesto: 7, cliente_nombre: 'Lola Ajena', cliente_id: 'cli-b-lola', obra_id: null, estado: 'aceptado', importe_total: 500, fecha: '2026-04-10', created_at: '2026-04-10T10:00:00Z', presupuesto_generado: '' },
     ],
@@ -120,6 +130,7 @@ export function crearBaseSimulada(): Record<string, Fila[]> {
     presupuesto_borrador_items: [],
     presupuesto_previews: [],
     agenda: [
+      { id: 'ev-olabide', business_id: NEGOCIO_A, titulo: 'Visita obra Olabide', fecha: '2026-10-14', hora: '10:30' },
       { id: 'ev-mikel', business_id: NEGOCIO_A, titulo: 'Cita con Mikel Etxeberria', fecha: '2026-10-13', hora: '10:30' },
     ],
     memoria_negocio: [],
