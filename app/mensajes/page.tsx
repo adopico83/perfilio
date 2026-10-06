@@ -72,7 +72,8 @@ export default function MensajesPage() {
     queueMicrotask(() => void loadConversations());
   }, [loadConversations]);
 
-  const classifyMessage = async (message: string): Promise<string> => {
+  /** Devuelve la prioridad, o `null` si hay que parar (límite de uso de la IA: se enseña el motivo). */
+  const classifyMessage = async (message: string): Promise<string | null> => {
     try {
       const res = await fetch('/api/classify', {
         method: 'POST',
@@ -80,6 +81,10 @@ export default function MensajesPage() {
         body: JSON.stringify({ message }),
       });
       const data = await res.json();
+      if (res.status === 429) {
+        setErrorIA(data.error ?? 'Has hecho demasiadas consultas a la IA. Prueba de nuevo en un momento.');
+        return null;
+      }
       return data.priority || 'normal';
     } catch (error) {
       console.error('Error clasificando:', error);
@@ -92,6 +97,7 @@ export default function MensajesPage() {
       const conversation = conversations.find((c) => c.id === conversationId);
       if (!conversation?.priority || conversation.priority === 'normal') {
         const priority = await classifyMessage(message);
+        if (priority === null) return; // 429: no seguimos con /api/assistant
         await supabase.from('conversations').update({ priority }).eq('id', conversationId);
       }
 

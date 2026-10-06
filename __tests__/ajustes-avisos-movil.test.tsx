@@ -75,6 +75,13 @@ describe('Avisos al móvil', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  it('sin negocio conocido no guarda nada y avisa', async () => {
+    render(<AvisosMovil demo={false} businessId={null} />);
+    // los controles están bloqueados; se fuerza igualmente el cambio para comprobar la guarda
+    fireEvent.click(screen.getByRole('switch'));
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it('cuando llega el negocio, carga sus avisos', async () => {
     mockFetch.mockResolvedValue(ok(estado));
     const { rerender } = render(<AvisosMovil demo={false} businessId={null} />);

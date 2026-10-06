@@ -124,6 +124,7 @@ export const INTENT_TOOL_NAMES_EMAILS = new Set([
 
 export const INTENT_TOOL_NAMES_AGENDA = new Set([
   'obtener_agenda',
+  'resumen_del_dia',
   'crear_recordatorio',
   'editar_recordatorio',
   'eliminar_recordatorio',
@@ -207,6 +208,35 @@ export const INTENT_TOOL_NAMES_PRESUPUESTO = new Set([
 /** Señales que el clasificador no debe pisar (p. ej. listar obras ≠ presupuesto). */
 export function intentPorSenalExplicita(mensaje: string): AgentIntentCategory | null {
   if (pareceConsultaListadoObras(mensaje)) return 'documentos';
+  return null;
+}
+
+/**
+ * Respaldo LOCAL por palabras clave, para cuando el clasificador externo (Jev) no está configurado,
+ * falla o no está seguro. Sin él todo caía en `general` y el modelo recibía unas 70 tools juntas.
+ * Solo acierta cuando el mensaje apunta a UNA sola área; si mezcla áreas (o no hay pista) devuelve
+ * `null` y se sigue con `general`. No sustituye a Jev: se usa DESPUÉS de él.
+ */
+export function intentPorPalabrasClave(mensaje: string): AgentIntentCategory | null {
+  const t = mensaje
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, ''); // sin tildes: «albarán» → «albaran»
+  const areas: Array<[AgentIntentCategory, RegExp]> = [
+    ['documentos', /\b(factur\w*|albaran\w*)\b/],
+    ['presupuesto', /\b(presupuest\w*|partidas?)\b/],
+    ['operarios', /\b(horas?|jornada|fichar|ficha(?:je)?)\b/],
+    ['diario', /\b(diario|anota\w* en (?:el )?diario)\b/],
+    ['gastos', /\b(ticket|gastos?)\b/],
+    ['agenda', /\b(agenda|citas?|recordatorios?|recuerdame|calendario|resumen del dia|que tengo (?:hoy|manana)|como va el dia)\b/],
+    ['emails', /\b(e-?mails?|correos?|mails?)\b/],
+  ];
+  const encontradas = areas.filter(([, re]) => re.test(t)).map(([cat]) => cat);
+  if (encontradas.length === 1) return encontradas[0];
+  // «Factúrame el presupuesto 5»: es de facturas (su set incluye convertir_presupuesto_a_factura).
+  if (encontradas.length === 2 && encontradas.includes('documentos') && encontradas.includes('presupuesto')) {
+    return 'documentos';
+  }
   return null;
 }
 

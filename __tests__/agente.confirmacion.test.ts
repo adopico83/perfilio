@@ -47,7 +47,7 @@ const TODAS = [
 // Las dos de memoria están definidas dentro de route.ts.
 const NOMBRES = new Set([...TODAS.map((t) => (t.type === 'function' ? t.function.name : '')), 'guardar_memoria', 'eliminar_memoria']);
 
-const PREFIJOS_LECTURA = /^(listar_|obtener_|buscar_|ver_|consultar_|leer_|mostrar_|calcular_|get_)/;
+const PREFIJOS_LECTURA = /^(listar_|obtener_|buscar_|ver_|consultar_|leer_|mostrar_|calcular_|get_|resumen_)/; // resumen_del_dia: solo lectura
 const OTRAS_LECTURAS = new Set(['albaranes_sin_facturar', 'generar_pdf_diario']);
 
 describe('lista de tools con confirmación', () => {

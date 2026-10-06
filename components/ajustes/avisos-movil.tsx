@@ -51,6 +51,11 @@ export default function AvisosMovil({ demo, businessId }: { demo: boolean; busin
   }, [demo, urlGet]);
 
   const guardar = async (cambios: { resumen_push?: boolean; pushover_user_key?: string | null }, ok: string) => {
+    // Sin negocio conocido no se guarda nada (el PATCH iría a un negocio distinto del que se ve).
+    if (!businessId || !urlGet) {
+      setAviso({ tipo: 'error', texto: 'Todavía no se sabe de qué negocio son estos ajustes. Recarga la página.' });
+      return;
+    }
     setGuardando(true);
     setAviso(null);
     try {
@@ -67,7 +72,7 @@ export default function AvisosMovil({ demo, businessId }: { demo: boolean; busin
       }
       setAviso({ tipo: 'ok', texto: json.aviso ? `${ok} ${json.aviso}` : ok });
       setClave('');
-      const recarga = await fetch(urlGet ?? '/api/negocio/avisos', { credentials: 'include' });
+      const recarga = await fetch(urlGet, { credentials: 'include' });
       if (recarga.ok) setEstado((await recarga.json()) as Estado);
     } catch {
       setAviso({ tipo: 'error', texto: 'Error de conexión al guardar' });

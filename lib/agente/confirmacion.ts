@@ -1,6 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolverObraDocumentoAgente } from '@/lib/obras-context';
 import { resolverPresupuestosPorTexto, toolFailDesdePresupuestoResolve } from '@/lib/agente/modules/grounding';
+import { describirDocumento, localizarDesdeArgs, type TipoDocumento } from '@/lib/agente/modules/documentos-localizar';
+import { requiereValidacionCreacion, validarCreacionDocumento } from '@/lib/agente/modules/documentos-validacion';
+import { parseEstadoFactura, MENSAJE_ESTADO_FACTURA } from '@/lib/facturas/estado';
+import { IVA_PORCENTAJES_PERMITIDOS } from '@/lib/facturas/iva';
+import { ESTADOS_ALBARAN_EDITABLES, esFacturado } from '@/lib/albaranes/estado';
 
 /**
  * CONFIRMACIÓN ANTES DE CREAR O MODIFICAR DATOS — barrera en el SERVIDOR.
@@ -262,7 +267,115 @@ export type DepsPreparacion = {
   /** Ejecuta una tool del agente (la usa para pedir la vista previa de las que la tienen). */
   runTool: (tool: string, args: Record<string, unknown>) => Promise<unknown>;
   mensajeUsuario: string;
+  /** Últimos mensajes del usuario (para comprobar que un importe lo dijo él, aunque fuera un turno antes). */
+  historialUsuario?: string[];
 };
+
+const TOOLS_DE_DOCUMENTO_EXISTENTE = new Set([
+  'convertir_albaran_a_factura',
+  'editar_factura',
+  'cambiar_estado_factura',
+  'editar_albaran',
+  'cambiar_estado_albaran',
+]);
+
+function resultadoError(error: string): PreparacionAccion {
+  return { tipo: 'resultado', result: { ok: false, error } };
+}
+
+/** Qué cambia una edición, en una frase («cliente: Ana, 2 líneas, IVA 10 %»). */
+function cambiosLegibles(args: Record<string, unknown>): string {
+  const partes: string[] = [];
+  const c = valorLegible(args.cliente_nombre);
+  if (c) partes.push(`cliente: ${c}`);
+  if (Array.isArray(args.lineas)) partes.push(`${args.lineas.length} línea${args.lineas.length === 1 ? '' : 's'}`);
+  if (args.iva_porcentaje != null) partes.push(`IVA ${String(args.iva_porcentaje)} %`);
+  if (args.importe_total != null) partes.push(`importe ${euros(Number(args.importe_total))}`);
+  const d = valorLegible(args.descripcion);
+  if (d) partes.push(`descripción: «${d}»`);
+  return partes.join(', ');
+}
+
+/**
+ * Facturas y albaranes existentes: se localizan por id, número o cliente (el usuario no dice UUIDs) y
+ * se comprueban las reglas ANTES de pedir el «sí» (así no se pregunta por algo que luego fallaría).
+ * Varios candidatos → pregunta con opciones; ninguno → error claro.
+ */
+async function prepararDocumentoExistente(
+  tool: string,
+  args: Record<string, unknown>,
+  deps: DepsPreparacion
+): Promise<PreparacionAccion> {
+  const tipo: TipoDocumento = tool === 'convertir_albaran_a_factura' || tool.endsWith('_albaran') ? 'albaran' : 'factura';
+  const esConvertir = tool === 'convertir_albaran_a_factura';
+  const locArgs = esConvertir ? { ...args, id: args.albaran_id ?? args.id, cliente: args.cliente ?? args.cliente_nombre } : args;
+  const loc = await localizarDesdeArgs(deps.supabase, deps.businessId, tipo, locArgs, {
+    excluirEstado: esConvertir ? 'facturado' : undefined,
+  });
+  if (!loc.ok) return { tipo: 'resultado', result: loc as unknown as Record<string, unknown> };
+  const m = loc.match;
+  const quien = describirDocumento(tipo, m);
+  const estadoActual = String(m.estado ?? 'pendiente').toLowerCase();
+  const limpios = { ...args };
+  delete limpios.numero;
+  delete limpios.cliente;
+
+  switch (tool) {
+    case 'convertir_albaran_a_factura': {
+      if (esFacturado(m.estado)) return resultadoError(`El ${quien} ya está facturado. Si quieres ver su factura, pídemela por número.`);
+      const iva = Number(args.iva ?? 21);
+      if (!(IVA_PORCENTAJES_PERMITIDOS as readonly number[]).includes(iva)) {
+        return resultadoError(`El IVA debe ser uno de: ${IVA_PORCENTAJES_PERMITIDOS.join(', ')}.`);
+      }
+      delete limpios.id;
+      return {
+        tipo: 'pendiente',
+        accion: {
+          tool,
+          args: { ...limpios, albaran_id: m.id, iva },
+          resumen: `Voy a facturar el ${quien} con IVA del ${iva} % (el total del albarán se toma con IVA incluido).`,
+        },
+      };
+    }
+    case 'cambiar_estado_factura': {
+      const nuevo = parseEstadoFactura(args.estado);
+      if (!nuevo) return resultadoError(MENSAJE_ESTADO_FACTURA);
+      if (estadoActual === nuevo) return resultadoError(`La ${quien} ya está «${nuevo}».`);
+      return {
+        tipo: 'pendiente',
+        accion: { tool, args: { ...limpios, id: m.id, estado: nuevo }, resumen: `Voy a cambiar la ${quien} de «${estadoActual}» a «${nuevo}».` },
+      };
+    }
+    case 'cambiar_estado_albaran': {
+      const nuevo = String(args.estado ?? '').trim().toLowerCase();
+      if (nuevo === 'facturado') {
+        return resultadoError('Un albarán no se marca como facturado a mano: para facturarlo pídeme «factúrame el albarán…» y creo su factura.');
+      }
+      if (!(ESTADOS_ALBARAN_EDITABLES as readonly string[]).includes(nuevo)) {
+        return resultadoError(`El estado de un albarán debe ser uno de: ${ESTADOS_ALBARAN_EDITABLES.join(', ')}.`);
+      }
+      if (esFacturado(m.estado)) return resultadoError(`El ${quien} ya está facturado: no cambia de estado.`);
+      if (estadoActual === nuevo) return resultadoError(`El ${quien} ya está «${nuevo}».`);
+      return {
+        tipo: 'pendiente',
+        accion: { tool, args: { ...limpios, id: m.id, estado: nuevo }, resumen: `Voy a cambiar el ${quien} de «${estadoActual}» a «${nuevo}».` },
+      };
+    }
+    case 'editar_albaran': {
+      if (esFacturado(m.estado)) return resultadoError(`El ${quien} ya está facturado: no se puede editar.`);
+      const cambios = cambiosLegibles(args);
+      if (!cambios) return resultadoError('¿Qué quieres cambiar del albarán: el cliente, el importe o la descripción?');
+      return { tipo: 'pendiente', accion: { tool, args: { ...limpios, id: m.id }, resumen: `Voy a modificar el ${quien} (${cambios}).` } };
+    }
+    case 'editar_factura': {
+      if (estadoActual !== 'pendiente') return resultadoError(`Solo se pueden editar facturas pendientes; la ${quien} está «${estadoActual}».`);
+      const cambios = cambiosLegibles(args);
+      if (!cambios) return resultadoError('¿Qué quieres cambiar de la factura: el cliente, las líneas, el IVA o el importe?');
+      return { tipo: 'pendiente', accion: { tool, args: { ...limpios, id: m.id }, resumen: `Voy a modificar la ${quien} (${cambios}).` } };
+    }
+  }
+  return { tipo: 'pendiente', accion: { tool, args, resumen: describirAccionGenerica(tool, args) } };
+}
 
 /**
  * Prepara la acción que el modelo quiere hacer SIN escribir nada:
@@ -277,7 +390,23 @@ export async function prepararAccionPendiente(
   argsOriginal: Record<string, unknown>,
   deps: DepsPreparacion
 ): Promise<PreparacionAccion> {
-  const args = { ...argsOriginal };
+  let args = { ...argsOriginal };
+
+  if (TOOLS_DE_DOCUMENTO_EXISTENTE.has(tool)) {
+    return prepararDocumentoExistente(tool, args, deps);
+  }
+
+  // Crear factura/albarán/presupuesto: nada de inventar importes ni clientes (se pregunta antes del «sí»).
+  if (requiereValidacionCreacion(tool)) {
+    const v = await validarCreacionDocumento(tool, args, {
+      supabase: deps.supabase,
+      businessId: deps.businessId,
+      mensajeUsuario: deps.mensajeUsuario,
+      historialUsuario: deps.historialUsuario,
+    });
+    if (!v.ok) return { tipo: 'resultado', result: v.result };
+    args = v.args;
+  }
 
   if (TOOLS_DE_PRESUPUESTO_EXISTENTE.has(tool)) {
     const idArg = String(args.presupuesto_id ?? args.id ?? '').trim();

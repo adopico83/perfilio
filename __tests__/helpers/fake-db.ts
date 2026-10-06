@@ -119,6 +119,10 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
             const valor = resto.join('.');
             if (op === 'is' && valor === 'null') return (r: Fila) => r[col] == null;
             if (op === 'eq') return (r: Fila) => r[col] != null && String(r[col]) === valor;
+            if (op === 'not' && resto[0] === 'ilike') {
+              const v = resto.slice(1).join('.').toLowerCase();
+              return (r: Fila) => r[col] != null && String(r[col]).toLowerCase() !== v;
+            }
             if (op === 'neq') return (r: Fila) => r[col] != null && String(r[col]) !== valor;
             throw new Error(`fake-db: .or() no soporta «${parte}»`);
           })

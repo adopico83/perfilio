@@ -110,6 +110,14 @@ describe('PATCH /api/albaranes/[id]/estado', () => {
     expect(f.tablas.albaranes[0].estado).toBe('facturado');
   });
 
+  it('«Facturado» con mayúscula también bloquea el UPDATE (409, la fila no cambia)', async () => {
+    const d = preparar({ tablas: { albaranes: [alb({ estado: 'Facturado' })] } });
+    // la lectura previa ya compara en minúsculas → 409; y el UPDATE protege aunque la lectura no lo viera
+    expect((await PATCH(patch({ estado: 'entregado' }), ctx)).status).toBe(409);
+    expect(d.tablas.albaranes[0].estado).toBe('Facturado');
+    expect(d.updates).toHaveLength(0);
+  });
+
   it('un albarán con estado NULL sí se actualiza (NULL <> facturado no es verdadero en SQL)', async () => {
     const d = preparar({ tablas: { albaranes: [alb({ estado: null })] } });
     const res = await PATCH(patch({ estado: 'entregado' }), ctx);

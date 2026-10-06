@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { assertUserOwnsBusiness } from '@/lib/supabase/assert-user-owns-business';
+import { cambiarEstadoAlbaran, ESTADOS_ALBARAN_EDITABLES } from '@/lib/albaranes/estado';
 
-const ESTADOS_EDITABLES = ['pendiente', 'entregado'] as const;
+const ESTADOS_EDITABLES = ESTADOS_ALBARAN_EDITABLES;
 
 /**
  * Cambia el estado de un albarán a pendiente o entregado. `albaranes` solo tiene policy de lectura
@@ -45,35 +46,12 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const owns = await assertUserOwnsBusiness(supabaseAuth, user.id, businessId);
     if (!owns) return NextResponse.json({ error: 'No tienes acceso a este negocio' }, { status: 403 });
 
-    if (String((alb as { estado?: string }).estado ?? '').toLowerCase() === 'facturado') {
-      return NextResponse.json({ error: 'Un albarán facturado ya no cambia de estado.' }, { status: 409 });
-    }
-
-    // La condición va EN el UPDATE (no solo en la lectura de arriba): si otra petición factura el
-    // albarán justo entre la lectura y la escritura, este UPDATE no toca ninguna fila.
-    // `.or('estado.is.null,…')` y no solo `.neq`: en SQL `NULL <> 'facturado'` no es verdadero, así
-    // que un albarán con estado NULL (la columna lo admite) no se actualizaría nunca.
-    const { data: filas, error: updErr } = await supabase
-      .from('albaranes')
-      .update({ estado })
-      .eq('id', id)
-      .eq('business_id', businessId)
-      .or('estado.is.null,estado.neq.facturado')
-      .select('id');
-    if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
-    if (!filas || filas.length === 0) {
-      // Ninguna fila cambió: se ha facturado mientras tanto (o ya no existe).
-      const { data: ahora } = await supabase
-        .from('albaranes')
-        .select('id')
-        .eq('id', id)
-        .eq('business_id', businessId)
-        .maybeSingle();
-      if (!ahora) return NextResponse.json({ error: 'Albarán no encontrado' }, { status: 404 });
-      return NextResponse.json(
-        { error: 'El albarán se ha facturado mientras tanto: ya no cambia de estado.' },
-        { status: 409 }
-      );
+    // Misma regla que usa el agente (lib/albaranes/estado.ts): un albarán facturado no se toca y la
+    // condición va en el propio UPDATE para que dos peticiones a la vez no se pisen.
+    const r = await cambiarEstadoAlbaran(supabase, businessId, id, estado);
+    if (!r.ok) {
+      const status = r.code === 'validacion' ? 400 : r.code === 'no_encontrado' ? 404 : r.code === 'conflicto' ? 409 : 500;
+      return NextResponse.json({ error: r.error }, { status });
     }
     return NextResponse.json({ ok: true, id, estado });
   } catch (e) {

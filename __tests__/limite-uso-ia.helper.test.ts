@@ -79,3 +79,20 @@ describe('respuestaLimiteIA', () => {
     expect(await res.json()).toEqual({ error: 'Has hecho demasiadas consultas a la IA. Prueba de nuevo en 40 s.' });
   });
 });
+
+describe('comprobarLimiteIAAgente (cupo propio y más holgado)', () => {
+  it('usa su propia clave de negocio y 20/min · 300/día', async () => {
+    const { comprobarLimiteIAAgente, LIMITE_AGENTE_POR_MINUTO, LIMITE_AGENTE_POR_DIA } = await import('@/lib/ia/limite-uso');
+    const f = conRpc([{ data: { permitido: true } }]);
+    await comprobarLimiteIAAgente(f.client, 'u1', 'biz', NOW);
+    expect(f.llamadas[0]).toMatchObject({ p_business: 'biz:agente', p_max_minuto: 20, p_max_dia: 300 });
+    expect(LIMITE_AGENTE_POR_MINUTO).toBe(20);
+    expect(LIMITE_AGENTE_POR_DIA).toBe(300);
+  });
+  it('en memoria (base caída) deja 20 por minuto y rechaza la 21', async () => {
+    const { comprobarLimiteIAAgente } = await import('@/lib/ia/limite-uso');
+    const f = conRpc('siempre-error');
+    for (let i = 0; i < 20; i++) expect((await comprobarLimiteIAAgente(f.client, 'u1', 'biz', NOW)).permitido).toBe(true);
+    expect(await comprobarLimiteIAAgente(f.client, 'u1', 'biz', NOW)).toMatchObject({ permitido: false, motivo: 'minuto' });
+  });
+});
