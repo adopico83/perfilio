@@ -95,6 +95,7 @@ describe('POST /api/agente — tools', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    createMock.mockReset();
 
     (createClient as jest.Mock).mockResolvedValue({
       auth: {
@@ -718,22 +719,18 @@ describe('POST /api/agente — tools', () => {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
         update: jest.fn().mockReturnThis(),
-        maybeSingle: jest.fn()
-          .mockResolvedValueOnce({
-            data: {
-              id: presupuestoId,
-              estado: 'enviado',
-              cliente_nombre: 'Juan Pérez',
-              cliente_id: 'cli-1',
-              presupuesto_generado: 'Texto del presupuesto',
-              importe_total: 123.45,
-            },
-            error: null,
-          })
-          .mockResolvedValueOnce({
-            data: { id: presupuestoId },
-            error: null,
-          }),
+        // El presupuesto se lee dos veces: al localizarlo (por id/número/cliente) y al convertirlo.
+        maybeSingle: jest.fn().mockResolvedValue({
+          data: {
+            id: presupuestoId,
+            estado: 'enviado',
+            cliente_nombre: 'Juan Pérez',
+            cliente_id: 'cli-1',
+            presupuesto_generado: 'Texto del presupuesto',
+            importe_total: 123.45,
+          },
+          error: null,
+        }),
       };
 
       const insertMockAlb = jest.fn().mockResolvedValue({ data: null, error: null });

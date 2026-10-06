@@ -181,6 +181,22 @@ export function extraerNombreClienteDePeticionPresupuesto(mensaje: string): stri
   return null;
 }
 
+/**
+ * Número de un documento tal como lo dice la gente: 3, «3», «el 3», «nº 3», «n.º 3», «número 3», «#3».
+ * Devuelve el entero > 0 o null.
+ */
+export function parseNumeroDocumento(raw: unknown): number | null {
+  if (typeof raw === 'number') return Number.isInteger(raw) && raw > 0 ? raw : null;
+  if (typeof raw !== 'string') return null;
+  const m = raw
+    .trim()
+    .toLowerCase()
+    .match(/^(?:(?:el|la|n[uú]m(?:ero)?\.?|n\.?\s?[º°o]\.?|#)\s*)*(\d{1,9})$/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return n > 0 ? n : null;
+}
+
 export function esUuid(raw: unknown): boolean {
   const s = String(raw ?? '').trim();
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
@@ -281,14 +297,8 @@ export async function resolverPresupuestosPorTexto(
   opts: { id?: string; clienteNombre?: string; numero?: number | string | null }
 ): Promise<ResolveResult<PresupuestoMatch>> {
   const id = String(opts.id ?? '').trim();
-  const numeroRaw = opts.numero;
-  const numero =
-    typeof numeroRaw === 'number'
-      ? numeroRaw
-      : typeof numeroRaw === 'string' && /^\d+$/.test(numeroRaw.trim())
-        ? Number(numeroRaw.trim())
-        : null;
-  const porClave = id && esUuid(id) ? { col: 'id', val: id } : numero != null && Number.isInteger(numero) && numero > 0 ? { col: 'numero_presupuesto', val: numero } : null;
+  const numero = parseNumeroDocumento(opts.numero);
+  const porClave = id ? { col: 'id', val: id } : numero != null && Number.isInteger(numero) && numero > 0 ? { col: 'numero_presupuesto', val: numero } : null;
   if (porClave) {
     // Por uuid o por número correlativo: siempre dentro del negocio (nunca el de otro).
     const { data, error } = await supabase

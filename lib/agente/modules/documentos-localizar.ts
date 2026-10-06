@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   escapeIlikeGrounding,
+  parseNumeroDocumento,
   failClosed,
   pedirAclaracion,
   type CandidatoGrounding,
@@ -29,15 +30,6 @@ const CONFIG: Record<TipoDocumento, { tabla: string; colNumero: string; colId: s
   albaran: { tabla: 'albaranes', colNumero: 'numero_albaran', colId: 'id', etiqueta: 'albarán', plural: 'albaranes' },
 };
 
-function aNumeroEntero(raw: unknown): number | null {
-  if (typeof raw === 'number') return Number.isInteger(raw) && raw > 0 ? raw : null;
-  if (typeof raw === 'string' && /^\d+$/.test(raw.trim())) {
-    const n = Number(raw.trim());
-    return n > 0 ? n : null;
-  }
-  return null;
-}
-
 type Fila = Record<string, unknown>;
 
 function aMatch(tipo: TipoDocumento, f: Fila): DocumentoMatch {
@@ -60,7 +52,7 @@ export async function localizarDocumento(
   const cfg = CONFIG[tipo];
   const columnas = `id, ${cfg.colNumero}, cliente_nombre, total, estado`;
   const id = String(opts.id ?? '').trim();
-  const numero = aNumeroEntero(opts.numero);
+  const numero = parseNumeroDocumento(opts.numero);
 
   // Por id (viene de una consulta anterior, o del navegador tras confirmar) o por número: siempre dentro del negocio.
   if (id) {

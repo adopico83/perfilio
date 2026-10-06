@@ -27,14 +27,6 @@ import {
   resolveClienteIdOpcional,
 } from '@/lib/agente/modules/obras-clientes';
 
-export const ESTADOS_DOC = ['pendiente', 'aceptado', 'rechazado', 'facturado', 'pagado'] as const;
-export type EstadoDoc = (typeof ESTADOS_DOC)[number];
-
-export function parseEstadoDoc(raw: unknown): EstadoDoc | null {
-  const s = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
-  return (ESTADOS_DOC as readonly string[]).includes(s) ? (s as EstadoDoc) : null;
-}
-
 /**
  * Edita una factura pendiente reutilizando `actualizarFactura` (la misma función que el editor de
  * Facturas y `PATCH /api/facturas/[id]`): mismas validaciones y el servidor recalcula base, IVA y total.
