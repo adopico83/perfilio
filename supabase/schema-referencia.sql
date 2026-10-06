@@ -1,0 +1,11 @@
+-- =====================================================================================
+--  SOLO DOCUMENTACIÓN — NO EJECUTAR NUNCA
+-- =====================================================================================
+--  Este fichero NO es una migración. No debe ejecutarse contra ninguna base.
+--
+--  PENDIENTE: copiar aquí el volcado del esquema REAL de producción (por ejemplo con
+--  `supabase db dump --schema public --schema storage`, o desde el SQL editor), porque
+--  las migraciones del repo no incluyen las tablas creadas a mano (facturas, presupuestos,
+--  albaranes, business_users, conversations, ai_responses, registros_jornada, operarios,
+--  push_subscriptions, gmail_tokens…). Hasta entonces este fichero está vacío a propósito.
+-- =====================================================================================
