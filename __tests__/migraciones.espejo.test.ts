@@ -21,4 +21,11 @@ describe('ficheros espejo de migraciones ya aplicadas', () => {
     expect(sql).toMatch(/NO EJECUTAR NUNCA/);
     expect(sql.replace(/--.*$/gm, '').trim()).toBe('');
   });
+  it('el espejo de conversation_history lleva la marca de espejo en la línea 0 y los dos drop policy', () => {
+    const sql = leer('20261006132319_conversation_history_quitar_policies_antiguas.sql');
+    expect(sql.split('\n')[0]).toMatch(/Fichero espejo: NO volver a ejecutar/);
+    expect(sql.split('\n')[1]).toMatch(/MIGRACIÓN NO ADITIVA/);
+    expect(sql).toContain('drop policy if exists "usuarios insertan su historial" on public.conversation_history;');
+    expect(sql).toContain('drop policy if exists "usuarios ven su historial" on public.conversation_history;');
+  });
 });
