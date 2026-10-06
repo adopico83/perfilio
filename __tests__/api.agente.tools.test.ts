@@ -15,6 +15,13 @@ jest.mock('@/lib/supabase/server', () => ({
   createClient: jest.fn(),
 }));
 
+// Estos tests lanzan decenas de turnos seguidos: el límite de uso del agente (que tiene sus propios tests
+// en api.agente.limite-uso.test.ts) se apaga aquí para que no los corte con un 429.
+jest.mock('@/lib/ia/limite-uso', () => ({
+  ...jest.requireActual('@/lib/ia/limite-uso'),
+  comprobarLimiteIAAgente: async () => ({ permitido: true }),
+}));
+
 const createMock = jest.fn();
 
 jest.mock('openai', () => ({

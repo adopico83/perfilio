@@ -14,6 +14,18 @@ import { hoyMadrid } from '@/lib/facturas/desde-presupuesto';
 export const LIMITE_POR_MINUTO = 10;
 export const LIMITE_POR_DIA = 100;
 
+/**
+ * El agente tiene su PROPIO cupo (contador aparte), más holgado: es la función principal de la app, la usa
+ * una persona hablando por voz durante el día y cada turno puede gastar hasta 3 llamadas a OpenAI
+ * (elegir tools, reintento y respuesta final). 20 turnos por minuto y 300 al día frenan un bucle o un abuso
+ * sin molestar a un uso normal; el coste máximo por usuario y día queda acotado (≈ 900 llamadas).
+ * `confirmar_accion` no cuenta: no gasta OpenAI.
+ */
+export const LIMITE_AGENTE_POR_MINUTO = 20;
+export const LIMITE_AGENTE_POR_DIA = 300;
+
+export type LimitesUso = { porMinuto: number; porDia: number };
+
 export type ResultadoLimite =
   | { permitido: true }
   | { permitido: false; motivo: 'minuto' | 'dia'; reintentarEnS: number };
@@ -58,11 +70,11 @@ function contarEnMemoria(clave: string, ventana: 'min' | 'dia', periodo: string)
   return n;
 }
 
-function enMemoria(clave: string, minuto: string, dia: string, now: Date): ResultadoLimite {
-  if (contarEnMemoria(clave, 'min', minuto) > LIMITE_POR_MINUTO) {
+function enMemoria(clave: string, minuto: string, dia: string, now: Date, limites: LimitesUso): ResultadoLimite {
+  if (contarEnMemoria(clave, 'min', minuto) > limites.porMinuto) {
     return { permitido: false, motivo: 'minuto', reintentarEnS: segundosHastaFinDeMinuto(now) };
   }
-  if (contarEnMemoria(clave, 'dia', dia) > LIMITE_POR_DIA) {
+  if (contarEnMemoria(clave, 'dia', dia) > limites.porDia) {
     return { permitido: false, motivo: 'dia', reintentarEnS: segundosHastaMedianocheMadrid(now) };
   }
   return { permitido: true };
@@ -77,7 +89,8 @@ export async function comprobarLimiteIA(
   supabaseService: SupabaseClient,
   userId: string,
   businessId: string,
-  now: Date = new Date()
+  now: Date = new Date(),
+  limites: LimitesUso = { porMinuto: LIMITE_POR_MINUTO, porDia: LIMITE_POR_DIA }
 ): Promise<ResultadoLimite> {
   const minuto = now.toISOString().slice(0, 16);
   const dia = hoyMadrid(now);
@@ -87,8 +100,8 @@ export async function comprobarLimiteIA(
       p_business: businessId,
       p_minuto: minuto,
       p_dia: dia,
-      p_max_minuto: LIMITE_POR_MINUTO,
-      p_max_dia: LIMITE_POR_DIA,
+      p_max_minuto: limites.porMinuto,
+      p_max_dia: limites.porDia,
     });
     const r = data as { permitido?: boolean; motivo?: 'minuto' | 'dia' } | null;
     if (error || !r || typeof r.permitido !== 'boolean') {
@@ -103,7 +116,7 @@ export async function comprobarLimiteIA(
     };
   } catch (e) {
     console.warn('[limite-ia] la base falló, se usa el contador en memoria:', e instanceof Error ? e.message : e);
-    return enMemoria(`${userId}|${businessId}`, minuto, dia, now);
+    return enMemoria(`${userId}|${businessId}`, minuto, dia, now, limites);
   }
 }
 
@@ -122,6 +135,28 @@ export async function comprobarLimiteIARuta(supabaseAuth: SupabaseClient, userId
     return await comprobarLimiteIA(createServiceClient(), userId, businessId);
   } catch (e) {
     console.warn('[limite-ia] no se pudo comprobar el límite:', e instanceof Error ? e.message : e);
+    return { permitido: true };
+  }
+}
+
+/**
+ * Límite del agente (`/api/agente`): cupo propio, con el negocio YA validado por el control de acceso.
+ * Se guarda en la misma tabla con la clave `<negocio>:agente`, así que no hace falta otra migración.
+ * Nunca lanza: si falla algo deja pasar.
+ */
+export async function comprobarLimiteIAAgente(
+  supabaseService: SupabaseClient,
+  userId: string,
+  businessId: string,
+  now: Date = new Date()
+): Promise<ResultadoLimite> {
+  try {
+    return await comprobarLimiteIA(supabaseService, userId, `${businessId}:agente`, now, {
+      porMinuto: LIMITE_AGENTE_POR_MINUTO,
+      porDia: LIMITE_AGENTE_POR_DIA,
+    });
+  } catch (e) {
+    console.warn('[limite-ia] no se pudo comprobar el límite del agente:', e instanceof Error ? e.message : e);
     return { permitido: true };
   }
 }

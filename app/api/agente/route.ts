@@ -116,6 +116,7 @@ import {
 } from '@/lib/agente/orquestacion';
 import { extractDiarioObraObjectPath } from '@/lib/diario-obra';
 import { GROUNDING_REGLAS_SISTEMA } from '@/lib/agente/modules/grounding';
+import { comprobarLimiteIAAgente, respuestaLimiteIA } from '@/lib/ia/limite-uso';
 import {
   type AgentIntentCategory,
   PRESUPUESTOS_AGENT_SYSTEM_PROMPT_PREFIX,
@@ -657,6 +658,11 @@ export async function POST(request: NextRequest) {
         obra_modal: obraFichaParaCliente,
       });
     }
+
+    // Límite de uso de la IA del agente (cupo propio). Va DESPUÉS del bloque de `confirmar_accion` porque
+    // confirmar no gasta OpenAI, y con el business_id ya validado por el control de acceso.
+    const limite = await comprobarLimiteIAAgente(supabase, authUser.id, businessIdStr);
+    if (!limite.permitido) return respuestaLimiteIA(limite);
 
     const nombre = profile.nombre ?? 'el negocio';
     const nombreUsuario = (() => {

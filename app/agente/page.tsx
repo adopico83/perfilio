@@ -5,6 +5,8 @@ import { createBrowserClient } from '@supabase/ssr';
 import { useRouter, useSearchParams } from 'next/navigation';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import ReactMarkdown from 'react-markdown';
+import { AccionPendienteCard } from '@/components/dashboard/agent-sidebar';
+import { esRespuestaAfirmativa, esRespuestaNegativa } from '@/lib/agente/orquestacion';
 
 interface BusinessProfile {
   id: string;
@@ -14,9 +16,26 @@ interface BusinessProfile {
 
 type MessageRole = 'user' | 'assistant';
 
+/** Acción que el servidor retiene hasta que el usuario diga «sí» (ver lib/agente/confirmacion.ts). */
+interface AccionPendiente {
+  tool: string;
+  args: Record<string, unknown>;
+  resumen: string;
+  estado: 'pendiente' | 'ejecutando' | 'confirmada' | 'cancelada';
+}
+
 interface ChatMessage {
   role: MessageRole;
   content: string;
+  accion?: AccionPendiente;
+}
+
+function parseAccionPendiente(raw: unknown): Omit<AccionPendiente, 'estado'> | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.tool !== 'string' || !o.tool.trim()) return null;
+  const args = o.args && typeof o.args === 'object' && !Array.isArray(o.args) ? (o.args as Record<string, unknown>) : {};
+  return { tool: o.tool.trim(), args, resumen: typeof o.resumen === 'string' ? o.resumen : '' };
 }
 
 interface PendingAiResponse {
@@ -133,6 +152,20 @@ function AgentePageContent() {
     }
     setError('');
     const texto = mensaje.trim();
+
+    // Si la última respuesta dejó una acción pendiente, un «sí» / «no» escrito funciona igual que el botón.
+    const ultimo = historial[historial.length - 1];
+    if (
+      ultimo?.role === 'assistant' &&
+      ultimo.accion?.estado === 'pendiente' &&
+      (esRespuestaAfirmativa(texto) || esRespuestaNegativa(texto))
+    ) {
+      setMensaje('');
+      setHistorial((prev) => [...prev, { role: 'user', content: texto }]);
+      await resolverAccion(historial.length - 1, esRespuestaAfirmativa(texto));
+      return;
+    }
+
     setMensaje('');
     setLoading(true);
     try {
@@ -142,21 +175,60 @@ function AgentePageContent() {
         body: JSON.stringify({
           mensaje: texto,
           business_id: selectedId,
-          historial,
+          historial: historial.map((m) => ({ role: m.role, content: m.content })),
         }),
       });
       const data = await res.json();
       if (!res.ok) {
+        // Incluye el 429 del límite de uso: «Has hecho demasiadas consultas a la IA. Prueba de nuevo en N s.»
         setError(data.error ?? 'Error al llamar al agente');
         return;
       }
       const respuestaTexto = data.respuesta ?? '';
+      const accion = parseAccionPendiente(data.accion_pendiente);
       setHistorial((prev) => [
         ...prev,
         { role: 'user', content: texto },
-        { role: 'assistant', content: respuestaTexto },
+        { role: 'assistant', content: respuestaTexto, ...(accion ? { accion: { ...accion, estado: 'pendiente' as const } } : {}) },
       ]);
     } catch {
+      setError('Error de conexión');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const marcarAccion = (indice: number, estado: AccionPendiente['estado']) =>
+    setHistorial((prev) => prev.map((m, i) => (i === indice && m.accion ? { ...m, accion: { ...m.accion, estado } } : m)));
+
+  /** «Sí, hazlo» / «No» sobre una acción retenida: con «sí» se reenvía `confirmar_accion` (sin pasar por el modelo). */
+  const resolverAccion = async (indice: number, confirmar: boolean) => {
+    const accion = historial[indice]?.accion;
+    if (!accion || accion.estado !== 'pendiente' || !selectedId) return;
+    if (!confirmar) {
+      marcarAccion(indice, 'cancelada');
+      setHistorial((prev) => [...prev, { role: 'assistant', content: 'Vale, no hago nada.' }]);
+      return;
+    }
+    marcarAccion(indice, 'ejecutando');
+    setError('');
+    setLoading(true);
+    try {
+      const res = await fetch('/api/agente', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ business_id: selectedId, confirmar_accion: { tool: accion.tool, args: accion.args } }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        marcarAccion(indice, 'pendiente');
+        setError(data.error ?? 'No se pudo ejecutar la acción');
+        return;
+      }
+      marcarAccion(indice, 'confirmada');
+      setHistorial((prev) => [...prev, { role: 'assistant', content: typeof data.respuesta === 'string' ? data.respuesta : 'Hecho.' }]);
+    } catch {
+      marcarAccion(indice, 'pendiente');
       setError('Error de conexión');
     } finally {
       setLoading(false);
@@ -361,6 +433,13 @@ function AgentePageContent() {
                       {msg.content}
                     </ReactMarkdown>
                   </div>
+                  {msg.accion && (
+                    <AccionPendienteCard
+                      accion={msg.accion}
+                      onSi={() => void resolverAccion(i, true)}
+                      onNo={() => void resolverAccion(i, false)}
+                    />
+                  )}
                 </div>
               </div>
             )
