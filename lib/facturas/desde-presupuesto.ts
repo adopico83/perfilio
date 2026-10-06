@@ -1,11 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { parsePresupuestoGenerado } from '@/lib/pdf/parser';
 import { insertarFacturaConNumeroCorrelativo } from '@/lib/facturas/numero';
+import { ESTADOS_FACTURABLES } from '@/lib/presupuestos/estado';
 
 /** Días entre la fecha de la factura y su vencimiento. */
 export const DIAS_VENCIMIENTO_FACTURA = 30;
 const IVA_POR_DEFECTO = 21;
-const ESTADOS_FACTURABLES = ['aceptado', 'aprobado'];
 
 /** Línea de factura tal y como se guarda en `facturas.lineas` y la lee el PDF. */
 export type LineaFactura = {

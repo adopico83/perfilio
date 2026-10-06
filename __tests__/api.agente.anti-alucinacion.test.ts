@@ -223,6 +223,30 @@ describe('POST /api/agente — Fase A anti-alucinación', () => {
     expect(agentCall?.params.temperature).toBe(AGENTE_TOOLS_TEMPERATURE);
     expect(agentCall?.params.temperature).toBeLessThanOrEqual(0.2);
 
+    // Tras una ronda de SOLO LECTURA el modelo recibe los resultados con las tools disponibles (por si
+    // necesita leer algo más) y, si ya no pide nada, lo que escribe es la respuesta: sigue a temperatura 0.
+    const seguimiento = openaiCallParams(createMock, 1);
+    expect(seguimiento.tools).toBeDefined();
+    expect(seguimiento.temperature).toBe(AGENTE_TOOLS_TEMPERATURE);
+  });
+
+  it('tras una ESCRITURA la prosa final va sin tools y a ~0.7', async () => {
+    const insertCliente = jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'cli-1' }, error: null }),
+      }),
+    });
+    mockServiceFrom({
+      clientes: {
+        select: jest.fn(() => makeThenableResult({ data: [], error: null })),
+        insert: insertCliente,
+      } as unknown as ReturnType<typeof makeThenableResult>,
+    });
+    createMock
+      .mockResolvedValueOnce(toolCallMessage('crear_cliente', JSON.stringify({ nombre: 'Cliente Test' })))
+      .mockResolvedValueOnce({ choices: [{ message: { content: 'Cliente creado.' } }] });
+
+    await postAgente('Crea el cliente Cliente Test');
     const finalParams = openaiCallParams(createMock, 1);
     expect(finalParams.tools).toBeUndefined();
     expect(finalParams.temperature).toBe(AGENTE_PROSA_TEMPERATURE);

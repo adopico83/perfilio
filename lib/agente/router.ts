@@ -194,6 +194,9 @@ export const INTENT_TOOL_NAMES_OPERARIOS = new Set([
 
 export const INTENT_TOOL_NAMES_PRESUPUESTO = new Set([
   ...PRESUPUESTOS_HANDLED_TOOLS,
+  // El PDF del presupuesto y de la factura: sin ellas, tras crear o aceptar un presupuesto el modelo no
+  // podía mandar «el pdf de ese presu» y acababa proponiendo facturar OTRO presupuesto.
+  ...ENLACES_PDF_HANDLED_TOOLS,
   'generar_presupuesto_por_dictado',
   'buscar_cliente',
   'ver_cliente',

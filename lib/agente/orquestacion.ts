@@ -46,6 +46,19 @@ export function pareceAccionQueRequiereTool(mensaje: string): boolean {
   return SENAL_DOMINIO_ACCION.test(t) && t.split(/\s+/).length >= 3;
 }
 
+/**
+ * ¿El texto promete hacer algo («voy a comprobar la agenda», «un momento…») en vez de hacerlo? Si el
+ * modelo responde así SIN llamar a ninguna tool, el usuario se queda esperando algo que no va a llegar.
+ */
+const PROMESA_SIN_HACER =
+  /(?:\b(?:voy a (?:comprobar|mirar|revisar|buscar|consultar|ver|verificar|apuntar|crear|preparar|registrar)|un momento|un segundo|d[eé]jame (?:ver|mirar|comprobar|revisar|buscar)|ahora (?:mismo )?(?:compruebo|miro|reviso|busco)|enseguida)\b|¿(?:lo hago|procedo|lo creo|lo registro|lo apunto|lo anoto|lo guardo|te lo (?:creo|registro|apunto|anoto|guardo))\s*\?)/i;
+
+export function prometeSinHacer(texto: string): boolean {
+  const t = texto.trim();
+  // Una respuesta larga con datos no es una promesa vacía; las promesas son frases cortas.
+  return t.length > 0 && t.length <= 280 && PROMESA_SIN_HACER.test(t);
+}
+
 export function plannedToolsFromAssistantToolCalls(
   toolCalls:
     | OpenAI.Chat.Completions.ChatCompletionMessageToolCall[]

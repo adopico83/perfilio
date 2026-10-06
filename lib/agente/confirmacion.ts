@@ -4,6 +4,7 @@ import { resolverPresupuestosPorTexto, toolFailDesdePresupuestoResolve } from '@
 import { describirDocumento, localizarDesdeArgs, type TipoDocumento } from '@/lib/agente/modules/documentos-localizar';
 import { requiereValidacionCreacion, validarCreacionDocumento } from '@/lib/agente/modules/documentos-validacion';
 import { parseEstadoFactura, MENSAJE_ESTADO_FACTURA } from '@/lib/facturas/estado';
+import { ESTADOS_FACTURABLES, MENSAJE_ESTADO_PRESUPUESTO, parseEstadoPresupuesto } from '@/lib/presupuestos/estado';
 import { IVA_PORCENTAJES_PERMITIDOS } from '@/lib/facturas/iva';
 import { ESTADOS_ALBARAN_EDITABLES, esFacturado } from '@/lib/albaranes/estado';
 
@@ -35,6 +36,7 @@ export const TOOLS_REQUIEREN_CONFIRMACION: ReadonlySet<string> = new Set([
   'convertir_presupuesto_a_albaran',
   'convertir_presupuesto_a_factura',
   'registrar_extra',
+  'modificar_partidas_presupuesto',
   'gestionar_tarifas',
   // Clientes y obras
   'crear_cliente',
@@ -82,6 +84,7 @@ export const TOOLS_EXENTAS_CONFIRMACION: Readonly<Record<string, string>> = {
  */
 export const TOOLS_CON_VISTA_PREVIA: ReadonlySet<string> = new Set([
   'generar_presupuesto_por_dictado',
+  'modificar_partidas_presupuesto',
   'registrar_jornada',
   'eliminar_registro_jornada',
   'eliminar_entrada_diario',
@@ -163,6 +166,7 @@ const NOMBRES_TOOL: Record<string, string> = {
   convertir_presupuesto_a_albaran: 'convertir un presupuesto en albarán',
   convertir_presupuesto_a_factura: 'crear la factura de un presupuesto',
   registrar_extra: 'registrar un extra',
+  modificar_partidas_presupuesto: 'cambiar las partidas de un presupuesto',
   gestionar_tarifas: 'cambiar las tarifas',
   crear_cliente: 'crear un cliente',
   crear_obra: 'crear una obra',
@@ -427,14 +431,31 @@ export async function prepararAccionPendiente(
       delete args.numero;
       delete args.query;
       const quien = `${p.numero_presupuesto != null ? `nº ${p.numero_presupuesto} de ` : ''}${p.cliente_nombre ?? 'sin cliente'} (${euros(p.importe_total)})`;
+      const estadoActual = String(p.estado ?? 'borrador').toLowerCase();
+      // Facturar: se comprueba que está aceptado ANTES de pedir el «sí» (no después de que el usuario confirme).
+      if (tool === 'convertir_presupuesto_a_factura' && !ESTADOS_FACTURABLES.includes(estadoActual) && estadoActual !== 'facturado') {
+        return resultadoError(
+          `El presupuesto ${quien} está «${estadoActual}»: para facturarlo primero tiene que estar aceptado. Si el cliente ya ha dicho que sí, dime «márcalo aceptado».`
+        );
+      }
+      if (tool === 'cambiar_estado_presupuesto') {
+        const nuevo = parseEstadoPresupuesto(args.estado);
+        if (!nuevo) return resultadoError(MENSAJE_ESTADO_PRESUPUESTO);
+        if (nuevo === estadoActual) return resultadoError(`El presupuesto ${quien} ya está «${nuevo}».`);
+        args.estado = nuevo;
+        return {
+          tipo: 'pendiente',
+          accion: { tool, args, resumen: `Voy a cambiar el presupuesto ${quien} de «${estadoActual}» a «${nuevo}».` },
+        };
+      }
       const frase: Record<string, string> = {
         convertir_presupuesto_a_factura: `Voy a crear la factura del presupuesto ${quien}.`,
         convertir_presupuesto_a_albaran: `Voy a crear el albarán del presupuesto ${quien}.`,
-        cambiar_estado_presupuesto: `Voy a cambiar el presupuesto ${quien} a «${String(args.estado ?? '')}».`,
         editar_presupuesto: `Voy a modificar el presupuesto ${quien}.`,
       };
       return { tipo: 'pendiente', accion: { tool, args, resumen: frase[tool] } };
     }
+    return resultadoError('¿Qué presupuesto? Dime el número o el cliente (por ejemplo «el 3»).');
   }
 
   if (tool === 'crear_entrada_diario') {
@@ -476,11 +497,18 @@ export async function prepararAccionPendiente(
     const o = (preview && typeof preview === 'object' ? preview : {}) as Record<string, unknown>;
     const texto = [o.mensaje, o.error].find((x) => typeof x === 'string' && x.trim()) as string | undefined;
     if (o.pendiente_confirmacion === true) {
+      // Si la vista previa ya localizó el presupuesto, la acción confirmada lleva su id exacto.
+      const argsFinales: Record<string, unknown> = { ...args, solo_vista_previa: false };
+      if (typeof o.presupuesto_id === 'string' && o.presupuesto_id) {
+        argsFinales.presupuesto_id = o.presupuesto_id;
+        delete argsFinales.numero;
+        delete argsFinales.query;
+      }
       return {
         tipo: 'pendiente',
         accion: {
           tool,
-          args: { ...args, solo_vista_previa: false },
+          args: argsFinales,
           resumen: limpiarTextoVistaPrevia(texto ?? '') || describirAccionGenerica(tool, args),
         },
       };

@@ -2,7 +2,8 @@ import { AGENTE_MODELO_POR_DEFECTO } from '@/lib/agente/modelo';
 import { crearFacturaDesdePresupuesto } from '@/lib/facturas/desde-presupuesto';
 import type OpenAI from 'openai';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { parseEstadoDoc } from '@/lib/agente/modules/documentos';
+import { ESTADOS_PRESUPUESTO, MENSAJE_ESTADO_PRESUPUESTO, parseEstadoPresupuesto } from '@/lib/presupuestos/estado';
+import { modificarPartidasPresupuesto, type CambiosPartidas } from '@/lib/presupuestos/editar-partidas';
 import { clienteDesdeObraSiAplica, resolveClienteIdOpcional } from '@/lib/agente/modules/obras-clientes';
 import { resolverObraDocumentoAgente } from '@/lib/obras-context';
 import {
@@ -10,6 +11,8 @@ import {
   failClosed,
   pareceMutacionSobrePresupuestoExistente,
   parecePeticionPresupuestoNuevo,
+  parseNumeroDocumento,
+  pedirAclaracion,
   resolverClientesPorNombre,
   resolverPresupuestosPorTexto,
   resultadoResolveATool,
@@ -72,6 +75,7 @@ export const PRESUPUESTOS_HANDLED_TOOLS = new Set([
   'vincular_presupuesto_cliente',
   'convertir_presupuesto_a_albaran',
   'convertir_presupuesto_a_factura',
+  'modificar_partidas_presupuesto',
   'iniciar_borrador_presupuesto',
   'agregar_partida_borrador',
   'modificar_partida_borrador',
@@ -88,10 +92,10 @@ REGLAS DE RESPUESTA:
 - REGLA CRÍTICA: Cada vez que el usuario dicte una partida, DEBES llamar a la tool agregar_partida_borrador. Está terminantemente prohibido confirmar una partida en el texto de respuesta si no has recibido el éxito de la ejecución de dicha tool. Sin TOOL RESULT con ok:true, no puedes decir Añadido.
 - REGLA ABSOLUTA: NUNCA respondas 'Añadido' ni confirmes una partida sin haber recibido un TOOL RESULT de agregar_partida_borrador con ok:true. Si no has llamado a la tool o no has recibido ok:true, NO confirmes la partida. Llama a la tool primero, espera el resultado, y solo entonces confirma. Si la tool devuelve ok:false o error, dilo; no narres éxito.
 - Sé extremadamente breve y directo. Formato obligatorio al añadir partida: 'Añadido: [descripción] ([total]€). ¿Siguiente?'
-- Nunca escribas párrafos largos. Pino escucha por voz.
+- Nunca escribas párrafos largos. el usuario escucha por voz.
 - Nunca inventes precios. Si no tienes el precio, pregunta: '¿A qué precio va [descripción]?'
 - CAPÍTULOS: Cuando el usuario mencione una zona o sección ("en el baño", "para la cocina", "en el pasillo", "habitación"), rellena siempre el campo capitulo de agregar_partida_borrador con el nombre de esa zona en mayúsculas (ej: CUARTO DE BAÑO, COCINA, PASILLO, HABITACIÓN). Mantén el mismo nombre de capítulo para todas las partidas de esa zona hasta que el usuario cambie de zona.
-- Siempre confirma cantidad y precio en cada partida para que Pino pueda corregir errores de voz.
+- Siempre confirma cantidad y precio en cada partida para que el usuario pueda corregir errores de voz.
 - CORRECCIONES: Si el usuario dice 'no, eran X euros', 'cámbialo a X', 'la partida Y vale Z' o similar, llama a modificar_partida_borrador con los datos corregidos. Confirma: 'Corregido: [descripción] ([nuevo total]€). ¿Seguimos?'
 
 MODO PRESUPUESTO ACTIVO:
@@ -102,12 +106,12 @@ Ejemplo de cierre: 'Presupuesto cancelado. Ya puedes preguntarme lo que necesite
 Esto devuelve el control al orquestador para el siguiente mensaje.
 
 AÑADIR A PRESUPUESTO EXISTENTE (fail-closed):
-- Si Pino dice «añade/pon una partida al presupuesto de [cliente]» (no pide crear uno nuevo): busca el cliente y el presupuesto reales (buscar_cliente / buscar_presupuesto). Pasa cliente_nombre en agregar_partida_borrador.
+- Si el usuario dice «añade/pon una partida al presupuesto de [cliente]» (no pide crear uno nuevo): busca el cliente y el presupuesto reales (buscar_cliente / buscar_presupuesto). Pasa cliente_nombre en agregar_partida_borrador.
 - 1 coincidencia: usa ese ID. Varias: pregunta en castellano cuál. Cero: di que no existe. PROHIBIDO iniciar_borrador, crear_cliente o inventar el presupuesto.
 - NUNCA uses iniciar_borrador_presupuesto como atajo para añadir a un presupuesto que debería existir.
 
 INICIAR BORRADOR (presupuesto NUEVO):
-- Solo cuando Pino pide crear o hacer un presupuesto nuevo («haz un presupuesto para…», «nuevo presupuesto»).
+- Solo cuando el usuario pide crear o hacer un presupuesto nuevo («haz un presupuesto para…», «nuevo presupuesto»).
 - PROHIBIDO iniciar_borrador si pregunta por obras abiertas, listados o cualquier consulta que no sea crear presupuesto. No uses un nombre de CLIENTES REGISTRADOS ni de OBRAS ABIERTAS como cliente_nombre si no lo ha pedido.
 - Llama a iniciar_borrador_presupuesto con cliente_nombre = el nombre tal y como lo dijo (texto libre; no hace falta ficha).
 - cliente_id es opcional: solo si da un UUID explícito. Si dice «presupuesto para [nombre]», [nombre] va entero como cliente_nombre.
@@ -166,16 +170,17 @@ export const PRESUPUESTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
     function: {
       name: 'cambiar_estado_presupuesto',
       description:
-        'Cambia estado del presupuesto. Localiza por UUID o por nombre de cliente (query). Estados: pendiente, aceptado, rechazado, facturado, pagado. Si no existe, no inventa ni crea.',
+        'Cambia el estado del presupuesto. Localízalo por numero («el 3»), por nombre de cliente (query) o por UUID. Estados: borrador, pendiente, enviado, aceptado, aprobado, rechazado, facturado, pagado. Para facturar, primero tiene que estar aceptado. Si no existe, no inventa ni crea.',
       parameters: {
         type: 'object',
         properties: {
           id: { type: 'string', description: 'UUID del presupuesto si se conoce' },
+          numero: { type: 'string', description: 'Número del presupuesto tal como lo dice el usuario: «3», «el 3», «nº 3». Es el número de presupuesto del negocio, no un id.' },
           query: {
             type: 'string',
-            description: 'Nombre del cliente para localizar el presupuesto si no hay id',
+            description: 'Nombre del cliente para localizar el presupuesto si no hay número ni id',
           },
-          estado: { type: 'string' },
+          estado: { type: 'string', enum: [...ESTADOS_PRESUPUESTO], description: 'Nuevo estado' },
         },
         required: ['estado'],
         additionalProperties: false,
@@ -187,14 +192,15 @@ export const PRESUPUESTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
     function: {
       name: 'editar_presupuesto',
       description:
-        'Actualiza presupuesto por id o localizándolo por query (nombre de cliente): cliente_nombre, importe_total y/o texto. Solo campos que cambien. No crea el presupuesto si no existe.',
+        'Actualiza un presupuesto (cliente_nombre, importe_total y/o texto). Localízalo por numero, query (cliente) o id. Solo campos que cambien. Para cambiar, quitar o añadir PARTIDAS usa modificar_partidas_presupuesto. No crea el presupuesto si no existe.',
       parameters: {
         type: 'object',
         properties: {
           id: { type: 'string', description: 'UUID si se conoce' },
+          numero: { type: 'string', description: 'Número del presupuesto tal como lo dice el usuario: «3», «el 3», «nº 3». Es el número de presupuesto del negocio, no un id.' },
           query: {
             type: 'string',
-            description: 'Nombre del cliente para localizar el presupuesto si no hay id',
+            description: 'Nombre del cliente para localizar el presupuesto si no hay número ni id',
           },
           cliente_nombre: { type: 'string', description: 'Nuevo nombre de cliente a guardar' },
           importe_total: { type: 'number' },
@@ -225,14 +231,67 @@ export const PRESUPUESTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
     type: 'function',
     function: {
       name: 'convertir_presupuesto_a_albaran',
-      description: 'Crea albarán a partir de un presupuesto y marca el presupuesto como aceptado si aplica.',
+      description: 'Crea albarán a partir de un presupuesto y marca el presupuesto como aceptado si aplica. Localízalo por numero, query (cliente) o presupuesto_id.',
       parameters: {
         type: 'object',
         properties: {
           presupuesto_id: { type: 'string' },
+          numero: { type: 'string', description: 'Número del presupuesto tal como lo dice el usuario: «3», «el 3», «nº 3». Es el número de presupuesto del negocio, no un id.' },
+          query: { type: 'string', description: 'Nombre del cliente si no hay número ni id' },
           observaciones: { type: 'string' },
         },
-        required: ['presupuesto_id'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'modificar_partidas_presupuesto',
+      description:
+        'Cambia, quita o añade PARTIDAS de un presupuesto ya guardado («quítale la mampara y pon 2 metros más de alicatado»). Localiza el presupuesto por numero, query (cliente) o presupuesto_id. Tú solo dices QUÉ cambia: el servidor recalcula base, IVA y total. Para una cantidad «más» usa sumar_cantidad; para un valor nuevo, cantidad. Nunca inventes un precio: si falta, pregúntalo. No sirve en presupuestos ya facturados.',
+      parameters: {
+        type: 'object',
+        properties: {
+          presupuesto_id: { type: 'string' },
+          numero: { type: 'string', description: 'Número del presupuesto tal como lo dice el usuario: «3», «el 3», «nº 3». Es el número de presupuesto del negocio, no un id.' },
+          query: { type: 'string', description: 'Nombre del cliente si no hay número ni id' },
+          quitar: { type: 'array', items: { type: 'string' }, description: 'Fragmentos del concepto de las partidas a quitar (p. ej. «mampara»)' },
+          cambiar: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                partida: { type: 'string', description: 'Fragmento del concepto de la partida (p. ej. «alicatado»)' },
+                cantidad: { type: 'number', description: 'Cantidad NUEVA (sustituye a la actual)' },
+                sumar_cantidad: { type: 'number', description: 'Cantidad a SUMAR a la actual («2 metros más» → 2)' },
+                precio_unitario: { type: 'number', description: 'Precio unitario nuevo, sin IVA' },
+                concepto: { type: 'string', description: 'Nuevo texto de la partida' },
+              },
+              required: ['partida'],
+              additionalProperties: false,
+            },
+          },
+          anadir: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                concepto: { type: 'string' },
+                cantidad: { type: 'number' },
+                precio_unitario: { type: 'number', description: 'Sin IVA. Si el usuario no lo dijo, pregúntaselo' },
+                capitulo: { type: 'string' },
+              },
+              required: ['concepto', 'cantidad'],
+              additionalProperties: false,
+            },
+          },
+          iva_porcentaje: { type: 'number', description: 'Solo si el usuario cambia el IVA (entero 0-100)' },
+          solo_vista_previa: {
+            type: 'boolean',
+            description: 'true = solo calcula y enseña el antes/después sin guardar (el servidor pide la confirmación por su cuenta)',
+          },
+        },
         additionalProperties: false,
       },
     },
@@ -259,7 +318,7 @@ export const PRESUPUESTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
     function: {
       name: 'iniciar_borrador_presupuesto',
       description:
-        'Inicia un borrador conversacional de presupuesto NUEVO. Solo si Pino pide explícitamente crear/hacer un presupuesto. PROHIBIDO en consultas («qué obras tengo abiertas») o para añadir a un presupuesto existente. Solo uno activo por usuario y negocio.',
+        'Inicia un borrador conversacional de presupuesto NUEVO. Solo si el usuario pide explícitamente crear/hacer un presupuesto. PROHIBIDO en consultas («qué obras tengo abiertas») o para añadir a un presupuesto existente. Solo uno activo por usuario y negocio.',
       parameters: {
         type: 'object',
         properties: {
@@ -278,7 +337,7 @@ export const PRESUPUESTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
     function: {
       name: 'agregar_partida_borrador',
       description:
-        'Añade una partida a un borrador YA existente. Si Pino habla del presupuesto de un cliente, pasa cliente_nombre: se busca el cliente/presupuesto real. Si no existe, falla (ok:false) y NO crea cliente ni presupuesto ni borrador. Si precio_unitario es 0, intenta resolver con tarifas + GPT o pide precio.',
+        'Añade una partida a un borrador YA existente. Si el usuario habla del presupuesto de un cliente, pasa cliente_nombre: se busca el cliente/presupuesto real. Si no existe, falla (ok:false) y NO crea cliente ni presupuesto ni borrador. Si precio_unitario es 0, intenta resolver con tarifas + GPT o pide precio.',
       parameters: {
         type: 'object',
         properties: {
@@ -440,7 +499,7 @@ async function resolverBorradorIdActivo(
   const rowActivo = await obtenerBorradorActivoRow(supabase, businessId, userId);
   const activeId = rowActivo && String(rowActivo.id ?? '').trim();
   if (activeId) return { ok: true, id: activeId };
-  return { ok: false, error: 'No encuentro ningún presupuesto a medio hacer, Pino' };
+  return { ok: false, error: 'No encuentro ningún presupuesto a medio hacer' };
 }
 
 async function buscarTarifasCandidatas(
@@ -522,17 +581,19 @@ async function resolverIdPresupuestoExistente(
 ): Promise<{ ok: true; id: string } | { ok: false; error: string; necesita_aclaracion?: true; candidatos?: Array<{ id: string; etiqueta: string }> }> {
   const id = String(toolArgs.id ?? toolArgs.presupuesto_id ?? '').trim();
   const query = String(toolArgs.query ?? '').trim();
+  const numero = parseNumeroDocumento(toolArgs.numero);
   const etiqueta = query || extraerNombreClienteDePeticionPresupuesto(mensajeUsuario);
   const resolved = await resolverPresupuestosPorTexto(supabase, businessId, {
     id: id || undefined,
-    clienteNombre: id ? undefined : etiqueta || undefined,
+    numero: id ? undefined : numero,
+    clienteNombre: id || numero != null ? undefined : etiqueta || undefined,
   });
-  if (id && resolved.status === 'none') {
+  if ((id || numero != null) && resolved.status === 'none') {
     return failClosed(
       'No se encontró el presupuesto o no pertenece a este negocio. No he modificado nada.'
     );
   }
-  const mapped = toolFailDesdePresupuestoResolve(resolved, etiqueta || id || 'ese presupuesto');
+  const mapped = toolFailDesdePresupuestoResolve(resolved, etiqueta || id || (numero != null ? `nº ${numero}` : 'ese presupuesto'));
   if (!mapped.ok) return mapped;
   return { ok: true, id: mapped.match.id };
 }
@@ -736,12 +797,8 @@ export async function handlePresupuestos(
       };
     }
     case 'cambiar_estado_presupuesto': {
-      const estado = parseEstadoDoc(toolArgs.estado);
-      if (!estado) {
-        return failClosed(
-          'estado inválido; use uno de: pendiente, aceptado, rechazado, facturado, pagado'
-        );
-      }
+      const estado = parseEstadoPresupuesto(toolArgs.estado);
+      if (!estado) return failClosed(MENSAJE_ESTADO_PRESUPUESTO);
       const loc = await resolverIdPresupuestoExistente(
         supabase,
         businessId,
@@ -851,10 +908,11 @@ export async function handlePresupuestos(
     }
 
     case 'convertir_presupuesto_a_albaran': {
-      const presupuestoId = String(toolArgs.presupuesto_id ?? '').trim();
       const observaciones =
         toolArgs.observaciones != null ? String(toolArgs.observaciones).trim() : '';
-      if (!presupuestoId) return { error: 'presupuesto_id es obligatorio' };
+      const locAlb = await resolverIdPresupuestoExistente(supabase, businessId, toolArgs, mensajeUsuario);
+      if (!locAlb.ok) return locAlb;
+      const presupuestoId = locAlb.id;
 
       const { data: pRow, error: pErr } = await supabase
         .from('presupuestos')
@@ -936,6 +994,29 @@ export async function handlePresupuestos(
           ? `Ese presupuesto ya tenía la factura nº ${r.numero_factura}.`
           : `Factura nº ${r.numero_factura} creada para ${r.cliente_nombre ?? 'el cliente'} (${r.total} €).`,
       };
+    }
+    case 'modificar_partidas_presupuesto': {
+      const loc = await resolverIdPresupuestoExistente(supabase, businessId, toolArgs, mensajeUsuario);
+      if (!loc.ok) return loc;
+      const cambios: CambiosPartidas = {
+        quitar: Array.isArray(toolArgs.quitar) ? toolArgs.quitar.map(String) : undefined,
+        cambiar: Array.isArray(toolArgs.cambiar) ? (toolArgs.cambiar as CambiosPartidas['cambiar']) : undefined,
+        anadir: Array.isArray(toolArgs.anadir) ? (toolArgs.anadir as CambiosPartidas['anadir']) : undefined,
+        iva_porcentaje: toolArgs.iva_porcentaje === undefined ? undefined : Number(toolArgs.iva_porcentaje),
+      };
+      const soloVista = toolArgs.solo_vista_previa === true || String(toolArgs.solo_vista_previa ?? '').toLowerCase() === 'true';
+      const r = await modificarPartidasPresupuesto(supabase, businessId, loc.id, cambios, { aplicar: !soloVista });
+      if (!r.ok) return r.necesita_aclaracion ? pedirAclaracion(r.error, r.candidatos ?? []) : failClosed(r.error);
+      const quien = `${r.numero != null ? `nº ${r.numero} de ` : ''}${r.cliente ?? 'sin cliente'}`;
+      const totales = `Total con IVA: ${fmtImporteLinea(r.total_anterior ?? 0)} € → ${fmtImporteLinea(r.total_nuevo)} €.`;
+      if (soloVista) {
+        return {
+          mensaje: `Voy a cambiar el presupuesto ${quien}: ${r.cambios.join('; ')}. ${totales}`,
+          pendiente_confirmacion: true,
+          presupuesto_id: r.presupuesto_id,
+        };
+      }
+      return { ok: true, id: r.presupuesto_id, mensaje: `Presupuesto ${quien} actualizado: ${r.cambios.join('; ')}. ${totales}` };
     }
     case 'iniciar_borrador_presupuesto': {
       if (!userId) return failClosed('Usuario no autenticado.');

@@ -27,7 +27,7 @@ export const GASTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = 
           proveedor: { type: 'string', description: 'Nombre del comercio o proveedor' },
           importe: {
             type: 'number',
-            description: 'Importe sin IVA (base imponible)',
+            description: 'Importe sin IVA (base imponible). Si el usuario dijo una cifra a secas, es el TOTAL con IVA: calcula la base = total / 1,21',
           },
           iva: { type: 'number', description: 'Cuantía del IVA en la misma moneda' },
           importe_total: { type: 'number', description: 'Total con IVA' },
@@ -174,6 +174,7 @@ IDENTIDAD Y ROL:
 - Si el usuario cambia de tema drásticamente hacia agenda, operarios, presupuestos u obras, informa de que cierras el flujo de gastos y delega la respuesta al orquestador.
 
 REGLAS DE REGISTRO (registrar_gasto_ticket):
+- IVA: el importe que dice el usuario («85 de material») es el TOTAL con IVA incluido, salvo que diga «más IVA» / «+ IVA» / «sin IVA». Con IVA incluido, tú pasas importe_total = lo dicho y calculas importe (base) = total / 1,21 e iva = total − base (21 % si no dice otro tipo; 0 si el ticket no lleva IVA). Con «más IVA», lo dicho es la base y el total lo sumas tú. Nunca trates un importe dicho a secas como base.
 - Antes de registrar, verifica que tienes: proveedor, importe, IVA, importe_total y fecha. Si falta alguno, pregunta.
 - Validación de importes: verifica que importe + IVA ≈ importe_total. Permite un margen de error de +/- 0.05€ para ajustes de redondeo. Si la diferencia es mayor de 0.05€, detente e informa al usuario antes de guardar.
 - Anti-duplicados obligatorio: antes de insertar, comprueba si ya existe un gasto con el mismo proveedor + fecha + importe_total. Si existe, informa al usuario y no insertes.
