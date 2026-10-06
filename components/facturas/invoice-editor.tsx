@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import type { EmpresaEmisor } from '@/lib/pdf/empresa';
+import { IVA_PORCENTAJES_PERMITIDOS, ivaPorcentajeDeFactura } from '@/lib/facturas/iva';
 
 const NAVY = '#1a365d';
 const PERFILIO_LINEAS_MARKER = '__PERFILIO_LINEAS_JSON__\n';
@@ -153,16 +154,12 @@ function fmtEuroEs(n: number): string {
   }).format(n);
 }
 
-/** IVA entre los que acepta el servidor (lib/facturas/editar.ts). */
-export const IVA_OPCIONES = [0, 4, 10, 21] as const;
+/** IVA entre los que acepta el servidor (lib/facturas/iva.ts). */
+export const IVA_OPCIONES = IVA_PORCENTAJES_PERMITIDOS;
 
-/** % de IVA que ya tiene la factura (iva / base); 21 si no se puede saber o no es uno de los permitidos. */
+/** % de IVA que ya tiene la factura (iva / base), ajustado al permitido más cercano; 21 si no se sabe. */
 export function ivaPorcentajeInicial(f: Pick<FacturaEditorSource, 'base_imponible' | 'iva'>): number {
-  const base = Number(f.base_imponible);
-  const iva = Number(f.iva);
-  if (!Number.isFinite(base) || !Number.isFinite(iva) || base <= 0) return 21;
-  const pct = Math.round((iva / base) * 100);
-  return (IVA_OPCIONES as readonly number[]).includes(pct) ? pct : 21;
+  return ivaPorcentajeDeFactura(f.base_imponible, f.iva);
 }
 
 /** Lo que se manda al servidor: solo cantidades, precios e IVA. Los importes los calcula él. */

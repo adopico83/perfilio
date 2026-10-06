@@ -9,6 +9,7 @@ import { useObraModal } from '@/contexts/obra-modal-context';
 import { type ObrasNombreJoin, nombreObraDesdeJoin } from '@/lib/obras-nombre-join';
 import { useDemoTenant } from '@/lib/use-demo-tenant';
 import { DEMO_EMPRESA_EMISOR, DEMO_MOCK_ENABLED, getDemoFacturas } from '@/lib/demo-data';
+import { ivaPorcentajeDeFactura } from '@/lib/facturas/iva';
 import {
   InvoiceEditor,
   type InvoiceEditorSavePayload,
@@ -40,13 +41,12 @@ interface Factura {
   obras?: ObrasNombreJoin;
 }
 
-/** «21%», «10%»… calculado como iva / base imponible (no fijo). «—» si no se puede calcular. */
+/** «21%», «10%»… el IVA de la factura (iva / base imponible) ajustado a 0/4/10/21. «—» si no se puede calcular. */
 function porcentajeIvaTexto(f: Pick<Factura, 'iva' | 'base_imponible'>): string {
   const base = Number(f.base_imponible);
   const iva = Number(f.iva);
   if (!Number.isFinite(base) || !Number.isFinite(iva) || base <= 0) return '—';
-  const pct = Math.round((iva / base) * 1000) / 10;
-  return `${String(pct).replace('.', ',')}%`;
+  return `${ivaPorcentajeDeFactura(base, iva)}%`;
 }
 
 export default function FacturasPage() {

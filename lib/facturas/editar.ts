@@ -2,9 +2,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import * as z from 'zod/v4';
 import type { LineaFactura } from '@/lib/facturas/desde-presupuesto';
 
-/** IVA que se puede elegir al editar una factura. */
-export const IVA_PORCENTAJES_PERMITIDOS = [0, 4, 10, 21] as const;
-const IVA_POR_DEFECTO = 21;
+import { IVA_PORCENTAJES_PERMITIDOS, ivaPorcentajeDeFactura } from '@/lib/facturas/iva';
+
+// Se re-exportan aquí porque es de donde las importa el resto del código.
+export { IVA_PORCENTAJES_PERMITIDOS, ivaPermitidoMasCercano } from '@/lib/facturas/iva';
 
 const redondear = (n: number) => Math.round(n * 100) / 100;
 
@@ -111,16 +112,13 @@ export async function actualizarFactura(
     };
   }
 
-  // Sin iva_porcentaje se conserva el que ya tenía la factura (iva / base), o 21 si no se puede saber.
-  let pct = datos.iva_porcentaje;
-  if (pct === undefined) {
-    const baseActual = Number((actual as { base_imponible?: unknown }).base_imponible);
-    const ivaActual = Number((actual as { iva?: unknown }).iva);
-    pct =
-      Number.isFinite(baseActual) && Number.isFinite(ivaActual) && baseActual > 0
-        ? Math.round((ivaActual / baseActual) * 1000) / 10
-        : IVA_POR_DEFECTO;
-  }
+  // Sin iva_porcentaje se conserva el que ya tenía la factura (iva / base, ajustado a 0/4/10/21).
+  const pct =
+    datos.iva_porcentaje ??
+    ivaPorcentajeDeFactura(
+      (actual as { base_imponible?: unknown }).base_imponible,
+      (actual as { iva?: unknown }).iva
+    );
 
   const lineas: LineaFactura[] = datos.lineas.map((l) => ({
     descripcion: l.descripcion,
@@ -146,12 +144,25 @@ export async function actualizarFactura(
     })
     .eq('id', facturaId)
     .eq('business_id', businessId)
+    // Solo si SIGUE pendiente: entre la lectura y la escritura otra petición pudo marcarla pagada.
+    .eq('estado', 'pendiente')
     .select(
       'id, business_id, numero_factura, cliente_nombre, descripcion_trabajos, lineas, base_imponible, iva, total, estado'
     )
     .maybeSingle();
   if (errGuardar) return { ok: false, code: 'error', error: errGuardar.message };
-  if (!guardada) return { ok: false, code: 'no_encontrada', error: 'Factura no encontrada' };
+  if (!guardada) {
+    // Ninguna fila cambió: o ya no es pendiente (cambió a mitad) o ya no existe.
+    const { data: ahora } = await supabase
+      .from('facturas')
+      .select('estado')
+      .eq('id', facturaId)
+      .eq('business_id', businessId)
+      .maybeSingle();
+    if (!ahora) return { ok: false, code: 'no_encontrada', error: 'Factura no encontrada' };
+    const est = (ahora as { estado?: string | null }).estado ?? 'pendiente';
+    return { ok: false, code: 'no_editable', error: `Solo se pueden editar facturas pendientes; esta está «${est}».` };
+  }
 
   return { ok: true, factura: guardada as unknown as FacturaEditada };
 }
