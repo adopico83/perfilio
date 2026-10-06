@@ -35,6 +35,12 @@ export const IDS = {
   albaran12: 'aaaaaaaa-2222-4000-8000-000000000012',
   albaran12Ajeno: 'bbbbbbbb-2222-4000-8000-000000000012',
   albaran14Facturado: 'aaaaaaaa-2222-4000-8000-000000000014',
+  clienteMikelEtxeberria: 'cli-mikel-etxeberria',
+  clienteAinhoaEtxeberria: 'cli-ainhoa-etxeberria',
+  clienteAmaiaEtxeberria: 'cli-amaia-etxeberria',
+  obraMikelEtxeberria: 'obra-mikel-etxeberria',
+  presupuestoMikelBorrador: 'aaaaaaaa-0000-4000-8000-000000000010',
+  presupuestoAinhoaPendiente: 'aaaaaaaa-0000-4000-8000-000000000011',
 } as const;
 
 /** Líneas del presupuesto nº 7 (formato de `presupuesto_generado`): hacen falta para poder facturarlo. */
@@ -43,6 +49,15 @@ const TEXTO_PRESUPUESTO = [
   '1. Alicatado de paredes | Cantidad: 12 | Precio: 40,00 € | Importe: 480,00 €',
   'TOTAL BAÑO: 480,00 €',
   'BASE IMPONIBLE: 480,00 € | IVA (21%): 100,80 € | TOTAL: 580,80 €',
+].join('\n');
+
+/** Presupuesto nº 10 de Mikel Etxeberria: lo que dicta el reformista (mampara + alicatado). */
+const TEXTO_PRESUPUESTO_MIKEL = [
+  'CAPÍTULO BAÑO',
+  '1. Alicatado de paredes | Cantidad: 10 | Precio: 40,00 € | Importe: 400,00 €',
+  '2. Mampara de ducha | Cantidad: 1 | Precio: 350,00 € | Importe: 350,00 €',
+  'TOTAL BAÑO: 750,00 €',
+  'BASE IMPONIBLE: 750,00 € | IVA (21%): 157,50 € | TOTAL: 907,50 €',
 ].join('\n');
 
 const perfil = (id: string, nombre: string): Fila => ({
@@ -64,6 +79,10 @@ export function crearBaseSimulada(): Record<string, Fila[]> {
       { id: IDS.clientePaqui, business_id: NEGOCIO_A, nombre: 'Paqui', nif: '12345678Z', direccion: 'Calle Mayor 1, Irún', telefono: '600111222' },
       { id: IDS.clienteGarciaNorte, business_id: NEGOCIO_A, nombre: 'García Norte', nif: 'B11111111', direccion: 'Calle Norte 2', telefono: null },
       { id: IDS.clienteGarciaSur, business_id: NEGOCIO_A, nombre: 'García Sur', nif: 'B22222222', direccion: 'Calle Sur 3', telefono: null },
+      // Tres Etxeberria: «Mikel Etxeberria» NUNCA puede acabar siendo Ainhoa ni Amaia (comparten apellido).
+      { id: IDS.clienteMikelEtxeberria, business_id: NEGOCIO_A, nombre: 'Mikel Etxeberria', nif: '33333333A', direccion: 'Calle Mikel 3, Irún', telefono: '611000333' },
+      { id: IDS.clienteAinhoaEtxeberria, business_id: NEGOCIO_A, nombre: 'Ainhoa Etxeberria', nif: '44444444B', direccion: 'Calle Ainhoa 4', telefono: '622000444' },
+      { id: IDS.clienteAmaiaEtxeberria, business_id: NEGOCIO_A, nombre: 'Amaia Etxeberria', nif: '55555555C', direccion: 'Calle Amaia 5', telefono: '633000555' },
       { id: 'cli-b-lola', business_id: NEGOCIO_B, nombre: 'Lola Ajena', nif: 'B99999999', direccion: 'Calle Ajena 9', telefono: null },
     ],
     obras: [
@@ -73,6 +92,7 @@ export function crearBaseSimulada(): Record<string, Fila[]> {
       // Dos obras con «baño» (la frase «la obra del baño» es ambigua a propósito).
       { id: IDS.obraBanoNorte, business_id: NEGOCIO_A, nombre: 'Reforma baño Norte', direccion: 'Calle Norte 2', estado: 'abierta', cliente_id: null, created_at: '2026-04-04T10:00:00Z' },
       { id: IDS.obraBanoSur, business_id: NEGOCIO_A, nombre: 'Reforma baño Sur', direccion: 'Calle Sur 3', estado: 'abierta', cliente_id: null, created_at: '2026-04-05T10:00:00Z' },
+      { id: IDS.obraMikelEtxeberria, business_id: NEGOCIO_A, nombre: 'Reforma baño Mikel Etxeberria', direccion: 'Calle Mikel 3, Irún', estado: 'en_curso', cliente_id: IDS.clienteMikelEtxeberria, created_at: '2026-04-06T10:00:00Z' },
       { id: IDS.obraPaquiAjena, business_id: NEGOCIO_B, nombre: 'Reforma Paqui', direccion: 'Otra calle 5', estado: 'en_curso', cliente_id: null, created_at: '2026-04-01T10:00:00Z' },
     ],
     operarios: [
@@ -84,6 +104,9 @@ export function crearBaseSimulada(): Record<string, Fila[]> {
       { id: IDS.presupuesto7, business_id: NEGOCIO_A, numero_presupuesto: 7, cliente_nombre: 'Paqui', cliente_id: IDS.clientePaqui, obra_id: IDS.obraPaqui, estado: 'aceptado', importe_total: 8871, fecha: '2026-04-10', created_at: '2026-04-10T10:00:00Z', presupuesto_generado: TEXTO_PRESUPUESTO },
       { id: IDS.presupuestoGarciaNorte, business_id: NEGOCIO_A, numero_presupuesto: 8, cliente_nombre: 'García Norte', cliente_id: IDS.clienteGarciaNorte, obra_id: null, estado: 'aceptado', importe_total: 1200, fecha: '2026-04-12', created_at: '2026-04-12T10:00:00Z', presupuesto_generado: '' },
       { id: IDS.presupuestoGarciaSur, business_id: NEGOCIO_A, numero_presupuesto: 9, cliente_nombre: 'García Sur', cliente_id: IDS.clienteGarciaSur, obra_id: null, estado: 'aceptado', importe_total: 3400, fecha: '2026-04-14', created_at: '2026-04-14T10:00:00Z', presupuesto_generado: '' },
+      // Nº 10: dictado y guardado como «borrador» (así lo deja el dictado); nº 11: de otra Etxeberria.
+      { id: IDS.presupuestoMikelBorrador, business_id: NEGOCIO_A, numero_presupuesto: 10, cliente_nombre: 'Mikel Etxeberria', cliente_id: IDS.clienteMikelEtxeberria, obra_id: IDS.obraMikelEtxeberria, estado: 'borrador', importe_total: 907.5, fecha: '2026-10-05', created_at: '2026-10-05T10:00:00Z', presupuesto_generado: TEXTO_PRESUPUESTO_MIKEL },
+      { id: IDS.presupuestoAinhoaPendiente, business_id: NEGOCIO_A, numero_presupuesto: 11, cliente_nombre: 'Ainhoa Etxeberria', cliente_id: IDS.clienteAinhoaEtxeberria, obra_id: null, estado: 'pendiente', importe_total: 600, fecha: '2026-10-05', created_at: '2026-10-05T11:00:00Z', presupuesto_generado: TEXTO_PRESUPUESTO_MIKEL },
       // Mismo número 7 en OTRO negocio: nunca debe resolverse desde el negocio A.
       { id: IDS.presupuesto7Ajeno, business_id: NEGOCIO_B, numero_presupuesto: 7, cliente_nombre: 'Lola Ajena', cliente_id: 'cli-b-lola', obra_id: null, estado: 'aceptado', importe_total: 500, fecha: '2026-04-10', created_at: '2026-04-10T10:00:00Z', presupuesto_generado: '' },
     ],
@@ -96,7 +119,9 @@ export function crearBaseSimulada(): Record<string, Fila[]> {
     ],
     presupuesto_borrador_items: [],
     presupuesto_previews: [],
-    agenda: [],
+    agenda: [
+      { id: 'ev-mikel', business_id: NEGOCIO_A, titulo: 'Cita con Mikel Etxeberria', fecha: '2026-10-13', hora: '10:30' },
+    ],
     memoria_negocio: [],
     diario_obra: [],
     registros_jornada: [],

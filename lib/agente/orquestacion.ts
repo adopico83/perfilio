@@ -51,7 +51,7 @@ export function pareceAccionQueRequiereTool(mensaje: string): boolean {
  * modelo responde así SIN llamar a ninguna tool, el usuario se queda esperando algo que no va a llegar.
  */
 const PROMESA_SIN_HACER =
-  /\b(voy a (comprobar|mirar|revisar|buscar|consultar|ver|verificar|apuntar|crear|preparar|registrar)|un momento|un segundo|d[eé]jame (ver|mirar|comprobar|revisar|buscar)|ahora (mismo )?(compruebo|miro|reviso|busco)|enseguida)\b/i;
+  /(?:\b(?:voy a (?:comprobar|mirar|revisar|buscar|consultar|ver|verificar|apuntar|crear|preparar|registrar)|un momento|un segundo|d[eé]jame (?:ver|mirar|comprobar|revisar|buscar)|ahora (?:mismo )?(?:compruebo|miro|reviso|busco)|enseguida)\b|¿(?:lo hago|procedo|lo creo|lo registro|lo apunto|lo anoto|lo guardo|te lo (?:creo|registro|apunto|anoto|guardo))\s*\?)/i;
 
 export function prometeSinHacer(texto: string): boolean {
   const t = texto.trim();

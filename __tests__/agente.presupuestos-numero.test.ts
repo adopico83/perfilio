@@ -47,7 +47,7 @@ describe('presupuestos por número', () => {
   it('listar_presupuestos trae numero_presupuesto', async () => {
     const db = crearFakeDb(crearBaseSimulada());
     const r = (await presupuestos(db, 'listar_presupuestos', {})) as { items: Array<{ numero_presupuesto: number | null }> };
-    expect(r.items.map((i) => i.numero_presupuesto).sort()).toEqual([7, 8, 9]);
+    expect(r.items.map((i) => i.numero_presupuesto as number).sort((a, b) => a - b)).toEqual([7, 8, 9, 10, 11]);
   });
   it('convertir_presupuesto_a_factura por número crea la factura del presupuesto correcto, numerada por negocio', async () => {
     const db = crearFakeDb(crearBaseSimulada());

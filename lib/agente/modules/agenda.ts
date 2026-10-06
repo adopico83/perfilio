@@ -2,6 +2,7 @@ import { cargarResumenDia } from '@/lib/resumen-diario/datos';
 import { textoResumen } from '@/lib/resumen-diario/calcular';
 import type OpenAI from 'openai';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { normalizarNombreComparable, pedirAclaracion } from '@/lib/agente/modules/grounding';
 
 /** Normaliza hora dictada o en texto libre a HH:MM cuando es posible. */
 function normalizeHora(raw: string): string | null {
@@ -283,63 +284,185 @@ type ClienteMatch = {
   nif: string | null;
 };
 
+type ObraMatch = { id: string; nombre: string; direccion: string | null; cliente_id?: string | null };
+
+type ResolucionAgenda<T> =
+  | { status: 'one'; match: T }
+  | { status: 'none' }
+  | { status: 'many'; candidatos: T[] };
+
+const PALABRAS_RELLENO_NOMBRE = new Set(['con', 'del', 'las', 'los', 'una', 'para', 'por']);
+
+function palabrasNombre(s: string): string[] {
+  return normalizarNombreComparable(s)
+    .split(/[^a-z0-9ñ]+/)
+    .filter((w) => w.length >= 3 && !PALABRAS_RELLENO_NOMBRE.has(w));
+}
+
+/**
+ * ¿El nombre guardado (cliente u obra) es el que se está nombrando?
+ * - Todas las palabras del nombre guardado salen en el texto («Cita con Mikel
+ *   Etxeberria» → «Mikel Etxeberria» sí, «Ainhoa Etxeberria» no), o
+ * - se ha dicho un nombre explícito y todas sus palabras están en el guardado
+ *   («Mikel» → «Mikel Etxeberria»; si hay dos Mikel, saldrán los dos y se pregunta).
+ * Compartir solo el apellido NUNCA basta.
+ */
+function nombreCoincide(guardado: string, texto: string, textoEsNombreExplicito: boolean): boolean {
+  const g = palabrasNombre(guardado);
+  const t = new Set(palabrasNombre(texto));
+  if (g.length === 0 || t.size === 0) return false;
+  if (g.every((w) => t.has(w))) return true;
+  return textoEsNombreExplicito && [...t].every((w) => g.includes(w));
+}
+
+function preguntaNumerada(tipo: string, cands: Array<{ etiqueta: string }>, cierre: string): string {
+  const lista = cands.slice(0, 8).map((c, i) => `${i + 1}. ${c.etiqueta}`).join('\n');
+  return `Hay varios ${tipo} que encajan. ¿Cuál es? ${cierre}\n${lista}`;
+}
+
+function tokensBusqueda(texto: string): string[] {
+  return [...new Set(palabrasNombre(texto))]
+    .map((t) => escapeIlike(t))
+    .filter((t) => t.length >= 3)
+    .sort((a, b) => b.length - a.length);
+}
+
+/** Si hay una coincidencia exacta de nombre, gana; si no, se queda con lo que quede. */
+function colapsarPorNombre<T extends { id: string; nombre: string }>(
+  filas: T[],
+  texto: string
+): ResolucionAgenda<T> {
+  if (filas.length === 0) return { status: 'none' };
+  if (filas.length === 1) return { status: 'one', match: filas[0]! };
+  const nt = normalizarNombreComparable(texto);
+  const exactos = filas.filter((f) => normalizarNombreComparable(f.nombre) === nt);
+  if (exactos.length === 1) return { status: 'one', match: exactos[0]! };
+  return { status: 'many', candidatos: filas };
+}
+
+async function buscarClientePorId(
+  supabase: SupabaseClient,
+  businessId: string,
+  id: string
+): Promise<ClienteMatch | null> {
+  const { data, error } = await supabase
+    .from('clientes')
+    .select('id, nombre, telefono, direccion, nif')
+    .eq('business_id', businessId)
+    .eq('id', id)
+    .maybeSingle();
+  if (error || !data?.id) return null;
+  return data as ClienteMatch;
+}
+
+async function buscarObraPorId(
+  supabase: SupabaseClient,
+  businessId: string,
+  id: string
+): Promise<ObraMatch | null> {
+  const { data, error } = await supabase
+    .from('obras')
+    .select('id, nombre, direccion, cliente_id')
+    .eq('business_id', businessId)
+    .eq('id', id)
+    .maybeSingle();
+  if (error || !data?.id) return null;
+  return data as ObraMatch;
+}
+
 async function buscarClientePorTitulo(
   supabase: SupabaseClient,
   businessId: string,
-  titulo: string
-): Promise<ClienteMatch | null> {
-  const tokens = titulo
-    .split(/[\s,;:|/\\-]+/)
-    .map((t) => escapeIlike(t))
-    .filter((t) => t.length >= 4)
-    .sort((a, b) => b.length - a.length);
-  const seen = new Set<string>();
-  for (const token of tokens) {
-    if (seen.has(token.toLowerCase())) continue;
-    seen.add(token.toLowerCase());
+  titulo: string,
+  nombreExplicito = false
+): Promise<ResolucionAgenda<ClienteMatch>> {
+  const vistos = new Map<string, ClienteMatch>();
+  for (const token of tokensBusqueda(titulo)) {
     const { data, error } = await supabase
       .from('clientes')
       .select('id, nombre, telefono, direccion, nif')
       .eq('business_id', businessId)
       .ilike('nombre', `%${token}%`)
       .order('nombre', { ascending: true })
-      .limit(1);
-    if (error || !data?.[0]) continue;
-    const r = data[0] as ClienteMatch;
-    if (r?.id) return r;
+      .limit(20);
+    if (error) continue;
+    for (const r of (data ?? []) as ClienteMatch[]) {
+      if (r?.id && !vistos.has(r.id)) vistos.set(r.id, r);
+    }
   }
-  return null;
+  const filas = [...vistos.values()].filter((c) => nombreCoincide(c.nombre ?? '', titulo, nombreExplicito));
+  return colapsarPorNombre(filas, titulo);
 }
-
-type ObraMatch = { id: string; nombre: string; direccion: string | null };
 
 async function buscarObraPorTitulo(
   supabase: SupabaseClient,
   businessId: string,
-  titulo: string
-): Promise<ObraMatch | null> {
-  const tokens = titulo
-    .split(/[\s,;:|/\\-]+/)
-    .map((t) => escapeIlike(t))
-    .filter((t) => t.length >= 4)
-    .sort((a, b) => b.length - a.length);
-  const seen = new Set<string>();
-  for (const token of tokens) {
-    if (seen.has(token.toLowerCase())) continue;
-    seen.add(token.toLowerCase());
+  titulo: string,
+  clienteId: string | null = null
+): Promise<ResolucionAgenda<ObraMatch>> {
+  const vistos = new Map<string, ObraMatch>();
+  for (const token of tokensBusqueda(titulo)) {
     const { data, error } = await supabase
       .from('obras')
-      .select('id, nombre, direccion')
+      .select('id, nombre, direccion, cliente_id')
       .eq('business_id', businessId)
       .in('estado', ['abierta', 'en_curso'])
       .ilike('nombre', `%${token}%`)
       .order('nombre', { ascending: true })
-      .limit(1);
-    if (error || !data?.[0]) continue;
-    const r = data[0] as ObraMatch;
-    if (r?.id) return r;
+      .limit(20);
+    if (error) continue;
+    for (const r of (data ?? []) as ObraMatch[]) {
+      if (r?.id && !vistos.has(r.id)) vistos.set(r.id, r);
+    }
   }
-  return null;
+  let filas = [...vistos.values()].filter((o) => nombreCoincide(o.nombre ?? '', titulo, false));
+  // Si ya sabemos de qué cliente hablamos, solo valen sus obras…
+  if (clienteId) filas = filas.filter((o) => !o.cliente_id || o.cliente_id === clienteId);
+  // …y si el título no nombra ninguna («cita con Mikel en la obra»), vale su única obra abierta.
+  if (clienteId && filas.length === 0) {
+    const { data, error } = await supabase
+      .from('obras')
+      .select('id, nombre, direccion, cliente_id')
+      .eq('business_id', businessId)
+      .eq('cliente_id', clienteId)
+      .in('estado', ['abierta', 'en_curso'])
+      .limit(5);
+    if (!error) filas = (data ?? []) as ObraMatch[];
+    return filas.length === 1 ? { status: 'one', match: filas[0]! } : { status: 'none' };
+  }
+  return colapsarPorNombre(filas, titulo);
+}
+
+/**
+ * Al mover una cita antigua (sin cliente_id/obra_id) la vinculamos si el título
+ * apunta a UN solo cliente. Es un extra: si falla (p. ej. migración sin aplicar)
+ * o hay dudas, no se toca nada.
+ */
+async function vincularEventoSiFalta(
+  supabase: SupabaseClient,
+  businessId: string,
+  eventoId: string,
+  titulo: string
+): Promise<void> {
+  try {
+    const { data, error } = await supabase
+      .from('agenda')
+      .select('cliente_id, obra_id')
+      .eq('id', eventoId)
+      .eq('business_id', businessId)
+      .maybeSingle();
+    if (error || !data) return;
+    const fila = data as { cliente_id?: string | null; obra_id?: string | null };
+    if (fila.cliente_id || fila.obra_id) return;
+    const rc = await buscarClientePorTitulo(supabase, businessId, titulo);
+    if (rc.status !== 'one') return;
+    const ro = await buscarObraPorTitulo(supabase, businessId, titulo, rc.match.id);
+    const cambios: { cliente_id: string; obra_id?: string } = { cliente_id: rc.match.id };
+    if (ro.status === 'one') cambios.obra_id = ro.match.id;
+    await supabase.from('agenda').update(cambios).eq('id', eventoId).eq('business_id', businessId);
+  } catch {
+    /* extra opcional */
+  }
 }
 
 async function ultimoEstadoPresupuestoObraOCliente(
@@ -500,6 +623,8 @@ export const AGENDA_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = 
             description: 'Nombre del cliente o contacto (alternativa: cliente_nombre)',
           },
           cliente_nombre: { type: 'string', description: 'Sinónimo de cliente' },
+          cliente_id: { type: 'string', description: 'UUID del cliente si ya lo conoces (evita buscar por nombre)' },
+          obra_id: { type: 'string', description: 'UUID de la obra si ya la conoces' },
           telefono: { type: 'string', description: 'Teléfono del cliente (alternativa: cliente_telefono)' },
           cliente_telefono: { type: 'string', description: 'Sinónimo de telefono' },
           direccion: {
@@ -849,14 +974,38 @@ export async function handleAgenda(
         }
       }
 
-      const needleClienteObra = [titulo, clienteNombreArg].filter(Boolean).join(' ').trim() || titulo;
-      const clienteMatch = await buscarClientePorTitulo(supabase, bid, needleClienteObra);
-      console.log('[agenda] buscarClientePorTitulo', {
-        encontrado: Boolean(clienteMatch),
-        cliente: clienteMatch,
-        needle: needleClienteObra,
-      });
-      const obraMatch = await buscarObraPorTitulo(supabase, bid, needleClienteObra);
+      const clienteIdArg = String(toolArgs.cliente_id ?? '').trim();
+      const obraIdArg = String(toolArgs.obra_id ?? '').trim();
+      const textoBusqueda = clienteNombreArg || titulo;
+
+      // Con id conocido no se busca por nombre. Sin id, deben coincidir TODAS las
+      // palabras del nombre; si hay varios candidatos se pregunta (nunca se adivina).
+      let clienteMatch: ClienteMatch | null = null;
+      if (clienteIdArg) {
+        clienteMatch = await buscarClientePorId(supabase, bid, clienteIdArg);
+      } else {
+        const rc = await buscarClientePorTitulo(supabase, bid, textoBusqueda, Boolean(clienteNombreArg));
+        if (rc.status === 'many') {
+          const cands = rc.candidatos.map((c) => ({ id: c.id, etiqueta: c.nombre }));
+          return pedirAclaracion(preguntaNumerada('clientes', cands, 'No he guardado nada.'), cands);
+        }
+        if (rc.status === 'one') clienteMatch = rc.match;
+      }
+
+      let obraMatch: ObraMatch | null = null;
+      if (obraIdArg) {
+        obraMatch = await buscarObraPorId(supabase, bid, obraIdArg);
+      } else {
+        const ro = await buscarObraPorTitulo(supabase, bid, [titulo, clienteNombreArg].filter(Boolean).join(' '), clienteMatch?.id ?? null);
+        if (ro.status === 'many') {
+          const cands = ro.candidatos.map((o) => ({ id: o.id, etiqueta: o.nombre }));
+          return pedirAclaracion(preguntaNumerada('obras', cands, 'No he guardado nada.'), cands);
+        }
+        if (ro.status === 'one') obraMatch = ro.match;
+      }
+      if (!clienteMatch && obraMatch?.cliente_id) {
+        clienteMatch = await buscarClientePorId(supabase, bid, obraMatch.cliente_id);
+      }
 
       const telefonoDesc =
         (telefonoArg ? telefonoArg : (clienteMatch?.telefono ?? '').trim()) || '—';
@@ -939,6 +1088,8 @@ export async function handleAgenda(
         minutos_antelacion: number;
         description: string;
         location: string | null;
+        cliente_id?: string;
+        obra_id?: string;
       } = {
         business_id: bid,
         titulo,
@@ -948,6 +1099,8 @@ export async function handleAgenda(
         location: locationFinal,
       };
       if (horaFinal) insertPayload.hora = horaFinal;
+      if (clienteMatch?.id) insertPayload.cliente_id = clienteMatch.id;
+      if (obraMatch?.id) insertPayload.obra_id = obraMatch.id;
 
       if (soloVistaCrear) {
         return {
@@ -963,11 +1116,23 @@ export async function handleAgenda(
 
       console.log('[agenda] crear_recordatorio descriptionFinal antes de insertar', descriptionFinal);
 
-      const { data: row, error } = await supabase
+      let { data: row, error } = await supabase
         .from('agenda')
         .insert(insertPayload)
         .select('id')
         .single();
+
+      // Mientras la migración de cliente_id/obra_id no esté aplicada, guardamos igual sin ellos.
+      if (error && /cliente_id|obra_id/i.test(error.message ?? '')) {
+        const { cliente_id: _c, obra_id: _o, ...sinVinculo } = insertPayload;
+        void _c;
+        void _o;
+        ({ data: row, error } = await supabase
+          .from('agenda')
+          .insert(sinVinculo)
+          .select('id')
+          .single());
+      }
 
       if (error || !row?.id) {
         return { error: error?.message ?? 'No se pudo crear el recordatorio' };
@@ -1289,23 +1454,23 @@ export async function handleAgenda(
           .limit(80);
         if (/^\d{4}-\d{2}-\d{2}$/.test(fechaBus)) qM = qM.eq('fecha', fechaBus);
         if (titFr) {
-          const st = titFr.replace(/[%_*]/g, '').slice(0, 200);
-          if (st) qM = qM.ilike('titulo', `%${st}%`);
+          // Todas las palabras del fragmento tienen que salir en el título.
+          for (const w of titFr.replace(/[%_*]/g, '').split(/\s+/).filter((x) => x.length >= 3).slice(0, 6)) {
+            qM = qM.ilike('titulo', `%${w}%`);
+          }
         }
         const { data: rowsM, error: errM } = await qM;
         if (errM) return { error: errM.message };
-        const listM = (rowsM ?? []) as Array<{ id: string }>;
+        const listM = (rowsM ?? []) as Array<{ id: string; titulo?: string | null; fecha?: string | null; hora?: string | null }>;
         if (listM.length === 0) {
           return { mensaje: 'No he encontrado ningún evento de agenda que coincida.' };
         }
         if (listM.length > 1) {
-          return {
-            mensaje: `Hay varios eventos que encajan. Indica evento_id.\n${listM
-              .slice(0, 15)
-              .map((e, i) => `${i + 1}. ${e.id}`)
-              .join('\n')}`,
-            candidatos: listM.map((e) => e.id),
-          };
+          const cands = listM.slice(0, 15).map((e) => ({
+            id: e.id,
+            etiqueta: `${e.titulo ?? 'Evento'} (${e.fecha ?? '—'}${e.hora ? ` ${e.hora}` : ''})`,
+          }));
+          return pedirAclaracion(preguntaNumerada('eventos', cands, 'No he cambiado nada.'), cands);
         }
         idEv = listM[0]!.id;
       }
@@ -1375,6 +1540,7 @@ export async function handleAgenda(
       if (!upEv?.id) {
         return { mensaje: 'No he encontrado ningún evento de agenda que coincida.' };
       }
+      await vincularEventoSiFalta(supabase, bid, idEv, titAct);
       return { mensaje: 'Evento de agenda actualizado.', ok: true, id: upEv.id as string };
     }
     default:

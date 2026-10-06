@@ -1018,7 +1018,7 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
         : intentCategory === 'diario'
           ? `${promptEspecialidad(DIARIO_AGENT_SYSTEM_PROMPT)}\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
           : intentCategory === 'agenda'
-            ? `Hoy es ${fechaHoyMadrid} en Irún, España.\n\n${promptEspecialidad(AGENDA_AGENT_SYSTEM_PROMPT)}\n\nFecha actual: ${fechaActual}. Fecha hoy en formato ISO: ${hoyYmd}. Mañana en formato ISO: ${mananaYmd}.\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
+            ? `Hoy es ${fechaHoyMadrid} (zona horaria de Madrid, España).\n\n${promptEspecialidad(AGENDA_AGENT_SYSTEM_PROMPT)}\n\nFecha actual: ${fechaActual}. Fecha hoy en formato ISO: ${hoyYmd}. Mañana en formato ISO: ${mananaYmd}.\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
             : intentCategory === 'operarios'
               ? `${promptEspecialidad(OPERARIOS_AGENT_SYSTEM_PROMPT)}\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
             : intentCategory === 'gastos'

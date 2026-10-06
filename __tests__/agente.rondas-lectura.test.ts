@@ -90,6 +90,9 @@ describe('«voy a comprobar» sin hacerlo', () => {
     for (const t of ['Un momento, voy a comprobar la agenda.', 'Déjame ver…', 'Voy a registrar las horas.', 'Ahora mismo miro.']) {
       expect(prometeSinHacer(t)).toBe(true);
     }
+    for (const t of ['Voy a crear el cliente Mikel. ¿Lo hago?', '¿Procedo?']) {
+      expect(prometeSinHacer(t)).toBe(true);
+    }
     for (const t of ['', 'Tienes 3 citas hoy: a las 10, a las 12 y a las 17.', 'Vale.', 'x'.repeat(300) + ' voy a comprobar']) {
       expect(prometeSinHacer(t)).toBe(false);
     }

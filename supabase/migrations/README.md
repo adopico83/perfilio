@@ -74,10 +74,12 @@ Además hay tablas creadas a mano sin migración (`facturas`, `presupuestos`, `a
 
 ## Pendientes de aplicar
 
-La del límite de uso de la IA (`20261009090000`) ya está aplicada (ver la tabla de equivalencias). La única pendiente es:
+La del límite de uso de la IA (`20261009090000`) ya está aplicada (ver la tabla de equivalencias). Las pendientes son:
 
 1. `20261010090000_ia_uso_limite_updated_at_idx.sql` — aditiva (índice en `ia_uso_limite(updated_at)` para que el
    borrado de filas viejas de `ia_registrar_uso` no recorra la tabla entera).
+2. `20261011090000_agenda_cliente_obra.sql` — aditiva (`agenda.cliente_id` y `agenda.obra_id`, nulas, con FK y
+   `on delete set null`). El agente funciona igual sin ella (si las columnas no existen, guarda la cita sin vínculo).
 
 ## Esquema de referencia
 

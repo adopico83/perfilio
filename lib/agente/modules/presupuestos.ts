@@ -92,10 +92,10 @@ REGLAS DE RESPUESTA:
 - REGLA CRÍTICA: Cada vez que el usuario dicte una partida, DEBES llamar a la tool agregar_partida_borrador. Está terminantemente prohibido confirmar una partida en el texto de respuesta si no has recibido el éxito de la ejecución de dicha tool. Sin TOOL RESULT con ok:true, no puedes decir Añadido.
 - REGLA ABSOLUTA: NUNCA respondas 'Añadido' ni confirmes una partida sin haber recibido un TOOL RESULT de agregar_partida_borrador con ok:true. Si no has llamado a la tool o no has recibido ok:true, NO confirmes la partida. Llama a la tool primero, espera el resultado, y solo entonces confirma. Si la tool devuelve ok:false o error, dilo; no narres éxito.
 - Sé extremadamente breve y directo. Formato obligatorio al añadir partida: 'Añadido: [descripción] ([total]€). ¿Siguiente?'
-- Nunca escribas párrafos largos. Pino escucha por voz.
+- Nunca escribas párrafos largos. el usuario escucha por voz.
 - Nunca inventes precios. Si no tienes el precio, pregunta: '¿A qué precio va [descripción]?'
 - CAPÍTULOS: Cuando el usuario mencione una zona o sección ("en el baño", "para la cocina", "en el pasillo", "habitación"), rellena siempre el campo capitulo de agregar_partida_borrador con el nombre de esa zona en mayúsculas (ej: CUARTO DE BAÑO, COCINA, PASILLO, HABITACIÓN). Mantén el mismo nombre de capítulo para todas las partidas de esa zona hasta que el usuario cambie de zona.
-- Siempre confirma cantidad y precio en cada partida para que Pino pueda corregir errores de voz.
+- Siempre confirma cantidad y precio en cada partida para que el usuario pueda corregir errores de voz.
 - CORRECCIONES: Si el usuario dice 'no, eran X euros', 'cámbialo a X', 'la partida Y vale Z' o similar, llama a modificar_partida_borrador con los datos corregidos. Confirma: 'Corregido: [descripción] ([nuevo total]€). ¿Seguimos?'
 
 MODO PRESUPUESTO ACTIVO:
@@ -106,12 +106,12 @@ Ejemplo de cierre: 'Presupuesto cancelado. Ya puedes preguntarme lo que necesite
 Esto devuelve el control al orquestador para el siguiente mensaje.
 
 AÑADIR A PRESUPUESTO EXISTENTE (fail-closed):
-- Si Pino dice «añade/pon una partida al presupuesto de [cliente]» (no pide crear uno nuevo): busca el cliente y el presupuesto reales (buscar_cliente / buscar_presupuesto). Pasa cliente_nombre en agregar_partida_borrador.
+- Si el usuario dice «añade/pon una partida al presupuesto de [cliente]» (no pide crear uno nuevo): busca el cliente y el presupuesto reales (buscar_cliente / buscar_presupuesto). Pasa cliente_nombre en agregar_partida_borrador.
 - 1 coincidencia: usa ese ID. Varias: pregunta en castellano cuál. Cero: di que no existe. PROHIBIDO iniciar_borrador, crear_cliente o inventar el presupuesto.
 - NUNCA uses iniciar_borrador_presupuesto como atajo para añadir a un presupuesto que debería existir.
 
 INICIAR BORRADOR (presupuesto NUEVO):
-- Solo cuando Pino pide crear o hacer un presupuesto nuevo («haz un presupuesto para…», «nuevo presupuesto»).
+- Solo cuando el usuario pide crear o hacer un presupuesto nuevo («haz un presupuesto para…», «nuevo presupuesto»).
 - PROHIBIDO iniciar_borrador si pregunta por obras abiertas, listados o cualquier consulta que no sea crear presupuesto. No uses un nombre de CLIENTES REGISTRADOS ni de OBRAS ABIERTAS como cliente_nombre si no lo ha pedido.
 - Llama a iniciar_borrador_presupuesto con cliente_nombre = el nombre tal y como lo dijo (texto libre; no hace falta ficha).
 - cliente_id es opcional: solo si da un UUID explícito. Si dice «presupuesto para [nombre]», [nombre] va entero como cliente_nombre.
@@ -318,7 +318,7 @@ export const PRESUPUESTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
     function: {
       name: 'iniciar_borrador_presupuesto',
       description:
-        'Inicia un borrador conversacional de presupuesto NUEVO. Solo si Pino pide explícitamente crear/hacer un presupuesto. PROHIBIDO en consultas («qué obras tengo abiertas») o para añadir a un presupuesto existente. Solo uno activo por usuario y negocio.',
+        'Inicia un borrador conversacional de presupuesto NUEVO. Solo si el usuario pide explícitamente crear/hacer un presupuesto. PROHIBIDO en consultas («qué obras tengo abiertas») o para añadir a un presupuesto existente. Solo uno activo por usuario y negocio.',
       parameters: {
         type: 'object',
         properties: {
@@ -337,7 +337,7 @@ export const PRESUPUESTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
     function: {
       name: 'agregar_partida_borrador',
       description:
-        'Añade una partida a un borrador YA existente. Si Pino habla del presupuesto de un cliente, pasa cliente_nombre: se busca el cliente/presupuesto real. Si no existe, falla (ok:false) y NO crea cliente ni presupuesto ni borrador. Si precio_unitario es 0, intenta resolver con tarifas + GPT o pide precio.',
+        'Añade una partida a un borrador YA existente. Si el usuario habla del presupuesto de un cliente, pasa cliente_nombre: se busca el cliente/presupuesto real. Si no existe, falla (ok:false) y NO crea cliente ni presupuesto ni borrador. Si precio_unitario es 0, intenta resolver con tarifas + GPT o pide precio.',
       parameters: {
         type: 'object',
         properties: {
@@ -499,7 +499,7 @@ async function resolverBorradorIdActivo(
   const rowActivo = await obtenerBorradorActivoRow(supabase, businessId, userId);
   const activeId = rowActivo && String(rowActivo.id ?? '').trim();
   if (activeId) return { ok: true, id: activeId };
-  return { ok: false, error: 'No encuentro ningún presupuesto a medio hacer, Pino' };
+  return { ok: false, error: 'No encuentro ningún presupuesto a medio hacer' };
 }
 
 async function buscarTarifasCandidatas(

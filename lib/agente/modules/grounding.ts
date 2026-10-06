@@ -2,9 +2,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 /** Reglas de grounding para el system prompt (God File solo interpola). */
 export const GROUNDING_REGLAS_SISTEMA = `GROUNDING (obligatorio, lenguaje de calle):
-Pino habla natural, sin UUIDs.
+El usuario habla natural, sin UUIDs.
 CONSULTAS / LISTADOS («qué obras tengo abiertas», pendientes, fichas): usa buscar_* / listar_* y responde con lo encontrado. PROHIBIDO iniciar_borrador, crear_presupuesto, crear_obra o crear_cliente si no te lo han pedido. No cojas un cliente del contexto (p. ej. CLIENTES REGISTRADOS) para inventar un presupuesto.
 MUTACIONES sobre cliente/obra/presupuesto existente: interpreta → busca con buscar_* / nombre real → 1 coincidencia usa ese ID; varias: pregunta en castellano cuál; cero: dilo y no sigas. No inventes, no crees ficha ni documento de paso.
+NO pidas confirmación escribiendo «¿Lo hago?» ni «¿Procedo?»: llama a la tool y el servidor enseña él mismo el botón «Sí, hazlo / No». Preguntar en texto no deja botón y el usuario se queda sin poder confirmar.
 Crear solo con tools crear_* (u iniciar_borrador) cuando pidan explícitamente un alta o un presupuesto NUEVO («haz un presupuesto para…»).
 En la respuesta final SOLO afirma mutaciones que hayan vuelto en un TOOL RESULT con ok:true. Si la tool falló o no encontró, dilo; nunca narres éxito sobre IDs o nombres fantasma.`;
 
@@ -83,9 +84,14 @@ export function scoreNombreMatch(candidato: string, needle: string): number {
   const dist = levenshtein(d, n);
   if (maxLen <= 12 && dist <= 2) return 55;
   if (dist / maxLen <= 0.12) return 50;
+  // Varias palabras: tienen que estar TODAS (si no, «Mikel Etxeberria» acabaría
+  // siendo «Ainhoa Etxeberria» solo por compartir el apellido).
+  const palabras = n.split(/\s+/).filter((x) => x.length > 1);
+  if (palabras.length === 0) return 0;
   let sc = 0;
-  for (const w of n.split(/\s+/).filter((x) => x.length > 1)) {
-    if (d.includes(w)) sc += 12 + w.length;
+  for (const w of palabras) {
+    if (!d.includes(w)) return 0;
+    sc += 12 + w.length;
   }
   return sc;
 }
