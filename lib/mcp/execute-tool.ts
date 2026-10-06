@@ -26,6 +26,8 @@ import {
   type PartidaCanonicaEntrada,
 } from '@/lib/presupuestos/texto-canonico';
 
+const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function escapeIlikePattern(s: string): string {
   return s.replace(/[%_*]/g, '');
 }
@@ -57,7 +59,10 @@ function parseYmdOptional(raw: unknown): string | null {
 async function buscarObraPorNombre(
   ctx: McpContext,
   obraNombre: string
-): Promise<{ ok: true; id: string; nombre: string; direccion: string | null } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; id: string; nombre: string; direccion: string | null }
+  | { ok: false; error: string; candidatos?: Array<{ id: string; nombre: string; direccion: string | null }> }
+> {
   const safe = escapeIlikePattern(obraNombre).trim();
   if (!safe) return { ok: false, error: 'obra_nombre es obligatorio' };
   const { data, error } = await ctx.supabase
@@ -76,7 +81,12 @@ async function buscarObraPorNombre(
     const lista = rows.map((r: { nombre?: string | null }, i: number) => `${i + 1}. ${r.nombre ?? '—'}`).join('\n');
     return {
       ok: false,
-      error: `Hay varias obras que encajan:\n${lista}\nIndica un nombre más concreto.`,
+      error: `Hay varias obras que encajan:\n${lista}\nIndica un nombre más concreto o pasa obra_id.`,
+      candidatos: (rows as Array<{ id: string; nombre?: string | null; direccion?: string | null }>).map((r) => ({
+        id: r.id,
+        nombre: String(r.nombre ?? '').trim(),
+        direccion: r.direccion ?? null,
+      })),
     };
   }
   const row = rows[0] as { id: string; nombre: string | null; direccion: string | null };
@@ -450,13 +460,38 @@ export async function executeMcpTool(
     }
     case 'crear_entrada_diario': {
       const obraNombre = String(toolArgs.obra_nombre ?? '').trim();
+      const obraIdArg = typeof toolArgs.obra_id === 'string' ? toolArgs.obra_id.trim() : '';
       const descripcion = String(toolArgs.descripcion ?? '').trim();
-      if (!obraNombre) return { error: 'obra_nombre es obligatorio' };
+      if (!obraNombre && !obraIdArg) return { error: 'Indica obra_id u obra_nombre' };
       if (!descripcion) return { error: 'descripcion es obligatoria' };
       const fecha = parseYmdOptional(toolArgs.fecha) ?? ymdTodayMadrid();
 
-      const obraRes = await buscarObraPorNombre(ctx, obraNombre);
-      if (!obraRes.ok) return { error: obraRes.error };
+      // obra_id manda sobre obra_nombre: es exacto y se comprueba que sea de este negocio.
+      let obraRes: { ok: true; id: string; nombre: string; direccion: string | null } | { ok: false; error: string; candidatos?: unknown };
+      if (obraIdArg) {
+        if (!RE_UUID.test(obraIdArg)) return { error: 'obra_id no es un uuid válido' };
+        const { data: o, error: oErr } = await ctx.supabase
+          .from('obras')
+          .select('id, nombre, direccion')
+          .eq('business_id', ctx.businessId)
+          .eq('id', obraIdArg)
+          .maybeSingle();
+        if (oErr) return { error: oErr.message };
+        if (!o?.id) return { error: 'obra_id no existe o no pertenece a este negocio' };
+        obraRes = {
+          ok: true,
+          id: o.id as string,
+          nombre: String((o as { nombre?: string | null }).nombre ?? '').trim() || obraNombre,
+          direccion: (o as { direccion?: string | null }).direccion ?? null,
+        };
+      } else {
+        obraRes = await buscarObraPorNombre(ctx, obraNombre);
+      }
+      if (!obraRes.ok) {
+        return obraRes.candidatos
+          ? { error: obraRes.error, candidatos: obraRes.candidatos }
+          : { error: obraRes.error };
+      }
 
       const { data: inserted, error: insErr } = await ctx.supabase
         .from('diario_obra')

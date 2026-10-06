@@ -4,12 +4,14 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { createBrowserClient } from '@supabase/ssr';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { ChevronDown, Trash2 } from 'lucide-react';
+import { ChevronDown, Mic, Trash2 } from 'lucide-react';
 import LogoutButton from '@/app/dashboard/logout-button';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
 import DashboardMainNav from '@/components/dashboard/dashboard-main-nav';
 import DiarioEntradaModal from '@/components/dashboard/diario-entrada-modal';
 import DiarioEntradaDeleteDialog from '@/components/dashboard/diario-entrada-delete-dialog';
+import DictarEntradaModal, { type DatosEntradaDictada } from '@/components/diario/dictar-entrada-modal';
+import { normalizarTexto, type ObraDictado } from '@/lib/diario-dictado';
 import { useObraModal } from '@/contexts/obra-modal-context';
 import { getBusinessIdClient } from '@/lib/supabase/get-business-id';
 import { useDemoTenant } from '@/lib/use-demo-tenant';
@@ -18,6 +20,7 @@ import {
   DEMO_EMPRESA,
   DEMO_MOCK_ENABLED,
   getDemoDiarioAgrupado,
+  getDemoObras,
 } from '@/lib/demo-data';
 
 type DiarioEntrada = {
@@ -58,6 +61,45 @@ function DiarioPageInner() {
   const [pendingDelete, setPendingDelete] = useState<DiarioEntrada | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const obraRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  /** Modal de dictado abierto (con la obra preseleccionada, si la hay) y sus obras. */
+  const [dictado, setDictado] = useState<{ obras: ObraDictado[]; obraIdInicial: string | null } | null>(null);
+  const [cargandoObras, setCargandoObras] = useState(false);
+
+  const ordenarPorFecha = (raw: Record<string, DiarioEntrada[]>) => {
+    const ordenado: Record<string, DiarioEntrada[]> = {};
+    for (const [nombre, entradas] of Object.entries(raw)) {
+      ordenado[nombre] = [...entradas].sort(
+        (a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()
+      );
+    }
+    return ordenado;
+  };
+
+  const cargarDiario = useCallback(
+    async (bid: string) => {
+      try {
+        const res = await fetch(`/api/diario?business_id=${encodeURIComponent(bid)}`, {
+          credentials: 'include',
+        });
+        const json = (await res.json()) as {
+          agrupado_por_obra?: Record<string, DiarioEntrada[]>;
+          error?: string;
+        };
+        if (!res.ok) {
+          setError(json.error ?? 'No se pudo cargar el diario');
+          setAgrupado({});
+          return;
+        }
+        setAgrupado(ordenarPorFecha(json.agrupado_por_obra ?? {}));
+      } catch {
+        setError('Error de conexión');
+        setAgrupado({});
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
 
   const toggleObra = useCallback((nombre: string) => {
     setOpenObras((prev) => {
@@ -143,36 +185,10 @@ function DiarioPageInner() {
         .maybeSingle();
       if (bp?.nombre) setBusinessName(bp.nombre);
 
-      try {
-        const res = await fetch(`/api/diario?business_id=${encodeURIComponent(businessId)}`, {
-          credentials: 'include',
-        });
-        const json = (await res.json()) as {
-          agrupado_por_obra?: Record<string, DiarioEntrada[]>;
-          error?: string;
-        };
-        if (!res.ok) {
-          setError(json.error ?? 'No se pudo cargar el diario');
-          setAgrupado({});
-          return;
-        }
-        const raw = json.agrupado_por_obra ?? {};
-        const ordenado: Record<string, DiarioEntrada[]> = {};
-        for (const [nombre, entradas] of Object.entries(raw)) {
-          ordenado[nombre] = [...entradas].sort(
-            (a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()
-          );
-        }
-        setAgrupado(ordenado);
-      } catch {
-        setError('Error de conexión');
-        setAgrupado({});
-      } finally {
-        setLoading(false);
-      }
+      await cargarDiario(businessId);
     };
     void run();
-  }, [router, supabase, demo]);
+  }, [router, supabase, demo, cargarDiario]);
 
   const obrasOrdenadas = useMemo(() => {
     return Object.keys(agrupado).sort((a, b) => {
@@ -207,6 +223,97 @@ function DiarioPageInner() {
     return () => window.clearTimeout(t);
   }, [loading, obraFromQuery, obrasOrdenadas]);
 
+  /** Abre el modal de dictado: carga las obras no cerradas y preselecciona la que toque. */
+  const abrirDictado = async (obraId?: string | null, obraNombre?: string | null) => {
+    if (!businessId || cargandoObras) return;
+    setCargandoObras(true);
+    setError(null);
+    try {
+      let obras: ObraDictado[];
+      if (demo) {
+        obras = getDemoObras()
+          .filter((o) => (o.estado ?? '').toLowerCase() !== 'cerrada')
+          .map((o) => ({ id: o.id, nombre: o.nombre, direccion: o.direccion, estado: o.estado }));
+      } else {
+        const { data, error: obrasErr } = await supabase
+          .from('obras')
+          .select('id, nombre, direccion, estado')
+          .eq('business_id', businessId)
+          .neq('estado', 'cerrada')
+          .order('nombre', { ascending: true });
+        if (obrasErr) {
+          setError('No se pudieron cargar las obras');
+          return;
+        }
+        obras = (data ?? []) as ObraDictado[];
+      }
+      // Preselección: la carpeta desde la que se pulsa, o la obra de ?obra= (nombre o id).
+      const pista = (obraNombre ?? obraFromQuery ?? '').trim();
+      const porNombre = pista
+        ? obras.find((o) => normalizarTexto(o.nombre) === normalizarTexto(decodeURIComponent(pista)))
+        : undefined;
+      const porId = pista ? obras.find((o) => o.id === pista) : undefined;
+      const inicial =
+        (obraId && obras.some((o) => o.id === obraId) ? obraId : null) ??
+        porNombre?.id ??
+        porId?.id ??
+        null;
+      setDictado({ obras, obraIdInicial: inicial });
+    } finally {
+      setCargandoObras(false);
+    }
+  };
+
+  const guardarDictado = async (datos: DatosEntradaDictada): Promise<string | null> => {
+    if (!businessId || !dictado) return 'No hay negocio activo';
+    const obra = dictado.obras.find((o) => o.id === datos.obraId);
+    if (!obra) return 'Elige una obra';
+
+    if (demo) {
+      // Demo: solo en memoria, sin red.
+      const nueva: DiarioEntrada = {
+        id: `demo-dictado-${Date.now()}`,
+        obra_nombre: obra.nombre,
+        obra_id: obra.id,
+        obra_direccion: obra.direccion,
+        texto: datos.texto,
+        fotos: null,
+        videos: null,
+        fecha: new Date().toISOString(),
+      };
+      setAgrupado((prev) => ({ ...prev, [obra.nombre]: [nueva, ...(prev[obra.nombre] ?? [])] }));
+    } else {
+      try {
+        const res = await fetch('/api/diario', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            business_id: businessId,
+            obra_id: obra.id,
+            texto: datos.texto,
+            fotos: datos.fotos,
+          }),
+        });
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) return json.error ?? 'No se pudo guardar la entrada';
+      } catch {
+        return 'Error de conexión al guardar';
+      }
+      await cargarDiario(businessId);
+    }
+
+    setDictado(null);
+    // Se abre la carpeta de esa obra y se destaca un momento.
+    setOpenObras((prev) => new Set(prev).add(obra.nombre));
+    window.setTimeout(() => {
+      obraRefs.current[obra.nombre]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setHighlightObra(obra.nombre);
+      window.setTimeout(() => setHighlightObra(null), 2000);
+    }, 200);
+    return null;
+  };
+
   if (authChecking) {
     return (
       <div className="min-h-screen bg-[#EFEADF] flex items-center justify-center text-zinc-900">
@@ -238,13 +345,26 @@ function DiarioPageInner() {
       </div>
 
       <main className="max-w-7xl mx-auto px-6 py-6 space-y-6">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-zinc-900">
-            Diario de <span className="text-[#A04A2F]">obra</span>
-          </h1>
-          <p className="text-sm text-zinc-600 mt-1">
-            Obras en carpetas desplegables. Desde el agente puedes registrar notas o generar el PDF.
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-zinc-900">
+              Diario de <span className="text-[#A04A2F]">obra</span>
+            </h1>
+            <p className="text-sm text-zinc-600 mt-1">
+              Obras en carpetas desplegables. Dicta una entrada con el micrófono o usa el agente para generar el PDF.
+            </p>
+          </div>
+          {businessId ? (
+            <button
+              type="button"
+              onClick={() => void abrirDictado()}
+              disabled={cargandoObras}
+              className="inline-flex items-center gap-2 rounded-lg bg-[#A04A2F] px-4 py-3 text-sm font-semibold text-white hover:bg-[#8a3f28] disabled:opacity-60 touch-manipulation"
+            >
+              <Mic className="size-4" aria-hidden />
+              🎙️ Dictar entrada
+            </button>
+          ) : null}
         </div>
 
         {!businessId ? (
@@ -255,7 +375,7 @@ function DiarioPageInner() {
           <p className="text-zinc-500">Cargando entradas…</p>
         ) : obrasOrdenadas.length === 0 ? (
           <div className="rounded-xl border border-zinc-400/40 bg-[#E5DFD0]/80 p-6 text-zinc-600 text-sm">
-            Aún no hay entradas en el diario. Usa el agente para crear la primera.
+            Aún no hay entradas en el diario. Pulsa «Dictar entrada» para crear la primera, o pídesela al agente.
           </div>
         ) : (
           <div className="space-y-3">
@@ -343,7 +463,18 @@ function DiarioPageInner() {
                         </div>
                       ) : null}
                     </div>
-                    <div className="px-4 pb-3 sm:pb-0 sm:pr-4 sm:flex sm:items-center shrink-0 border-t border-zinc-400/30 sm:border-t-0 sm:border-l sm:pl-0 sm:ml-0">
+                    <div className="px-4 pb-3 sm:pb-0 sm:pr-4 flex flex-col gap-2 sm:flex-row sm:items-center shrink-0 border-t border-zinc-400/30 sm:border-t-0 sm:border-l sm:pl-3 sm:ml-0 pt-3 sm:pt-0">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void abrirDictado(obraIdParaFicha, obraNombre);
+                        }}
+                        disabled={cargandoObras}
+                        className="inline-flex w-full sm:w-auto justify-center items-center px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg bg-[#5a7a4a] hover:bg-[#4d6b40] text-white transition-colors disabled:opacity-60"
+                      >
+                        Dictar aquí
+                      </button>
                       <Link
                         href={`/agente?mensaje=${encodeURIComponent(
                           `genera el PDF del diario de la obra ${obraNombre}`
@@ -470,6 +601,17 @@ function DiarioPageInner() {
         <DiarioEntradaModal
           entrada={entradaSeleccionada}
           onClose={() => setEntradaSeleccionada(null)}
+        />
+      ) : null}
+
+      {dictado && businessId ? (
+        <DictarEntradaModal
+          obras={dictado.obras}
+          businessId={businessId}
+          obraIdInicial={dictado.obraIdInicial}
+          demo={demo}
+          onGuardar={guardarDictado}
+          onClose={() => setDictado(null)}
         />
       ) : null}
 

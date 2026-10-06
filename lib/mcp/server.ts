@@ -296,9 +296,11 @@ export function createPerfilioMcpServer(ctx: McpContext): McpServer {
   server.registerTool(
     'crear_entrada_diario',
     {
-      description: 'Añade una entrada al diario de obra.',
+      description:
+        'Añade una entrada al diario de obra. Indica obra_id (exacto) u obra_nombre. Si no estás seguro de la obra, llama antes a ver_obras_activas y pasa obra_id. Si el nombre encaja con varias obras, la respuesta trae candidatos con sus id.',
       inputSchema: {
-        obra_nombre: z.string().describe('Nombre de la obra'),
+        obra_id: z.string().optional().describe('UUID de la obra (manda sobre obra_nombre)'),
+        obra_nombre: z.string().optional().describe('Nombre de la obra (alternativa a obra_id)'),
         descripcion: z.string().describe('Texto de la entrada'),
         fecha: z.string().optional().describe('Fecha YYYY-MM-DD (opcional)'),
       },

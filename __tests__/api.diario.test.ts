@@ -91,6 +91,87 @@ describe('/api/diario', () => {
     });
   });
 
+  describe('POST con obra_id', () => {
+    const OBRA = '22222222-2222-4222-8222-222222222222';
+
+    /** Cliente de servicio: `obras` devuelve `obra` y `diario_obra` guarda lo que se inserta. */
+    function mockServicio(obra: Record<string, unknown> | null) {
+      const insertado: Array<Record<string, unknown>> = [];
+      const filtros: Array<[string, unknown]> = [];
+      (createServiceClient as jest.Mock).mockReturnValue({
+        from: jest.fn((tabla: string) => {
+          if (tabla === 'obras') {
+            const q: Record<string, unknown> = {};
+            q.select = () => q;
+            q.eq = (c: string, v: unknown) => (filtros.push([c, v]), q);
+            q.maybeSingle = async () => ({ data: obra, error: null });
+            return q;
+          }
+          return {
+            insert: (row: Record<string, unknown>) => {
+              insertado.push(row);
+              return { select: () => ({ single: async () => ({ data: { id: 'ent-1', ...row }, error: null }) }) };
+            },
+          };
+        }),
+      });
+      return { insertado, filtros };
+    }
+    const post = (body: Record<string, unknown>) =>
+      POST(
+        new NextRequest('http://localhost/api/diario', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+      );
+
+    it('toma nombre, dirección y cliente de la base, no del navegador', async () => {
+      const s = mockServicio({ id: OBRA, nombre: 'Reforma real', direccion: 'Calle Real 5', cliente_id: 'cli-9' });
+      const res = await post({
+        business_id: 'biz-1',
+        obra_id: OBRA,
+        obra_nombre: 'Nombre falso',
+        obra_direccion: 'Dirección falsa',
+        texto: 'Hoy se ha picado',
+      });
+      expect(res.status).toBe(200);
+      expect(s.insertado[0]).toMatchObject({
+        obra_id: OBRA,
+        obra_nombre: 'Reforma real',
+        obra_direccion: 'Calle Real 5',
+        cliente_id: 'cli-9',
+        business_id: 'biz-1',
+      });
+      expect(s.filtros).toContainEqual(['business_id', 'biz-1']);
+    });
+
+    it('403 si la obra no es de este negocio (o no existe) y no inserta nada', async () => {
+      const s = mockServicio(null);
+      const res = await post({ business_id: 'biz-1', obra_id: OBRA, texto: 'x' });
+      expect(res.status).toBe(403);
+      expect(s.insertado).toHaveLength(0);
+    });
+
+    it('con obra_id no hace falta obra_nombre', async () => {
+      mockServicio({ id: OBRA, nombre: 'Reforma real', direccion: null, cliente_id: null });
+      expect((await post({ business_id: 'biz-1', obra_id: OBRA, texto: 'x' })).status).toBe(200);
+    });
+
+    it('400 sin obra_id ni obra_nombre', async () => {
+      mockServicio(null);
+      expect((await post({ business_id: 'biz-1', texto: 'x' })).status).toBe(400);
+    });
+
+    it('solo obra_nombre sigue funcionando como antes (sin consultar obras)', async () => {
+      const s = mockServicio(null);
+      const res = await post({ business_id: 'biz-1', obra_nombre: 'Casa García', texto: 'x' });
+      expect(res.status).toBe(200);
+      expect(s.filtros).toHaveLength(0);
+      expect(s.insertado[0]).toMatchObject({ obra_nombre: 'Casa García', obra_id: null });
+    });
+  });
+
   it('GET filtra por obra_nombre', async () => {
     const listado = {
       data: [

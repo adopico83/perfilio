@@ -20,6 +20,7 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
   function from(tabla: string) {
     const filtros: Array<[string, unknown]> = [];
     const notNull: string[] = [];
+    const patrones: Array<[string, string]> = [];
     let orden: { col: string; asc: boolean } | null = null;
     let limite: number | null = null;
     let modo: 'select' | 'insert' | 'update' = 'select';
@@ -28,7 +29,10 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
 
     const filas = () => {
       let rows = (tablas[tabla] ?? []).filter(
-        (r) => filtros.every(([c, v]) => r[c] === v) && notNull.every((c) => r[c] != null)
+        (r) =>
+          filtros.every(([c, v]) => r[c] === v) &&
+          notNull.every((c) => r[c] != null) &&
+          patrones.every(([c, p]) => String(r[c] ?? '').toLowerCase().includes(p))
       );
       if (orden) {
         const { col, asc } = orden;
@@ -78,6 +82,10 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
       },
       eq(c: string, v: unknown) {
         filtros.push([c, v]);
+        return chain;
+      },
+      ilike(c: string, patron: string) {
+        patrones.push([c, patron.replace(/%/g, '').toLowerCase()]);
         return chain;
       },
       not(c: string) {

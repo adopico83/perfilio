@@ -39,9 +39,9 @@ export async function POST(request: NextRequest) {
       ? b.videos.filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
       : undefined;
 
-    if (!business_id || !obra_nombre) {
+    if (!business_id || (!obra_nombre && !obra_id)) {
       return NextResponse.json(
-        { error: 'business_id y obra_nombre son obligatorios' },
+        { error: 'business_id y obra_nombre (u obra_id) son obligatorios' },
         { status: 400 }
       );
     }
@@ -52,11 +52,40 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = createServiceClient();
+
+    // Si llega obra_id NO nos fiamos de lo que mande el navegador: la obra tiene que existir y ser
+    // de este negocio, y el nombre, la dirección y el cliente salen de la base de datos.
+    let nombreFinal = obra_nombre;
+    let direccionFinal: string | null = obra_direccion || null;
+    let clienteId: string | null = null;
+    if (obra_id) {
+      const { data: obra, error: obraErr } = await supabase
+        .from('obras')
+        .select('id, nombre, direccion, cliente_id')
+        .eq('id', obra_id)
+        .eq('business_id', business_id)
+        .maybeSingle();
+      if (obraErr) {
+        return NextResponse.json({ error: obraErr.message }, { status: 500 });
+      }
+      if (!obra) {
+        return NextResponse.json(
+          { error: 'La obra no existe o no pertenece a este negocio' },
+          { status: 403 }
+        );
+      }
+      const o = obra as { nombre?: string | null; direccion?: string | null; cliente_id?: string | null };
+      nombreFinal = String(o.nombre ?? '').trim() || obra_nombre;
+      direccionFinal = o.direccion ?? null;
+      clienteId = o.cliente_id ?? null;
+    }
+
     const { data, error } = await insertDiarioObraEntry(supabase, {
       business_id,
+      cliente_id: clienteId,
       obra_id: obra_id || null,
-      obra_nombre,
-      obra_direccion: obra_direccion || null,
+      obra_nombre: nombreFinal,
+      obra_direccion: direccionFinal,
       texto: texto || null,
       fotos: fotos ?? null,
       videos: videos ?? null,
