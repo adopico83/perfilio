@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "typecheck": "tsc --noEmit",
+    "limpiar:storage": "node scripts/limpiar-storage.mjs",
     "eval:agente": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.eval.config.js"
   },
   "dependencies": {
