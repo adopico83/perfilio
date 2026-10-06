@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { assertUserOwnsBusiness } from '@/lib/supabase/assert-user-owns-business';
 
-export const ESTADOS_FACTURA = ['pendiente', 'pagada', 'vencida'] as const;
+const ESTADOS_FACTURA = ['pendiente', 'pagada', 'vencida'] as const;
 
 /**
  * Cambia el estado de una factura. `facturas` solo tiene policy de lectura, así que las
