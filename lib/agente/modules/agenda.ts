@@ -1119,6 +1119,16 @@ export async function handleAgenda(
             'Si el usuario confirma, vuelve a llamar a crear_recordatorio con los mismos datos y solo_vista_previa false (u omítelo).',
           pendiente_confirmacion: true,
           vista: insertPayload,
+          // Lo que se enseña = lo que se guarda: fecha ya calculada (no «jueves» otra vez), cliente, obra y texto.
+          args_resueltos: {
+            titulo,
+            fecha: fechaRaw,
+            ...(horaFinal ? { hora: horaFinal } : {}),
+            description: descriptionFinal,
+            ...(locationFinal ? { location: locationFinal } : {}),
+            ...(insertPayload.cliente_id ? { cliente_id: insertPayload.cliente_id } : {}),
+            ...(insertPayload.obra_id ? { obra_id: insertPayload.obra_id } : {}),
+          },
         };
       }
 

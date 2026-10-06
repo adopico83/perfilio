@@ -1,3 +1,4 @@
+import { PROVEEDORES_AGENT_TOOLS, PROVEEDORES_HANDLED_TOOLS, handleProveedores, proveedorPorId, resolverProveedorPorNombre } from '@/lib/agente/modules/proveedores';
 import type OpenAI from 'openai';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { normalizeGastoCategoria } from '@/lib/gastos-categoria';
@@ -12,9 +13,11 @@ export const GASTOS_HANDLED_TOOLS = new Set([
   'vincular_gasto',
   'eliminar_gasto',
   'modificar_gasto',
+  ...PROVEEDORES_HANDLED_TOOLS,
 ]);
 
 export const GASTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+  ...PROVEEDORES_AGENT_TOOLS,
   {
     type: 'function',
     function: {
@@ -347,7 +350,8 @@ export async function handleGastosAgent(
           bidGDel,
           undefined,
           [obraNombreG, mensajeTrim].filter(Boolean).join(' '),
-          'gasto'
+          'gasto',
+          { incluirCerradas: true }
         );
         if (obraResG.ok && obraResG.obra_id) {
           listaG = listaG.filter((g) => g.obra_id === obraResG.obra_id);
@@ -459,7 +463,8 @@ export async function handleGastosAgent(
             bidModG,
             undefined,
             [obraNombreS, mensajeTrim].filter(Boolean).join(' '),
-            'gasto'
+            'gasto',
+            { incluirCerradas: true }
           );
           if (oRes.ok && oRes.obra_id) {
             listS = listS.filter((x) => x.obra_id === oRes.obra_id);
@@ -553,13 +558,19 @@ export async function handleGastosAgent(
       }
       return { mensaje: 'Gasto actualizado correctamente.', ok: true, id: upG.id as string };
     }
+    case 'crear_proveedor':
+    case 'buscar_proveedor':
+      return handleProveedores(toolName, toolArgs, typeof businessId === 'string' ? businessId : String(businessId ?? ''), supabase);
     case 'registrar_gasto_ticket': {
       const proveedor = String(toolArgs.proveedor ?? '').trim();
       const importe = Number(toolArgs.importe);
       const iva = Number(toolArgs.iva);
       const importeTotal = Number(toolArgs.importe_total);
       const fecha = String(toolArgs.fecha ?? '').trim();
-      const descripcion = String(toolArgs.descripcion ?? '').trim();
+      // El concepto («cable y mecanismos») puede llegar con otro nombre: no se pierde.
+      const descripcion = [toolArgs.descripcion, toolArgs.concepto, toolArgs.detalle]
+        .map((v) => String(v ?? '').trim())
+        .find((v) => v.length > 0) ?? '';
       const businessIdGasto = typeof businessId === 'string' ? businessId : String(businessId ?? '');
       if (!businessIdGasto) {
         return { error: 'business_id es requerido' };
@@ -700,6 +711,38 @@ export async function handleGastosAgent(
       if (!proveedor) {
         return { error: 'El proveedor es obligatorio' };
       }
+
+      // Proveedor: ficha existente (por id o por nombre con todas sus palabras) o solo texto.
+      let proveedorIdFinal: string | null = null;
+      let proveedorNombre = proveedor;
+      let proveedorSinFicha = false;
+      const proveedorIdArg = String(toolArgs.proveedor_id ?? '').trim();
+      if (proveedorIdArg) {
+        const pf = await proveedorPorId(supabase, businessIdGasto, proveedorIdArg);
+        if (pf === null) {
+          return { ok: false, error: 'Ese proveedor_id no existe en este negocio. No he guardado nada: dime qué proveedor es.' };
+        }
+        if (pf !== 'sin_tabla') {
+          proveedorIdFinal = pf.id;
+          proveedorNombre = pf.nombre;
+        }
+      } else {
+        const rp = await resolverProveedorPorNombre(supabase, businessIdGasto, proveedor);
+        if (rp.status === 'one') {
+          proveedorIdFinal = rp.match.id;
+          proveedorNombre = rp.match.nombre;
+        } else if (rp.status === 'many') {
+          const cands = rp.candidatos.map((c) => ({ id: c.id, etiqueta: c.nombre }));
+          return {
+            ok: false,
+            error: `Hay varios proveedores que encajan con «${proveedor}»:\n${cands.map((c, i) => `${i + 1}. ${c.etiqueta}`).join('\n')}\n¿Cuál es? No he guardado nada.`,
+            necesita_aclaracion: true,
+            candidatos: cands,
+          };
+        } else if (rp.status === 'none') {
+          proveedorSinFicha = true;
+        }
+      }
       if (!Number.isFinite(importe) || !Number.isFinite(iva) || !Number.isFinite(importeTotal)) {
         return { error: 'importe, iva e importe_total deben ser números válidos' };
       }
@@ -751,7 +794,7 @@ export async function handleGastosAgent(
       if (soloVistaGasto) {
         const lineas = [
           'Resumen del gasto (no guardado aún):',
-          `• Proveedor: ${proveedor}`,
+          `• Proveedor: ${proveedorNombre}${proveedorIdFinal ? '' : proveedorSinFicha ? ' (no está dado de alta como proveedor)' : ''}`,
           `• Base: ${importeR.toFixed(2)} €, IVA: ${ivaR.toFixed(2)} €, Total: ${importeTotalR.toFixed(2)} €`,
           `• Fecha: ${fecha}`,
           `• Categoría: ${categoria}`,
@@ -767,9 +810,33 @@ export async function handleGastosAgent(
           const nombreObra = String((obraRow as { nombre?: string | null } | null)?.nombre ?? '').trim();
           lineas.push(`• Obra: ${nombreObra || 'la obra indicada'}`);
         }
+        if (clienteIdGasto) {
+          const { data: cliRow } = await supabase
+            .from('clientes')
+            .select('nombre')
+            .eq('id', clienteIdGasto)
+            .eq('business_id', businessIdGasto)
+            .maybeSingle();
+          const nombreCli = String((cliRow as { nombre?: string | null } | null)?.nombre ?? '').trim();
+          if (nombreCli) lineas.push(`• Cliente: ${nombreCli}`);
+        }
         return {
           mensaje: lineas.join('\n'),
           pendiente_confirmacion: true,
+          // Lo que se enseña = lo que se guarda: al confirmar con el botón no hay mensaje del usuario para
+          // volver a deducir la obra, así que viaja ya resuelto.
+          args_resueltos: {
+            proveedor: proveedorNombre,
+            ...(proveedorIdFinal ? { proveedor_id: proveedorIdFinal } : {}),
+            ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
+            ...(clienteIdGasto ? { cliente_id: clienteIdGasto } : {}),
+            ...(descripcion ? { descripcion } : {}),
+            importe,
+            iva,
+            importe_total: importeTotal,
+            fecha,
+            categoria,
+          },
         };
       }
 
@@ -777,7 +844,7 @@ export async function handleGastosAgent(
         .from('gastos')
         .select('id, importe_total')
         .eq('business_id', businessIdGasto)
-        .eq('proveedor', proveedor)
+        .eq('proveedor', proveedorNombre)
         .eq('fecha', fecha);
 
       if (dupErr) {
@@ -789,37 +856,45 @@ export async function handleGastosAgent(
       );
       if (duplicado) {
         return {
-          mensaje: `Ya hay un gasto el ${fecha} para «${proveedor}» con el mismo importe total (${importeTotalR.toFixed(2)} €). No se ha vuelto a insertar para evitar duplicados.`,
+          mensaje: `Ya hay un gasto el ${fecha} para «${proveedorNombre}» con el mismo importe total (${importeTotalR.toFixed(2)} €). No se ha vuelto a insertar para evitar duplicados.`,
           duplicado_evitado: true,
         };
       }
 
-      const { data: row, error } = await supabase
-        .from('gastos')
-        .insert({
-          business_id: businessIdGasto,
-          proveedor,
-          importe: importeFinal,
-          iva: ivaFinal,
-          importe_total: importeTotalFinal,
-          fecha,
-          categoria,
-          descripcion: descripcionFinal.length > 0 ? descripcionFinal : null,
-          ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
-          ...(clienteIdGasto ? { cliente_id: clienteIdGasto } : {}),
-        })
-        .select('id')
-        .single();
+      const filaGasto = {
+        business_id: businessIdGasto,
+        proveedor: proveedorNombre,
+        importe: importeFinal,
+        iva: ivaFinal,
+        importe_total: importeTotalFinal,
+        fecha,
+        categoria,
+        descripcion: descripcionFinal.length > 0 ? descripcionFinal : null,
+        ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
+        ...(clienteIdGasto ? { cliente_id: clienteIdGasto } : {}),
+        ...(proveedorIdFinal ? { proveedor_id: proveedorIdFinal } : {}),
+      };
+      let { data: row, error } = await supabase.from('gastos').insert(filaGasto).select('id').single();
+      // Migración de proveedores sin aplicar: se guarda igual con el nombre como texto.
+      if (error && /proveedor_id/i.test(error.message ?? '')) {
+        const { proveedor_id: _p, ...sinProveedorId } = filaGasto as typeof filaGasto & { proveedor_id?: string };
+        void _p;
+        ({ data: row, error } = await supabase.from('gastos').insert(sinProveedorId).select('id').single());
+      }
 
       if (error || !row?.id) {
         return { error: error?.message ?? 'No se pudo registrar el gasto' };
       }
+      const cierre = proveedorSinFicha ? ` «${proveedorNombre}» no está dado de alta como proveedor: ¿quieres que lo dé de alta?` : '';
       if (esDevolucion) {
         return {
           ok: true,
           id: row.id as string,
-          mensaje: `Devolución registrada: -${Math.abs(importeTotalR).toFixed(2)}€ de ${proveedor}. ¿Algo más?`,
+          mensaje: `Devolución registrada: -${Math.abs(importeTotalR).toFixed(2)}€ de ${proveedorNombre}.${cierre || ' ¿Algo más?'}`,
         };
+      }
+      if (cierre) {
+        return { ok: true, id: row.id as string, mensaje: `Gasto de ${importeTotalR.toFixed(2)} € guardado (${proveedorNombre}).${cierre}` };
       }
       return { ok: true, id: row.id as string };
     }

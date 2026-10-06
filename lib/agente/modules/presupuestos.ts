@@ -1,3 +1,4 @@
+import { ymdHoyMadrid } from '@/lib/fechas-madrid';
 import { handleEnlacesPdf } from '@/lib/agente/modules/enlaces-pdf';
 import { AGENTE_MODELO_POR_DEFECTO } from '@/lib/agente/modelo';
 import { crearFacturaDesdePresupuesto } from '@/lib/facturas/desde-presupuesto';
@@ -945,7 +946,7 @@ export async function handlePresupuestos(
         obra_id: (pRow as { obra_id?: string | null }).obra_id ?? null,
         descripcion_trabajos: texto || null,
         total: totalNum,
-        fecha: new Date().toISOString().split('T')[0],
+        fecha: ymdHoyMadrid(),
         estado: 'pendiente',
         observaciones: observaciones.length > 0 ? observaciones : 'Generado desde presupuesto',
       });
@@ -1522,7 +1523,7 @@ export async function handlePresupuestos(
           {
             presupuesto_generado: textoGenerado,
             importe_total: baseImponible,
-            fecha: new Date().toISOString().split('T')[0],
+            fecha: ymdHoyMadrid(),
             estado: 'borrador',
             mensaje_cliente: 'Presupuesto generado desde borrador conversacional',
             ...(clienteNombreFinal ? { cliente_nombre: clienteNombreFinal } : {}),

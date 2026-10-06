@@ -1,23 +1,13 @@
 import type OpenAI from 'openai';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { ymdHoyMadrid } from '@/lib/fechas-madrid';
 import { resolverObraDocumentoAgente, aclaracionObra } from '@/lib/obras-context';
 
 function escapeIlikePattern(s: string): string {
   return s.replace(/[%_*]/g, '');
 }
 
-function ymdTodayMadrid(): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Madrid',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date());
-  const y = parts.find((p) => p.type === 'year')?.value;
-  const m = parts.find((p) => p.type === 'month')?.value;
-  const d = parts.find((p) => p.type === 'day')?.value;
-  return `${y}-${m}-${d}`;
-}
+const ymdTodayMadrid = () => ymdHoyMadrid();
 
 function parseYmdOptional(raw: unknown): string | null {
   const s = typeof raw === 'string' ? raw.trim() : '';
@@ -393,6 +383,15 @@ export async function ejecutarRegistrarJornada(
     return {
       mensaje: lineas.join('\n'),
       pendiente_confirmacion: true,
+      // Lo que se enseña = lo que se guarda: operario, obra y fecha ya resueltos.
+      args_resueltos: {
+        operario_nombre: operario.nombre,
+        obra_id: obraRes.obra_id,
+        fecha,
+        horas_reales: hrN,
+        horas_convenio: hcN,
+        ...(notas ? { notas } : {}),
+      },
     };
   }
 
@@ -474,7 +473,8 @@ export async function ejecutarConsultarHorasObra(
     businessId,
     obraIdArg,
     textoBusqueda,
-    'documento'
+    'documento',
+    { incluirCerradas: true }
   );
   if (!obraRes.ok) return aclaracionObra(obraRes);
   if (!obraRes.obra_id) {
@@ -750,7 +750,8 @@ export async function ejecutarEliminarRegistroJornada(
     businessId,
     obraIdArg,
     textoBusqueda,
-    'documento'
+    'documento',
+    { incluirCerradas: true }
   );
   if (!obraRes.ok) return aclaracionObra(obraRes);
   if (!obraRes.obra_id) {

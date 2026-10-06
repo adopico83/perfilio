@@ -1,3 +1,4 @@
+import { formatYmdInTimeZone, sumarDiasYmd } from '@/lib/fechas-madrid';
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
@@ -136,26 +137,8 @@ function getOpenAI(): OpenAI {
   return openaiCliente;
 }
 
-/** YYYY-MM-DD del instante dado en la zona horaria indicada (p. ej. Europa/Madrid). */
-function formatYmdInTimeZone(date: Date, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(date);
-  const y = parts.find((p) => p.type === 'year')?.value;
-  const m = parts.find((p) => p.type === 'month')?.value;
-  const d = parts.find((p) => p.type === 'day')?.value;
-  return `${y}-${m}-${d}`;
-}
-
 /** Suma días a una fecha civil YYYY-MM-DD. */
-function addDaysToYmd(ymd: string, days: number): string {
-  const [y, mo, da] = ymd.split('-').map(Number);
-  const u = Date.UTC(y, mo - 1, da + days);
-  return new Date(u).toISOString().slice(0, 10);
-}
+const addDaysToYmd = sumarDiasYmd;
 
 const IMAGEN_VISION_MIMES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 const MAX_IMAGEN_DECODED_BYTES = 4 * 1024 * 1024;
@@ -704,6 +687,7 @@ export async function POST(request: NextRequest) {
       : '';
 
     const fechaActual = new Date().toLocaleDateString('es-ES', {
+      timeZone: 'Europe/Madrid',
       weekday: 'long',
       year: 'numeric',
       month: 'long',

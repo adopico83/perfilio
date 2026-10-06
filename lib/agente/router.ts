@@ -146,6 +146,10 @@ export const INTENT_TOOL_NAMES_AGENDA = new Set([
 
 export const INTENT_TOOL_NAMES_GASTOS = new Set([
   'registrar_gasto_ticket',
+  'crear_proveedor',
+  'buscar_proveedor',
+  'buscar_obra',
+  'buscar_cliente',
   'vincular_gasto',
   'eliminar_gasto',
   'modificar_gasto',

@@ -1,10 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolverObraDocumentoAgente } from '@/lib/obras-context';
-import { resolverClientesPorNombre, resolverPresupuestosPorTexto, resultadoResolveATool, toolFailDesdePresupuestoResolve } from '@/lib/agente/modules/grounding';
+import { resolverClientesPorNombre, resolverObrasPorNombre, resolverPresupuestosPorTexto, resultadoResolveATool, toolFailDesdePresupuestoResolve } from '@/lib/agente/modules/grounding';
 import { describirDocumento, localizarDesdeArgs, type TipoDocumento } from '@/lib/agente/modules/documentos-localizar';
 import { requiereValidacionCreacion, validarCreacionDocumento } from '@/lib/agente/modules/documentos-validacion';
 import { parseEstadoFactura, MENSAJE_ESTADO_FACTURA } from '@/lib/facturas/estado';
 import { ESTADOS_FACTURABLES, MENSAJE_ESTADO_PRESUPUESTO, parseEstadoPresupuesto } from '@/lib/presupuestos/estado';
+import { parseFechaNatural, ymdHoyMadrid } from '@/lib/fechas-madrid';
 import { construirCambiosCliente } from '@/lib/clientes/cambios';
 import { IVA_PORCENTAJES_PERMITIDOS } from '@/lib/facturas/iva';
 import { ESTADOS_ALBARAN_EDITABLES, esFacturado } from '@/lib/albaranes/estado';
@@ -59,6 +60,7 @@ export const TOOLS_REQUIEREN_CONFIRMACION: ReadonlySet<string> = new Set([
   'modificar_evento_agenda',
   // Gastos
   'registrar_gasto_ticket',
+  'crear_proveedor',
   'vincular_gasto',
   'modificar_gasto',
   'eliminar_gasto',
@@ -185,6 +187,7 @@ const NOMBRES_TOOL: Record<string, string> = {
   eliminar_evento_agenda: 'borrar un evento de la agenda',
   modificar_evento_agenda: 'modificar un evento de la agenda',
   registrar_gasto_ticket: 'registrar un gasto',
+  crear_proveedor: 'dar de alta un proveedor',
   vincular_gasto: 'vincular un gasto',
   modificar_gasto: 'modificar un gasto',
   eliminar_gasto: 'borrar un gasto',
@@ -561,6 +564,51 @@ export async function prepararAccionPendiente(
     };
   }
 
+  if (tool === 'actualizar_obra') {
+    type FilaObra = { id: string; nombre: string | null; estado: string | null };
+    let obraFila = null as FilaObra | null;
+    const idObra = String(args.obra_id ?? '').trim();
+    if (idObra) {
+      const { data } = await deps.supabase
+        .from('obras')
+        .select('id, nombre, estado')
+        .eq('id', idObra)
+        .eq('business_id', deps.businessId)
+        .maybeSingle();
+      obraFila = (data as FilaObra | null) ?? null;
+    } else {
+      const nombreBuscado = String(args.obra_nombre ?? '').trim();
+      if (!nombreBuscado) return resultadoError('¿Qué obra? Dime su nombre.');
+      const r = await resolverObrasPorNombre(deps.supabase, deps.businessId, nombreBuscado);
+      const t = resultadoResolveATool(r, nombreBuscado, 'obra');
+      if (!t.ok) return { tipo: 'resultado', result: t as unknown as Record<string, unknown> };
+      const { data } = await deps.supabase
+        .from('obras')
+        .select('id, nombre, estado')
+        .eq('id', t.match.id)
+        .eq('business_id', deps.businessId)
+        .maybeSingle();
+      obraFila = (data as FilaObra | null) ?? null;
+    }
+    if (!obraFila) return resultadoError('Obra no encontrada. No he modificado nada.');
+    const nombreObra = obraFila.nombre ?? 'la obra';
+    const argsObra: Record<string, unknown> = { ...args, obra_id: obraFila.id };
+    delete argsObra.obra_nombre;
+    const estadoNuevo = String(args.estado ?? '').trim().toLowerCase();
+    if (estadoNuevo === 'cerrada' && String(obraFila.estado ?? '').toLowerCase() === 'cerrada') {
+      return resultadoError(`La obra «${nombreObra}» ya está cerrada.`);
+    }
+    const otros: string[] = [];
+    if (args.nombre) otros.push(`nombre nuevo: ${String(args.nombre)}`);
+    if (args.direccion) otros.push(`dirección: ${String(args.direccion)}`);
+    if (args.cliente_nombre) otros.push(`cliente: ${String(args.cliente_nombre)}`);
+    const resumen =
+      estadoNuevo === 'cerrada' && otros.length === 0
+        ? `Voy a cerrar la obra «${nombreObra}».`
+        : `Voy a actualizar la obra «${nombreObra}»${estadoNuevo ? ` (estado: ${obraFila.estado ?? '—'} → ${estadoNuevo}${otros.length ? `, ${otros.join(', ')}` : ''})` : otros.length ? ` (${otros.join(', ')})` : ''}.`;
+    return { tipo: 'pendiente', accion: { tool, args: argsObra, resumen } };
+  }
+
   if (tool === 'crear_entrada_diario') {
     const texto = [String(args.obra_nombre ?? ''), String(args.texto ?? ''), deps.mensajeUsuario].filter(Boolean).join(' ');
     const obra = await resolverObraDocumentoAgente(
@@ -581,11 +629,20 @@ export async function prepararAccionPendiente(
     }
     if (obra.obra_id) {
       args.obra_id = obra.obra_id;
+      // Lo que se guarda es lo que se enseña: la obra resuelta manda sobre el nombre que dijo el modelo.
+      args.obra_nombre = obra.obra_nombre ?? args.obra_nombre;
       const nombre = obra.obra_nombre ?? String(args.obra_nombre ?? '');
       const t = valorLegible(args.texto);
+      let cuando = '';
+      if (String(args.fecha ?? '').trim()) {
+        const f = parseFechaNatural(args.fecha);
+        if (!f.ok) return resultadoError(f.error);
+        args.fecha = f.ymd;
+        if (f.ymd !== ymdHoyMadrid()) cuando = ` con fecha ${f.ymd}`;
+      }
       return {
         tipo: 'pendiente',
-        accion: { tool, args, resumen: `Voy a anotar en el diario de «${nombre}»${t ? `: «${t}»` : ''}.` },
+        accion: { tool, args, resumen: `Voy a anotar en el diario de «${nombre}»${cuando}${t ? `: «${t}»` : ''}.` },
       };
     }
   }
@@ -602,6 +659,19 @@ export async function prepararAccionPendiente(
     if (o.pendiente_confirmacion === true) {
       // Si la vista previa ya localizó el presupuesto, la acción confirmada lleva su id exacto.
       const argsFinales: Record<string, unknown> = { ...args, solo_vista_previa: false };
+      // Lo que la vista previa resolvió (obra, cliente, proveedor, descripción…) manda sobre lo que dijo el
+      // modelo: lo que se guarda es EXACTAMENTE lo que se enseñó.
+      if (o.args_resueltos && typeof o.args_resueltos === 'object' && !Array.isArray(o.args_resueltos)) {
+        Object.assign(argsFinales, o.args_resueltos as Record<string, unknown>);
+        if ('obra_id' in (o.args_resueltos as object)) delete argsFinales.obra_nombre;
+        if ('fecha' in (o.args_resueltos as object)) delete argsFinales.fecha_relativa;
+        delete argsFinales.horas; // si hay horas_reales resueltas, mandan
+      }
+      // Ids que la vista previa localizó (evento, entrada de diario, registro de horas): se confirma ESE.
+      for (const clave of ['evento_id', 'entrada_id', 'registro_id'] as const) {
+        if (typeof o[clave] === 'string' && o[clave]) argsFinales[clave] = o[clave];
+      }
+      if (tool === 'eliminar_recordatorio' && typeof o.id === 'string' && o.id) argsFinales.id = o.id;
       if (typeof o.presupuesto_id === 'string' && o.presupuesto_id) {
         argsFinales.presupuesto_id = o.presupuesto_id;
         delete argsFinales.numero;

@@ -1,3 +1,4 @@
+import { ymdHoyMadrid, ymdMadridDeTimestamp } from '@/lib/fechas-madrid';
 import { renderToBuffer } from '@react-pdf/renderer';
 import { loadEmpresaEmisor, type EmpresaEmisor, type EmpresaLoaderClient } from '@/lib/pdf/empresa';
 import { FacturaPdfDocument, type FacturaPdfProps } from '@/lib/pdf/factura';
@@ -99,7 +100,7 @@ export async function renderFacturaPdfConEmisor(
 ): Promise<RenderFacturaPdfResult> {
   const createdAt = fac.created_at;
   const fechaFallback =
-    createdAt && createdAt.length >= 10 ? createdAt.slice(0, 10) : new Date().toISOString().split('T')[0];
+    ymdMadridDeTimestamp(createdAt) ?? ymdHoyMadrid();
   const fecha = fac.fecha && String(fac.fecha).trim().length > 0 ? String(fac.fecha).trim() : fechaFallback;
 
   const baseImponible = numFromDb(fac.base_imponible);

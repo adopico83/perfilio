@@ -150,7 +150,14 @@ describe('Agenda demo: navegar por meses y años', () => {
 });
 
 describe('Agenda demo: añadir cita a mano', () => {
+  afterEach(() => jest.useRealTimers());
   it('con el día seleccionado ya puesto, la cita aparece en el calendario y en la card del dashboard', async () => {
+    // Reloj fijo (solo `Date`) a las 05:00 de Madrid: «hoy» es el mismo día en el navegador y en Madrid, y la cita de las
+    // 06:00 sigue siendo «próxima» (antes el test fallaba entre las 00:00 y las 02:00 de Madrid o pasadas las 06:00).
+    jest.useFakeTimers({
+      now: new Date('2026-10-06T03:00:00Z'),
+      doNotFake: ['hrtime', 'nextTick', 'performance', 'queueMicrotask', 'requestAnimationFrame', 'cancelAnimationFrame', 'requestIdleCallback', 'cancelIdleCallback', 'setImmediate', 'clearImmediate', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'],
+    });
     render(
       conProveedor(
         <>
