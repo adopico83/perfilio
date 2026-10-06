@@ -1,3 +1,4 @@
+import { AGENTE_MODELO_POR_DEFECTO } from '@/lib/agente/modelo';
 import { crearFacturaDesdePresupuesto } from '@/lib/facturas/desde-presupuesto';
 import type OpenAI from 'openai';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -480,7 +481,7 @@ async function elegirTarifaConGpt(
   candidatas: Array<{ id: string; nombre: string; precio: number }>
 ): Promise<number | null> {
   const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: AGENTE_MODELO_POR_DEFECTO,
     messages: [
       {
         role: 'system',

@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { AGENTE_MODELO_POR_DEFECTO } from '@/lib/agente/modelo';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -99,7 +100,7 @@ IMPORTANTE — Reglas de extracción por prioridad:
 En todos los casos: responde SOLO con un array JSON válido de partidas. No incluyas texto adicional ni menciones IVA en el JSON.`;
 
   const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: AGENTE_MODELO_POR_DEFECTO,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: d },

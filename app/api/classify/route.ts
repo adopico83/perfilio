@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { sendUrgencyAlert } from '@/lib/email';
-import { createServiceClient } from '@/lib/supabase/server';
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+import { createClient } from '@/lib/supabase/server';
+import { modeloAdmiteTemperature, modeloAgente, parametrosGeneracion } from '@/lib/agente/modelo';
 
 export async function POST(request: NextRequest) {
   try {
+    // Solo con sesión: la ruta gasta OpenAI y puede mandar emails.
+    const supabaseAuth = await createClient();
+    const {
+      data: { user },
+    } = await supabaseAuth.auth.getUser();
+    if (!user?.id) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+
     const { message, senderName, channel } = await request.json();
 
     if (!message) {
@@ -18,9 +22,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Llamada a OpenAI para clasificar
+    // Cliente creado aquí (no al importar el módulo) para no exigir OPENAI_API_KEY en los tests.
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const modelo = modeloAgente();
     const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
+      model: modelo,
       messages: [
         {
           role: 'system',
@@ -38,8 +44,12 @@ Responde SOLO con una palabra: urgent, normal o low`,
           content: `Clasifica este mensaje: "${message}"`,
         },
       ],
-      temperature: 0.3, // Baja temperatura para respuestas más consistentes
-      max_tokens: 10,
+      // Temperatura baja = respuestas consistentes. Los modelos de razonamiento gastan tokens
+      // pensando, así que necesitan más margen que 10 para llegar a escribir la palabra.
+      ...parametrosGeneracion(modelo, {
+        maxTokens: modeloAdmiteTemperature(modelo) ? 10 : 256,
+        temperature: 0.3,
+      }),
     });
 
     const priority = completion.choices[0].message.content?.trim().toLowerCase() || 'normal';
@@ -50,16 +60,8 @@ Responde SOLO con una palabra: urgent, normal o low`,
 
     // Alerta por email cuando el mensaje es urgente
     if (finalPriority === 'urgent') {
-      const supabase = createServiceClient();
-      let to = process.env.ALERT_EMAIL;
-      try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        to = user?.email ?? to;
-      } catch {
-        // Si no hay sesión del usuario, caemos a ALERT_EMAIL.
-      }
+      // El email del usuario con sesión; si no lo tiene, ALERT_EMAIL.
+      const to = user.email ?? process.env.ALERT_EMAIL;
 
       if (to) {
         await sendUrgencyAlert(
