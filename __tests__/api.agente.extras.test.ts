@@ -115,10 +115,25 @@ describe('POST /api/agente — extras', () => {
   }
 
   it('registrar_extra devuelve mensaje con descripción e importe', async () => {
+    // insert().select().single(): el alta del extra pasa por el número correlativo de presupuestos.
     const insertMock = jest.fn().mockReturnValue({
-      then: (onOk: (v: unknown) => unknown) =>
-        Promise.resolve({ data: null, error: null }).then(onOk),
+      select: () => ({ single: async () => ({ data: { id: 'extra-1' }, error: null }) }),
     });
+    // select… para leer el padre (2 eq + maybeSingle) y para leer el máximo numero_presupuesto.
+    const leerPadreOMaximo = {
+      eq: jest.fn(),
+      not: jest.fn(),
+      order: jest.fn(),
+      limit: jest.fn(),
+      maybeSingle: jest.fn().mockResolvedValue({
+        data: { id: 'parent-uuid-1', cliente_nombre: 'Obra Norte', cliente_id: 'cli-1' },
+        error: null,
+      }),
+    };
+    leerPadreOMaximo.eq.mockReturnValue(leerPadreOMaximo);
+    leerPadreOMaximo.not.mockReturnValue(leerPadreOMaximo);
+    leerPadreOMaximo.order.mockReturnValue(leerPadreOMaximo);
+    leerPadreOMaximo.limit.mockReturnValue(leerPadreOMaximo);
 
     const extraArgs = {
       descripcion: 'Toma adicional de luz',
@@ -136,20 +151,7 @@ describe('POST /api/agente — extras', () => {
         if (table === 'business_profiles') return businessProfileChain;
         if (table === 'presupuestos') {
           return {
-            select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                eq: jest.fn().mockReturnValue({
-                  maybeSingle: jest.fn().mockResolvedValue({
-                    data: {
-                      id: 'parent-uuid-1',
-                      cliente_nombre: 'Obra Norte',
-                      cliente_id: 'cli-1',
-                    },
-                    error: null,
-                  }),
-                }),
-              }),
-            }),
+            select: jest.fn().mockReturnValue(leerPadreOMaximo),
             insert: insertMock,
           };
         }
@@ -199,7 +201,12 @@ describe('POST /api/agente — extras', () => {
     expect(parsed.mensaje).toContain('Obra Norte');
     expect(parsed.mensaje).toContain('borrador');
     expect(insertMock).toHaveBeenCalled();
-    const payload = insertMock.mock.calls[0]?.[0] as { es_extra?: boolean; parent_id?: string };
+    const payload = insertMock.mock.calls[0]?.[0] as {
+      es_extra?: boolean;
+      parent_id?: string;
+      numero_presupuesto?: number;
+    };
+    expect(payload.numero_presupuesto).toBe(1); // los extras también llevan número
     expect(payload.es_extra).toBe(true);
     expect(payload.parent_id).toBe('parent-uuid-1');
   });

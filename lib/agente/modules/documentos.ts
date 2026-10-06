@@ -859,19 +859,24 @@ export async function handleDocumentosAgent(
         };
       }
 
-      const { error } = await supabase.from('presupuestos').insert({
-        business_id: businessId,
-        mensaje_cliente: mensajeOriginal,
-        presupuesto_generado: texto,
-        fecha: new Date().toISOString().split('T')[0],
-        estado: 'borrador',
-        ...(importe_total != null && { importe_total }),
-        ...(clienteNombreFinal.length > 0 && { cliente_nombre: clienteNombreFinal }),
-        ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
-        ...(clienteIdFinal != null && { cliente_id: clienteIdFinal }),
-      });
+      // Con número correlativo del negocio (antes se guardaba sin número y salía «—» en el PDF).
+      const creado = await insertarPresupuestoConNumeroCorrelativo(
+        supabase,
+        businessId,
+        {
+          mensaje_cliente: mensajeOriginal,
+          presupuesto_generado: texto,
+          fecha: new Date().toISOString().split('T')[0],
+          estado: 'borrador',
+          ...(importe_total != null && { importe_total }),
+          ...(clienteNombreFinal.length > 0 && { cliente_nombre: clienteNombreFinal }),
+          ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
+          ...(clienteIdFinal != null && { cliente_id: clienteIdFinal }),
+        },
+        'id'
+      );
 
-      if (error) return { error: error.message };
+      if (!creado.ok) return { error: creado.error };
       return { ok: true };
     }
     case 'crear_factura': {
@@ -1213,21 +1218,26 @@ export async function handleDocumentosAgent(
       if (!obraExtraRes.ok) return aclaracionObra(obraExtraRes);
       const obraIdExtra = obraExtraRes.obra_id ?? '';
 
-      const { error: insErr } = await supabase.from('presupuestos').insert({
-        business_id: businessId,
-        parent_id: parent.id,
-        es_extra: true,
-        presupuesto_generado: descripcion,
-        importe_total: importeNum,
-        cliente_nombre: clienteNombreFinal,
-        cliente_id: parent.cliente_id ?? null,
-        fecha: new Date().toISOString().split('T')[0],
-        estado: 'pendiente',
-        mensaje_cliente: `EXTRA/MODIFICADO: ${descripcion}`,
-        ...(obraIdExtra ? { obra_id: obraIdExtra } : {}),
-      });
+      // Los extras también son filas de `presupuestos`: llevan su propio número correlativo.
+      const extraCreado = await insertarPresupuestoConNumeroCorrelativo(
+        supabase,
+        businessId,
+        {
+          parent_id: parent.id,
+          es_extra: true,
+          presupuesto_generado: descripcion,
+          importe_total: importeNum,
+          cliente_nombre: clienteNombreFinal,
+          cliente_id: parent.cliente_id ?? null,
+          fecha: new Date().toISOString().split('T')[0],
+          estado: 'pendiente',
+          mensaje_cliente: `EXTRA/MODIFICADO: ${descripcion}`,
+          ...(obraIdExtra ? { obra_id: obraIdExtra } : {}),
+        },
+        'id'
+      );
 
-      if (insErr) return { error: insErr.message };
+      if (!extraCreado.ok) return { error: extraCreado.error };
 
       const baseMsg =
         `Extra registrado correctamente: '${descripcion}' por ${impFmt}€, vinculado al presupuesto de ${clienteNombreFinal}.`;

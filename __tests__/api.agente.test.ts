@@ -105,9 +105,14 @@ describe('POST /api/agente', () => {
         );
 
         if (table === 'presupuestos') {
+          // El alta lee el siguiente número correlativo (select…not…order…limit…maybeSingle, sin filas
+          // previas) y luego inserta y devuelve la fila con insert().select().single().
+          chain.not = jest.fn(() => chain);
           chain.insert = jest.fn((payload: unknown) => {
             insertMock(payload);
-            return chain;
+            return {
+              select: () => ({ single: async () => ({ data: { id: 'pres-1' }, error: null }) }),
+            };
           });
         }
 
@@ -310,6 +315,7 @@ describe('POST /api/agente', () => {
         estado: 'borrador',
         importe_total: 123.45,
         cliente_nombre: 'Juan Pérez',
+        numero_presupuesto: 1, // el presupuesto del agente ya nace con número correlativo
       })
     );
   });
