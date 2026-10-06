@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+let openaiCliente: OpenAI | null = null;
+
+/** Cliente de OpenAI creado la primera vez que se usa (no al importar el módulo): así `next build` no exige OPENAI_API_KEY. */
+function getOpenAI(): OpenAI {
+  openaiCliente ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  return openaiCliente;
+}
 
 /** Whisper no admite archivos de más de 25 MB. */
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
@@ -44,14 +48,14 @@ export async function POST(request: NextRequest) {
     let transcription;
     try {
       const fileMp3 = new File([blob], 'audio.mp3', { type: 'audio/mpeg' });
-      transcription = await openai.audio.transcriptions.create({
+      transcription = await getOpenAI().audio.transcriptions.create({
         file: fileMp3,
         model: 'whisper-1',
         language: 'es',
       });
     } catch {
       const fileOgg = new File([blob], 'audio.ogg', { type: 'audio/ogg' });
-      transcription = await openai.audio.transcriptions.create({
+      transcription = await getOpenAI().audio.transcriptions.create({
         file: fileOgg,
         model: 'whisper-1',
         language: 'es',

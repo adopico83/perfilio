@@ -125,9 +125,13 @@ import {
   toolsForAgentIntent,
 } from '@/lib/agente/router';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+let openaiCliente: OpenAI | null = null;
+
+/** Cliente de OpenAI creado la primera vez que se usa (no al importar el módulo): así `next build` no exige OPENAI_API_KEY. */
+function getOpenAI(): OpenAI {
+  openaiCliente ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  return openaiCliente;
+}
 
 /** YYYY-MM-DD del instante dado en la zona horaria indicada (p. ej. Europa/Madrid). */
 function formatYmdInTimeZone(date: Date, timeZone: string): string {
@@ -336,7 +340,7 @@ export async function POST(request: NextRequest) {
           typeof business_id === 'string' ? business_id : String(business_id ?? ''),
           authUser?.id ?? null,
           supabase,
-          openai,
+          getOpenAI(),
           { mensajeTrim }
         );
       }
@@ -348,7 +352,7 @@ export async function POST(request: NextRequest) {
           typeof business_id === 'string' ? business_id : String(business_id ?? ''),
           authUser?.id ?? null,
           supabase,
-          openai,
+          getOpenAI(),
           {
             mensajeTrim: mensajeTrimParaTools,
             imagenesNormalizadas: imagenesParaDiarioCtx,
@@ -364,7 +368,7 @@ export async function POST(request: NextRequest) {
           typeof business_id === 'string' ? business_id : String(business_id ?? ''),
           authUser?.id ?? null,
           supabase,
-          openai,
+          getOpenAI(),
           { mensajeTrim }
         );
       }
@@ -376,7 +380,7 @@ export async function POST(request: NextRequest) {
           typeof business_id === 'string' ? business_id : String(business_id ?? ''),
           authUser?.id ?? null,
           supabase,
-          openai,
+          getOpenAI(),
           { mensajeTrim }
         );
       }
@@ -398,7 +402,7 @@ export async function POST(request: NextRequest) {
           bidRun,
           authUser?.id ?? null,
           supabase,
-          openai,
+          getOpenAI(),
           {
             mensajeTrim,
             mensaje: typeof mensaje === 'string' ? mensaje : mensajeTrim,
@@ -1059,7 +1063,7 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
       temperature: AGENTE_TOOLS_TEMPERATURE,
     });
 
-    const completion = await openai.chat.completions.create({
+    const completion = await getOpenAI().chat.completions.create({
       model: modelo,
       messages,
       tools,
@@ -1087,7 +1091,7 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
             'El usuario pide una acción sobre datos del negocio. Debes invocar la herramienta correspondiente en este turno. No respondas solo con texto.',
         },
       ];
-      const retryCompletion = await openai.chat.completions.create({
+      const retryCompletion = await getOpenAI().chat.completions.create({
         model: modelo,
         messages: retryMessages,
         tools,
@@ -1230,7 +1234,7 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
               { role: 'system' as const, content: buildMensajeSistemaProsaAnclada(hechos) },
             ];
             try {
-              const finalCompletion = await openai.chat.completions.create({
+              const finalCompletion = await getOpenAI().chat.completions.create({
                 model: modelo,
                 messages: finalMessages,
                 ...parametrosGeneracion(modelo, {

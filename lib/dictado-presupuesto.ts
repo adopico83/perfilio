@@ -1,9 +1,13 @@
 import OpenAI from 'openai';
 import { AGENTE_MODELO_POR_DEFECTO } from '@/lib/agente/modelo';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+let openaiCliente: OpenAI | null = null;
+
+/** Cliente de OpenAI creado la primera vez que se usa (no al importar el módulo): así `next build` no exige OPENAI_API_KEY. */
+function getOpenAI(): OpenAI {
+  openaiCliente ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  return openaiCliente;
+}
 
 export type TarifaReferencia = {
   nombre: string;
@@ -99,7 +103,7 @@ IMPORTANTE — Reglas de extracción por prioridad:
 4. Si el dictado solo menciona el trabajo sin cantidad ni precio (ej: "demolición de tabique"), busca la tarifa más cercana y estima una cantidad razonable.
 En todos los casos: responde SOLO con un array JSON válido de partidas. No incluyas texto adicional ni menciones IVA en el JSON.`;
 
-  const completion = await openai.chat.completions.create({
+  const completion = await getOpenAI().chat.completions.create({
     model: AGENTE_MODELO_POR_DEFECTO,
     messages: [
       { role: 'system', content: systemPrompt },
