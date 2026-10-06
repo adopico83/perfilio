@@ -264,4 +264,106 @@ describe('/api/diario', () => {
     expect(builder.eq).toHaveBeenCalledTimes(1);
     expect(builder.eq).toHaveBeenCalledWith('business_id', 'biz-1');
   });
+
+  describe('aislamiento de fotos y vídeos entre negocios', () => {
+    // UUID reales: las rutas del bucket empiezan siempre por el business_id (un UUID).
+    const BIZ = '8784450e-08a4-420a-8c37-d30bff8f0d39';
+    const OTRO = '900ed462-7640-4893-9030-a41163219f7a';
+    const PROPIA = `${BIZ}/1700_foto.jpg`;
+    const AJENA = `${OTRO}/1700_foto.jpg`;
+    const URL_AJENA = `https://x.supabase.co/storage/v1/object/sign/diario-obra/${OTRO}/1700_foto.jpg?token=abc`;
+
+    function mockInsertar() {
+      const insertado: Array<Record<string, unknown>> = [];
+      (createServiceClient as jest.Mock).mockReturnValue({
+        from: jest.fn(() => ({
+          insert: (row: Record<string, unknown>) => {
+            insertado.push(row);
+            return { select: () => ({ single: async () => ({ data: { id: 'ent-1', ...row }, error: null }) }) };
+          },
+        })),
+      });
+      return insertado;
+    }
+    const post = (body: Record<string, unknown>) =>
+      POST(
+        new NextRequest('http://localhost/api/diario', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ business_id: BIZ, obra_nombre: 'Casa', texto: 'x', ...body }),
+        })
+      );
+
+    it('guarda rutas del propio negocio', async () => {
+      const ins = mockInsertar();
+      const res = await post({ fotos: [PROPIA], videos: [`${BIZ}/entrada/1701_v.mp4`] });
+      expect(res.status).toBe(200);
+      expect(ins[0]).toMatchObject({ fotos: [PROPIA], videos: [`${BIZ}/entrada/1701_v.mp4`] });
+    });
+
+    it.each([
+      ['una foto de otro negocio', { fotos: [PROPIA, AJENA] }],
+      ['un vídeo de otro negocio', { videos: [AJENA] }],
+      ['una URL firmada de otro negocio', { fotos: [URL_AJENA] }],
+      ['una ruta con ..', { fotos: [`${BIZ}/../${OTRO}/1700_foto.jpg`] }],
+      ['una ruta que solo empieza parecido', { fotos: [`${BIZ}0/foto.jpg`] }],
+      ['una ruta sin carpeta de negocio', { fotos: ['foto.jpg'] }],
+    ])('400 si llega %s, y no inserta nada', async (_n, extra) => {
+      const ins = mockInsertar();
+      const res = await post(extra);
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toMatch(/no pertenece a este negocio/);
+      expect(ins).toHaveLength(0);
+    });
+
+    it('una URL externa que no es del bucket se sigue descartando en silencio (como antes)', async () => {
+      const ins = mockInsertar();
+      const res = await post({ fotos: ['https://x/a.jpg', PROPIA] });
+      expect(res.status).toBe(200);
+      expect(ins[0].fotos).toEqual([PROPIA]);
+    });
+
+    it('GET firma solo rutas del negocio y omite las ajenas (ni firma ni devuelve la URL ajena)', async () => {
+      const firmadas: string[] = [];
+      const listado = {
+        data: [
+          {
+            id: 'e1',
+            business_id: BIZ,
+            obra_nombre: 'Obra',
+            obra_direccion: null,
+            texto: 't',
+            fotos: [PROPIA, AJENA, URL_AJENA, 'https://externa.example/f.jpg'],
+            videos: [AJENA],
+            fecha: '2026-01-01T00:00:00.000Z',
+          },
+        ],
+        error: null,
+      };
+      const builder = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        then: (ok: (v: typeof listado) => unknown) => Promise.resolve(listado).then(ok),
+      };
+      (createServiceClient as jest.Mock).mockReturnValue({
+        from: jest.fn(() => builder),
+        storage: {
+          from: () => ({
+            createSignedUrl: async (path: string) => {
+              firmadas.push(path);
+              return { data: { signedUrl: `https://signed/${path}` }, error: null };
+            },
+          }),
+        },
+      });
+
+      const res = await GET(new NextRequest(`http://localhost/api/diario?business_id=${BIZ}&obra_nombre=Obra`));
+      const json = await res.json();
+      expect(firmadas).toEqual([PROPIA]); // nunca se pide firmar nada de biz-2
+      expect(json.entradas[0].fotos).toEqual([`https://signed/${PROPIA}`, 'https://externa.example/f.jpg']);
+      expect(json.entradas[0].videos).toBeNull();
+      expect(JSON.stringify(json)).not.toContain(OTRO);
+    });
+  });
 });

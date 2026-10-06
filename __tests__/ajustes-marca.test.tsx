@@ -6,7 +6,6 @@ jest.mock('@/lib/use-demo-tenant', () => ({ useDemoTenant: () => mockUseDemo() }
 const mockRouter = { replace: jest.fn(), push: jest.fn() };
 jest.mock('next/navigation', () => ({ useRouter: () => mockRouter }));
 jest.mock('@/app/dashboard/logout-button', () => ({ __esModule: true, default: () => null }));
-jest.mock('@/components/ui/volver-dashboard', () => ({ __esModule: true, default: () => null }));
 jest.mock('@/components/dashboard/dashboard-main-nav', () => ({ __esModule: true, default: () => null }));
 jest.mock('@supabase/ssr', () => ({
   createBrowserClient: () => ({ auth: { getSession: async () => ({ data: { session: { user: { id: 'u' } } } }) } }),
@@ -92,5 +91,22 @@ describe('Ajustes de marca con negocio real', () => {
       '/api/pdf/muestra?business_id=biz-1'
     );
     expect(screen.getByText(/guarda antes/)).toBeTruthy();
+  });
+});
+
+describe('Salida de la pantalla de Ajustes', () => {
+  it.each([
+    ['demo', true],
+    ['negocio real', false],
+  ])('hay «← Volver» y una X de cierre que llevan al dashboard (%s)', async (_n, demo) => {
+    mockUseDemo.mockReturnValue(demo);
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ business_id: 'b', ajustes: {}, logo_url_firmada: null }) });
+    render(<AjustesMarcaPage />);
+    const volver = (await screen.findByRole('link', { name: /Volver/ })) as HTMLAnchorElement;
+    expect(volver.getAttribute('href')).toBe('/dashboard');
+    const cerrar = screen.getByRole('link', { name: 'Cerrar y volver al dashboard' }) as HTMLAnchorElement;
+    expect(cerrar.getAttribute('href')).toBe('/dashboard');
+    // La X es solo para móvil: oculta a partir de md.
+    expect(cerrar.className).toContain('md:hidden');
   });
 });

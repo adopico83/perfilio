@@ -57,10 +57,14 @@ export async function DELETE(
       return NextResponse.json({ error: 'Entrada no encontrada' }, { status: 404 });
     }
 
-    const paths = collectDiarioObraStoragePathsFromEntry({
-      fotos: row.fotos as string[] | null,
-      videos: row.videos as string[] | null,
-    });
+    // Solo se borran ficheros de este negocio, aunque la fila apuntara a rutas ajenas.
+    const paths = collectDiarioObraStoragePathsFromEntry(
+      {
+        fotos: row.fotos as string[] | null,
+        videos: row.videos as string[] | null,
+      },
+      business_id
+    );
     await removeDiarioObraStorageObjects(supabase, paths);
 
     const { error: delErr } = await supabase

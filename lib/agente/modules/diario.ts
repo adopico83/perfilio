@@ -255,10 +255,13 @@ export async function handleDiario(
         if (!rowD?.id) {
           return { mensaje: 'No he encontrado ninguna entrada del diario que coincida.' };
         }
-        const paths = collectDiarioObraStoragePathsFromEntry({
-          fotos: rowD.fotos as string[] | null,
-          videos: rowD.videos as string[] | null,
-        });
+        const paths = collectDiarioObraStoragePathsFromEntry(
+          {
+            fotos: rowD.fotos as string[] | null,
+            videos: rowD.videos as string[] | null,
+          },
+          bidDiarioDel
+        );
         await removeDiarioObraStorageObjects(supabase, paths);
         const { error: deD } = await supabase
           .from('diario_obra')
@@ -521,7 +524,7 @@ export async function handleDiario(
 
       let pdfBytes: Uint8Array;
       try {
-        const entradasConUrls = await signDiarioObraEntriesMedia(supabase, entradasPdf);
+        const entradasConUrls = await signDiarioObraEntriesMedia(supabase, entradasPdf, businessIdPdfDiario);
         pdfBytes = await buildDiarioObraPdf(entradasConUrls);
       } catch (e) {
         console.error('buildDiarioObraPdf', e);
