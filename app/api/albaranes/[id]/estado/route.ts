@@ -52,13 +52,14 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     // La condición va EN el UPDATE (no solo en la lectura de arriba): si otra petición factura el
     // albarán justo entre la lectura y la escritura, este UPDATE no toca ninguna fila.
     // `.or('estado.is.null,…')` y no solo `.neq`: en SQL `NULL <> 'facturado'` no es verdadero, así
-    // que un albarán con estado NULL (la columna lo admite) no se actualizaría nunca.
+    // que un albarán con estado NULL (la columna lo admite) no se actualizaría nunca. `not.ilike`
+    // (sin comodines = igualdad sin distinguir mayúsculas) para que «Facturado» también cuente.
     const { data: filas, error: updErr } = await supabase
       .from('albaranes')
       .update({ estado })
       .eq('id', id)
       .eq('business_id', businessId)
-      .or('estado.is.null,estado.neq.facturado')
+      .or('estado.is.null,estado.not.ilike.facturado')
       .select('id');
     if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
     if (!filas || filas.length === 0) {

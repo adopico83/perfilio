@@ -2,7 +2,7 @@
 import '@testing-library/jest-dom';
 import { render, screen } from '@testing-library/react';
 import { readdirSync, readFileSync, statSync } from 'fs';
-import { join, relative } from 'path';
+import { join, relative, sep } from 'path';
 import VolverAlDashboard from '@/components/ui/volver-dashboard';
 
 const mockUseDemo = jest.fn();
@@ -36,7 +36,7 @@ function paginas(dir: string): string[] {
 
 describe('guardián: ninguna pantalla sin salida', () => {
   const raiz = join(process.cwd(), 'app');
-  const todas = paginas(raiz).map((p) => relative(raiz, p));
+  const todas = paginas(raiz).map((p) => relative(raiz, p).split(sep).join('/')); // «/» también en Windows
 
   it('encuentra las pantallas', () => expect(todas.length).toBeGreaterThan(10));
 

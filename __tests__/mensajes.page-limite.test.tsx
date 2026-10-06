@@ -50,3 +50,15 @@ describe('/mensajes: error de la IA', () => {
     await waitFor(() => expect(mockInsert).toHaveBeenCalledWith({ conversation_id: 'c1', ai_response: 'Hola, te llamamos.' }));
   });
 });
+
+describe('/mensajes: 429 de classify', () => {
+  it('enseña el aviso y NO sigue con /api/assistant ni guarda nada', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 429, json: async () => ({ error: 'Has hecho demasiadas consultas a la IA. Prueba de nuevo en 20 s.' }) });
+    render(<MensajesPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /Generar Respuesta IA/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/en 20 s/);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0][0]).toBe('/api/classify');
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+});

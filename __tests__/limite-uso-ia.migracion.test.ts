@@ -66,3 +66,12 @@ it('borra las filas de más de 2 días', async () => {
 it('es aditiva: solo crea tabla y función', () => {
   expect(SQL.replace(/--.*$/gm, '')).not.toMatch(/\bdrop\b|\btruncate\b|\bupdate\s+public/i);
 });
+
+it('la migración del índice por updated_at es aditiva, re-ejecutable y crea el índice', async () => {
+  const idx = readFileSync(join(process.cwd(), 'supabase/migrations/20261010090000_ia_uso_limite_updated_at_idx.sql'), 'utf8');
+  await db.exec(idx);
+  await db.exec(idx);
+  const r = await db.query(`select 1 from pg_indexes where indexname = 'ia_uso_limite_updated_at_idx'`);
+  expect(r.rows).toHaveLength(1);
+  expect(idx.replace(/--.*$/gm, '')).not.toMatch(/\bdrop\b|\bdelete\b|\bupdate\b/i);
+});

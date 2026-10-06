@@ -8,7 +8,7 @@ Cada migración tiene **dos fechas** que no coinciden:
 2. **La versión registrada en la base** (`supabase_migrations.schema_migrations`). Cuando una migración se aplica
    con el MCP (`apply_migration`) la base le pone la hora del momento, así que su versión es otra.
 
-Por eso el repo tiene más ficheros (30 + los nuevos) que migraciones registradas en la base (21), y los
+Por eso el repo tiene más ficheros (30 + los nuevos) que migraciones registradas en la base (22), y los
 timestamps casi nunca son iguales.
 
 ## Equivalencias (fichero del repo → versión registrada en la base)
@@ -35,6 +35,7 @@ timestamps casi nunca son iguales.
 | `20261008100000_storage_pdf_por_negocio` | `20261006131549` |
 | `20261008110000_conversaciones_por_negocio` | `20261006131542` (y antes `20261006124820`, el «arreglo urgente» con el mismo nombre, que creó las mismas policies; por eso aparece dos veces) |
 | `20261008120000_avisos_movil_por_negocio` | `20261006131533` |
+| `20261009090000_limite_uso_ia` | `20261006151426` |
 
 ## Ficheros «espejo»
 
@@ -73,11 +74,10 @@ Además hay tablas creadas a mano sin migración (`facturas`, `presupuestos`, `a
 
 ## Pendientes de aplicar
 
-Las 4 del PR #37 (`20261008090000` a `20261008120000`) y las del #36 **ya están aplicadas**
-(ver la tabla de equivalencias). La única pendiente es:
+La del límite de uso de la IA (`20261009090000`) ya está aplicada (ver la tabla de equivalencias). La única pendiente es:
 
-1. `20261009090000_limite_uso_ia.sql` — aditiva (tabla `ia_uso_limite` y función `ia_registrar_uso`, solo `service_role`).
-   Mientras no se aplique, las rutas `/api/assistant` y `/api/classify` siguen funcionando con un contador en memoria.
+1. `20261010090000_ia_uso_limite_updated_at_idx.sql` — aditiva (índice en `ia_uso_limite(updated_at)` para que el
+   borrado de filas viejas de `ia_registrar_uso` no recorra la tabla entera).
 
 ## Esquema de referencia
 
