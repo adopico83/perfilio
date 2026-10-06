@@ -77,12 +77,22 @@ export function normalizeDiarioObraRowMediaForInsert(params: {
   };
 }
 
+/**
+ * Firma una foto/vídeo SOLO si es del negocio. Una ruta de otro negocio (por ejemplo, colada en una
+ * fila antigua) devuelve null: ni se firma ni se devuelve tal cual (podría ser una URL firmada ajena).
+ * Lo que no es del bucket (URL externa) se deja como estaba.
+ */
 async function signOneDiarioObraMediaUrl(
   supabase: SupabaseClient,
-  raw: string
-): Promise<string> {
+  raw: string,
+  businessId: string
+): Promise<string | null> {
   const path = extractDiarioObraObjectPath(raw);
   if (!path) return raw;
+  if (!rutaPerteneceANegocio(businessId, path)) {
+    console.warn('diario-obra: ruta de otro negocio omitida al firmar');
+    return null;
+  }
   const { data, error } = await supabase.storage
     .from(DIARIO_OBRA_STORAGE_BUCKET)
     .createSignedUrl(path, SIGNED_MEDIA_TTL_SEC);
@@ -95,27 +105,29 @@ type DiarioObraMediaFields = {
   videos?: string[] | null;
 };
 
-/** Devuelve filas con fotos/vídeos listos para <img>/<video> o fetch (URLs firmadas renovadas). */
+async function signList(supabase: SupabaseClient, items: string[], businessId: string) {
+  const signed = await Promise.all(items.map((u) => signOneDiarioObraMediaUrl(supabase, u, businessId)));
+  const ok = signed.filter((u): u is string => u !== null);
+  return ok.length > 0 ? ok : null;
+}
+
+/**
+ * Devuelve filas con fotos/vídeos listos para <img>/<video> o fetch (URLs firmadas renovadas).
+ * Solo firma rutas del negocio `businessId`; las ajenas se omiten.
+ */
 export async function signDiarioObraEntriesMedia<T extends DiarioObraMediaFields>(
   supabase: SupabaseClient,
-  entries: T[]
+  entries: T[],
+  businessId: string
 ): Promise<T[]> {
   const out: T[] = [];
   for (const e of entries) {
     const fotosIn = e.fotos ?? [];
     const videosIn = e.videos ?? [];
-    const fotos =
-      fotosIn.length > 0
-        ? await Promise.all(fotosIn.map((u) => signOneDiarioObraMediaUrl(supabase, u)))
-        : null;
-    const videos =
-      videosIn.length > 0
-        ? await Promise.all(videosIn.map((u) => signOneDiarioObraMediaUrl(supabase, u)))
-        : null;
     out.push({
       ...e,
-      fotos,
-      videos,
+      fotos: fotosIn.length > 0 ? await signList(supabase, fotosIn, businessId) : null,
+      videos: videosIn.length > 0 ? await signList(supabase, videosIn, businessId) : null,
     });
   }
   return out;
@@ -124,17 +136,21 @@ export async function signDiarioObraEntriesMedia<T extends DiarioObraMediaFields
 /**
  * Rutas dentro del bucket `diario-obra` extraídas de fotos y vídeos de una fila (deduplicadas).
  */
-export function collectDiarioObraStoragePathsFromEntry(row: {
-  fotos?: string[] | null;
-  videos?: string[] | null;
-}): string[] {
+export function collectDiarioObraStoragePathsFromEntry(
+  row: {
+    fotos?: string[] | null;
+    videos?: string[] | null;
+  },
+  /** Si se indica, solo se devuelven rutas de ese negocio (para no borrar nunca ficheros ajenos). */
+  businessId?: string
+): string[] {
   const paths = new Set<string>();
   for (const arr of [row.fotos, row.videos] as const) {
     if (!Array.isArray(arr)) continue;
     for (const u of arr) {
       if (typeof u !== 'string') continue;
       const p = extractDiarioObraObjectPath(u);
-      if (p) paths.add(p);
+      if (p && (!businessId || rutaPerteneceANegocio(businessId, p))) paths.add(p);
     }
   }
   return [...paths];
@@ -242,6 +258,40 @@ export function resolveDiarioObraBusinessPath(
     return { error: 'La ruta no pertenece a este negocio.' };
   }
   return { path };
+}
+
+/**
+ * ¿Esta foto/vídeo es del negocio? Acepta una ruta del bucket o una URL de Storage del propio
+ * bucket `diario-obra` (se normaliza a ruta). Es cierto solo si la ruta cuelga de `{businessId}/`.
+ * Es la comprobación que separa negocios: el primer segmento de toda ruta del bucket es el
+ * `business_id` (lo construye `buildDiarioObraObjectPath`), igual que en las policies de Storage.
+ */
+export function rutaPerteneceANegocio(businessId: string, raw: string): boolean {
+  const path = extractDiarioObraObjectPath(raw);
+  if (!path) return false;
+  return 'path' in resolveDiarioObraBusinessPath(businessId, path);
+}
+
+/**
+ * Valida las fotos/vídeos que manda un cliente antes de guardarlos en una entrada.
+ * - Ruta (o URL de Storage) de otro negocio, o que no sigue el formato `{business_id}/…` → error.
+ * - Una URL externa que no es del bucket (https://…) no se guarda como ruta, así que se deja pasar:
+ *   `normalizeDiarioObraRowMediaForInsert` la descarta (comportamiento de siempre).
+ */
+export function validarMediaDelNegocio(
+  businessId: string,
+  items: string[] | null | undefined,
+  campo: 'fotos' | 'videos' = 'fotos'
+): { ok: true } | { ok: false; error: string } {
+  for (const raw of items ?? []) {
+    if (typeof raw !== 'string' || !raw.trim()) continue;
+    const dentro = extractDiarioObraObjectPath(raw) !== null;
+    if (!dentro && /^https?:\/\//i.test(raw.trim())) continue;
+    if (!rutaPerteneceANegocio(businessId, raw)) {
+      return { ok: false, error: `${campo}: una de las rutas no pertenece a este negocio` };
+    }
+  }
+  return { ok: true };
 }
 
 type DiarioStoredInfo = {
@@ -400,6 +450,12 @@ export async function insertDiarioObraEntry(
     videos?: string[] | null;
   }
 ): Promise<{ data: DiarioObraRow | null; error: { message: string } | null }> {
+  // Última línea de defensa (la API ya valida y responde 400): nunca se guarda una ruta ajena.
+  for (const campo of ['fotos', 'videos'] as const) {
+    const v = validarMediaDelNegocio(params.business_id, params[campo], campo);
+    if (!v.ok) return { data: null, error: { message: v.error } };
+  }
+
   const { fotos: fotosNorm, videos: videosNorm } = normalizeDiarioObraRowMediaForInsert({
     fotos: params.fotos,
     videos: params.videos,

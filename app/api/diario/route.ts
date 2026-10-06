@@ -6,6 +6,7 @@ import {
   groupDiarioEntriesByObra,
   insertDiarioObraEntry,
   signDiarioObraEntriesMedia,
+  validarMediaDelNegocio,
 } from '@/lib/diario-obra';
 
 export async function POST(request: NextRequest) {
@@ -49,6 +50,12 @@ export async function POST(request: NextRequest) {
     const ok = await assertUserOwnsBusiness(supabaseAuth, user.id, business_id);
     if (!ok) {
       return NextResponse.json({ error: 'No tienes acceso a este negocio' }, { status: 403 });
+    }
+
+    // Fotos y vídeos: solo rutas de ESTE negocio (primer segmento = business_id). Si no, 400.
+    for (const campo of ['fotos', 'videos'] as const) {
+      const v = validarMediaDelNegocio(business_id, campo === 'fotos' ? fotos : videos, campo);
+      if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 });
     }
 
     const supabase = createServiceClient();
@@ -142,7 +149,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const dataSigned = await signDiarioObraEntriesMedia(supabase, data);
+    const dataSigned = await signDiarioObraEntriesMedia(supabase, data, business_id);
 
     if (obra_nombre) {
       return NextResponse.json({ entradas: dataSigned });

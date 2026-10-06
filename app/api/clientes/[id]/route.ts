@@ -74,7 +74,8 @@ export async function GET(
 
     const diarioObraSigned = await signDiarioObraEntriesMedia(
       supabase,
-      dioRes.data ?? []
+      dioRes.data ?? [],
+      businessId
     );
 
     return NextResponse.json({
