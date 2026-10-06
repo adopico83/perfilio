@@ -56,4 +56,30 @@ describe('Avisos al móvil', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Guardar clave' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/no reconoce esa clave/);
   });
+
+  it('los dos GET (carga y recarga) llevan ?business_id y el PATCH el mismo negocio', async () => {
+    mockFetch.mockResolvedValue(ok(estado));
+    render(<AvisosMovil demo={false} businessId="biz-1" />);
+    await waitFor(() => expect(screen.getByRole('switch')).toBeEnabled());
+    fireEvent.click(screen.getByRole('switch'));
+    await waitFor(() => expect(screen.getByText('Aviso activado.')).toBeInTheDocument());
+    expect(mockFetch.mock.calls[0][0]).toBe('/api/negocio/avisos?business_id=biz-1');
+    expect(mockFetch.mock.calls[2][0]).toBe('/api/negocio/avisos?business_id=biz-1');
+    expect(JSON.parse(mockFetch.mock.calls[1][1].body).business_id).toBe('biz-1');
+  });
+
+  it('con businessId null no hace ningún fetch y los controles siguen bloqueados', async () => {
+    render(<AvisosMovil demo={false} businessId={null} />);
+    expect(screen.getByRole('switch')).toBeDisabled();
+    await Promise.resolve();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('cuando llega el negocio, carga sus avisos', async () => {
+    mockFetch.mockResolvedValue(ok(estado));
+    const { rerender } = render(<AvisosMovil demo={false} businessId={null} />);
+    expect(mockFetch).not.toHaveBeenCalled();
+    rerender(<AvisosMovil demo={false} businessId="biz-9" />);
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledWith('/api/negocio/avisos?business_id=biz-9', expect.anything()));
+  });
 });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { sendUrgencyAlert } from '@/lib/email';
 import { createClient } from '@/lib/supabase/server';
+import { comprobarLimiteIARuta, respuestaLimiteIA } from '@/lib/ia/limite-uso';
 import { modeloAdmiteTemperature, modeloAgente, parametrosGeneracion } from '@/lib/agente/modelo';
 
 export async function POST(request: NextRequest) {
@@ -21,6 +22,10 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Límite de uso (cupo común con la otra ruta de IA): 429 antes de gastar OpenAI.
+    const limite = await comprobarLimiteIARuta(supabaseAuth, user.id);
+    if (!limite.permitido) return respuestaLimiteIA(limite);
 
     // Cliente creado aquí (no al importar el módulo) para no exigir OPENAI_API_KEY en los tests.
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });

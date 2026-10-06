@@ -11,6 +11,8 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
   for (const [n, rows] of Object.entries(inicial)) tablas[n] = rows.map((r) => ({ ...r }));
   /** Errores que se devuelven (uno por insert, en orden) para una tabla antes de insertar de verdad. */
   const erroresInsert: Record<string, ErrorDb[]> = {};
+  /** Errores que se devuelven (uno por update, en orden) para una tabla antes de actualizar de verdad. */
+  const erroresUpdate: Record<string, ErrorDb[]> = {};
   const inserts: Array<{ tabla: string; fila: Fila }> = [];
   /** Gancho que se ejecuta justo antes de cada insert (para simular otra escritura concurrente). */
   const ganchos: { antesDeInsertar?: (tabla: string) => void } = {};
@@ -27,6 +29,8 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
     const distintos: Array<[string, unknown]> = [];
     const esNulo: string[] = [];
     const mayorIgual: Array<[string, unknown]> = [];
+    /** Cada .or('a.is.null,b.neq.x') es un grupo: basta que cumpla UNA condición del grupo. */
+    const grupos: Array<Array<(r: Fila) => boolean>> = [];
     let orden: { col: string; asc: boolean } | null = null;
     let limite: number | null = null;
     let modo: 'select' | 'insert' | 'update' = 'select';
@@ -42,7 +46,8 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
           enLista.every(([c, vs]) => vs.includes(r[c])) &&
           distintos.every(([c, v]) => r[c] !== v) &&
           esNulo.every((c) => r[c] == null) &&
-          mayorIgual.every(([c, v]) => r[c] != null && String(r[c]) >= String(v))
+          mayorIgual.every(([c, v]) => r[c] != null && String(r[c]) >= String(v)) &&
+          grupos.every((g) => g.some((cond) => cond(r)))
       );
       if (orden) {
         const { col, asc } = orden;
@@ -72,6 +77,8 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
         return { data: [proyectar(fila)], error: null };
       }
       if (modo === 'update') {
+        const errU = erroresUpdate[tabla]?.shift();
+        if (errU) return { data: null, error: errU };
         const rows = filas();
         rows.forEach((r) => Object.assign(r, valores));
         updates.push({ tabla, valores, filtros: [...filtros] });
@@ -102,6 +109,20 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
       },
       in(c: string, valores: unknown[]) {
         enLista.push([c, valores]);
+        return chain;
+      },
+      /** Solo soporta condiciones `col.is.null`, `col.eq.valor` y `col.neq.valor` (con la semántica de SQL: NULL <> x no es verdadero). */
+      or(expr: string) {
+        grupos.push(
+          expr.split(',').map((parte) => {
+            const [col, op, ...resto] = parte.trim().split('.');
+            const valor = resto.join('.');
+            if (op === 'is' && valor === 'null') return (r: Fila) => r[col] == null;
+            if (op === 'eq') return (r: Fila) => r[col] != null && String(r[col]) === valor;
+            if (op === 'neq') return (r: Fila) => r[col] != null && String(r[col]) !== valor;
+            throw new Error(`fake-db: .or() no soporta «${parte}»`);
+          })
+        );
         return chain;
       },
       gte(c: string, v: unknown) {
@@ -174,6 +195,7 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
     updates,
     consultas,
     erroresInsert,
+    erroresUpdate,
     ganchos,
   };
 }

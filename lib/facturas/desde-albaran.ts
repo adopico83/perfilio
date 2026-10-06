@@ -18,6 +18,8 @@ export type ResultadoFacturaAlbaran =
       total: number;
       cliente_nombre: string | null;
       ya_existia: boolean;
+      /** Algo no salió del todo bien aunque la factura existe (p. ej. no se pudo marcar el albarán). */
+      aviso?: string;
     }
   | { ok: false; code: CodigoErrorAlbaran; error: string };
 
@@ -37,8 +39,9 @@ function texto(v: unknown): string | null {
 
 const COLUMNAS_FACTURA = 'id, numero_factura, total, cliente_nombre';
 
-function existente(f: Fila): ResultadoFacturaAlbaran {
+function existente(f: Fila, aviso?: string): ResultadoFacturaAlbaran {
   return {
+    ...(aviso ? { aviso } : {}),
     ok: true,
     factura_id: String(f.id),
     numero_factura: num(f.numero_factura),
@@ -116,8 +119,12 @@ export async function crearFacturaDesdeAlbaran(
     .maybeSingle();
   if (previaErr) return fallo('error', previaErr.message);
   if (previa) {
-    if (String(alb.estado ?? '').toLowerCase() !== 'facturado') await marcarFacturado(supabase, businessId, albaranId);
-    return existente(previa as Fila);
+    let aviso: string | undefined;
+    if (String(alb.estado ?? '').toLowerCase() !== 'facturado') {
+      const fallo = await marcarFacturado(supabase, businessId, albaranId);
+      if (fallo) aviso = avisoNoMarcado(previa as Fila, fallo);
+    }
+    return existente(previa as Fila, aviso);
   }
   if (String(alb.estado ?? '').toLowerCase() === 'facturado') {
     return fallo(
@@ -218,11 +225,14 @@ export async function crearFacturaDesdeAlbaran(
     return fallo('error', ins.error);
   }
 
+  // La factura YA existe. Si falla marcar el albarán no se devuelve error (el usuario creería que no
+  // se creó): se devuelve la factura con un aviso. Al reintentar se encuentra la factura previa,
+  // se vuelve a intentar marcar el albarán y no se crea otra (índice uq_facturas_albaran_id).
   const marcado = await marcarFacturado(supabase, businessId, albaranId);
-  if (marcado) return fallo('error', marcado);
-
   const f = ins.data;
+  const aviso = marcado ? avisoNoMarcado(f, marcado) : undefined;
   return {
+    ...(aviso ? { aviso } : {}),
     ok: true,
     factura_id: String(f.id),
     numero_factura: num(f.numero_factura),
@@ -240,4 +250,10 @@ async function marcarFacturado(supabase: SupabaseClient, businessId: string, alb
     .eq('id', albaranId)
     .eq('business_id', businessId);
   return error ? error.message : null;
+}
+
+function avisoNoMarcado(factura: Fila, motivo: string): string {
+  const mensaje = `Factura nº ${factura.numero_factura ?? ''} creada, pero el albarán no se pudo marcar como facturado. Vuelve a pulsar "Marcar facturado": no se creará otra factura.`;
+  console.warn('[facturas/desde-albaran] no se pudo marcar el albarán como facturado:', motivo);
+  return mensaje;
 }

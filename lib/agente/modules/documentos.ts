@@ -1018,12 +1018,13 @@ export async function handleDocumentosAgent(
       });
       if (!r.ok) return { error: r.error };
       const cliente = r.cliente_nombre ?? '';
-      return {
-        mensaje: r.ya_existia
-          ? `Ese albarán ya tenía factura (nº ${r.numero_factura}, ${r.total.toFixed(2)}€): no se ha creado otra.`
+      const base = r.ya_existia
+        ? `Ese albarán ya tenía factura (nº ${r.numero_factura}, ${r.total.toFixed(2)}€): no se ha creado otra.`
+        : r.aviso
+          ? `Factura creada a partir del albarán de ${cliente}.\nTotal: ${r.total.toFixed(2)}€.`
           : `Factura creada correctamente a partir del albarán de ${cliente}.\n` +
-            `Total: ${r.total.toFixed(2)}€. El albarán ha sido marcado como facturado.`,
-      };
+            `Total: ${r.total.toFixed(2)}€. El albarán ha sido marcado como facturado.`;
+      return { mensaje: r.aviso ? `${base}\nAviso: ${r.aviso}` : base };
     }
     case 'registrar_extra': {
       const descripcion = String(toolArgs.descripcion ?? '').trim();

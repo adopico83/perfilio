@@ -53,6 +53,7 @@ export default function AlbaranesPage() {
   const [ivaElegido, setIvaElegido] = useState<number>(21);
   const [facturando, setFacturando] = useState(false);
   const [facturaCreada, setFacturaCreada] = useState<number | null>(null);
+  const [avisoFactura, setAvisoFactura] = useState('');
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -114,6 +115,7 @@ export default function AlbaranesPage() {
   const abrirFacturar = (a: Albaran) => {
     setErrorAccion('');
     setFacturaCreada(null);
+    setAvisoFactura('');
     setIvaElegido(21);
     setAFacturar(a);
   };
@@ -136,12 +138,13 @@ export default function AlbaranesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ iva_porcentaje: ivaElegido }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string; numero_factura?: number };
+      const data = (await res.json().catch(() => ({}))) as { error?: string; numero_factura?: number; aviso?: string };
       if (!res.ok) {
         setErrorAccion(data.error ?? 'No se pudo crear la factura');
         return;
       }
       setFacturaCreada(data.numero_factura ?? null);
+      setAvisoFactura(data.aviso ?? '');
       setAFacturar(null);
       setDetalleId(null);
       await loadAlbaranes();
@@ -180,6 +183,11 @@ export default function AlbaranesPage() {
         {errorAccion ? (
           <p role="alert" className="mb-4 rounded-lg border border-[#A04A2F]/50 bg-[#E5DFD0] px-3 py-2 text-sm text-[#A04A2F]">
             {errorAccion}
+          </p>
+        ) : null}
+        {avisoFactura ? (
+          <p role="status" className="mb-4 rounded-lg border border-[#A04A2F]/50 bg-[#D4CCBC] px-3 py-2 text-sm text-zinc-900">
+            {avisoFactura}
           </p>
         ) : null}
         {facturaCreada != null ? (

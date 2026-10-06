@@ -48,6 +48,15 @@ describe('POST /api/albaranes/[id]/facturar', () => {
     preparar({ tablas: { albaranes: [alb({ estado: 'facturado' })], facturas: [], presupuestos: [] } });
     expect((await POST(req({ iva_porcentaje: 21 }), ctx)).status).toBe(409);
   });
+  it('(d) devuelve el aviso cuando no se pudo marcar el albarán', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const d = preparar();
+    d.erroresUpdate.albaranes = [{ message: 'permission denied' }];
+    const res = await POST(req({ iva_porcentaje: 21 }), ctx);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, numero_factura: 1, aviso: expect.stringMatching(/no se pudo marcar como facturado/) });
+  });
+
   it('200 con número de factura y filtrando por business_id', async () => {
     const d = preparar();
     const res = await POST(req({ iva_porcentaje: 10 }), ctx);
@@ -89,5 +98,62 @@ describe('PATCH /api/albaranes/[id]/estado', () => {
     expect(res.status).toBe(200);
     expect(d.tablas.albaranes[0].estado).toBe('entregado');
     expect(d.updates[0].filtros).toEqual(expect.arrayContaining([['id', 'alb-1'], ['business_id', BIZ]]));
+  });
+
+  it('el UPDATE lleva la condición «no facturado» (o estado NULL) además de id y business_id', async () => {
+    const d = preparar({ tablas: { albaranes: [alb({ estado: 'pendiente' })] } });
+    await PATCH(patch({ estado: 'entregado' }), ctx);
+    expect(d.updates[0].filtros).toEqual(expect.arrayContaining([['id', 'alb-1'], ['business_id', BIZ]]));
+    // la condición or se aplicó de verdad: un albarán facturado no se toca
+    const f = preparar({ tablas: { albaranes: [alb({ estado: 'facturado' })] } });
+    await PATCH(patch({ estado: 'entregado' }), ctx);
+    expect(f.tablas.albaranes[0].estado).toBe('facturado');
+  });
+
+  it('un albarán con estado NULL sí se actualiza (NULL <> facturado no es verdadero en SQL)', async () => {
+    const d = preparar({ tablas: { albaranes: [alb({ estado: null })] } });
+    const res = await PATCH(patch({ estado: 'entregado' }), ctx);
+    expect(res.status).toBe(200);
+    expect(d.tablas.albaranes[0].estado).toBe('entregado');
+  });
+
+  it('carrera: pendiente al leer, facturado antes de escribir → 409 y la fila no cambia', async () => {
+    const d = preparar({ tablas: { albaranes: [alb({ estado: 'pendiente' })] } });
+    const fila = d.tablas.albaranes[0];
+    const from = (d.client as unknown as { from: (t: string) => Record<string, unknown> }).from;
+    (createServiceClient as jest.Mock).mockReturnValue({
+      ...(d.client as object),
+      from: (t: string) => {
+        const q = from(t) as { update: (v: Record<string, unknown>) => unknown };
+        const upd = q.update.bind(q);
+        // justo antes de aplicar el UPDATE, otra petición factura el albarán
+        q.update = (v: Record<string, unknown>) => ((fila.estado = 'facturado'), upd(v));
+        return q;
+      },
+    });
+    const res = await PATCH(patch({ estado: 'entregado' }), ctx);
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/facturado mientras tanto/);
+    expect(fila.estado).toBe('facturado');
+  });
+
+  it('0 filas y el albarán ya no existe → 404', async () => {
+    const d = preparar({ tablas: { albaranes: [alb({ estado: 'pendiente' })] } });
+    const fila = d.tablas.albaranes[0];
+    const from = (d.client as unknown as { from: (t: string) => Record<string, unknown> }).from;
+    (createServiceClient as jest.Mock).mockReturnValue({
+      ...(d.client as object),
+      from: (t: string) => {
+        const q = from(t) as { update: (v: Record<string, unknown>) => unknown };
+        const upd = q.update.bind(q);
+        q.update = (v: Record<string, unknown>) => {
+          d.tablas.albaranes.length = 0; // desaparece
+          fila.estado = 'x';
+          return upd(v);
+        };
+        return q;
+      },
+    });
+    expect((await PATCH(patch({ estado: 'entregado' }), ctx)).status).toBe(404);
   });
 });

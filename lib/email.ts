@@ -1,7 +1,5 @@
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 /**
  * Envía un email de alerta cuando llega un mensaje urgente.
  * Requiere RESEND_API_KEY en el entorno.
@@ -12,10 +10,14 @@ export async function sendUrgencyAlert(
   senderName: string,
   channel: string
 ): Promise<{ success: boolean; error?: string }> {
-  if (!process.env.RESEND_API_KEY) {
-    console.error('RESEND_API_KEY no configurada');
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    console.warn('RESEND_API_KEY no configurada: no se envía la alerta de urgencia');
     return { success: false, error: 'RESEND_API_KEY no configurada' };
   }
+  // El cliente se crea aquí, ya con la clave comprobada (no al importar el módulo): así `next build`
+  // no falla con «Missing API key» cuando la clave no está.
+  const resend = new Resend(apiKey);
 
   const from = 'Perfilio <onboarding@resend.dev>';
 

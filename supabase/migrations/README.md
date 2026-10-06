@@ -8,7 +8,7 @@ Cada migración tiene **dos fechas** que no coinciden:
 2. **La versión registrada en la base** (`supabase_migrations.schema_migrations`). Cuando una migración se aplica
    con el MCP (`apply_migration`) la base le pone la hora del momento, así que su versión es otra.
 
-Por eso el repo tiene más ficheros (30 + los nuevos) que migraciones registradas en la base (15), y los
+Por eso el repo tiene más ficheros (30 + los nuevos) que migraciones registradas en la base (21), y los
 timestamps casi nunca son iguales.
 
 ## Equivalencias (fichero del repo → versión registrada en la base)
@@ -30,12 +30,23 @@ timestamps casi nunca son iguales.
 | `20261006140000_diario_obra_storage_por_negocio` | `20261006094637` |
 | `20261007090000_presupuestos_rellenar_numero` | `20261006122327` |
 | `20261007100000_business_profiles_resumen_push` | `20261006121927` |
+| `20261006132319_conversation_history_quitar_policies_antiguas` | `20261006132319` (fichero espejo, ver abajo) |
+| `20261008090000_facturas_albaran_unico` | `20261006131524` |
+| `20261008100000_storage_pdf_por_negocio` | `20261006131549` |
+| `20261008110000_conversaciones_por_negocio` | `20261006131542` (y antes `20261006124820`, el «arreglo urgente» con el mismo nombre, que creó las mismas policies; por eso aparece dos veces) |
+| `20261008120000_avisos_movil_por_negocio` | `20261006131533` |
 
 ## Ficheros «espejo»
 
-`20261005231124_remap_pino_business_id_trigger.sql` y `20261005231333_revoke_anon_perfilio_user_in_business.sql`
-**ya están aplicados** en producción (se hicieron directamente con el MCP). Se han copiado aquí con su SQL literal
-solo para que el repo cuente toda la historia. **No se vuelven a ejecutar.**
+`20261005231124_remap_pino_business_id_trigger.sql`, `20261005231333_revoke_anon_perfilio_user_in_business.sql` y
+`20261006132319_conversation_history_quitar_policies_antiguas.sql` **ya están aplicados** en producción (se hicieron
+directamente con el MCP). Se han copiado aquí con su SQL literal solo para que el repo cuente toda la historia.
+**No se vuelven a ejecutar.**
+
+Ojo con el último: por su nombre queda *antes* de `20261008110000_conversaciones_por_negocio.sql`, pero en la base se
+aplicó **después** (`20261006131542` < `20261006132319`). Borra las dos policies antiguas por `business_users` que
+`20261008110000` dejaba a propósito (`"usuarios insertan su historial"` y `"usuarios ven su historial"`), porque las
+policies por negocio ya cubren select/insert/delete. No se vuelve a ejecutar.
 
 ## Ficheros antiguos que la base no tiene registrados (17)
 
@@ -60,16 +71,13 @@ Además hay tablas creadas a mano sin migración (`facturas`, `presupuestos`, `a
 - Las que modifican o borran algo (`drop policy`, `update` de datos…) llevan en la primera línea
   `-- ⚠️ MIGRACIÓN NO ADITIVA: …` y se señalan en el PR.
 
-## Pendientes de aplicar (PR «limpieza técnica + seguridad»)
+## Pendientes de aplicar
 
-En este orden:
+Las 4 del PR #37 (`20261008090000` a `20261008120000`) y las del #36 **ya están aplicadas**
+(ver la tabla de equivalencias). La única pendiente es:
 
-1. `20261008090000_facturas_albaran_unico.sql` — aditiva (índice único de factura por albarán).
-2. `20261008100000_storage_pdf_por_negocio.sql` — ⚠️ **NO ADITIVA** (cambia 2 policies de storage).
-3. `20261008110000_conversaciones_por_negocio.sql` — ⚠️ **NO ADITIVA** (quita 3 policies abiertas).
-4. `20261008120000_avisos_movil_por_negocio.sql` — aditiva (tabla `business_avisos_movil`, solo servidor).
-
-Del PR anterior (#36) siguen las suyas si no se han aplicado: `20261007090000` (NO aditiva) y `20261007100000`.
+1. `20261009090000_limite_uso_ia.sql` — aditiva (tabla `ia_uso_limite` y función `ia_registrar_uso`, solo `service_role`).
+   Mientras no se aplique, las rutas `/api/assistant` y `/api/classify` siguen funcionando con un contador en memoria.
 
 ## Esquema de referencia
 

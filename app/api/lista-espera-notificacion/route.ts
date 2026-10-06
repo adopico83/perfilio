@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -22,6 +20,14 @@ export async function POST(request: Request) {
         { status: 500 }
       );
     }
+
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) {
+      console.warn('RESEND_API_KEY no configurada: no se envía la notificación de lista de espera');
+      return NextResponse.json({ error: 'RESEND_API_KEY no configurada' }, { status: 500 });
+    }
+    // Cliente creado aquí (no al importar el módulo) para que `next build` no exija la clave.
+    const resend = new Resend(apiKey);
 
     const from = process.env.RESEND_FROM ?? 'Perfilio <onboarding@resend.dev>';
     const now = new Date();

@@ -39,6 +39,7 @@ export default function MensajesPage() {
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editedText, setEditedText] = useState('');
+  const [errorIA, setErrorIA] = useState('');
 
   const loadConversations = useCallback(async () => {
     if (demo) {
@@ -101,6 +102,13 @@ export default function MensajesPage() {
       });
 
       const data = await res.json();
+
+      // Con error (429 por límite de uso incluido) no se guarda nada: se enseña el motivo en la página.
+      if (!res.ok || typeof data.response !== 'string') {
+        setErrorIA(data.error ?? 'No se pudo generar la respuesta de la IA');
+        return;
+      }
+      setErrorIA('');
 
       await supabase.from('ai_responses').insert({
         conversation_id: conversationId,
@@ -206,6 +214,12 @@ export default function MensajesPage() {
             </div>
           </div>
         </div>
+
+        {errorIA ? (
+          <p role="alert" className="mb-4 rounded-lg border border-[#A04A2F]/50 bg-[#E5DFD0] px-3 py-2 text-sm text-[#A04A2F]">
+            {errorIA}
+          </p>
+        ) : null}
 
         <div className="space-y-4">
           {conversations?.map((conv) => {
