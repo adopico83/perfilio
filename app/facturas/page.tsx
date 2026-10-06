@@ -181,14 +181,25 @@ export default function FacturasPage() {
     setGuardandoEdicion(true);
     setEditError('');
     if (demo) {
+      // Demo: solo en memoria, nada se escribe en Supabase.
+      const redondear = (n: number) => Math.round(n * 100) / 100;
+      const base = redondear(
+        payload.lineas.reduce((s, l) => s + redondear(l.cantidad * l.precio_unitario), 0)
+      );
+      const iva = redondear((base * payload.iva_porcentaje) / 100);
       setFacturas((prev) =>
         prev.map((f) =>
           f.id === factura.id
             ? {
                 ...f,
                 cliente_nombre: payload.cliente_nombre,
-                total: payload.importe_total,
-                descripcion_trabajos: payload.descripcion_trabajos,
+                lineas: payload.lineas.map((l) => ({
+                  ...l,
+                  importe: redondear(l.cantidad * l.precio_unitario),
+                })),
+                base_imponible: base,
+                iva,
+                total: redondear(base + iva),
               }
             : f
         )
@@ -199,26 +210,14 @@ export default function FacturasPage() {
       return;
     }
     try {
-      const res = await fetch('/api/agente', {
-        method: 'POST',
+      // El servidor valida, recalcula base, IVA y total, y guarda las líneas.
+      const res = await fetch(`/api/facturas/${factura.id}`, {
+        method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mensaje: 'editar_factura',
-          business_id: factura.business_id,
-          tool_name: 'editar_factura',
-          args: {
-            id: factura.id,
-            cliente_nombre: payload.cliente_nombre,
-            importe_total: payload.importe_total,
-            descripcion_trabajos: payload.descripcion_trabajos,
-          },
-        }),
+        body: JSON.stringify(payload),
       });
-      const data = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        error?: string;
-      };
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
       if (!res.ok || data.error || data.ok !== true) {
         throw new Error(data.error ?? 'No se pudo guardar la factura');
       }

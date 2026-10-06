@@ -16,6 +16,8 @@ export type FacturaEditorSource = {
   cliente_nif: string | null;
   descripcion_trabajos: string | null;
   lineas: unknown;
+  base_imponible?: number | string | null;
+  iva?: number | string | null;
   total: number | string | null;
   fecha: string | null;
   created_at: string;
@@ -26,6 +28,9 @@ export type InvoiceEditLine = {
   descripcion: string;
   cantidad: string;
   precio_unitario: string;
+  /** Se conservan tal cual al guardar (no se editan en pantalla). */
+  unidad?: string | null;
+  capitulo?: string | null;
 };
 
 function newLineId(): string {
@@ -69,6 +74,8 @@ function mapRawLineToEditLine(row: unknown, index: number): InvoiceEditLine {
     descripcion: desc || `Concepto ${index + 1}`,
     cantidad: String(cant || 1),
     precio_unitario: String(precio),
+    unidad: typeof r.unidad === 'string' && r.unidad.trim() ? r.unidad.trim() : null,
+    capitulo: typeof r.capitulo === 'string' && r.capitulo.trim() ? r.capitulo.trim() : null,
   };
 }
 
@@ -139,30 +146,6 @@ export function parseFacturaItemsForEditor(f: FacturaEditorSource): InvoiceEditL
   ];
 }
 
-export function buildDescripcionTrabajosFromItems(items: InvoiceEditLine[]): string {
-  const payload = items.map((it) => {
-    const cantidad = parseNumInput(it.cantidad);
-    const precio_unitario = parseNumInput(it.precio_unitario);
-    const importe = lineImporte(it.cantidad, it.precio_unitario);
-    return {
-      descripcion: it.descripcion.trim(),
-      cantidad,
-      precio_unitario,
-      importe,
-    };
-  });
-  const human = items
-    .map((it) => {
-      const imp = lineImporte(it.cantidad, it.precio_unitario);
-      const d = it.descripcion.trim();
-      return `${d} — ${parseNumInput(it.cantidad)} ud × ${parseNumInput(it.precio_unitario)} € = ${imp.toFixed(2)} €`;
-    })
-    .join('\n');
-  return human.trim()
-    ? `${human.trim()}\n\n${PERFILIO_LINEAS_MARKER}${JSON.stringify(payload)}`
-    : `${PERFILIO_LINEAS_MARKER}${JSON.stringify(payload)}`;
-}
-
 function fmtEuroEs(n: number): string {
   return new Intl.NumberFormat('es-ES', {
     minimumFractionDigits: 2,
@@ -170,10 +153,29 @@ function fmtEuroEs(n: number): string {
   }).format(n);
 }
 
+/** IVA entre los que acepta el servidor (lib/facturas/editar.ts). */
+export const IVA_OPCIONES = [0, 4, 10, 21] as const;
+
+/** % de IVA que ya tiene la factura (iva / base); 21 si no se puede saber o no es uno de los permitidos. */
+export function ivaPorcentajeInicial(f: Pick<FacturaEditorSource, 'base_imponible' | 'iva'>): number {
+  const base = Number(f.base_imponible);
+  const iva = Number(f.iva);
+  if (!Number.isFinite(base) || !Number.isFinite(iva) || base <= 0) return 21;
+  const pct = Math.round((iva / base) * 100);
+  return (IVA_OPCIONES as readonly number[]).includes(pct) ? pct : 21;
+}
+
+/** Lo que se manda al servidor: solo cantidades, precios e IVA. Los importes los calcula él. */
 export type InvoiceEditorSavePayload = {
   cliente_nombre: string;
-  importe_total: number;
-  descripcion_trabajos: string;
+  iva_porcentaje: number;
+  lineas: Array<{
+    descripcion: string;
+    cantidad: number;
+    precio_unitario: number;
+    unidad?: string | null;
+    capitulo?: string | null;
+  }>;
 };
 
 export type InvoiceEditorProps = {
@@ -199,6 +201,7 @@ export function InvoiceEditor({
 }: InvoiceEditorProps) {
   const [clienteNombre, setClienteNombre] = useState(factura.cliente_nombre ?? '');
   const [items, setItems] = useState<InvoiceEditLine[]>(() => parseFacturaItemsForEditor(factura));
+  const [ivaPct, setIvaPct] = useState<number>(() => ivaPorcentajeInicial(factura));
   const [logoFailed, setLogoFailed] = useState(false);
   const [totalsFlash, setTotalsFlash] = useState(false);
   const [localError, setLocalError] = useState('');
@@ -213,7 +216,7 @@ export function InvoiceEditor({
     const sum = items.reduce((s, it) => s + lineImporte(it.cantidad, it.precio_unitario), 0);
     return parseFloat(sum.toFixed(2));
   }, [items]);
-  const iva = useMemo(() => parseFloat((subtotal * 0.21).toFixed(2)), [subtotal]);
+  const iva = useMemo(() => parseFloat(((subtotal * ivaPct) / 100).toFixed(2)), [subtotal, ivaPct]);
   const total = useMemo(() => parseFloat((subtotal + iva).toFixed(2)), [subtotal, iva]);
 
   const totalsKey = `${subtotal.toFixed(2)}|${iva.toFixed(2)}|${total.toFixed(2)}`;
@@ -276,15 +279,18 @@ export function InvoiceEditor({
       setLocalError('Añade al menos una línea con descripción.');
       return;
     }
-    const desc = buildDescripcionTrabajosFromItems(items);
-    if (!desc.trim()) {
-      setLocalError('No se pudo generar la descripción de trabajos.');
-      return;
-    }
     await onSave({
       cliente_nombre: cn,
-      importe_total: total,
-      descripcion_trabajos: desc,
+      iva_porcentaje: ivaPct,
+      lineas: items
+        .filter((it) => it.descripcion.trim().length > 0)
+        .map((it) => ({
+          descripcion: it.descripcion.trim(),
+          cantidad: parseNumInput(it.cantidad),
+          precio_unitario: parseNumInput(it.precio_unitario),
+          unidad: it.unidad ?? null,
+          capitulo: it.capitulo ?? null,
+        })),
     });
   };
 
@@ -432,7 +438,7 @@ export function InvoiceEditor({
 
             {items.map((it, idx) => {
               const baseLinea = lineImporte(it.cantidad, it.precio_unitario);
-              const totalLinea = parseFloat((baseLinea * 1.21).toFixed(2));
+              const totalLinea = parseFloat(((baseLinea * (100 + ivaPct)) / 100).toFixed(2));
               const alt = idx % 2 === 1 ? 'bg-[#fafafa]' : 'bg-white';
               return (
                 <div
@@ -467,7 +473,7 @@ export function InvoiceEditor({
                   </div>
                   <div className="flex w-[8%] items-center justify-center text-neutral-500">—</div>
                   <div className="w-[14%] text-right tabular-nums">{fmtEuroEs(baseLinea)}</div>
-                  <div className="flex w-[10%] items-center justify-center">21%</div>
+                  <div className="flex w-[10%] items-center justify-center">{ivaPct}%</div>
                   <div className="flex w-[6%] items-center justify-center text-neutral-500">—</div>
                   <div className="flex w-[18%] items-center justify-end gap-1">
                     <span className="tabular-nums">{fmtEuroEs(totalLinea)}</span>
@@ -507,7 +513,24 @@ export function InvoiceEditor({
               </div>
               <div className="flex flex-row border-t border-neutral-300 px-1 py-2 text-[8.5px]">
                 <div className="w-[22%] tabular-nums">{fmtEuroEs(subtotal)}</div>
-                <div className="w-[38%] text-center tabular-nums">21% — {fmtEuroEs(iva)}</div>
+                <div className="flex w-[38%] items-center justify-center gap-1 tabular-nums">
+                  <select
+                    aria-label="Porcentaje de IVA"
+                    value={ivaPct}
+                    onChange={(e) => {
+                      setLocalError('');
+                      setIvaPct(Number(e.target.value));
+                    }}
+                    className="cursor-pointer border border-neutral-200 bg-white px-1 py-0.5 text-[8.5px] outline-none focus:ring-1 focus:ring-[#ed8936]"
+                  >
+                    {IVA_OPCIONES.map((p) => (
+                      <option key={p} value={p}>
+                        {p}%
+                      </option>
+                    ))}
+                  </select>
+                  <span>— {fmtEuroEs(iva)}</span>
+                </div>
                 <div className="w-[20%] text-center tabular-nums">{fmtEuroEs(0)}</div>
                 <div className="w-[20%] text-right text-[10px] font-bold tabular-nums">
                   {fmtEuroEs(total)}

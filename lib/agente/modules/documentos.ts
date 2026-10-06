@@ -49,14 +49,40 @@ export async function editar_factura(
   }
   if (toolArgs.importe_total !== undefined) {
     const totalNum = Number(toolArgs.importe_total);
-    if (!Number.isFinite(totalNum)) {
+    if (!Number.isFinite(totalNum) || totalNum < 0) {
       return { error: 'importe_total debe ser un número válido' };
     }
-    const baseImponible = totalNum ? totalNum / 1.21 : 0;
-    const iva = totalNum ? totalNum - baseImponible : 0;
-    updates.total = totalNum;
-    updates.base_imponible = Number.isFinite(baseImponible) ? baseImponible : 0;
-    updates.iva = Number.isFinite(iva) ? iva : 0;
+    // Se respeta el IVA que ya tenía la factura (iva / base); solo si no se sabe, 21%.
+    const { data: actual, error: errLeer } = await supabase
+      .from('facturas')
+      .select('id, estado, base_imponible, iva, lineas')
+      .eq('id', id)
+      .eq('business_id', businessId)
+      .maybeSingle();
+    if (errLeer) return { error: errLeer.message };
+    if (!actual?.id) return { error: 'No se encontró la factura o no pertenece a este negocio' };
+    const estado = String((actual as { estado?: string | null }).estado ?? 'pendiente');
+    if (estado !== 'pendiente') {
+      return { error: `Solo se puede cambiar el importe de facturas pendientes; esta está «${estado}».` };
+    }
+    // Con líneas guardadas, cambiar solo el total dejaría el PDF (que lee las líneas) distinto del total.
+    const lineasActuales = (actual as { lineas?: unknown }).lineas;
+    if (Array.isArray(lineasActuales) && lineasActuales.length > 0) {
+      return {
+        error:
+          'Esta factura tiene líneas de detalle: cambia las cantidades y precios desde Facturas > Editar, para que el PDF y el total coincidan.',
+      };
+    }
+    const baseActual = Number((actual as { base_imponible?: unknown }).base_imponible);
+    const ivaActual = Number((actual as { iva?: unknown }).iva);
+    const factorIva =
+      Number.isFinite(baseActual) && Number.isFinite(ivaActual) && baseActual > 0
+        ? ivaActual / baseActual
+        : 0.21;
+    const baseImponible = Math.round((totalNum / (1 + factorIva)) * 100) / 100;
+    updates.total = Math.round(totalNum * 100) / 100;
+    updates.base_imponible = baseImponible;
+    updates.iva = Math.round((updates.total - baseImponible) * 100) / 100;
   }
 
   const descripcionRaw =
@@ -201,7 +227,7 @@ export const DOCUMENTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[
             properties: {
               id: { type: 'string', description: 'UUID de la factura' },
               cliente_nombre: { type: 'string', description: 'Nombre del cliente' },
-              importe_total: { type: 'number', description: 'Total con IVA (actualiza base e IVA al 21%)' },
+              importe_total: { type: 'number', description: 'Total con IVA (recalcula base e IVA con el % que ya tenía la factura; no vale si la factura tiene líneas de detalle)' },
               descripcion: { type: 'string', description: 'Descripción / conceptos (descripcion_trabajos)' },
             },
             required: ['id'],

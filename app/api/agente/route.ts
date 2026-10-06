@@ -665,6 +665,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Atajo heredado: el editor de facturas ya guarda por PATCH /api/facturas/[id] (con líneas e IVA
+    // calculados en el servidor). Se mantiene solo por compatibilidad con clientes antiguos.
     if (directToolName) {
       if (directToolName !== 'editar_factura') {
         return NextResponse.json({ error: 'tool no permitida' }, { status: 400 });
