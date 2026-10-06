@@ -1,5 +1,7 @@
 import {
   calcularFacturas,
+  calcularMargenEnRiesgo,
+  calcularObrasSinFactura,
   calcularObrasParadas,
   calcularPresupuestosSinRespuesta,
   calcularResumenDia,
@@ -176,5 +178,89 @@ describe('resumen completo', () => {
     expect(txt).toContain('Citas de hoy (1):');
     expect(txt).toContain('Facturas vencidas (1):');
     expect(txt).toContain('Medición');
+  });
+});
+
+describe('margen en riesgo', () => {
+  const obra = (id: string, extra = {}) => ({ id, nombre: id, estado: 'activa', created_at: '2026-08-01T00:00:00Z', ...extra });
+  // 32 €/h: 25 h = 800 € = 80 % de 1000 (justo en el límite, no avisa); 26 h = 832 € = 83,2 %.
+  const horas = (obra_id: string, h: number) => [{ obra_id, horas_reales: h }];
+  const presu = (obra_id: string, importe: number, estado = 'aceptado') => ({ obra_id, importe_total: importe, estado });
+
+  it('avisa si el coste de las horas supera el 80 % del presupuesto', () => {
+    const r = calcularMargenEnRiesgo([obra('o1')], horas('o1', 26), [presu('o1', 1000)]);
+    expect(r).toHaveLength(1);
+    expect(r[0]).toMatchObject({ tipo: 'margen_riesgo', id: 'o1', href: '/obras?id=o1' });
+    expect(r[0].detalle).toMatch(/83%/);
+  });
+  it('no avisa justo en el 80 % ni por debajo', () => {
+    expect(calcularMargenEnRiesgo([obra('o1')], horas('o1', 25), [presu('o1', 1000)])).toHaveLength(0);
+    expect(calcularMargenEnRiesgo([obra('o1')], horas('o1', 10), [presu('o1', 1000)])).toHaveLength(0);
+  });
+  it('suma las jornadas de la obra', () => {
+    const j = [...horas('o1', 13), ...horas('o1', 13), ...horas('o2', 100)];
+    expect(calcularMargenEnRiesgo([obra('o1')], j, [presu('o1', 1000)])).toHaveLength(1);
+  });
+  it('sin presupuesto (o con importe 0) no hay aviso', () => {
+    expect(calcularMargenEnRiesgo([obra('o1')], horas('o1', 500), [])).toHaveLength(0);
+    expect(calcularMargenEnRiesgo([obra('o1')], horas('o1', 500), [presu('o1', 0)])).toHaveLength(0);
+  });
+  it('ignora los presupuestos rechazados', () => {
+    expect(calcularMargenEnRiesgo([obra('o1')], horas('o1', 500), [presu('o1', 1000, 'rechazado')])).toHaveLength(0);
+    // Con un rechazado grande y uno bueno pequeño, manda el bueno.
+    const r = calcularMargenEnRiesgo([obra('o1')], horas('o1', 26), [presu('o1', 50000, 'rechazado'), presu('o1', 1000)]);
+    expect(r).toHaveLength(1);
+  });
+  it('usa el mayor de los presupuestos de la obra, no la suma', () => {
+    // 26 h = 832 €; con dos presupuestos de 1000 sumados (2000) no avisaría; con el mayor sí.
+    expect(calcularMargenEnRiesgo([obra('o1')], horas('o1', 26), [presu('o1', 1000), presu('o1', 1000)])).toHaveLength(1);
+  });
+  it('mira todas las obras activas (abierta, en_curso, activa) y no las cerradas', () => {
+    const obras = ['abierta', 'en_curso', 'activa', 'cerrada'].map((e) => obra(e, { estado: e }));
+    const j = obras.flatMap((o) => horas(o.id, 26));
+    const p = obras.map((o) => presu(o.id, 1000));
+    expect(calcularMargenEnRiesgo(obras, j, p).map((i) => i.id).sort()).toEqual(['abierta', 'activa', 'en_curso']);
+  });
+  it('entra en el resumen del día y cuenta como aviso', () => {
+    const r = calcularResumenDia(
+      { citas: [], obras: [obra('o1', { created_at: '2026-10-04T00:00:00Z' })], diario: [], presupuestos: [], facturas: [], jornadas: horas('o1', 26), presupuestosObra: [presu('o1', 1000)] },
+      NOW
+    );
+    expect(r.margenEnRiesgo).toHaveLength(1);
+    expect(r.totalAvisos).toBe(1);
+    expect(r.todoEnOrden).toBe(false);
+    expect(textoResumen(r)).toContain('Margen en riesgo (1):');
+  });
+});
+
+describe('obras que terminan sin factura', () => {
+  const obra = (id: string, fecha_fin: string | null, extra = {}) => ({ id, nombre: id, estado: 'en_curso', fecha_fin, ...extra });
+
+  it('avisa si termina dentro de 7 días o menos y no tiene factura', () => {
+    const r = calcularObrasSinFactura([obra('hoy', HOY), obra('dia7', '2026-10-12'), obra('dia8', '2026-10-13')], [], HOY);
+    expect(r.map((i) => i.id)).toEqual(['hoy', 'dia7']);
+    expect(r[0]).toMatchObject({ tipo: 'obra_sin_factura', href: '/obras?id=hoy' });
+  });
+  it('si ya pasó la fecha dice «terminó el», si no «termina el»', () => {
+    const r = calcularObrasSinFactura([obra('pasada', '2026-10-01'), obra('futura', '2026-10-08')], [], HOY);
+    expect(r.find((i) => i.id === 'pasada')?.detalle).toBe('terminó el 01/10/2026 y no tiene factura');
+    expect(r.find((i) => i.id === 'futura')?.detalle).toBe('termina el 08/10/2026 y no tiene factura');
+  });
+  it('ordena por fecha de fin', () => {
+    const r = calcularObrasSinFactura([obra('b', '2026-10-09'), obra('a', '2026-10-02')], [], HOY);
+    expect(r.map((i) => i.id)).toEqual(['a', 'b']);
+  });
+  it('no avisa si la obra ya tiene una factura, sin fecha_fin o no está activa', () => {
+    expect(calcularObrasSinFactura([obra('o1', HOY)], [{ obra_id: 'o1' }], HOY)).toHaveLength(0);
+    expect(calcularObrasSinFactura([obra('o1', null)], [], HOY)).toHaveLength(0);
+    expect(calcularObrasSinFactura([obra('o1', HOY, { estado: 'cerrada' })], [], HOY)).toHaveLength(0);
+  });
+  it('entra en el resumen del día', () => {
+    const r = calcularResumenDia(
+      { citas: [], obras: [obra('o1', '2026-10-07', { created_at: '2026-10-04T00:00:00Z' })], diario: [], presupuestos: [], facturas: [], facturasObra: [] },
+      NOW
+    );
+    expect(r.obrasSinFactura.map((i) => i.id)).toEqual(['o1']);
+    expect(textoResumen(r)).toContain('Obras que terminan sin factura (1):');
   });
 });

@@ -65,6 +65,16 @@ jest.mock('openai', () => ({
   })),
 }));
 
+// Estos tests comprueban lo que hace cada tool al EJECUTARSE dentro del turno del agente. La barrera de
+// confirmación del servidor (que ahora retiene las tools de escritura hasta que el usuario dice «sí»)
+// se apaga aquí con su interruptor de emergencia y se prueba aparte en `agente.confirmacion.test.ts`.
+beforeAll(() => {
+  process.env.AGENTE_CONFIRMACION = 'off';
+});
+afterAll(() => {
+  delete process.env.AGENTE_CONFIRMACION;
+});
+
 describe('POST /api/agente', () => {
   let POST: (req: NextRequest) => Promise<Response>;
 
@@ -95,9 +105,14 @@ describe('POST /api/agente', () => {
         );
 
         if (table === 'presupuestos') {
+          // El alta lee el siguiente número correlativo (select…not…order…limit…maybeSingle, sin filas
+          // previas) y luego inserta y devuelve la fila con insert().select().single().
+          chain.not = jest.fn(() => chain);
           chain.insert = jest.fn((payload: unknown) => {
             insertMock(payload);
-            return chain;
+            return {
+              select: () => ({ single: async () => ({ data: { id: 'pres-1' }, error: null }) }),
+            };
           });
         }
 
@@ -300,6 +315,7 @@ describe('POST /api/agente', () => {
         estado: 'borrador',
         importe_total: 123.45,
         cliente_nombre: 'Juan Pérez',
+        numero_presupuesto: 1, // el presupuesto del agente ya nace con número correlativo
       })
     );
   });

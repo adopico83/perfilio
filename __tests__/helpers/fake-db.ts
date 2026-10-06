@@ -15,12 +15,18 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
   /** Gancho que se ejecuta justo antes de cada insert (para simular otra escritura concurrente). */
   const ganchos: { antesDeInsertar?: (tabla: string) => void } = {};
   const updates: Array<{ tabla: string; valores: Fila; filtros: Array<[string, unknown]> }> = [];
+  /** Una entrada por cada select ejecutado, con sus filtros `eq` (para comprobar que filtra por business_id). */
+  const consultas: Array<{ tabla: string; select: string | null; filtros: Array<[string, unknown]> }> = [];
   let contador = 0;
 
   function from(tabla: string) {
     const filtros: Array<[string, unknown]> = [];
     const notNull: string[] = [];
     const patrones: Array<[string, string]> = [];
+    const enLista: Array<[string, unknown[]]> = [];
+    const distintos: Array<[string, unknown]> = [];
+    const esNulo: string[] = [];
+    const mayorIgual: Array<[string, unknown]> = [];
     let orden: { col: string; asc: boolean } | null = null;
     let limite: number | null = null;
     let modo: 'select' | 'insert' | 'update' = 'select';
@@ -32,11 +38,20 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
         (r) =>
           filtros.every(([c, v]) => r[c] === v) &&
           notNull.every((c) => r[c] != null) &&
-          patrones.every(([c, p]) => String(r[c] ?? '').toLowerCase().includes(p))
+          patrones.every(([c, p]) => String(r[c] ?? '').toLowerCase().includes(p)) &&
+          enLista.every(([c, vs]) => vs.includes(r[c])) &&
+          distintos.every(([c, v]) => r[c] !== v) &&
+          esNulo.every((c) => r[c] == null) &&
+          mayorIgual.every(([c, v]) => r[c] != null && String(r[c]) >= String(v))
       );
       if (orden) {
         const { col, asc } = orden;
-        rows = [...rows].sort((a, b) => (asc ? 1 : -1) * (Number(a[col]) - Number(b[col])));
+        rows = [...rows].sort((a, b) => {
+          const x = a[col];
+          const y = b[col];
+          const cmp = typeof x === 'number' && typeof y === 'number' ? x - y : String(x ?? '') < String(y ?? '') ? -1 : String(x ?? '') > String(y ?? '') ? 1 : 0;
+          return (asc ? 1 : -1) * cmp;
+        });
       }
       if (limite != null) rows = rows.slice(0, limite);
       return rows;
@@ -62,6 +77,7 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
         updates.push({ tabla, valores, filtros: [...filtros] });
         return { data: rows.map(proyectar), error: null };
       }
+      consultas.push({ tabla, select: cols, filtros: [...filtros] });
       return { data: filas().map(proyectar), error: null };
     };
 
@@ -82,6 +98,22 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
       },
       eq(c: string, v: unknown) {
         filtros.push([c, v]);
+        return chain;
+      },
+      in(c: string, valores: unknown[]) {
+        enLista.push([c, valores]);
+        return chain;
+      },
+      gte(c: string, v: unknown) {
+        mayorIgual.push([c, v]);
+        return chain;
+      },
+      neq(c: string, v: unknown) {
+        distintos.push([c, v]);
+        return chain;
+      },
+      is(c: string, v: unknown) {
+        if (v === null) esNulo.push(c);
         return chain;
       },
       ilike(c: string, patron: string) {
@@ -118,11 +150,29 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
     return chain;
   }
 
+  /** Storage mínimo: registra las subidas y devuelve URLs firmadas falsas. */
+  const subidas: Array<{ bucket: string; path: string }> = [];
+  const storage = {
+    from(bucket: string) {
+      return {
+        async upload(path: string) {
+          subidas.push({ bucket, path });
+          return { data: { path }, error: null };
+        },
+        async createSignedUrl(path: string, expiresIn: number) {
+          return { data: { signedUrl: `https://storage.test/${bucket}/${path}?exp=${expiresIn}` }, error: null };
+        },
+      };
+    },
+  };
+
   return {
-    client: { from } as never,
+    subidas,
+    client: { from, storage } as never,
     tablas,
     inserts,
     updates,
+    consultas,
     erroresInsert,
     ganchos,
   };

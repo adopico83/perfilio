@@ -15,6 +15,8 @@ const SOLO_SALUDO =
 const CONFIRMACION_EXPLICITA =
   /^(s[ií]|adelante|gen[eé]ralo|confirmo|confirm(?:a|ar)|hazlo|procede|dale)[\s!.]*$/i;
 
+const NEGACION_EXPLICITA = /^(no|cancela|cancelar|d[eé]jalo|olv[ií]dalo|para|mejor\s+no)[\s!.]*$/i;
+
 const VERBOS_ACCION =
   /\b(registr(?:a|ar|o)|crea(?:r)?|a[nñ]ad(?:e|ir)|agreg(?:a|ar)|list(?:a|ar)|muestr(?:a|ame)|ens(?:e|é)[nñ](?:a|ame)|busca(?:r)?|consult(?:a|ar)|elimin(?:a|ar)|borr(?:a|ar)|cambi(?:a|ar)|edit(?:a|ar)|gener(?:a|ar)|confirm(?:a|ar)|guard(?:a|ar)|anot(?:a|ar)|apunt(?:a|ar)|calcul(?:a|ar)|env[ií]a(?:r)?|lee(?:r)?|abr(?:e|ir)|convert(?:i[r]?|ir)|vincul(?:a|ar)|actualiz(?:a|ar)|marc(?:a|ar)|ficha(?:r)?|dict(?:a|ar))\w*/i;
 
@@ -25,6 +27,16 @@ const SENAL_DOMINIO_ACCION =
  * Heurística de un solo reintento: el mensaje parece pedir una acción
  * (no es solo un saludo / cortesía).
  */
+/** «sí», «adelante», «hazlo»…: respuesta afirmativa corta a una pregunta de confirmación. */
+export function esRespuestaAfirmativa(mensaje: string): boolean {
+  return CONFIRMACION_EXPLICITA.test(mensaje.trim());
+}
+
+/** «no», «cancela», «déjalo»…: rechazo corto a una pregunta de confirmación. */
+export function esRespuestaNegativa(mensaje: string): boolean {
+  return NEGACION_EXPLICITA.test(mensaje.trim());
+}
+
 export function pareceAccionQueRequiereTool(mensaje: string): boolean {
   const t = mensaje.trim();
   if (!t) return false;
@@ -187,6 +199,98 @@ function errorDeResultado(result: unknown): string {
   return 'No se pudo completar la acción.';
 }
 
+export type OpcionAclaracion = { n: number; id: string; etiqueta: string };
+
+type CandidatoLike = { id?: unknown; etiqueta?: unknown };
+
+function candidatosDeResultado(result: unknown): Array<{ id: string; etiqueta: string }> {
+  if (result == null || typeof result !== 'object' || Array.isArray(result)) return [];
+  const o = result as Record<string, unknown>;
+  if (o.necesita_aclaracion !== true || !Array.isArray(o.candidatos)) return [];
+  const out: Array<{ id: string; etiqueta: string }> = [];
+  for (const c of o.candidatos as CandidatoLike[]) {
+    const id = typeof c?.id === 'string' ? c.id : '';
+    const etiqueta = typeof c?.etiqueta === 'string' ? c.etiqueta.trim() : '';
+    if (id && etiqueta) out.push({ id, etiqueta });
+  }
+  return out.slice(0, 8);
+}
+
+/**
+ * Texto de una pregunta de aclaración: el mensaje de la tool y, si aún no va en él, la lista
+ * numerada de opciones (nombre + el dato que las distingue: dirección, importe, nº…).
+ */
+export function textoAclaracion(result: unknown): string {
+  const base = errorDeResultado(result);
+  const cands = candidatosDeResultado(result);
+  if (cands.length === 0) return base;
+  if (base.includes(cands[0]!.etiqueta)) return base; // la tool ya trae la lista
+  const lista = cands.map((c, i) => `${i + 1}. ${c.etiqueta}`).join('\n');
+  return `${base}\n${lista}`;
+}
+
+/** Opciones numeradas de todas las aclaraciones de un turno (para resolver «la 2» por id). */
+export function opcionesDeResultados(results: unknown[]): OpcionAclaracion[] {
+  const out: OpcionAclaracion[] = [];
+  for (const r of results) {
+    for (const c of candidatosDeResultado(r)) out.push({ n: out.length + 1, id: c.id, etiqueta: c.etiqueta });
+  }
+  return out;
+}
+
+const RE_MARCA_OPCIONES = /<!--opciones:(\{[\s\S]*?\})-->/;
+
+/**
+ * Comentario HTML invisible que se añade al final de la respuesta con las opciones y sus ids. El panel
+ * no lo pinta (react-markdown ignora los comentarios) pero sí viaja en el historial, y así «la 2» se
+ * puede resolver al id exacto en el turno siguiente sin que el modelo tenga que acordarse.
+ */
+export function marcaOpcionesParaHistorial(opciones: OpcionAclaracion[]): string {
+  if (opciones.length === 0) return '';
+  const mapa: Record<string, { id: string; etiqueta: string }> = {};
+  for (const o of opciones) mapa[String(o.n)] = { id: o.id, etiqueta: o.etiqueta };
+  return `\n<!--opciones:${JSON.stringify(mapa)}-->`;
+}
+
+export function quitarMarcaOpciones(texto: string): string {
+  return texto.replace(/\n?<!--opciones:\{[\s\S]*?\}-->/g, '');
+}
+
+/**
+ * Si el último mensaje del asistente ofreció opciones y el usuario contesta «la 2», «2», «la segunda»,
+ * «opción 2» o con el texto de una etiqueta, devuelve el mensaje reescrito con el id exacto.
+ */
+export function resolverEleccionOpcion(mensaje: string, ultimoAsistente: string | undefined): string | null {
+  const m = RE_MARCA_OPCIONES.exec(ultimoAsistente ?? '');
+  if (!m) return null;
+  let mapa: Record<string, { id?: string; etiqueta?: string }>;
+  try {
+    mapa = JSON.parse(m[1]!) as typeof mapa;
+  } catch {
+    return null;
+  }
+  const t = mensaje.trim().toLowerCase();
+  const ordinales: Record<string, number> = { primera: 1, primero: 1, segunda: 2, segundo: 2, tercera: 3, tercero: 3, cuarta: 4, cuarto: 4, quinta: 5, quinto: 5 };
+  let n: number | null = null;
+  const num = /^(?:la|el|opci[oó]n|la opci[oó]n|n[uú]mero)?\s*(\d)\s*[.!]?$/.exec(t);
+  if (num) n = Number(num[1]);
+  else {
+    const ord = /^(?:la|el)\s+(primera|primero|segunda|segundo|tercera|tercero|cuarta|cuarto|quinta|quinto)\s*[.!]?$/.exec(t);
+    if (ord) n = ordinales[ord[1]!] ?? null;
+  }
+  let elegida = n != null ? mapa[String(n)] : undefined;
+  if (!elegida) {
+    // «la de Olabide»: solo si el texto aparece en UNA etiqueta.
+    const trozo = /^(?:la|el)\s+de\s+(.+?)\s*[.!]?$/.exec(t)?.[1];
+    if (trozo) {
+      const hits = Object.values(mapa).filter((o) => (o.etiqueta ?? '').toLowerCase().includes(trozo));
+      if (hits.length === 1) elegida = hits[0];
+    }
+  }
+  if (!elegida?.id) return null;
+  return `Elijo esta opción: ${elegida.etiqueta ?? ''} (id exacto: ${elegida.id}). Continúa con lo que te pedí usando ese id.`;
+}
+
 export function prosaFailClosedDesdeHechos(hechos: HechosMutacion): string {
   const partes = hechos.fallos.map((f) => errorDeResultado(f.result));
   const unico = [...new Set(partes.filter(Boolean))];
@@ -210,7 +314,7 @@ export function prosaAncladaDirectaSiAplica(hechos: HechosMutacion): string | nu
   if (fail) return fail;
   if (hechos.exitos.length > 0) return null;
   if (hechos.pendientes.length === 0) return null;
-  const partes = hechos.pendientes.map((p) => errorDeResultado(p.result));
+  const partes = hechos.pendientes.map((p) => textoAclaracion(p.result));
   const unico = [...new Set(partes.filter(Boolean))];
   return unico.length > 0 ? unico.join('\n') : null;
 }

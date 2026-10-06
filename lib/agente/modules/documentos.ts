@@ -1,3 +1,4 @@
+import { insertarFacturaConNumeroCorrelativo } from '@/lib/facturas/numero';
 import type OpenAI from 'openai';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
@@ -13,7 +14,7 @@ import {
 import { insertarPresupuestoConNumeroCorrelativo } from '@/lib/presupuestos/numero';
 import { generarTextoCanonico } from '@/lib/presupuestos/texto-canonico';
 import { TARIFAS_BASE_ALBANILERIA } from '@/lib/tarifas-base';
-import { resolverObraDocumentoAgente } from '@/lib/obras-context';
+import { resolverObraDocumentoAgente, aclaracionObra } from '@/lib/obras-context';
 import {
   clienteDesdeObraSiAplica,
   resolveClienteIdOpcional,
@@ -48,14 +49,40 @@ export async function editar_factura(
   }
   if (toolArgs.importe_total !== undefined) {
     const totalNum = Number(toolArgs.importe_total);
-    if (!Number.isFinite(totalNum)) {
+    if (!Number.isFinite(totalNum) || totalNum < 0) {
       return { error: 'importe_total debe ser un número válido' };
     }
-    const baseImponible = totalNum ? totalNum / 1.21 : 0;
-    const iva = totalNum ? totalNum - baseImponible : 0;
-    updates.total = totalNum;
-    updates.base_imponible = Number.isFinite(baseImponible) ? baseImponible : 0;
-    updates.iva = Number.isFinite(iva) ? iva : 0;
+    // Se respeta el IVA que ya tenía la factura (iva / base); solo si no se sabe, 21%.
+    const { data: actual, error: errLeer } = await supabase
+      .from('facturas')
+      .select('id, estado, base_imponible, iva, lineas')
+      .eq('id', id)
+      .eq('business_id', businessId)
+      .maybeSingle();
+    if (errLeer) return { error: errLeer.message };
+    if (!actual?.id) return { error: 'No se encontró la factura o no pertenece a este negocio' };
+    const estado = String((actual as { estado?: string | null }).estado ?? 'pendiente');
+    if (estado !== 'pendiente') {
+      return { error: `Solo se puede cambiar el importe de facturas pendientes; esta está «${estado}».` };
+    }
+    // Con líneas guardadas, cambiar solo el total dejaría el PDF (que lee las líneas) distinto del total.
+    const lineasActuales = (actual as { lineas?: unknown }).lineas;
+    if (Array.isArray(lineasActuales) && lineasActuales.length > 0) {
+      return {
+        error:
+          'Esta factura tiene líneas de detalle: cambia las cantidades y precios desde Facturas > Editar, para que el PDF y el total coincidan.',
+      };
+    }
+    const baseActual = Number((actual as { base_imponible?: unknown }).base_imponible);
+    const ivaActual = Number((actual as { iva?: unknown }).iva);
+    const factorIva =
+      Number.isFinite(baseActual) && Number.isFinite(ivaActual) && baseActual > 0
+        ? ivaActual / baseActual
+        : 0.21;
+    const baseImponible = Math.round((totalNum / (1 + factorIva)) * 100) / 100;
+    updates.total = Math.round(totalNum * 100) / 100;
+    updates.base_imponible = baseImponible;
+    updates.iva = Math.round((updates.total - baseImponible) * 100) / 100;
   }
 
   const descripcionRaw =
@@ -200,7 +227,7 @@ export const DOCUMENTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[
             properties: {
               id: { type: 'string', description: 'UUID de la factura' },
               cliente_nombre: { type: 'string', description: 'Nombre del cliente' },
-              importe_total: { type: 'number', description: 'Total con IVA (actualiza base e IVA al 21%)' },
+              importe_total: { type: 'number', description: 'Total con IVA (recalcula base e IVA con el % que ya tenía la factura; no vale si la factura tiene líneas de detalle)' },
               descripcion: { type: 'string', description: 'Descripción / conceptos (descripcion_trabajos)' },
             },
             required: ['id'],
@@ -786,7 +813,7 @@ export async function handleDocumentosAgent(
           textoObra,
           'documento'
         );
-        if (!obraRes.ok) return { mensaje: obraRes.mensaje };
+        if (!obraRes.ok) return aclaracionObra(obraRes);
         obraIdFinal = obraRes.obra_id ?? '';
       }
 
@@ -832,19 +859,24 @@ export async function handleDocumentosAgent(
         };
       }
 
-      const { error } = await supabase.from('presupuestos').insert({
-        business_id: businessId,
-        mensaje_cliente: mensajeOriginal,
-        presupuesto_generado: texto,
-        fecha: new Date().toISOString().split('T')[0],
-        estado: 'borrador',
-        ...(importe_total != null && { importe_total }),
-        ...(clienteNombreFinal.length > 0 && { cliente_nombre: clienteNombreFinal }),
-        ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
-        ...(clienteIdFinal != null && { cliente_id: clienteIdFinal }),
-      });
+      // Con número correlativo del negocio (antes se guardaba sin número y salía «—» en el PDF).
+      const creado = await insertarPresupuestoConNumeroCorrelativo(
+        supabase,
+        businessId,
+        {
+          mensaje_cliente: mensajeOriginal,
+          presupuesto_generado: texto,
+          fecha: new Date().toISOString().split('T')[0],
+          estado: 'borrador',
+          ...(importe_total != null && { importe_total }),
+          ...(clienteNombreFinal.length > 0 && { cliente_nombre: clienteNombreFinal }),
+          ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
+          ...(clienteIdFinal != null && { cliente_id: clienteIdFinal }),
+        },
+        'id'
+      );
 
-      if (error) return { error: error.message };
+      if (!creado.ok) return { error: creado.error };
       return { ok: true };
     }
     case 'crear_factura': {
@@ -873,7 +905,7 @@ export async function handleDocumentosAgent(
         textoObra,
         'documento'
       );
-      if (!obraRes.ok) return { mensaje: obraRes.mensaje };
+      if (!obraRes.ok) return aclaracionObra(obraRes);
       const obraIdFinal = obraRes.obra_id ?? '';
 
       let clienteIdFinal = cr.id;
@@ -890,21 +922,26 @@ export async function handleDocumentosAgent(
         }
       }
 
-      const { error } = await supabase.from('facturas').insert({
-        business_id: businessId,
-        cliente_nombre: clienteNombreFinal,
-        descripcion_trabajos: desc,
-        base_imponible: Number.isFinite(baseImponible) ? baseImponible : 0,
-        iva: Number.isFinite(iva) ? iva : 0,
-        total: Number.isFinite(totalNum) ? totalNum : 0,
-        fecha: new Date().toISOString().split('T')[0],
-        estado: 'pendiente',
-        ...(clienteIdFinal != null && { cliente_id: clienteIdFinal }),
-        ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
-      });
+      // Número correlativo POR NEGOCIO (antes cogía el contador global de la base de datos).
+      const ins = await insertarFacturaConNumeroCorrelativo(
+        supabase,
+        businessId,
+        {
+          cliente_nombre: clienteNombreFinal,
+          descripcion_trabajos: desc,
+          base_imponible: Number.isFinite(baseImponible) ? baseImponible : 0,
+          iva: Number.isFinite(iva) ? iva : 0,
+          total: Number.isFinite(totalNum) ? totalNum : 0,
+          fecha: new Date().toISOString().split('T')[0],
+          estado: 'pendiente',
+          ...(clienteIdFinal != null && { cliente_id: clienteIdFinal }),
+          ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
+        },
+        'id, numero_factura'
+      );
 
-      if (error) return { error: error.message };
-      return { ok: true };
+      if (!ins.ok) return { error: ins.error };
+      return { ok: true, numero_factura: ins.data.numero_factura ?? null };
     }
     case 'crear_albaran': {
       const desc = String(toolArgs.descripcion_trabajos ?? '').trim();
@@ -936,7 +973,7 @@ export async function handleDocumentosAgent(
         textoObra,
         'documento'
       );
-      if (!obraRes.ok) return { mensaje: obraRes.mensaje };
+      if (!obraRes.ok) return aclaracionObra(obraRes);
       const obraIdFinal = obraRes.obra_id ?? '';
 
       let clienteIdFinal = cr.id;
@@ -1049,24 +1086,28 @@ export async function handleDocumentosAgent(
       const base_imponible = round2(totalConExtras / (1 + iva_porcentaje / 100));
       const iva_importe = round2(totalConExtras - base_imponible);
 
-      const { error: insertErr } = await supabase.from('facturas').insert({
-        business_id: businessId,
-        albaran_id: albaranId,
-        cliente_nombre: clienteNombre || null,
-        cliente_id: aRow.cliente_id ?? null,
-        cliente_direccion: aRow.cliente_direccion ?? null,
-        descripcion_trabajos: descripcionTrabajos || null,
-        lineas: aRow.lineas ?? null,
-        base_imponible,
-        iva: iva_importe,
-        total: totalConExtras,
-        fecha: new Date().toISOString().split('T')[0],
-        estado: 'pendiente',
-        observaciones:
-          observaciones.length > 0 ? observaciones : 'Generada desde albarán',
-      });
+      const insFactura = await insertarFacturaConNumeroCorrelativo(
+        supabase,
+        businessId,
+        {
+          albaran_id: albaranId,
+          cliente_nombre: clienteNombre || null,
+          cliente_id: aRow.cliente_id ?? null,
+          cliente_direccion: aRow.cliente_direccion ?? null,
+          descripcion_trabajos: descripcionTrabajos || null,
+          lineas: aRow.lineas ?? null,
+          base_imponible,
+          iva: iva_importe,
+          total: totalConExtras,
+          fecha: new Date().toISOString().split('T')[0],
+          estado: 'pendiente',
+          observaciones:
+            observaciones.length > 0 ? observaciones : 'Generada desde albarán',
+        },
+        'id, numero_factura'
+      );
 
-      if (insertErr) return { error: insertErr.message };
+      if (!insFactura.ok) return { error: insFactura.error };
 
       const { error: updErr } = await supabase
         .from('albaranes')
@@ -1174,24 +1215,29 @@ export async function handleDocumentosAgent(
         textoObraExtra,
         'extra'
       );
-      if (!obraExtraRes.ok) return { mensaje: obraExtraRes.mensaje };
+      if (!obraExtraRes.ok) return aclaracionObra(obraExtraRes);
       const obraIdExtra = obraExtraRes.obra_id ?? '';
 
-      const { error: insErr } = await supabase.from('presupuestos').insert({
-        business_id: businessId,
-        parent_id: parent.id,
-        es_extra: true,
-        presupuesto_generado: descripcion,
-        importe_total: importeNum,
-        cliente_nombre: clienteNombreFinal,
-        cliente_id: parent.cliente_id ?? null,
-        fecha: new Date().toISOString().split('T')[0],
-        estado: 'pendiente',
-        mensaje_cliente: `EXTRA/MODIFICADO: ${descripcion}`,
-        ...(obraIdExtra ? { obra_id: obraIdExtra } : {}),
-      });
+      // Los extras también son filas de `presupuestos`: llevan su propio número correlativo.
+      const extraCreado = await insertarPresupuestoConNumeroCorrelativo(
+        supabase,
+        businessId,
+        {
+          parent_id: parent.id,
+          es_extra: true,
+          presupuesto_generado: descripcion,
+          importe_total: importeNum,
+          cliente_nombre: clienteNombreFinal,
+          cliente_id: parent.cliente_id ?? null,
+          fecha: new Date().toISOString().split('T')[0],
+          estado: 'pendiente',
+          mensaje_cliente: `EXTRA/MODIFICADO: ${descripcion}`,
+          ...(obraIdExtra ? { obra_id: obraIdExtra } : {}),
+        },
+        'id'
+      );
 
-      if (insErr) return { error: insErr.message };
+      if (!extraCreado.ok) return { error: extraCreado.error };
 
       const baseMsg =
         `Extra registrado correctamente: '${descripcion}' por ${impFmt}€, vinculado al presupuesto de ${clienteNombreFinal}.`;
@@ -1336,7 +1382,7 @@ export async function handleDocumentosAgent(
           textoObra,
           'documento'
         );
-        if (!obraRes.ok) return { mensaje: obraRes.mensaje };
+        if (!obraRes.ok) return aclaracionObra(obraRes);
         obraIdFinal = obraRes.obra_id ?? '';
       }
 

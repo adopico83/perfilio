@@ -391,7 +391,7 @@ export async function resolverObraDocumentoAgente(
   contexto: 'entrada_diario' | 'documento' | 'gasto' | 'extra'
 ): Promise<
   | { ok: true; obra_id: string | null; obra_nombre?: string }
-  | { ok: false; mensaje: string }
+  | { ok: false; mensaje: string; candidatos?: CandidatoObra[] }
 > {
   const ex = (explicitObraId ?? '').trim();
   if (ex) {
@@ -412,7 +412,11 @@ export async function resolverObraDocumentoAgente(
   }
   const det = await detectarObraDesdeTexto(texto, businessId, supabase);
   if (det.multiples.length > 1) {
-    return { ok: false, mensaje: mensajeObrasAmbiguas(det.multiples, contexto) };
+    return {
+      ok: false,
+      mensaje: mensajeObrasAmbiguas(det.multiples, contexto),
+      candidatos: det.multiples.map(etiquetarObra),
+    };
   }
   if (det.obra) {
     return { ok: true, obra_id: det.obra.id, obra_nombre: det.obra.nombre };
@@ -423,7 +427,11 @@ export async function resolverObraDocumentoAgente(
     case 'ok':
       return { ok: true, obra_id: porCli.obra.id, obra_nombre: porCli.obra.nombre };
     case 'obras_ambiguas':
-      return { ok: false, mensaje: mensajeObrasAmbiguas(porCli.obras, contexto) };
+      return {
+        ok: false,
+        mensaje: mensajeObrasAmbiguas(porCli.obras, contexto),
+        candidatos: porCli.obras.map(etiquetarObra),
+      };
     case 'clientes_ambiguos':
       return {
         ok: false,
@@ -440,11 +448,36 @@ export async function resolverObraDocumentoAgente(
   }
 }
 
+/** Opción de una pregunta «¿cuál de estas obras?»: id para resolver y etiqueta para mostrar. */
+export type CandidatoObra = { id: string; etiqueta: string };
+
+/** «Nombre · dirección»: la dirección distingue dos obras con nombre parecido. */
+export function etiquetarObra(o: Pick<Obra, 'id' | 'nombre' | 'direccion'>): CandidatoObra {
+  const dir = (o.direccion ?? '').trim();
+  return { id: o.id, etiqueta: dir ? `${o.nombre} · ${dir}` : o.nombre };
+}
+
+/**
+ * Resultado de una tool cuando no se pudo resolver la obra. Si hay varias candidatas, devuelve una
+ * petición de aclaración (`necesita_aclaracion` + `candidatos`) para que el agente pregunte con
+ * opciones numeradas en vez de adivinar. Mantiene `mensaje` por compatibilidad.
+ */
+export function aclaracionObra(r: { mensaje: string; candidatos?: CandidatoObra[] }): Record<string, unknown> {
+  if (!r.candidatos || r.candidatos.length === 0) return { mensaje: r.mensaje };
+  return {
+    ok: false,
+    error: r.mensaje,
+    mensaje: r.mensaje,
+    necesita_aclaracion: true,
+    candidatos: r.candidatos,
+  };
+}
+
 export function mensajeObrasAmbiguas(
   obras: Obra[],
   contexto: 'entrada_diario' | 'documento' | 'gasto' | 'extra'
 ): string {
-  const lines = obras.map((o, i) => `${i + 1}. ${o.nombre}`).join('\n');
+  const lines = obras.map((o, i) => `${i + 1}. ${etiquetarObra(o).etiqueta}`).join('\n');
   const cierre =
     contexto === 'entrada_diario'
       ? '¿A cuál quieres añadir la entrada?'

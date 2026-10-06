@@ -16,6 +16,7 @@ import { createBrowserClient } from '@supabase/ssr';
 import { History, Loader2, Paperclip, Pause, Pencil, Trash2, Video, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { isDiarioPdfDownloadLink } from '@/lib/diario-pdf-link';
+import { esRespuestaAfirmativa, esRespuestaNegativa, quitarMarcaOpciones } from '@/lib/agente/orquestacion';
 import { useCanvas } from '@/contexts/canvas-context';
 import { useAgentSidebar } from '@/contexts/agent-sidebar-context';
 import { useObraModal } from '@/contexts/obra-modal-context';
@@ -40,10 +41,30 @@ interface EmailPendienteEnMensaje {
   estado: EmailPendienteEstado;
 }
 
+/** Acción que el servidor retiene hasta que el usuario diga «sí» (ver lib/agente/confirmacion.ts). */
+interface AccionPendienteEnMensaje {
+  tool: string;
+  args: Record<string, unknown>;
+  resumen: string;
+  estado: 'pendiente' | 'ejecutando' | 'confirmada' | 'cancelada';
+}
+
+function parseAccionPendienteApi(raw: unknown): Omit<AccionPendienteEnMensaje, 'estado'> | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.tool !== 'string' || !o.tool.trim()) return null;
+  const args =
+    o.args && typeof o.args === 'object' && !Array.isArray(o.args)
+      ? (o.args as Record<string, unknown>)
+      : {};
+  return { tool: o.tool.trim(), args, resumen: typeof o.resumen === 'string' ? o.resumen : '' };
+}
+
 interface ChatMessage {
   id: string;
   role: MessageRole;
   content: string;
+  accionPendiente?: AccionPendienteEnMensaje;
   /** Miniaturas locales (data URL); no se envían al agente */
   imagenPreviews?: string[];
   emailPendiente?: EmailPendienteEnMensaje;
@@ -118,7 +139,11 @@ function getHourInMadrid(d: Date): number {
 
 /** Quitar marcador interno del saludo automático para mostrar / TTS. */
 function textoAsistenteVisible(content: string): string {
-  return content.startsWith(SALUDO_AUTO_MARKER) ? content.slice(SALUDO_AUTO_MARKER.length) : content;
+  // También se quita el comentario invisible con las opciones (ids) que el servidor añade al final.
+  const sinMarcaOpciones = quitarMarcaOpciones(content);
+  return sinMarcaOpciones.startsWith(SALUDO_AUTO_MARKER)
+    ? sinMarcaOpciones.slice(SALUDO_AUTO_MARKER.length)
+    : sinMarcaOpciones;
 }
 
 /** Reduce tamaño para el body JSON (JPEG) antes de enviar al agente. */
@@ -208,6 +233,64 @@ function parseEmailPendienteApi(
   const cuerpo = o.cuerpo.trim();
   if (!para || !asunto || !cuerpo) return null;
   return { para, asunto, cuerpo };
+}
+
+export function AccionPendienteCard({
+  accion,
+  onSi,
+  onNo,
+}: {
+  accion: AccionPendienteEnMensaje;
+  onSi: () => void;
+  onNo: () => void;
+}) {
+  if (accion.estado === 'confirmada') {
+    return (
+      <p className="text-xs text-green-700 mt-1 font-medium" role="status">
+        Hecho ✓
+      </p>
+    );
+  }
+  if (accion.estado === 'cancelada') {
+    return (
+      <p className="text-xs text-zinc-800 mt-1" role="status">
+        No se ha hecho nada
+      </p>
+    );
+  }
+  const ocupado = accion.estado === 'ejecutando';
+  return (
+    <div className="mt-2 w-full rounded-lg border border-[#A04A2F]/40 bg-[#E5DFD0]/90 p-3 space-y-2 text-left">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-[#A04A2F]/90">
+        Pendiente de tu confirmación
+      </p>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onSi}
+          disabled={ocupado}
+          className="flex-1 py-2 rounded-lg bg-[#5a7a4a] hover:bg-[#4d6b40] text-white text-xs font-semibold disabled:opacity-50 touch-manipulation inline-flex items-center justify-center gap-1"
+        >
+          {ocupado ? (
+            <>
+              <Loader2 className="size-3.5 animate-spin shrink-0" aria-hidden />
+              Haciéndolo…
+            </>
+          ) : (
+            'Sí, hazlo'
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={onNo}
+          disabled={ocupado}
+          className="flex-1 py-2 rounded-lg bg-[#D4CCBC] hover:bg-[#c9c0ae] text-zinc-900 text-xs font-semibold disabled:opacity-50 touch-manipulation"
+        >
+          No
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function EmailAprobacionCard({
@@ -987,11 +1070,130 @@ export default function AgentSidebar() {
     listRef.current.scrollTop = listRef.current.scrollHeight;
   }, [historial, loading, collapsed, mobileOpen, transcribiendoAudio]);
 
+  const nuevoIdMensaje = (prefijo: string) =>
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${prefijo}_${Date.now()}`;
+
+  const marcarAccionPendiente = (messageId: string, estado: AccionPendienteEnMensaje['estado']) =>
+    setHistorial((prev) =>
+      prev.map((m) =>
+        m.id === messageId && m.accionPendiente
+          ? { ...m, accionPendiente: { ...m.accionPendiente, estado } }
+          : m
+      )
+    );
+
+  /**
+   * «Sí, hazlo» / «No» sobre una acción que el servidor retuvo. Con «sí» se reenvía `confirmar_accion`
+   * y el servidor la ejecuta directamente (sin volver a pasar por el modelo).
+   */
+  const resolverAccionPendiente = async (messageId: string, confirmar: boolean) => {
+    const msg = historial.find((m) => m.id === messageId);
+    const accion = msg?.accionPendiente;
+    if (!accion || accion.estado !== 'pendiente' || !selectedId) return;
+
+    if (!confirmar) {
+      marcarAccionPendiente(messageId, 'cancelada');
+      setHistorial((prev) => [
+        ...prev,
+        { id: nuevoIdMensaje('a'), role: 'assistant', content: 'Vale, no hago nada.' },
+      ]);
+      return;
+    }
+
+    marcarAccionPendiente(messageId, 'ejecutando');
+    setError('');
+    setLoading(true);
+    try {
+      const res = await fetch('/api/agente', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          business_id: selectedId,
+          confirmar_accion: { tool: accion.tool, args: accion.args },
+        }),
+      });
+      const data = (await res.json()) as Record<string, unknown>;
+      if (!res.ok) {
+        marcarAccionPendiente(messageId, 'pendiente');
+        setError(String(data.error ?? 'No se pudo ejecutar la acción'));
+        return;
+      }
+      marcarAccionPendiente(messageId, 'confirmada');
+
+      const obraModalRaw = data.obra_modal;
+      if (obraModalRaw && typeof obraModalRaw === 'object') {
+        const oid = String((obraModalRaw as { obra_id?: unknown }).obra_id ?? '').trim();
+        if (oid) queueMicrotask(() => abrirObra(oid));
+      }
+      const canvasRaw = data.canvas;
+      if (canvasRaw && typeof canvasRaw === 'object') {
+        const c = canvasRaw as Record<string, unknown>;
+        const tipoCanvas = String(c.tipo ?? '').trim();
+        const tituloCanvas = String(c.titulo ?? '').trim();
+        const datosCanvas = Array.isArray(c.datos) ? c.datos : c.datos ? [c.datos] : [];
+        if (tipoCanvas && tituloCanvas) {
+          setCanvasActivo(true);
+          queueMicrotask(() => abrirCanvas(tipoCanvas, datosCanvas, tituloCanvas));
+        }
+      }
+
+      const respuestaTexto = typeof data.respuesta === 'string' ? data.respuesta : 'Hecho.';
+      const epApi = parseEmailPendienteApi(data.email_pendiente);
+      setHistorial((prev) => [
+        ...prev,
+        {
+          id: nuevoIdMensaje('a'),
+          role: 'assistant',
+          content: respuestaTexto,
+          emailPendiente: epApi ? { ...epApi, estado: 'pendiente' as const } : undefined,
+        },
+      ]);
+      if (conversationId) {
+        await supabase.from('conversation_history').insert([
+          {
+            conversation_id: conversationId,
+            business_id: selectedId,
+            user_id: currentUserId,
+            sender_email: currentUserEmail,
+            role: 'assistant',
+            content: respuestaTexto,
+            created_at: new Date().toISOString(),
+          },
+        ]);
+      }
+      window.dispatchEvent(new Event('agenda-actualizada'));
+      window.dispatchEvent(new CustomEvent('perfilio:refresh'));
+    } catch {
+      marcarAccionPendiente(messageId, 'pendiente');
+      setError('Error de conexión');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleEnviarTexto = async (
     texto: string,
     opts?: { desdeTranscripcion?: boolean }
   ) => {
     const textoTrim = texto.trim();
+
+    // Si la última respuesta dejó una acción pendiente, un «sí» / «no» escrito o dicho por voz
+    // funciona igual que pulsar el botón (así se puede confirmar sin tocar la pantalla).
+    const ultimoMensaje = historial[historial.length - 1];
+    if (
+      ultimoMensaje?.role === 'assistant' &&
+      ultimoMensaje.accionPendiente?.estado === 'pendiente' &&
+      imagenesPendientes.length === 0 &&
+      (esRespuestaAfirmativa(textoTrim) || esRespuestaNegativa(textoTrim))
+    ) {
+      setMensaje('');
+      if (opts?.desdeTranscripcion) setTranscribiendoAudio(false);
+      setHistorial((prev) => [...prev, { id: nuevoIdMensaje('u'), role: 'user', content: textoTrim }]);
+      await resolverAccionPendiente(ultimoMensaje.id, esRespuestaAfirmativa(textoTrim));
+      return;
+    }
     const imagenesEnviar = imagenesPendientes;
     const imagenesUrlsEnviar = imagenesEnviar.map((p) => p.url);
     if (!selectedId || (!textoTrim && imagenesUrlsEnviar.length === 0)) {
@@ -1125,6 +1327,7 @@ export default function AgentSidebar() {
 
       const respuestaTexto = typeof data.respuesta === 'string' ? data.respuesta : '';
       const epApi = parseEmailPendienteApi(data.email_pendiente);
+      const accionApi = parseAccionPendienteApi(data.accion_pendiente);
       setHistorial((prev) => [
         ...prev,
         {
@@ -1137,6 +1340,7 @@ export default function AgentSidebar() {
           emailPendiente: epApi
             ? { ...epApi, estado: 'pendiente' as const }
             : undefined,
+          accionPendiente: accionApi ? { ...accionApi, estado: 'pendiente' as const } : undefined,
         },
       ]);
 
@@ -1772,6 +1976,13 @@ export default function AgentSidebar() {
                             }
                           />
                         </div>
+                        {msg.accionPendiente && (
+                          <AccionPendienteCard
+                            accion={msg.accionPendiente}
+                            onSi={() => void resolverAccionPendiente(msg.id, true)}
+                            onNo={() => void resolverAccionPendiente(msg.id, false)}
+                          />
+                        )}
                         {msg.emailPendiente && (
                           <EmailAprobacionCard
                             email={msg.emailPendiente}
@@ -2111,6 +2322,13 @@ export default function AgentSidebar() {
                                       }
                                     />
                                   </div>
+                                  {msg.accionPendiente && (
+                                    <AccionPendienteCard
+                                      accion={msg.accionPendiente}
+                                      onSi={() => void resolverAccionPendiente(msg.id, true)}
+                                      onNo={() => void resolverAccionPendiente(msg.id, false)}
+                                    />
+                                  )}
                                   {msg.emailPendiente && (
                                     <EmailAprobacionCard
                                       email={msg.emailPendiente}

@@ -90,6 +90,16 @@ function toolCallMessage(name: string, args = '{}') {
   };
 }
 
+// Estos tests comprueban lo que hace cada tool al EJECUTARSE dentro del turno del agente. La barrera de
+// confirmación del servidor (que ahora retiene las tools de escritura hasta que el usuario dice «sí»)
+// se apaga aquí con su interruptor de emergencia y se prueba aparte en `agente.confirmacion.test.ts`.
+beforeAll(() => {
+  process.env.AGENTE_CONFIRMACION = 'off';
+});
+afterAll(() => {
+  delete process.env.AGENTE_CONFIRMACION;
+});
+
 describe('POST /api/agente — Fase A anti-alucinación', () => {
   let POST: (req: NextRequest) => Promise<Response>;
 

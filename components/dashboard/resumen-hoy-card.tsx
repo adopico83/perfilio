@@ -11,6 +11,8 @@ const SECCIONES: Array<[keyof ResumenDia, string]> = [
   ['citasManana', 'Citas de mañana'],
   ['facturasVencidas', 'Facturas vencidas'],
   ['obrasParadas', 'Obras paradas'],
+  ['margenEnRiesgo', 'Margen en riesgo'],
+  ['obrasSinFactura', 'Obras que terminan sin factura'],
   ['presupuestosSinRespuesta', 'Presupuestos sin respuesta'],
   ['facturasPendientes', 'Facturas pendientes de cobro'],
 ];
@@ -22,7 +24,7 @@ export function ResumenHoyView({ resumen }: { resumen: ResumenDia }) {
   return (
     <div className="mt-2 space-y-3">
       {SECCIONES.map(([clave, titulo]) => {
-        const items = resumen[clave] as ResumenItem[];
+        const items = (resumen[clave] as ResumenItem[] | undefined) ?? [];
         if (items.length === 0) return null;
         return (
           <div key={clave}>

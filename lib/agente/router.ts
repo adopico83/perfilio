@@ -2,6 +2,7 @@ import type OpenAI from 'openai';
 import { DIARIO_HANDLED_TOOLS } from '@/lib/agente/modules/diario';
 import { PRESUPUESTOS_HANDLED_TOOLS } from '@/lib/agente/modules/presupuestos';
 import { pareceConsultaListadoObras } from '@/lib/agente/modules/grounding';
+import { ENLACES_PDF_HANDLED_TOOLS } from '@/lib/agente/modules/enlaces-pdf';
 
 export type AgentIntentCategory =
   | 'documentos'
@@ -94,6 +95,12 @@ export const INTENT_TOOL_NAMES_DOCUMENTOS = new Set([
   'ver_ficha_obra',
   'asociar_documentos_a_obra',
   'convertir_albaran_a_factura',
+  // Factura desde un presupuesto (intención «factura»): localizar el presupuesto por número o
+  // cliente, crear la factura y ofrecer su PDF.
+  'convertir_presupuesto_a_factura',
+  'buscar_presupuesto',
+  'listar_presupuestos',
+  ...ENLACES_PDF_HANDLED_TOOLS,
   'buscar_cliente',
   'ver_cliente',
   'mostrar_vista_visual',
@@ -148,6 +155,8 @@ export const INTENT_TOOL_NAMES_GASTOS = new Set([
 
 export const INTENT_TOOL_NAMES_DIARIO = new Set([
   ...DIARIO_HANDLED_TOOLS,
+  // Para saber qué obra es (y su id) antes de anotar en el diario.
+  'buscar_obra',
   'mostrar_vista_visual',
   'get_directions',
   'guardar_memoria',

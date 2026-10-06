@@ -26,9 +26,11 @@ function isPresupuestoDocumentDeletionTool(name: string): boolean {
   return true;
 }
 
+/**
+ * Solo `convertir_presupuesto_a_factura` parte de un presupuesto. `crear_factura` (factura suelta) no.
+ */
 function isFacturaDesdePresupuestoTool(name: string): boolean {
-  if (name === 'convertir_presupuesto_a_factura') return true;
-  return name.startsWith('crear_') && name.includes('factura');
+  return name === 'convertir_presupuesto_a_factura';
 }
 
 function validationPrefix(userMessage: string): string {
@@ -59,20 +61,16 @@ function validatePresupuestoCriticalRules(
     }
   }
 
-  if (isFacturaDesdePresupuestoTool(tool)) {
-    if (!estado) {
-      return (
-        validationPrefix(userMessage) +
-        'Requiere validación previa: generar o crear factura desde un presupuesto sin conocer su estado no está permitido. ' +
-        'Confirma primero que el presupuesto no está ya en estado facturado antes de convertir o crear la factura.'
-      );
-    }
-    if (estado === 'facturado') {
-      return (
-        validationPrefix(userMessage) +
-        'No se permite crear o convertir a factura un presupuesto que ya está en estado «facturado».'
-      );
-    }
+  // El estado real del presupuesto (aceptado/aprobado, ya facturado, factura existente…) lo valida
+  // `crearFacturaDesdePresupuesto` en el servidor leyendo la base de datos. Aquí NO se exige un
+  // `estado` en los argumentos: el esquema de la tool no lo admite y el modelo nunca podía mandarlo,
+  // así que antes la tool se bloqueaba siempre. Solo se corta el caso en que el plan ya trae
+  // un estado «facturado» explícito.
+  if (isFacturaDesdePresupuestoTool(tool) && estado === 'facturado') {
+    return (
+      validationPrefix(userMessage) +
+      'No se permite crear o convertir a factura un presupuesto que ya está en estado «facturado».'
+    );
   }
 
   return null;

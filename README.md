@@ -115,7 +115,8 @@ npm run dev
 Abre [http://localhost:3000](http://localhost:3000). Crea el usuario en el panel de Supabase Auth (ver `AUTH_SETUP.md`).
 
 ```bash
-npm test          # 234 tests en 43 ficheros
+npm test          # tests (Jest, con OpenAI y Supabase simulados)
+npm run eval:agente  # opcional: mide con el modelo REAL si el agente elige bien la tool (necesita OPENAI_API_KEY)
 npm run build && npm start
 ```
 
@@ -200,12 +201,16 @@ Crear `.env.local`. **Nunca commitear secretos.**
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Cliente + RLS |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server privilegiado |
 | `OPENAI_API_KEY` | Chat, tools, Whisper, TTS |
+| `AGENTE_MODELO` | Modelo de OpenAI del agente interno (p. ej. `gpt-4.1-mini`, `gpt-5-mini`). Sin variable: `gpt-4o-mini` |
+| `AGENTE_CONFIRMACION` | Interruptor de emergencia: `off` apaga la barrera que pide confirmación antes de crear/modificar datos. No usar en el día a día |
+| `EVAL_UMBRAL` | Solo `npm run eval:agente`: acierto mínimo (0-1) para que la eval contra el modelo real pase. Por defecto `0.8` |
 | `JEV_API_KEY` | Clasificador de intención del agente (TypeSafe Jev, `POST /v1/systemone`). Sin key, o si falla, la categoría es `general` |
 | `NEXT_PUBLIC_APP_URL` | Callbacks (p. ej. Gmail) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth2 Gmail |
 | `RESEND_API_KEY` | Emails transaccionales |
 | `OPENWEATHER_API_KEY` | Tiempo en obra |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Push PWA |
+| `PUSHOVER_API_TOKEN` (o `PUSHOVER_TOKEN`) / `PUSHOVER_USER_KEY` (o `PUSHOVER_USER`) | Pushover: avisos del Bicho y aviso push del resumen del día (solo para negocios con `business_profiles.resumen_push = true`) |
 | `CRON_SECRET` | Protege `/api/cron/*` |
 | `MCP_API_TOKEN` | Bearer de `/api/mcp` |
 | `MCP_BUSINESS_ID` | Negocio que operan las tools de esa conexión |

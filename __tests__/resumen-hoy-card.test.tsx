@@ -37,4 +37,29 @@ describe('tarjeta «Hoy»', () => {
     expect(href(/Factura F-2/)).toBe('/facturas?id=f2');
     expect(screen.queryByText('Todo en orden')).toBeNull();
   });
+
+  it('enseña el margen en riesgo y las obras que terminan sin factura, con enlace a la obra', () => {
+    const r = calcularResumenDia(
+      {
+        citas: [],
+        obras: [
+          { id: 'o1', nombre: 'Ático Gros', estado: 'activa', created_at: '2026-10-04T00:00:00Z' },
+          { id: 'o2', nombre: 'Baño Irún', estado: 'en_curso', created_at: '2026-10-04T00:00:00Z', fecha_fin: '2026-10-07' },
+        ],
+        diario: [],
+        presupuestos: [],
+        facturas: [],
+        jornadas: [{ obra_id: 'o1', horas_reales: 30 }],
+        presupuestosObra: [{ obra_id: 'o1', importe_total: 1000, estado: 'aceptado' }],
+        facturasObra: [],
+      },
+      NOW
+    );
+    render(<ResumenHoyView resumen={r} />);
+    expect(screen.getByText('Margen en riesgo')).toBeTruthy();
+    expect(screen.getByText('Obras que terminan sin factura')).toBeTruthy();
+    expect(screen.getByText('Ático Gros').closest('a')?.getAttribute('href')).toBe('/obras?id=o1');
+    expect(screen.getByText('Baño Irún').closest('a')?.getAttribute('href')).toBe('/obras?id=o2');
+    expect(screen.getByText(/termina el 07\/10\/2026 y no tiene factura/)).toBeTruthy();
+  });
 });
