@@ -793,7 +793,11 @@ describe('POST /api/agente — tools', () => {
         not: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
         limit: jest.fn().mockReturnThis(),
-        maybeSingle: jest.fn().mockResolvedValue({ data: { numero_factura: 7 }, error: null }),
+        // 1.ª lectura: ¿ya hay factura de este albarán? (no) · 2.ª: último número del negocio (7).
+        maybeSingle: jest
+          .fn()
+          .mockResolvedValueOnce({ data: null, error: null })
+          .mockResolvedValue({ data: { numero_factura: 7 }, error: null }),
         insert: insertMockFactura,
       };
 
