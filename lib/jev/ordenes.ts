@@ -9,6 +9,8 @@
  *    o `CHARLA` (conversación sin acción).
  */
 import { z } from 'zod';
+import { logJev } from '@/lib/jev/log';
+import { normalizarConAvisos } from '@/lib/jev/normalizar';
 
 /** Un literal del mensaje, o nada. */
 const lit = z.string().trim().min(1).max(600).nullish();
@@ -206,19 +208,179 @@ export const ACCIONES_POR_CATEGORIA: Record<string, NombreAccion[]> = {
   calculo: [],
 };
 
-/** Esquema JSON de la función `orden_jev` para una lista de acciones. */
-export function jsonSchemaOrden(acciones: NombreAccion[]): Record<string, unknown> {
-  const lista = [...new Set<NombreAccion>([...acciones, 'ACLARAR', 'CHARLA'])];
-  const variantes = lista.map((a) => {
-    const js = z.toJSONSchema(ORDENES[a], { io: 'input' }) as Record<string, unknown>;
-    delete js.$schema;
-    return js;
-  });
-  return { anyOf: variantes };
+/** Orden tal y como sale del modelo tras limpiarla: puede estar a medias. */
+export type OrdenCruda = { accion: string } & Record<string, unknown>;
+
+/** Qué se pregunta cuando falta un dato imprescindible (por campo; algunas acciones lo dicen distinto). */
+const PREGUNTA_CAMPO: Record<string, string> = {
+  cliente_texto: '¿Para qué cliente es?',
+  obra_texto: '¿En qué obra?',
+  nombre_texto: '¿Cómo se llama?',
+  proveedor_texto: '¿A qué proveedor?',
+  importe_texto: '¿De cuánto es el importe?',
+  descripcion_texto: '¿Qué trabajos o concepto pongo?',
+  horas_texto: '¿Cuántas horas?',
+  operario_texto: '¿Qué operario?',
+  fecha_texto: '¿Para qué día?',
+  evento_texto: '¿Qué cita?',
+  presupuesto_texto: '¿De qué presupuesto hablas?',
+  factura_texto: '¿De qué factura hablas?',
+  estado: '¿A qué estado lo paso?',
+  documento: '¿Quieres el PDF de un presupuesto o de una factura?',
+  partidas: '¿Qué trabajos incluye el presupuesto y a cuánto?',
+  texto: '¿Qué quieres que anote?',
+};
+const PREGUNTA_ACCION_CAMPO: Record<string, string> = {
+  'CREAR_CLIENTE.nombre_texto': '¿Cómo se llama el cliente?',
+  'CREAR_OBRA.nombre_texto': '¿Cómo se llama la obra?',
+  'PROVEEDOR_CREAR.nombre_texto': '¿Cómo se llama el proveedor?',
+  'PRESUPUESTO_DICTADO.cliente_texto': '¿Para qué cliente es el presupuesto?',
+  'CREAR_FACTURA.cliente_texto': '¿Para qué cliente es la factura?',
+  'ACTUALIZAR_CLIENTE.cliente_texto': '¿Qué cliente quieres actualizar?',
+  'CREAR_FACTURA.importe_texto': '¿Cuánto es la factura?',
+  'GASTO.importe_texto': '¿Cuánto ha sido el gasto?',
+  'HORAS.obra_texto': '¿En qué obra ha trabajado?',
+  'DIARIO.obra_texto': '¿En qué obra lo anoto?',
+  'CERRAR_OBRA.obra_texto': '¿Qué obra?',
+  'CITA_CREAR.fecha_texto': '¿Para qué día es la cita?',
+  'CITA_MOVER.evento_texto': '¿Qué cita quieres mover?',
+  'CITA_BORRAR.evento_texto': '¿Qué cita quieres borrar?',
+  'GASTO.proveedor_texto': '¿A qué proveedor es el gasto?',
+  'CAMBIAR_ESTADO_PRESUPUESTO.estado': '¿A qué estado paso el presupuesto (aceptado, rechazado, enviado…)?',
+};
+export const preguntaDeCampo = (accion: string, campo: string) =>
+  PREGUNTA_ACCION_CAMPO[`${accion}.${campo}`] ?? PREGUNTA_CAMPO[campo] ?? `Me falta un dato (${campo}).`;
+
+export const PREGUNTA_NO_ENTENDIDO = 'No te he entendido bien. ¿Me lo dices de otra forma?';
+
+export type ResultadoCompletar =
+  | { estado: 'completa'; orden: OrdenJev }
+  /** Hay intención y parte de los datos: se conserva lo bueno y se pregunta SOLO lo que falta. */
+  | { estado: 'faltan'; cruda: OrdenCruda; faltantes: string[]; pregunta: string }
+  /** No hay ninguna intención reconocible (o el modelo mismo pidió aclarar). */
+  | { estado: 'aclarar'; pregunta: string; motivo: string };
+
+const campos = (a: NombreAccion) => (ORDENES[a] as unknown as { shape: Record<string, z.ZodType> }).shape;
+const esAccion = (a: unknown): a is NombreAccion => typeof a === 'string' && Object.prototype.hasOwnProperty.call(ORDENES, a);
+
+/**
+ * Orden cruda del modelo → resultado. Es la ÚNICA puerta: normaliza (lib/jev/normalizar.ts), valida campo a campo
+ * y decide. Un campo opcional mal puesto se descarta; uno obligatorio que falta o viene mal se PREGUNTA; la orden
+ * no se tira entera. Las consultas (solo lectura) salen siempre: todos sus campos son opcionales.
+ */
+export function completarOrden(raw: unknown): ResultadoCompletar {
+  const { orden: n, descartados: sucios } = normalizarConAvisos(raw);
+  const accion = n.accion;
+  if (!esAccion(accion)) {
+    logJev('accion_desconocida', { accion: (raw as { accion?: unknown } | null)?.accion ?? null, orden: raw });
+    return { estado: 'aclarar', pregunta: PREGUNTA_NO_ENTENDIDO, motivo: 'accion_desconocida' };
+  }
+  if (accion === 'CHARLA') return { estado: 'completa', orden: { accion: 'CHARLA' } };
+  if (accion === 'ACLARAR') {
+    const pregunta = typeof n.pregunta === 'string' ? n.pregunta.slice(0, 400) : PREGUNTA_NO_ENTENDIDO;
+    logJev('aclarar', { motivo: 'el modelo pide aclarar', pregunta, orden: raw });
+    return { estado: 'aclarar', pregunta, motivo: 'modelo' };
+  }
+  // «Qué hay en la obra X» sin obra → lista de obras (solo lectura).
+  const nombre: NombreAccion = accion === 'CONSULTA_OBRA' && n.obra_texto === undefined ? 'CONSULTA_OBRAS' : accion;
+
+  const ok: Record<string, unknown> = { accion: nombre };
+  const faltantes: string[] = [];
+  const descartados: Array<{ campo: string; motivo: string }> = sucios.filter((d) => d.campo in campos(nombre));
+  for (const [k, schema] of Object.entries(campos(nombre))) {
+    if (k === 'accion') continue;
+    const valor = n[k];
+    const obligatorio = !schema.safeParse(undefined).success;
+    if (valor === undefined) {
+      if (obligatorio) faltantes.push(k);
+      continue;
+    }
+    const r = schema.safeParse(valor);
+    if (r.success) {
+      if (r.data !== undefined && r.data !== null) ok[k] = r.data;
+      continue;
+    }
+    if (obligatorio) faltantes.push(k);
+    descartados.push({ campo: k, motivo: r.error.issues[0]?.message ?? 'inválido' });
+  }
+  if (descartados.length) logJev('campo_descartado', { accion: nombre, descartados, orden: raw });
+  if (faltantes.length) {
+    logJev('orden_incompleta', { accion: nombre, faltantes, orden: raw });
+    return { estado: 'faltan', cruda: ok as OrdenCruda, faltantes, pregunta: faltantes.map((f) => preguntaDeCampo(nombre, f)).join(' ') };
+  }
+  const v = OrdenSchema.safeParse(ok);
+  if (!v.success) {
+    // No debería pasar (cada campo ya se validó); si pasa, se ve en los logs y se pregunta en vez de ejecutar.
+    logJev('orden_incompleta', { accion: nombre, faltantes: [], orden: raw, error: v.error.issues[0]?.message });
+    return { estado: 'aclarar', pregunta: PREGUNTA_NO_ENTENDIDO, motivo: 'esquema' };
+  }
+  return { estado: 'completa', orden: v.data };
 }
 
+/** Compatibilidad: ok solo si la orden está completa. */
 export function validarOrden(raw: unknown): { ok: true; orden: OrdenJev } | { ok: false; error: string } {
-  const r = OrdenSchema.safeParse(raw);
-  if (r.success) return { ok: true, orden: r.data };
-  return { ok: false, error: r.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ').slice(0, 300) };
+  const r = completarOrden(raw);
+  if (r.estado === 'completa') return { ok: true, orden: r.orden };
+  return { ok: false, error: r.estado === 'faltan' ? `faltan: ${r.faltantes.join(', ')}` : r.motivo };
+}
+
+// ───────────────────────── Esquema ESTRICTO para OpenAI (Structured Outputs) ─────────────────────────
+
+type JS = Record<string, unknown>;
+
+/** Una propiedad del esquema de una acción → su versión estricta: tipo + "null", sin límites de longitud. */
+function propEstricta(js: JS): JS {
+  const variantes = (js.anyOf as JS[] | undefined) ?? [js];
+  const base: JS = variantes.find((x) => x.type !== 'null') ?? {};
+  if (base.type === 'array') return { type: ['array', 'null'], items: objetoEstricto(base.items as JS) };
+  if (base.enum) return { type: ['string', 'null'], enum: [...(base.enum as string[]), null] };
+  return { type: ['string', 'null'] };
+}
+
+/** Objeto estricto: TODAS las propiedades obligatorias (pueden valer null) y nada de propiedades de más. */
+function objetoEstricto(js: JS): JS {
+  if (js.type !== 'object') return { type: 'string' };
+  const props = (js.properties ?? {}) as Record<string, JS>;
+  const out: Record<string, JS> = {};
+  for (const [k, p] of Object.entries(props)) out[k] = propEstricta(p);
+  return { type: 'object', properties: out, required: Object.keys(out), additionalProperties: false };
+}
+
+const DESCRIPCION: Record<string, string> = {
+  continua_tarea: 'true solo si corrige o completa la TAREA EN CURSO; si no, null',
+  pregunta: 'Solo para ACLARAR: la pregunta corta al usuario',
+  estado: 'Estado tal como lo dijo el usuario, si lo dijo',
+  iva_modo: '"mas" si dijo «más IVA»; "incluido" si dijo «con IVA / IVA incluido»; si no lo dijo, null',
+  partidas: 'Una por cada trabajo dictado',
+  texto: 'Lo que hay que anotar en el diario, tal como lo dijo',
+};
+
+/**
+ * Esquema de la función `orden_jev` para una lista de acciones, listo para `strict: true`.
+ *
+ * Es UN solo objeto plano: `accion` (enum cerrado) + la unión de los campos de todas las órdenes (~45). Todos
+ * obligatorios pero con `null` permitido (así el modelo puede decir «esto no lo dijo» sin inventar un ""), y
+ * `additionalProperties: false` en todos los niveles. `completarOrden` se queda después solo con los campos
+ * que pertenecen a la acción elegida.
+ */
+export function jsonSchemaEstricto(acciones: NombreAccion[]): JS {
+  const lista = [...new Set<NombreAccion>([...acciones, 'ACLARAR', 'CHARLA'])];
+  const props: Record<string, JS> = { accion: { type: 'string', enum: lista } };
+  const enums: Record<string, Set<string>> = {};
+  for (const a of lista) {
+    const js = z.toJSONSchema(ORDENES[a], { io: 'input' }) as JS;
+    for (const [k, p] of Object.entries((js.properties ?? {}) as Record<string, JS>)) {
+      if (k === 'accion') continue;
+      const est = propEstricta(p);
+      if (est.enum) {
+        enums[k] ??= new Set();
+        for (const e of est.enum as Array<string | null>) if (e !== null) enums[k]!.add(e);
+      }
+      if (!props[k]) props[k] = est;
+    }
+  }
+  for (const [k, vals] of Object.entries(enums)) props[k] = { type: ['string', 'null'], enum: [...vals, null] };
+  const todas: Record<string, JS> = { continua_tarea: { type: ['boolean', 'null'] }, ...props };
+  for (const [k, d] of Object.entries(DESCRIPCION)) if (todas[k]) todas[k] = { ...todas[k]!, description: d };
+  return { type: 'object', properties: todas, required: Object.keys(todas), additionalProperties: false };
 }

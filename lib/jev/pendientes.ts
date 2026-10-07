@@ -4,7 +4,7 @@
  * caducar ni usar) y ejecuta EXACTAMENTE `args_resueltos`.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { OrdenJev } from '@/lib/jev/ordenes';
+import type { OrdenCruda, OrdenJev } from '@/lib/jev/ordenes';
 
 const TABLA = 'jev_ordenes_pendientes';
 const MINUTOS_PENDIENTE = 30;
@@ -29,7 +29,8 @@ export type EstadoTarea = {
   pregunta?: { slot: string; texto_slot: string; texto: string; opciones: Array<{ n: number; id: string; etiqueta: string }> } | null;
 };
 
-export type Tarea = { id: string; orden: OrdenJev; estado: EstadoTarea };
+/** La orden de una tarea puede estar a medias (faltan datos): por eso es la orden cruda, que se completa con `completarOrden`. */
+export type Tarea = { id: string; orden: OrdenCruda | OrdenJev; estado: EstadoTarea };
 
 const ahoraMas = (min: number) => new Date(Date.now() + min * 60_000).toISOString();
 
@@ -139,14 +140,14 @@ export async function cargarTareaEnCurso(supabase: SupabaseClient, businessId: s
     .eq('estado', 'en_curso')
     .order('created_at', { ascending: false })
     .limit(1);
-  const f = (data as Array<{ id: string; orden: OrdenJev; args_resueltos: EstadoTarea | null; expires_at: string }> | null)?.[0];
+  const f = (data as Array<{ id: string; orden: OrdenCruda | OrdenJev; args_resueltos: EstadoTarea | null; expires_at: string }> | null)?.[0];
   if (!f || !f.args_resueltos || new Date(f.expires_at).getTime() < Date.now()) return null;
   return { id: f.id, orden: f.orden, estado: f.args_resueltos };
 }
 
 export async function guardarTarea(
   supabase: SupabaseClient,
-  p: { businessId: string; userId: string; orden: OrdenJev; estado: EstadoTarea }
+  p: { businessId: string; userId: string; orden: OrdenCruda | OrdenJev; estado: EstadoTarea }
 ): Promise<void> {
   await supabase
     .from(TABLA)

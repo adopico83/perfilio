@@ -1,4 +1,4 @@
-import { ACCIONES_POR_CATEGORIA, NOMBRES_ACCION, jsonSchemaOrden, validarOrden, ORDENES } from '@/lib/jev/ordenes';
+import { ACCIONES_POR_CATEGORIA, NOMBRES_ACCION, completarOrden, jsonSchemaEstricto, validarOrden, ORDENES } from '@/lib/jev/ordenes';
 import { construirMensajesTraductor, herramientaOrdenJev, interpretarSalida, PROMPT_TRADUCTOR, traducirMensaje } from '@/lib/jev/traductor';
 
 const createMock = jest.fn();
@@ -14,12 +14,15 @@ describe('esquema de órdenes .jev', () => {
     expect(validarOrden({ accion: 'GASTO', proveedor_texto: 'Saltoki', importe_texto: '180', iva_modo: 'mas' }).ok).toBe(true);
     expect(validarOrden({ accion: 'CHARLA' }).ok).toBe(true);
   });
-  it('rechaza lo que no encaja: acción inventada, tipos mal, campos vacíos', () => {
+  it('rechaza lo que no encaja (acción inventada, sin objeto) y sigue sin ejecutar nada raro', () => {
     expect(validarOrden({ accion: 'HACER_MAGIA' }).ok).toBe(false);
-    expect(validarOrden({ accion: 'GASTO', proveedor_texto: 'X', importe_texto: 180 }).ok).toBe(false); // el importe es TEXTO literal
-    expect(validarOrden({ accion: 'CITA_CREAR', fecha_texto: '' }).ok).toBe(false);
-    expect(validarOrden({ accion: 'GASTO', proveedor_texto: 'X', importe_texto: '1', iva_modo: 'quizas' }).ok).toBe(false);
     expect(validarOrden(null).ok).toBe(false);
+    expect(validarOrden({ accion: 'CITA_CREAR', fecha_texto: '' }).ok).toBe(false); // sin fecha: se pregunta
+  });
+  it('un valor mal puesto en un campo OPCIONAL se descarta; no tira la orden entera', () => {
+    const r = completarOrden({ accion: 'GASTO', proveedor_texto: 'X', importe_texto: 180, iva_modo: 'quizas' });
+    expect(r).toMatchObject({ estado: 'completa', orden: { accion: 'GASTO', proveedor_texto: 'X', importe_texto: '180' } });
+    expect((r as { orden: Record<string, unknown> }).orden.iva_modo).toBeUndefined();
   });
   it('NINGÚN esquema admite ids, fechas ISO como campo ni totales calculados', () => {
     const prohibidos = /(^|_)(id|ids|uuid|total|base|importe_total|fecha_iso)$|_id$/;
@@ -36,14 +39,14 @@ describe('esquema de órdenes .jev', () => {
       }
     }
   });
-  it('la función orden_jev tiene raíz «object» y solo las acciones de la categoría (más ACLARAR y CHARLA)', () => {
+  it('la función orden_jev es strict, de raíz «object» y con enum cerrado de acciones de la categoría (más ACLARAR y CHARLA)', () => {
     const t = herramientaOrdenJev('diario');
     expect(t.type === 'function' && t.function.name).toBe('orden_jev');
-    const params = (t as unknown as { function: { parameters: { type: string; properties: { orden: { anyOf: Array<{ properties: { accion: { const?: string } } }> } } } } }).function.parameters;
-    expect(params.type).toBe('object');
-    const acciones = params.properties.orden.anyOf.map((a) => a.properties.accion.const).sort();
-    expect(acciones).toEqual(['ACLARAR', 'CHARLA', 'DIARIO']);
-    expect(JSON.stringify(jsonSchemaOrden(ACCIONES_POR_CATEGORIA.agenda!))).toContain('CITA_MOVER');
+    const f = (t as unknown as { function: { strict: boolean; parameters: { type: string; properties: { accion: { enum: string[] } } } } }).function;
+    expect(f.strict).toBe(true);
+    expect(f.parameters.type).toBe('object');
+    expect([...f.parameters.properties.accion.enum].sort()).toEqual(['ACLARAR', 'CHARLA', 'DIARIO']);
+    expect(JSON.stringify(jsonSchemaEstricto(ACCIONES_POR_CATEGORIA.agenda!))).toContain('CITA_MOVER');
   });
 });
 
@@ -56,9 +59,9 @@ describe('traductor', () => {
     expect(JSON.stringify(m)).not.toMatch(/CLIENTES REGISTRADOS|OBRAS ABIERTAS/);
   });
   it('si el modelo devuelve basura, la orden es ACLARAR (nunca se ejecuta nada)', () => {
-    expect(interpretarSalida('no es json').orden.accion).toBe('ACLARAR');
-    expect(interpretarSalida(JSON.stringify({ orden: { accion: 'BORRAR_TODO' } })).orden.accion).toBe('ACLARAR');
-    expect(interpretarSalida(undefined).orden.accion).toBe('ACLARAR');
+    for (const arg of ['no es json', JSON.stringify({ orden: { accion: 'BORRAR_TODO' } }), JSON.stringify({ accion: 'BORRAR_TODO' }), undefined]) {
+      expect(completarOrden(interpretarSalida(arg).orden).estado).toBe('aclarar');
+    }
   });
   it('traduce con GPT-4o mini forzando la función orden_jev (temperatura 0) y entiende continua_tarea', async () => {
     createMock.mockResolvedValueOnce({
