@@ -25,7 +25,7 @@ export type CambiosPartidas = {
     /** Unidad que dijo el usuario («metros» → m2) para no confundir partidas. */
     unidad?: string;
   }>;
-  anadir?: Array<{ concepto: string; cantidad: number; precio_unitario?: number; capitulo?: string }>;
+  anadir?: Array<{ concepto: string; cantidad: number; precio_unitario?: number; capitulo?: string; unidad?: string }>;
   iva_porcentaje?: number;
 };
 
@@ -205,6 +205,10 @@ export async function modificarPartidasPresupuesto(
 
   const totalAnterior = Number(pres.importe_total);
   const frases: string[] = [];
+  // Unidad de cada partida nueva/renombrada (la unidad vive en la previsualización, no en el texto): no se pierde al editar.
+  const claveConcepto = (t: string) => t.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const origenDe = new Map<string, string>();
+  const unidadNueva = new Map<string, string>();
 
   for (const frag of cambios.quitar ?? []) {
     const r = buscarUna(partidas, frag, 'quitar');
@@ -232,6 +236,7 @@ export async function modificarPartidasPresupuesto(
     }
     const nuevoNombre = (c.nuevo_concepto ?? c.concepto)?.trim();
     if (nuevoNombre) p.concepto = nuevoNombre;
+    if (p.concepto !== conceptoAntes) origenDe.set(claveConcepto(p.concepto), claveConcepto(conceptoAntes));
     frases.push(`«${conceptoAntes}»${p.concepto !== conceptoAntes ? ` pasa a «${p.concepto}»` : ''}: ${antes} → ${num(p.cantidad)} × ${euros(p.precio)}`);
   }
   for (const a of cambios.anadir ?? []) {
@@ -246,6 +251,7 @@ export async function modificarPartidasPresupuesto(
     }
     const capitulo = a.capitulo?.trim() || partidas[partidas.length - 1]?.capitulo || 'GENERAL';
     partidas.push({ concepto, cantidad: a.cantidad, precio: a.precio_unitario, capitulo });
+    if (a.unidad?.trim()) unidadNueva.set(claveConcepto(concepto), a.unidad.trim());
     frases.push(`añadir «${concepto}» (${num(a.cantidad)} × ${euros(a.precio_unitario)})`);
   }
   if (frases.length === 0) {
@@ -283,10 +289,19 @@ export async function modificarPartidasPresupuesto(
     // Si nació de una previsualización, la factura leería SUS partidas: se dejan al día para que coincidan.
     const previewId = typeof pres.preview_id === 'string' ? pres.preview_id : '';
     if (previewId) {
+      const { data: previa } = await supabase.from('presupuesto_previews').select('partidas').eq('id', previewId).eq('business_id', businessId).maybeSingle();
+      const unidadAntes = new Map<string, string>();
+      for (const q of ((previa as { partidas?: unknown } | null)?.partidas as Array<{ concepto?: unknown; unidad?: unknown }> | undefined) ?? []) {
+        if (typeof q?.concepto === 'string' && typeof q.unidad === 'string' && q.unidad.trim()) unidadAntes.set(claveConcepto(q.concepto), q.unidad.trim());
+      }
+      const unidadDe = (concepto: string): string | null => {
+        const k = claveConcepto(concepto);
+        return unidadNueva.get(k) ?? unidadAntes.get(k) ?? unidadAntes.get(origenDe.get(k) ?? '') ?? null;
+      };
       const { error: errPrev } = await supabase
         .from('presupuesto_previews')
         .update({
-          partidas: canon.partidas.map((p) => ({ concepto: p.concepto, cantidad: p.cantidad, precio: p.precio, capitulo: p.capitulo, unidad: null })),
+          partidas: canon.partidas.map((p) => ({ concepto: p.concepto, cantidad: p.cantidad, precio: p.precio, capitulo: p.capitulo, unidad: unidadDe(p.concepto) })),
           texto_canonico: canon.texto,
           iva_porcentaje: iva,
           base_imponible: canon.base,

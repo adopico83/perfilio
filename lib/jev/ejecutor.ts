@@ -309,8 +309,27 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
       const cambiar: Array<Record<string, unknown>> = [];
       for (const c of orden.cambiar ?? []) {
         const o: Record<string, unknown> = { partida: c.partida_texto };
-        if (val(c.cantidad_texto)) { const n = num(c.cantidad_texto, 'la cantidad'); if (!n.ok) return n.r; o.cantidad = n.n; }
-        if (val(c.sumar_cantidad_texto)) { const n = num(c.sumar_cantidad_texto, 'la cantidad a sumar'); if (!n.ok) return n.r; o.sumar_cantidad = n.n; }
+        const dicho = (t: string) => {
+          const n = parseImporteTexto(t.replace(/^\s*-/, ''));
+          return n != null && importeApareceEnTexto(n, dichos);
+        };
+        // Regla general de cantidades: el modelo copia lo que el usuario DIJO («2 más», «14») y el servidor calcula.
+        // Un valor que el modelo calculó (no está en el mensaje) se descarta si el otro sí lo dijo el usuario; si los
+        // dos están, manda el delta cuando el mensaje habla de «más / menos / otro / añade / quita», y si no, el valor final.
+        let cant = val(c.cantidad_texto);
+        let suma = val(c.sumar_cantidad_texto);
+        if (cant && !dicho(cant) && suma && dicho(suma)) cant = '';
+        if (suma && !dicho(suma) && cant && dicho(cant)) suma = '';
+        if (cant && suma) {
+          if (/\b(mas|menos|otros?|otras?|anade|anadir|suma|sumale|quita|quitale|resta)\b/.test(norm(todo))) cant = '';
+          else suma = '';
+        }
+        if (cant) { const n = num(cant, 'la cantidad'); if (!n.ok) return n.r; o.cantidad = n.n; }
+        if (suma) {
+          const n = num(suma.replace(/^\s*-/, ''), 'la cantidad a sumar');
+          if (!n.ok) return n.r;
+          o.sumar_cantidad = /^\s*-/.test(suma) ? -n.n : n.n;
+        }
         if (val(c.precio_texto)) { const n = num(c.precio_texto, 'el precio'); if (!n.ok) return n.r; o.precio_unitario = n.n; }
         if (val(c.nuevo_nombre_texto)) o.nuevo_concepto = val(c.nuevo_nombre_texto);
         cambiar.push(o);
@@ -323,17 +342,24 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
         if (!val(a.precio_texto)) return pregunta(`¿A cuánto es «${a.concepto_texto}»? No invento precios.`, 'precio');
         const pr = num(a.precio_texto, 'el precio');
         if (!pr.ok) return pr.r;
-        anadir.push({ concepto: a.concepto_texto, cantidad: c.n, precio_unitario: pr.n });
+        const ud = unidadNorm(a.unidad_texto);
+        anadir.push({ concepto: a.concepto_texto, cantidad: c.n, precio_unitario: pr.n, ...(ud ? { unidad: ud } : {}) });
       }
       const quitar = orden.quitar_texto ?? [];
       if (quitar.length + cambiar.length + anadir.length === 0) return pregunta('¿Qué quieres cambiar del presupuesto: quitar una partida, cambiar una cantidad o precio, o añadir una?');
-      return cerrar(
+      const r = await cerrar(
         ctx,
         'modificar_partidas_presupuesto',
         { presupuesto_id: pres.id, ...(quitar.length ? { quitar } : {}), ...(cambiar.length ? { cambiar } : {}), ...(anadir.length ? { anadir } : {}) },
         '',
         true
       );
+      // Un presupuesto ya aceptado es lo que el cliente dio por bueno: se puede cambiar, pero NUNCA sin avisar.
+      const estadoPres = norm(String((pres.extra as { estado?: unknown } | undefined)?.estado ?? ''));
+      if (r.tipo === 'pendiente' && /^(aceptado|aprobado)$/.test(estadoPres)) {
+        r.resumen = `⚠️ Este presupuesto ya está ${estadoPres}: si cambias sus partidas, ya no coincide con lo que aceptó el cliente. Avísale del cambio.\n${r.resumen}`;
+      }
+      return r;
     }
     case 'CAMBIAR_ESTADO_PRESUPUESTO': {
       const pres = await slot(ctx, 'presupuesto', orden.presupuesto_texto, () => resolverPresupuesto(ctx, orden.presupuesto_texto));
@@ -432,11 +458,13 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
       const categoriaGasto = orden.categoria ?? 'material';
       const prov: Awaited<ReturnType<typeof resolverProveedor>> = provTexto ? await resolverProveedor(ctx, provTexto) : ({ status: 'sin_dato' } as never);
       let provId: string | undefined;
+      let provTelefono = '';
       let provNombre = provTexto || categoriaGasto.charAt(0).toUpperCase() + categoriaGasto.slice(1);
       let provAviso = '';
       if (prov.status === 'one') {
         provId = prov.id;
         provNombre = prov.nombre;
+        if (prov.telefono) provTelefono = prov.telefono;
       } else if (prov.status === 'many') {
         const prevS = ctx.resueltos.proveedor;
         if (prevS && norm(prevS.texto) === norm(provTexto)) {
@@ -490,7 +518,7 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
         ...(descripcion ? { descripcion } : {}),
       };
       const resumen =
-        `Voy a registrar un gasto de ${provNombre}: base ${eur(importe)} + IVA ${eur(iva)} = total ${eur(total)} (${f.ymd === hoy ? 'hoy' : f.ymd}, ${categoria}).\n` +
+        `Voy a registrar un gasto de ${provNombre}${provTelefono ? ` (tel. ${provTelefono})` : ''}: base ${eur(importe)} + IVA ${eur(iva)} = total ${eur(total)} (${f.ymd === hoy ? 'hoy' : f.ymd}, ${categoria}).\n` +
         `Obra: ${obraNombre || '—'} · Cliente: ${clienteNombre || '—'}${descripcion ? `\nConcepto: ${descripcion}` : ''}${provAviso}`;
       return cerrar(ctx, 'registrar_gasto_ticket', args, resumen);
     }
@@ -564,13 +592,34 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
       return cerrar(ctx, 'crear_recordatorio', args, resumen);
     }
     case 'CITA_MOVER': {
-      const fDicha = val(orden.fecha_texto) ? resolverFechaFutura(orden.fecha_texto, ctx.ahora) : null;
-      if (fDicha && !fDicha.ok) return texto(fDicha.error);
       const hDicha = val(orden.hora_texto) ? resolverHoraTexto(orden.hora_texto) : null;
       if (hDicha && !hDicha.ok) return pregunta(hDicha.error, 'hora');
-      if (!fDicha && !hDicha) return pregunta('¿A qué día o a qué hora la paso?', 'fecha');
+      if (!val(orden.fecha_texto) && !hDicha) return pregunta('¿A qué día o a qué hora la paso?', 'fecha');
       const ev = await slot(ctx, 'evento', orden.evento_texto, () => resolverEvento(ctx, orden.evento_texto, null, hoy));
       if (!ev.ok) return ev.resultado;
+      // Un día de la semana suelto («al jueves») se cuenta desde la fecha ACTUAL DE LA CITA (el jueves siguiente a ese
+      // día), no desde hoy. «Mañana», «hoy», fechas concretas y «el 15» siguen contando desde hoy.
+      let fDicha: ReturnType<typeof resolverFechaFutura> | null = null;
+      const ft = val(orden.fecha_texto);
+      if (ft) {
+        const dicho = norm(ft);
+        const soloDiaSemana = /\b(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/.test(dicho) && !/\b(hoy|manana|pasado|que viene|semana|proximo|siguiente)\b/.test(dicho);
+        fDicha = resolverFechaFutura(ft, ctx.ahora);
+        if (soloDiaSemana) {
+          let fechaCita = String((ev.extra as { fecha?: unknown } | undefined)?.fecha ?? '');
+          if (!fechaCita) {
+            const { data } = await ctx.supabase.from('agenda').select('fecha').eq('id', ev.id).eq('business_id', ctx.businessId).maybeSingle();
+            fechaCita = String((data as { fecha?: string | null } | null)?.fecha ?? '');
+          }
+          if (/^\d{4}-\d{2}-\d{2}$/.test(fechaCita) && fechaCita >= hoy) {
+            const base = new Date(`${fechaCita}T12:00:00Z`);
+            const conMarca = `${ft.replace(/^\s*(?:a(?:l)?|para)\s+/i, 'el ')} que viene`;
+            const desdeCita = resolverFechaFutura(conMarca, base);
+            if (desdeCita.ok) fDicha = desdeCita;
+          }
+        }
+        if (!fDicha.ok) return texto(fDicha.error);
+      }
       const args: Record<string, unknown> = { evento_id: ev.id };
       if (fDicha?.ok) args.nueva_fecha = fDicha.ymd;
       if (hDicha?.ok) args.nueva_hora = hDicha.hora;

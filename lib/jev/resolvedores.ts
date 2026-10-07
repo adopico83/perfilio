@@ -65,6 +65,12 @@ export async function resolverObra(
   const r = await resolverObraDocumentoAgente(ctx.supabase, ctx.businessId, undefined, t, 'documento', {
     incluirCerradas: opciones.cerradas === true,
   });
+  if (!r.ok || !r.obra_id) {
+    // Regla general: «el baño de Unai» = una obra «baño» CUYO CLIENTE es Unai. Antes de preguntar o decir que no hay,
+    // se miran las obras de los clientes que encajan con el nombre.
+    const porCliente = await obrasPorClienteYTema(ctx, t, opciones.cerradas === true);
+    if (porCliente) return porCliente;
+  }
   if (!r.ok) {
     if (r.candidatos?.length) return pregunta(`Hay varias obras que encajan con «${t}». ¿Cuál es?\n${lista(r.candidatos)}`, r.candidatos);
     return error(r.mensaje);
@@ -76,6 +82,35 @@ export async function resolverObra(
     if (cid && cid !== opciones.clienteId) return error(`La obra «${r.obra_nombre ?? t}» es de otro cliente. Dime cuál es la obra de ese cliente.`);
   }
   return { ok: true, id: r.obra_id, etiqueta: r.obra_nombre ?? t };
+}
+
+const ARTICULOS = new Set(['el', 'la', 'los', 'las', 'un', 'una', 'de', 'del', 'lo', 'obra', 'para']);
+
+/** «el baño de Unai» → obras de clientes que encajan con «Unai» cuyo nombre encaja con «baño». */
+async function obrasPorClienteYTema(ctx: CtxResolver, texto: string, cerradas: boolean): Promise<Resuelto | null> {
+  const m = texto.match(/^(.*?)\s+(?:de|del|para)\s+(.+)$/i);
+  if (!m) return null;
+  const tema = norm(m[1]!).split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 3 && !ARTICULOS.has(w));
+  const rc = await resolverClientesPorNombre(ctx.supabase, ctx.businessId, m[2]!.trim());
+  const clientes = rc.status === 'one' ? [rc.match] : rc.status === 'many' ? rc.candidatos : [];
+  if (clientes.length === 0) return null;
+  const { data } = await ctx.supabase
+    .from('obras')
+    .select('id, nombre, estado, direccion, cliente_id')
+    .eq('business_id', ctx.businessId)
+    .in('cliente_id', clientes.map((c) => c.id))
+    .limit(50);
+  type O = { id: string; nombre: string | null; estado: string | null; direccion: string | null; cliente_id: string | null };
+  const abiertas = ((data ?? []) as O[]).filter((o) => cerradas || !/cerrad|finaliz|termin/.test(norm(String(o.estado ?? ''))));
+  if (abiertas.length === 0) return null;
+  const coincide = (o: O) => tema.every((w) => norm(String(o.nombre ?? '')).split(/[^a-z0-9ñ]+/).some((x) => x.startsWith(w) || w.startsWith(x)));
+  const candidatas = tema.length ? abiertas.filter(coincide) : abiertas;
+  const nombreCli = (o: O) => clientes.find((c) => c.id === o.cliente_id)?.nombre ?? '';
+  const etiqueta = (o: O) => `${o.nombre ?? 'Obra'}${nombreCli(o) ? ` · ${nombreCli(o)}` : ''}`;
+  if (candidatas.length === 1) return { ok: true, id: candidatas[0]!.id, etiqueta: candidatas[0]!.nombre ?? texto };
+  const lote = candidatas.length > 1 ? candidatas : abiertas;
+  const ops = lote.slice(0, 8).map((o) => ({ id: o.id, etiqueta: etiqueta(o) }));
+  return pregunta(`Hay varias obras de ${clientes.length === 1 ? clientes[0]!.nombre : 'esos clientes'} que pueden ser «${texto}». ¿Cuál es?\n${lista(ops)}`, ops);
 }
 
 const RE_ESE = /^(?:ese|este|esa|esta|aquel|el ultimo|la ultima|ultimo|ultima|el que acabo de (?:hacer|dictar|crear)|ese presu(?:puesto)?|este presu(?:puesto)?)$/;
@@ -124,15 +159,37 @@ export async function resolverDocumento(ctx: CtxResolver, tipo: TipoDocumento, t
   return error(l.error);
 }
 
+/** «Aitor el pintor», «Zubizarreta de carpintero» → { nombre: «Aitor», rol: «pintor» }. */
+export function separarNombreYRol(texto: string): { nombre: string; rol: string } | null {
+  const m = texto.trim().match(/^(.+?)\s+(?:el|la|de|del|como|que es)\s+(?:el\s+|la\s+)?([\p{L}]{3,})$/iu);
+  return m ? { nombre: m[1]!.trim(), rol: m[2]!.trim() } : null;
+}
+
 export async function resolverOperario(ctx: CtxResolver, texto: string): Promise<Resuelto> {
   const t = texto.trim();
   if (!t) return error('¿De qué operario hablas?');
+  const unico = (f: { id: string; nombre: string }): Resuelto => ({ ok: true, id: f.id, etiqueta: f.nombre });
+  const varios = (filas: Array<{ id: string; nombre: string }>): Resuelto => {
+    const ops = filas.map((f) => ({ id: f.id, etiqueta: f.nombre }));
+    return pregunta(`Hay varios operarios que encajan con «${t}». ¿Cuál es?\n${lista(ops)}`, ops);
+  };
   const r = await buscarOperariosPorNombre(ctx.supabase, ctx.businessId, t);
   if (!r.ok) return error(r.error);
-  if (r.filas.length === 1) return { ok: true, id: r.filas[0]!.id, etiqueta: r.filas[0]!.nombre };
-  if (r.filas.length > 1) {
-    const ops = r.filas.map((f) => ({ id: f.id, etiqueta: f.nombre }));
-    return pregunta(`Hay varios operarios que encajan con «${t}». ¿Cuál es?\n${lista(ops)}`, ops);
+  if (r.filas.length === 1) return unico(r.filas[0]!);
+  if (r.filas.length > 1) return varios(r.filas);
+  // Regla general: «nombre + oficio». Se busca por el nombre y el oficio sirve para desempatar (si el nombre guardado
+  // lo lleva); si el nombre es único, el oficio sobra. Si solo encaja el oficio («Pintor Aitor»), se prueba también.
+  const sr = separarNombreYRol(t);
+  if (sr) {
+    const porNombre = await buscarOperariosPorNombre(ctx.supabase, ctx.businessId, sr.nombre);
+    if (porNombre.ok && porNombre.filas.length === 1) return unico(porNombre.filas[0]!);
+    if (porNombre.ok && porNombre.filas.length > 1) {
+      const rol = norm(sr.rol).replace(/(?:es|s)$/, '');
+      const conRol = porNombre.filas.filter((f) => norm(f.nombre).includes(rol));
+      return conRol.length === 1 ? unico(conRol[0]!) : varios(conRol.length > 1 ? conRol : porNombre.filas);
+    }
+    const porRol = await buscarOperariosPorNombre(ctx.supabase, ctx.businessId, sr.rol);
+    if (porRol.ok && porRol.filas.length === 1 && norm(porRol.filas[0]!.nombre).includes(norm(sr.nombre))) return unico(porRol.filas[0]!);
   }
   const { data } = await ctx.supabase.from('operarios').select('nombre').eq('business_id', ctx.businessId).eq('activo', true).order('nombre', { ascending: true }).limit(30);
   const nombres = ((data ?? []) as Array<{ nombre: string | null }>).map((x) => String(x.nombre ?? '').trim()).filter(Boolean);
@@ -160,10 +217,10 @@ export async function resolverEvento(ctx: CtxResolver, texto: string, fechaYmd?:
 }
 
 export async function resolverProveedor(ctx: CtxResolver, texto: string): Promise<
-  { status: 'one'; id: string; nombre: string } | { status: 'many'; opciones: Opcion[] } | { status: 'none' } | { status: 'sin_tabla' }
+  { status: 'one'; id: string; nombre: string; telefono?: string | null } | { status: 'many'; opciones: Opcion[] } | { status: 'none' } | { status: 'sin_tabla' }
 > {
   const r = await resolverProveedorPorNombre(ctx.supabase, ctx.businessId, texto);
-  if (r.status === 'one') return { status: 'one', id: r.match.id, nombre: r.match.nombre };
+  if (r.status === 'one') return { status: 'one', id: r.match.id, nombre: r.match.nombre, telefono: (r.match as { telefono?: string | null }).telefono ?? null };
   if (r.status === 'many') return { status: 'many', opciones: r.candidatos.map((c) => ({ id: c.id, etiqueta: c.nombre })) };
   return { status: r.status };
 }
