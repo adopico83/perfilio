@@ -14,8 +14,8 @@ function montar(obras: Fila[]) {
   return { d, ctx };
 }
 const OBRAS: Fila[] = [
-  { id: OBRA_A, business_id: BIZ, nombre: 'Reforma cocina Pino', direccion: 'Calle A 1' },
-  { id: OBRA_B, business_id: BIZ, nombre: 'Reforma baño Pino', direccion: 'Calle B 2' },
+  { id: OBRA_A, business_id: BIZ, nombre: 'Reforma cocina Pino', direccion: 'Calle A 1', estado: 'en_curso' },
+  { id: OBRA_B, business_id: BIZ, nombre: 'Reforma baño Pino', direccion: 'Calle B 2', estado: 'abierta' },
   { id: OBRA_AJENA, business_id: 'otro', nombre: 'Reforma ajena', direccion: null },
 ];
 

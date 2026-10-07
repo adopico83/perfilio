@@ -7,7 +7,6 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { ESTADOS_PRESUPUESTO, MENSAJE_ESTADO_PRESUPUESTO, parseEstadoPresupuesto } from '@/lib/presupuestos/estado';
 import { modificarPartidasPresupuesto, type CambiosPartidas } from '@/lib/presupuestos/editar-partidas';
 import { clienteDesdeObraSiAplica, resolveClienteIdOpcional } from '@/lib/agente/modules/obras-clientes';
-import { resolverObraDocumentoAgente } from '@/lib/obras-context';
 import {
   extraerNombreClienteDePeticionPresupuesto,
   failClosed,

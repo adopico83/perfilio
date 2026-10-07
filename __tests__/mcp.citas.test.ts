@@ -47,8 +47,8 @@ function agendaDb(initial: Fila[] = []) {
           return chain;
         },
         insert(row: Record<string, unknown>) {
-          pending = row;
-          inserts.push(row);
+          pending = { completado: false, ...row }; // el valor por defecto de la columna (migración agenda)
+          inserts.push(pending);
           return chain;
         },
         eq(col: string, val: unknown) {

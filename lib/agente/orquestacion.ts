@@ -266,7 +266,7 @@ export function marcaOpcionesParaHistorial(opciones: OpcionAclaracion[]): string
 }
 
 export function quitarMarcaOpciones(texto: string): string {
-  return texto.replace(/\n?<!--opciones:\{[\s\S]*?\}-->/g, '').replace(/\n?<!--presupuesto:\{[\s\S]*?\}-->/g, '');
+  return texto.replace(/\n?<!--opciones:\{[\s\S]*?\}-->/g, '').replace(/\n?<!--presupuesto:\{[\s\S]*?\}-->/g, '').replace(/\n?<!--factura:\{[\s\S]*?\}-->/g, '');
 }
 
 /**
@@ -506,3 +506,39 @@ export const MENSAJE_NADA_PENDIENTE =
 
 export const REGLA_SI_SUELTO =
   'El usuario acaba de contestar solo «sí» (o similar) y NO hay ninguna acción pendiente con botón. Eso responde ÚNICAMENTE a tu última pregunta: si esa pregunta proponía una acción concreta, haz exactamente esa y ninguna otra; si no proponía nada, responde que no hay nada pendiente. NO inicies otra acción distinta (ni borres, ni factures, ni crees nada nuevo por tu cuenta).';
+
+// ───────────────── «Esa factura»: la última factura de la conversación ─────────────────
+
+export type UltimaFactura = { id: string; numero: number | null };
+const RE_MARCA_FACTURA = /<!--factura:(\{[\s\S]*?\})-->/g;
+
+export function marcaUltimaFactura(f: UltimaFactura): string {
+  return `\n<!--factura:${JSON.stringify({ id: f.id, numero: f.numero })}-->`;
+}
+
+export function leerUltimaFacturaDeHistorial(historial: Array<{ role: string; content: string }>): UltimaFactura | null {
+  for (const m of [...historial].reverse()) {
+    if (m.role !== 'assistant' || typeof m.content !== 'string') continue;
+    const marcas = [...m.content.matchAll(RE_MARCA_FACTURA)];
+    if (marcas.length === 0) continue;
+    try {
+      const o = JSON.parse(marcas[marcas.length - 1]![1]) as { id?: unknown; numero?: unknown };
+      if (typeof o.id === 'string' && /^[\w-]{6,64}$/.test(o.id)) return { id: o.id, numero: typeof o.numero === 'number' ? o.numero : null };
+    } catch {
+      /* marca rota */
+    }
+  }
+  return null;
+}
+
+/** La factura que una tool acaba de crear o tocar (por su resultado). */
+export function ultimaFacturaDeResultados(results: unknown[]): UltimaFactura | null {
+  let out = null as UltimaFactura | null;
+  for (const r of results) {
+    const o = (r && typeof r === 'object' ? r : {}) as Record<string, unknown>;
+    if (o.ok === false || typeof o.error === 'string') continue;
+    const id = typeof o.factura_id === 'string' ? o.factura_id : '';
+    if (/^[\w-]{6,64}$/.test(id)) out = { id, numero: typeof o.numero_factura === 'number' ? o.numero_factura : null };
+  }
+  return out;
+}

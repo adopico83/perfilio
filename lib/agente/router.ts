@@ -391,3 +391,42 @@ export function quitarToolsDestructivasSiNoPideBorrar(
   if (pideBorrar(mensaje, ultimoAsistente)) return tools;
   return tools.filter((t) => !(t.type === 'function' && TOOLS_DESTRUCTIVAS.has(t.function.name)));
 }
+
+
+// ───────── Capa de órdenes .jev: lo que YA no se deja al tool calling libre ─────────
+
+/** Herramientas de escritura que ahora solo se ejecutan desde una orden .jev (ejecutor + orden pendiente). */
+export const TOOLS_CUBIERTAS_POR_ORDENES = new Set([
+  'crear_cliente',
+  'actualizar_cliente',
+  'crear_obra',
+  'actualizar_obra',
+  'generar_presupuesto_por_dictado',
+  'modificar_partidas_presupuesto',
+  'cambiar_estado_presupuesto',
+  'convertir_presupuesto_a_factura',
+  'convertir_albaran_a_factura',
+  'cambiar_estado_factura',
+  'crear_entrada_diario',
+  'registrar_jornada',
+  'registrar_gasto_ticket',
+  'crear_proveedor',
+  'crear_recordatorio',
+  'modificar_evento_agenda',
+  'eliminar_evento_agenda',
+  // El constructor conversacional de presupuestos lo sustituye PRESUPUESTO_DICTADO.
+  'iniciar_borrador_presupuesto',
+  'agregar_partida_borrador',
+  'modificar_partida_borrador',
+  'eliminar_partida_borrador',
+  'confirmar_borrador',
+  'cancelar_borrador',
+  'crear_presupuesto',
+]);
+
+/** Quita de la lista las herramientas que ya van por órdenes .jev (el modelo ya no puede llamarlas «a pelo»). */
+export function quitarToolsCubiertasPorOrdenes(
+  tools: OpenAI.Chat.Completions.ChatCompletionTool[]
+): OpenAI.Chat.Completions.ChatCompletionTool[] {
+  return tools.filter((t) => !(t.type === 'function' && TOOLS_CUBIERTAS_POR_ORDENES.has(t.function.name)));
+}

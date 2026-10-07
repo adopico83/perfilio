@@ -583,7 +583,7 @@ describe('POST /api/agente — tools', () => {
       expect(parsed.mensaje).toBe('Cliente Cliente Test creado correctamente.');
     });
 
-    it('no inserta si ya existe nombre similar y devuelve id existente', async () => {
+    it('no inserta si ya existe el mismo nombre (exacto, sin mayúsculas ni tildes) y devuelve id existente', async () => {
       const insertCliente = jest.fn();
       const res = await postWithTool(
         'crear_cliente',
@@ -609,7 +609,7 @@ describe('POST /api/agente — tools', () => {
       };
       expect(parsed.id).toBe('c-dup');
       expect(parsed.existente).toBe(true);
-      expect(parsed.mensaje).toBe('El cliente Cliente Test ya existe, usando el existente.');
+      expect(parsed.mensaje).toBe('El cliente Cliente Test ya existe (mismo nombre), usando el existente.');
     });
   });
 

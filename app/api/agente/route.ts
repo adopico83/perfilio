@@ -77,6 +77,8 @@ import {
   CALCULO_AGENT_TOOLS,
   handleCalcularMedicion,
 } from '@/lib/agente/modules/calculo';
+import { cancelarOrdenJev, confirmarOrdenJev, procesarMensajeJev } from '@/lib/jev/motor';
+import { crearPendiente } from '@/lib/jev/pendientes';
 import { applyPerfilioGuardrails } from '@/lib/agente/guardrails';
 import { modeloAgente, parametrosGeneracion } from '@/lib/agente/modelo';
 import {
@@ -110,6 +112,9 @@ import {
   logAgenteTurno,
   marcaOpcionesParaHistorial,
   marcaUltimoPresupuesto,
+  marcaUltimaFactura,
+  leerUltimaFacturaDeHistorial,
+  ultimaFacturaDeResultados,
   esAfirmacionSuelta,
   asistentePreguntoAlgo,
   MENSAJE_NADA_PENDIENTE,
@@ -137,6 +142,7 @@ import {
   toolsForAgentIntent,
   pideBorrar,
   quitarToolsDestructivasSiNoPideBorrar,
+  quitarToolsCubiertasPorOrdenes,
   TOOLS_DESTRUCTIVAS,
 } from '@/lib/agente/router';
 
@@ -220,8 +226,12 @@ function rondaSoloLectura(pasos: Array<{ tool: string; args: Record<string, unkn
   return pasos.every((p) => !esToolMutacion(p.tool) && !requiereConfirmacion(p.tool, p.args));
 }
 
+/** Motor de órdenes .jev (por defecto). `AGENTE_MOTOR=legacy` vuelve al tool calling libre (solo como vía de retorno). */
+const motorJevActivo = () => process.env.AGENTE_MOTOR?.trim().toLowerCase() !== 'legacy';
+
 export async function POST(request: NextRequest) {
   try {
+    const motorJev = motorJevActivo();
     const body = await request.json();
     const { mensaje, business_id, historial, imagen, imagen_mime, imagenesUrls } = body;
     const historialValido = Array.isArray(historial)
@@ -245,6 +255,7 @@ export async function POST(request: NextRequest) {
       .reverse()
       .find((m) => m.role === 'assistant' && m.content.trim().length > 0);
     const ultimoPresupuestoConv = leerUltimoPresupuestoDeHistorial(historialValido);
+    const ultimaFacturaConv = leerUltimaFacturaDeHistorial(historialValido);
     const mensajeOriginalTrim = typeof mensaje === 'string' ? mensaje.trim() : '';
     const mensajeTrim =
       resolverEleccionOpcion(mensajeOriginalTrim, ultimoAsistenteHistorial?.content) ?? mensajeOriginalTrim;
@@ -279,7 +290,8 @@ export async function POST(request: NextRequest) {
         : imagenesNormalizadas.filter((u) => u.startsWith('data:image/'));
 
     const hayConfirmarAccion = body?.confirmar_accion !== undefined && body?.confirmar_accion !== null;
-    if (!mensajeTrim && imagenesNormalizadas.length === 0 && !hayConfirmarAccion) {
+    const ordenACancelar = typeof body?.cancelar_orden === 'string' ? body.cancelar_orden.trim() : '';
+    if (!mensajeTrim && imagenesNormalizadas.length === 0 && !hayConfirmarAccion && !ordenACancelar) {
       return NextResponse.json(
         {
           error:
@@ -628,6 +640,42 @@ export async function POST(request: NextRequest) {
     // El navegador reenvía la acción pendiente (`confirmar_accion`). Aquí, ya con el control de acceso
     // hecho, se comprueba que la tool está en la lista blanca de acciones confirmables y se ejecuta
     // directamente, sin volver a pasar por el modelo.
+    // ── Motor .jev: el navegador solo manda el id de la orden pendiente; lo que se ejecuta es lo que el
+    //    servidor guardó (y enseñó). Cualquier `tool`/`args` que mande el navegador se ignora.
+    if (motorJev && ordenACancelar) {
+      const out = await cancelarOrdenJev({ supabase, businessId: businessIdStr, userId: authUser.id, ordenId: ordenACancelar });
+      return NextResponse.json({ respuesta: out.respuesta, email_pendiente: null, canvas: null, obra_modal: null });
+    }
+    if (motorJev && hayConfirmarAccion) {
+      const ordenId = typeof body.confirmar_accion?.orden_id === 'string' ? body.confirmar_accion.orden_id.trim() : '';
+      if (!ordenId) {
+        return NextResponse.json({ error: 'Falta orden_id: la confirmación solo acepta el id de una orden pendiente.' }, { status: 400 });
+      }
+      const out = await confirmarOrdenJev({
+        supabase,
+        businessId: businessIdStr,
+        userId: authUser.id,
+        ordenId,
+        runTool,
+        validar: (a) => {
+          const g = applyPerfilioGuardrails([{ tool: a.tool, args: a.args }], '');
+          return g.ok ? null : g.error;
+        },
+      });
+      const emailJev = capturarEmailPendiente(out.resultado);
+      if (emailJev) emailPendienteParaCliente = emailJev;
+      capturarCanvas(out.resultado);
+      const obraJev = capturarObraFicha(out.resultado);
+      if (obraJev) obraFichaParaCliente = obraJev;
+      const presJev = ultimoPresupuestoDeResultados(out.resultado ? [out.resultado] : []);
+      const facJev = ultimaFacturaDeResultados(out.resultado ? [out.resultado] : []);
+      return NextResponse.json({
+        respuesta: out.respuesta + (presJev ? marcaUltimoPresupuesto(presJev) : '') + (facJev ? marcaUltimaFactura(facJev) : ''),
+        email_pendiente: emailPendienteParaCliente,
+        canvas: canvasParaCliente,
+        obra_modal: obraFichaParaCliente,
+      });
+    }
     if (hayConfirmarAccion) {
       const valida = validarAccionConfirmada(body.confirmar_accion);
       if (!valida.ok) {
@@ -1024,6 +1072,44 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
     const memoriaNegocioBlockNoPresupuestos =
       intentCategory === 'presupuesto' ? '' : memoriaNegocioBlock;
 
+    // ── Motor .jev: el modelo SOLO traduce el mensaje a una orden cerrada; el ejecutor (sin modelo) resuelve
+    //    clientes, obras, fechas e importes, pregunta si falta algo y guarda una orden pendiente. Con fotos
+    //    adjuntas, o en correo/cálculo, sigue el camino de siempre (sin las herramientas de escritura ya cubiertas).
+    if (motorJev && imagenesNormalizadas.length === 0 && intentCategory !== 'emails' && intentCategory !== 'calculo') {
+      const hoyTextoJev = new Date().toLocaleDateString('es-ES', { timeZone: 'Europe/Madrid', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+      const salidaJev = await procesarMensajeJev({
+        supabase,
+        businessId: businessIdStr,
+        userId: authUser.id,
+        mensaje: mensajeTrim,
+        categoria: intentCategory,
+        hoyTexto: hoyTextoJev,
+        ultimoAsistente: ultimoAsistenteHistorial?.content,
+        ultimoPresupuestoId: ultimoPresupuestoConv?.id ?? null,
+        ultimaFacturaId: ultimaFacturaConv?.id ?? null,
+        fotosAdjuntas: pathsAdjuntosStorage,
+        runTool,
+        validar: (a) => {
+          const g = applyPerfilioGuardrails([{ tool: a.tool, args: a.args }], '');
+          return g.ok ? null : g.error;
+        },
+      });
+      if (!salidaJev.charla) {
+        const obraFichaJev = capturarObraFicha(salidaJev.resultado);
+        if (obraFichaJev) obraFichaParaCliente = obraFichaJev;
+        const presJev = ultimoPresupuestoDeResultados(salidaJev.resultado ? [salidaJev.resultado] : []);
+        const facJev = ultimaFacturaDeResultados(salidaJev.resultado ? [salidaJev.resultado] : []);
+        return NextResponse.json({
+          respuesta: salidaJev.respuesta + (presJev ? marcaUltimoPresupuesto(presJev) : '') + (facJev ? marcaUltimaFactura(facJev) : ''),
+          email_pendiente: null,
+          canvas: canvasParaCliente,
+          obra_modal: obraFichaParaCliente,
+          ...(salidaJev.accionPendiente ? { accion_pendiente: { ...salidaJev.accionPendiente, args: {} } } : {}),
+          ...(salidaJev.opciones?.length ? { opciones: salidaJev.opciones } : {}),
+        });
+      }
+    }
+
     let tools = toolsForAgentIntent(intentCategory, ALL_AGENT_TOOLS);
     if (tools.length === 0) {
       tools = ALL_AGENT_TOOLS;
@@ -1031,6 +1117,8 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
     // Las herramientas que BORRAN solo se ofrecen si el mensaje pide claramente borrar o quitar: una
     // consulta («¿cuánto me he gastado en Saltoki?») nunca debe poder acabar en un borrado.
     tools = quitarToolsDestructivasSiNoPideBorrar(tools, mensajeTrim, ultimoAsistenteHistorial?.content);
+    // Motor .jev: lo que ya se hace con órdenes no se deja al tool calling libre (salvo si hay fotos adjuntas).
+    if (motorJev && imagenesNormalizadas.length === 0) tools = quitarToolsCubiertasPorOrdenes(tools);
 
     const fechaHoyMadrid = new Date().toLocaleDateString('es-ES', {
       timeZone: 'Europe/Madrid',
@@ -1395,6 +1483,21 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
     if (opciones.length > 0) respuesta += marcaOpcionesParaHistorial(opciones);
     const presTratado = ultimoPresupuestoDeResultados(resultadosDelTurno);
     if (presTratado) respuesta += marcaUltimoPresupuesto(presTratado);
+
+    // Motor .jev: aunque la propuesta venga del camino de siempre (fotos, herramientas aún sin orden), se guarda
+    // en el servidor y al navegador solo le llega su id: lo que se confirma es lo que se guardó.
+    if (motorJev && accionPendiente) {
+      const guardada = await crearPendiente(supabase, {
+        businessId: businessIdStr,
+        userId: authUser.id,
+        orden: { accion: 'LEGACY', tool: accionPendiente.tool } as never,
+        accion: { tool: accionPendiente.tool, args: accionPendiente.args },
+        resumen: accionPendiente.resumen,
+      });
+      accionPendiente = guardada.ok
+        ? ({ tool: accionPendiente.tool, args: {}, resumen: accionPendiente.resumen, orden_id: guardada.id } as unknown as AccionPendiente)
+        : null;
+    }
 
     return NextResponse.json({
       respuesta,

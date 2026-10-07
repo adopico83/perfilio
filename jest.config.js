@@ -1,5 +1,6 @@
 const customJestConfig = {
   testEnvironment: 'node',
+  setupFiles: ['<rootDir>/jest.setup.env.js'],
   testPathIgnorePatterns: ['/node_modules/', '/__tests__/helpers/'],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/$1',
