@@ -523,4 +523,13 @@ export const CASOS_FRASES_PINO: CasoAgente[] = [
   { frase: 'apunta en el diario del baño de Unai que hoy se ha picado', intencionJev: 'diario', comportamiento: 'pide_confirmacion', soloJev: true, nota: 'La obra se encuentra por el CLIENTE (Unai), no por el nombre de la obra.' },
   { frase: 'pasa lo de Mikel al jueves', intencionJev: 'agenda', comportamiento: 'pide_confirmacion', soloJev: true, nota: '«Al jueves» cuenta desde la fecha de la cita (martes 13), no desde hoy.' },
   { frase: '121 con IVA en Saltoki para lo de Leire', intencionJev: 'gastos', comportamiento: 'pide_confirmacion', soloJev: true, nota: 'El resumen enseña el teléfono del proveedor.' },
+  // ── Ronda 8 (prueba e2e estricta): una sola frase; las conversaciones de varios turnos están en `evals/ronda8.ts` ──
+  { frase: 'Aitor el pintor 7 y media y Jon el carpintero 6 en lo de Paqui', intencionJev: 'operarios', comportamiento: 'pide_confirmacion', soloJev: true, nota: 'Dos personas en una frase: 7,5 h y 6 h; ninguna se pierde (la segunda se prepara tras confirmar la primera).' },
+  { frase: 'factura suelta a Amaia por 85 más IVA', intencionJev: 'documentos', comportamiento: 'pide_confirmacion', soloJev: true, nota: 'Factura sin obra aunque la de Amaia esté cerrada; con NIF, dirección, línea y vencimiento.' },
+  { frase: 'factura a Ane por 200', intencionJev: 'documentos', comportamiento: 'pregunta_opciones', soloJev: true, nota: 'Dos Ane: pregunta cuál (y después, con o más IVA).' },
+  { frase: 'gasto 87,40 sin IVA en Saltoki', intencionJev: 'gastos', comportamiento: 'pregunta_o_error', soloJev: true, nota: '«Sin IVA» a secas es ambiguo: se pregunta.' },
+  { frase: 'la visita con Ane Lasa pásala al jueves de la semana que viene', intencionJev: 'agenda', comportamiento: 'pide_confirmacion', soloJev: true, nota: 'La de Ane Lasa directamente; jueves 15 de octubre.' },
+  { frase: 'hazme la factura del presu 7 de Mikel', intencionJev: 'documentos', comportamiento: 'pide_confirmacion', soloJev: true, nota: 'El número explícito gana sobre el nombre: el nº 7 (de Paqui), aunque diga «de Mikel».' },
+  { frase: 'visita con el de Maderas Oria el lunes a las 8', intencionJev: 'agenda', comportamiento: 'pide_confirmacion', soloJev: true, nota: 'Un proveedor no es un cliente: cita sin alta de cliente.' },
+  { frase: 'presu pa Mikel Urkiola: alicatar el baño 12 metros a 40', intencionJev: 'presupuesto', comportamiento: 'pide_confirmacion', soloJev: true, nota: 'Cliente por palabras: «Mikel PRUEBA Urkiola».' },
 ];

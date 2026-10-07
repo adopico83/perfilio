@@ -542,3 +542,39 @@ export function ultimaFacturaDeResultados(results: unknown[]): UltimaFactura | n
   }
   return out;
 }
+
+// ───────────────── Última cita creada o movida («pásala al viernes») ─────────────────
+
+export type UltimoEvento = { id: string };
+const RE_MARCA_EVENTO = /<!--evento:(\{[\s\S]*?\})-->/g;
+
+export function marcaUltimoEvento(e: UltimoEvento): string {
+  return `\n<!--evento:${JSON.stringify({ id: e.id })}-->`;
+}
+
+export function leerUltimoEventoDeHistorial(historial: Array<{ role: string; content: string }>): UltimoEvento | null {
+  for (const m of [...historial].reverse()) {
+    if (m.role !== 'assistant' || typeof m.content !== 'string') continue;
+    const marcas = [...m.content.matchAll(RE_MARCA_EVENTO)];
+    if (marcas.length === 0) continue;
+    try {
+      const o = JSON.parse(marcas[marcas.length - 1]![1]) as { id?: unknown };
+      if (typeof o.id === 'string' && /^[\w-]{3,64}$/.test(o.id)) return { id: o.id };
+    } catch {
+      /* marca rota */
+    }
+  }
+  return null;
+}
+
+/** La cita que una tool acaba de crear o mover (el motor .jev añade `evento_id` al resultado). */
+export function ultimoEventoDeResultados(results: unknown[]): UltimoEvento | null {
+  let out = null as UltimoEvento | null;
+  for (const r of results) {
+    const o = (r && typeof r === 'object' ? r : {}) as Record<string, unknown>;
+    if (o.ok === false || typeof o.error === 'string') continue;
+    const id = typeof o.evento_id === 'string' ? o.evento_id : '';
+    if (/^[\w-]{3,64}$/.test(id)) out = { id };
+  }
+  return out;
+}

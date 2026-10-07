@@ -411,6 +411,8 @@ export const TOOLS_CUBIERTAS_POR_ORDENES = new Set([
   'registrar_jornada',
   'registrar_gasto_ticket',
   'crear_proveedor',
+  'crear_factura',
+  'registrar_extra',
   'crear_recordatorio',
   'modificar_evento_agenda',
   'eliminar_evento_agenda',

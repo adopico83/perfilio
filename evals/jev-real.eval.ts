@@ -16,6 +16,7 @@ import { CASOS_FRASES_PINO } from './frases-pino';
 import { ORDEN_POR_FRASE } from './ordenes-jev';
 import { FRASES_RONDA6 } from './ronda6';
 import { compararOrden } from './comparar-orden';
+import { ESCENARIOS_RONDA8, ejecutarEscenario } from './ronda8';
 import { NEGOCIO_A, USUARIO, crearBaseSimulada } from './base-simulada';
 import { crearFakeDb } from '../__tests__/helpers/fake-db';
 
@@ -94,6 +95,20 @@ const MARCA_F = /<!--factura:(\{.*?\})-->/;
         if (escrituras > 0) motivos.push(`${escrituras} escrituras antes del «Sí»`);
         if (salida && /No te he entendido/.test(salida.respuesta) && f.esperada.accion !== 'ACLARAR') motivos.push('respondió «No te he entendido»');
         filas.push({ frase: f.frase, ok: motivos.length === 0, motivos, inventados: veredicto.inventados, escrituras });
+      }
+    }
+
+    // Conversaciones de varios turnos (ronda 8): rechazos, correcciones durante la confirmación, varias órdenes en una frase,
+    // facturas sueltas, citas por referencia… Cada escenario cuenta como una fila y se juzga por lo MOSTRADO y lo GUARDADO.
+    for (let v = 0; v < veces; v++) {
+      for (const esc of ESCENARIOS_RONDA8) {
+        let problemas: string[];
+        try {
+          ({ problemas } = await ejecutarEscenario(esc, (e) => traducirMensaje(e)));
+        } catch (err) {
+          problemas = [`error: ${err instanceof Error ? err.message : String(err)}`];
+        }
+        filas.push({ frase: `[escenario] ${esc.nombre}`, ok: problemas.length === 0, motivos: problemas, inventados: [], escrituras: 0 });
       }
     }
 

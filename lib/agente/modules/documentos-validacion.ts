@@ -97,6 +97,32 @@ export async function validarCreacionDocumento(
     args.cliente_nombre = r.match.nombre ?? clienteNombre;
   }
 
+  // Factura suelta ya resuelta por el ejecutor .jev (cliente, obra, importe e IVA comprobados): solo falta que la ficha del
+  // cliente tenga NIF y dirección, y se pide ANTES del «sí» (guardando la tarea para retomarla sola).
+  if (tool === 'crear_factura' && args._resuelto === true) {
+    const cid = String(args.cliente_id ?? '').trim();
+    if (!cid) return { ok: false, result: failClosed('¿Para qué cliente es la factura?') };
+    const { data: cli } = await deps.supabase.from('clientes').select('id, nombre, nif, direccion').eq('id', cid).eq('business_id', deps.businessId).maybeSingle();
+    const c = cli as { id: string; nombre?: string | null; nif?: string | null; direccion?: string | null } | null;
+    if (!c) return { ok: false, result: failClosed('No encuentro a ese cliente en tu negocio.') };
+    const faltan: string[] = [];
+    if (!String(c.nif ?? '').trim()) faltan.push('nif');
+    if (!String(c.direccion ?? '').trim()) faltan.push('direccion');
+    if (faltan.length) {
+      const que = faltan.map((f) => (f === 'nif' ? 'el NIF' : 'la dirección')).join(' y ');
+      return {
+        ok: false,
+        result: {
+          ok: false,
+          error: `Para facturar a ${c.nombre ?? 'este cliente'} me falta ${que} (una factura necesita NIF y dirección). Dímelo y lo guardo en su ficha antes de facturar.`,
+          faltan_datos_cliente: faltan,
+          cliente_id: c.id,
+        },
+      };
+    }
+    return { ok: true, args };
+  }
+
   // ── Obra (la resuelve la propia tool; aquí se pregunta ANTES de pedir el «sí») ─────────────
   if (tool !== 'crear_presupuesto' || !String(args.obra_id ?? '').trim()) {
     const explicita = typeof args.obra_id === 'string' && args.obra_id.trim() ? args.obra_id.trim() : undefined;

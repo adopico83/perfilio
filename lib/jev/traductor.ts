@@ -20,6 +20,8 @@ export type EntradaTraductor = {
   hoyTexto: string;
   /** Tarea a medias (la orden anterior) si la hay. */
   tarea?: OrdenCruda | OrdenJev | null;
+  /** La orden anterior ya está preparada y esperando el «Sí» (aún NO guardada): el usuario puede corregirla. */
+  pendiente?: boolean;
   /** Última pregunta del asistente (para «sí, créalo», «el segundo»…). */
   ultimoAsistente?: string;
 };
@@ -28,14 +30,20 @@ export type EntradaTraductor = {
  * Lo que dice el modelo, SIN validar a fondo: la puerta única es `completarOrden` (lib/jev/ordenes.ts), que el motor
  * llama después. Aquí solo se saca el JSON y se normaliza el envoltorio.
  */
-export type SalidaTraductor = { orden: OrdenCruda | OrdenJev; continuaTarea: boolean };
+export type SalidaTraductor = {
+  orden: OrdenCruda | OrdenJev;
+  continuaTarea: boolean;
+  /** Otras órdenes de tipos distintos que pedía el mismo mensaje: nunca se descartan en silencio. */
+  otras?: Array<OrdenCruda | OrdenJev>;
+};
 
 const REGLAS = `Eres el TRADUCTOR de Perfilio (asistente de un negocio de obras y reformas). No haces nada: traduces lo que dice el usuario a una orden cerrada.
 Reglas:
 - Copia LITERALES del mensaje («el jueves», «Jon PRUEBA Arrieta», «180»). Nada de ids, fechas en formato 2026-10-05 ni totales calculados.
 - Lo que el usuario SÍ dijo, rellénalo siempre. Lo que NO dijo: null (o "" si el campo es obligatorio). Nunca inventes.
 - «ese presu», «el último» → presupuesto_texto «ese». «esa factura», «la última» → factura_texto «esa». «el 11», «la 3» → ese número.
-- Con TAREA EN CURSO: si el usuario la corrige o completa («con Iker PRUEBA», «a las 5», «sí»), devuelve la orden COMPLETA (copia los datos anteriores que no cambian) y continua_tarea true; si pide otra cosa distinta, null.`;
+- Si el mensaje pide VARIAS cosas, no te quedes con una: la principal en accion y los tipos de las demás en otras_acciones.
+- Con TAREA EN CURSO o PENDIENTE: si el usuario la corrige o completa («con Iker PRUEBA», «a las 5», «sí»), devuelve la orden COMPLETA (copia los datos anteriores que no cambian) y continua_tarea true; si pide otra cosa distinta, null.`;
 
 /** Paso 1: elegir el tipo de orden. */
 export const PROMPT_ELEGIR_ACCION = (acciones: NombreAccion[]) =>
@@ -44,15 +52,19 @@ export const PROMPT_ELEGIR_ACCION = (acciones: NombreAccion[]) =>
     .join('\n')}\nCHARLA solo para saludos o gracias. Si falta un dato pero sabes qué quiere hacer, elige la acción (el sistema preguntará lo que falte). Borrar solo si lo pide claramente.`;
 
 /** Paso 2: rellenar los campos de la acción elegida. */
-export const PROMPT_RELLENAR = (accion: NombreAccion) =>
-  `${REGLAS}\n\nPASO 2: la orden es ${accion}: ${AYUDA_ACCION[accion].que}\nEjemplo: ${AYUDA_ACCION[accion].ejemplo}\nRellena la función orden_jev con lo que dijo el usuario.`;
+export const PROMPT_RELLENAR = (accion: NombreAccion, soloEsta = false) =>
+  `${REGLAS}\n\nPASO 2: la orden es ${accion}: ${AYUDA_ACCION[accion].que}\nEjemplo: ${AYUDA_ACCION[accion].ejemplo}\n${soloEsta ? `El mensaje pide más cosas: rellena SOLO la parte que es de tipo ${accion} y deja el resto para las otras órdenes.\n` : ''}Rellena la función orden_jev con lo que dijo el usuario.`;
 
 /** Compatibilidad con los tests: el prompt del paso 1 para todas las acciones. */
 export const PROMPT_TRADUCTOR = PROMPT_ELEGIR_ACCION(ACCIONES_POR_CATEGORIA.general!);
 
 function contexto(e: EntradaTraductor): string {
   const partes: string[] = [];
-  if (e.tarea) partes.push(`TAREA EN CURSO (orden anterior, a medias): ${JSON.stringify(e.tarea)}`);
+  if (e.tarea && e.pendiente) {
+    partes.push(
+      `ORDEN PENDIENTE DE CONFIRMAR (preparada, todavía NO guardada): ${JSON.stringify(e.tarea)}\nSi el usuario la corrige («espera, la encimera ponla a 230», «no, son 7 y media», «con Iker PRUEBA») devuelve la MISMA acción, COMPLETA y con el cambio (copia lo que no cambia), y continua_tarea true. Una orden pendiente se corrige con su misma acción, nunca con PRESUPUESTO_PARTIDAS (que es solo para presupuestos YA guardados). Si pide otra cosa distinta, continua_tarea null.`
+    );
+  } else if (e.tarea) partes.push(`TAREA EN CURSO / PENDIENTE (orden anterior): ${JSON.stringify(e.tarea)}`);
   if (e.ultimoAsistente) partes.push(`Última respuesta del asistente: ${e.ultimoAsistente.replace(/<!--[\s\S]*?-->/g, '').slice(0, 500)}`);
   return partes.join('\n');
 }
@@ -145,8 +157,22 @@ export async function traducirMensaje(e: EntradaTraductor): Promise<SalidaTraduc
     logJev('accion_desconocida', { paso: 'elegir_accion', accion: paso1?.accion ?? null });
     return { orden: { accion: 'ACLARAR' }, continuaTarea: false };
   }
-  const tool = herramientaOrdenJev(accion);
-  if (!tool) return { orden: { accion }, continuaTarea };
-  const paso2 = await llamar('orden_jev', (st) => herramientaOrdenJev(accion, st)!, mensajes(PROMPT_RELLENAR(accion), e), 1200);
-  return { orden: { ...(paso2 ?? {}), accion } as OrdenCruda, continuaTarea };
+  const otrasAcciones = (Array.isArray(paso1?.otras_acciones) ? (paso1!.otras_acciones as unknown[]) : [])
+    .map((x) => normalizarAccionPublica(x))
+    .filter((x): x is NombreAccion => Boolean(x) && x !== 'ACLARAR' && x !== 'CHARLA')
+    .slice(0, 3);
+  const rellenar = async (a: NombreAccion, soloEsta: boolean): Promise<OrdenCruda | null> => {
+    const tool = herramientaOrdenJev(a);
+    if (!tool) return { accion: a };
+    const campos = await llamar('orden_jev', (st) => herramientaOrdenJev(a, st)!, mensajes(PROMPT_RELLENAR(a, soloEsta), e), 1200);
+    return { ...(campos ?? {}), accion: a } as OrdenCruda;
+  };
+  const principal = (await rellenar(accion, otrasAcciones.length > 0)) as OrdenCruda;
+  const otras: OrdenCruda[] = [];
+  for (const a of otrasAcciones) {
+    if (a === accion) continue;
+    const o = await rellenar(a, true);
+    if (o) otras.push(o);
+  }
+  return { orden: principal, continuaTarea, ...(otras.length ? { otras } : {}) };
 }

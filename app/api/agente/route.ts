@@ -112,6 +112,9 @@ import {
   logAgenteTurno,
   marcaOpcionesParaHistorial,
   marcaUltimoPresupuesto,
+  marcaUltimoEvento,
+  leerUltimoEventoDeHistorial,
+  ultimoEventoDeResultados,
   marcaUltimaFactura,
   leerUltimaFacturaDeHistorial,
   ultimaFacturaDeResultados,
@@ -227,6 +230,12 @@ function rondaSoloLectura(pasos: Array<{ tool: string; args: Record<string, unkn
 }
 
 /** Motor de órdenes .jev (por defecto). `AGENTE_MOTOR=legacy` vuelve al tool calling libre (solo como vía de retorno). */
+/** Marca invisible con la cita que se acaba de crear o mover (para «pásala al viernes»). */
+function marcaEventoDe(resultado: Record<string, unknown> | undefined): string {
+  const e = ultimoEventoDeResultados(resultado ? [resultado] : []);
+  return e ? marcaUltimoEvento(e) : '';
+}
+
 const motorJevActivo = () => process.env.AGENTE_MOTOR?.trim().toLowerCase() !== 'legacy';
 
 export async function POST(request: NextRequest) {
@@ -256,6 +265,7 @@ export async function POST(request: NextRequest) {
       .find((m) => m.role === 'assistant' && m.content.trim().length > 0);
     const ultimoPresupuestoConv = leerUltimoPresupuestoDeHistorial(historialValido);
     const ultimaFacturaConv = leerUltimaFacturaDeHistorial(historialValido);
+    const ultimoEventoConv = leerUltimoEventoDeHistorial(historialValido);
     const mensajeOriginalTrim = typeof mensaje === 'string' ? mensaje.trim() : '';
     const mensajeTrim =
       resolverEleccionOpcion(mensajeOriginalTrim, ultimoAsistenteHistorial?.content) ?? mensajeOriginalTrim;
@@ -670,10 +680,13 @@ export async function POST(request: NextRequest) {
       const presJev = ultimoPresupuestoDeResultados(out.resultado ? [out.resultado] : []);
       const facJev = ultimaFacturaDeResultados(out.resultado ? [out.resultado] : []);
       return NextResponse.json({
-        respuesta: out.respuesta + (presJev ? marcaUltimoPresupuesto(presJev) : '') + (facJev ? marcaUltimaFactura(facJev) : ''),
+        respuesta: out.respuesta + (presJev ? marcaUltimoPresupuesto(presJev) : '') + (facJev ? marcaUltimaFactura(facJev) : '') + marcaEventoDe(out.resultado),
         email_pendiente: emailPendienteParaCliente,
         canvas: canvasParaCliente,
         obra_modal: obraFichaParaCliente,
+        // Si la frase pedía varias cosas (o había que retomar una orden), la confirmación trae ya la siguiente.
+        ...(out.accionPendiente ? { accion_pendiente: { ...out.accionPendiente, args: {} } } : {}),
+        ...(out.opciones?.length ? { opciones: out.opciones } : {}),
       });
     }
     if (hayConfirmarAccion) {
@@ -1087,6 +1100,7 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
         ultimoAsistente: ultimoAsistenteHistorial?.content,
         ultimoPresupuestoId: ultimoPresupuestoConv?.id ?? null,
         ultimaFacturaId: ultimaFacturaConv?.id ?? null,
+        ultimoEventoId: ultimoEventoConv?.id ?? null,
         fotosAdjuntas: pathsAdjuntosStorage,
         runTool,
         validar: (a) => {
@@ -1100,7 +1114,7 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
         const presJev = ultimoPresupuestoDeResultados(salidaJev.resultado ? [salidaJev.resultado] : []);
         const facJev = ultimaFacturaDeResultados(salidaJev.resultado ? [salidaJev.resultado] : []);
         return NextResponse.json({
-          respuesta: salidaJev.respuesta + (presJev ? marcaUltimoPresupuesto(presJev) : '') + (facJev ? marcaUltimaFactura(facJev) : ''),
+          respuesta: salidaJev.respuesta + (presJev ? marcaUltimoPresupuesto(presJev) : '') + (facJev ? marcaUltimaFactura(facJev) : '') + marcaEventoDe(salidaJev.resultado),
           email_pendiente: null,
           canvas: canvasParaCliente,
           obra_modal: obraFichaParaCliente,

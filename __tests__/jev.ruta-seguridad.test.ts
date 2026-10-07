@@ -74,11 +74,23 @@ describe('ruta /api/agente con el motor .jev: la confirmación solo acepta el id
     const nada = await post({ mensaje: 'sí', historial: [{ role: 'assistant', content: 'Hecho.' }] });
     expect(String(nada.json.respuesta)).toMatch(/No tengo nada pendiente/);
     expect(createMock).not.toHaveBeenCalled();
-    await post({ mensaje: 'cierra la obra de Paqui' });
+    const p = await post({ mensaje: 'cierra la obra de Paqui' });
     expect(obra().estado).toBe('en_curso');
-    const si = await post({ mensaje: 'sí' });
+    // El «sí» solo confirma si lo último que dijo el asistente fue la pregunta de confirmación de ESA orden.
+    const ajeno = await post({ mensaje: 'sí', historial: [{ role: 'assistant', content: 'Hecho.' }] });
+    expect(obra().estado).toBe('en_curso');
+    expect(ajeno.json.accion_pendiente).toBeTruthy(); // vuelve a enseñar lo pendiente, sin ejecutar nada
+    const si = await post({ mensaje: 'sí', historial: [{ role: 'assistant', content: String(p.json.respuesta) }] });
     expect(si.status).toBe(200);
     expect(obra().estado).toBe('cerrada');
+  });
+  it('«no, mejor no» cancela la pendiente y un «vale» posterior no ejecuta nada', async () => {
+    const p = await post({ mensaje: 'cierra la obra de Paqui' });
+    const no = await post({ mensaje: 'no, mejor no', historial: [{ role: 'assistant', content: String(p.json.respuesta) }] });
+    expect(String(no.json.respuesta)).toMatch(/no hago nada/i);
+    const vale = await post({ mensaje: 'vale', historial: [{ role: 'assistant', content: String(p.json.respuesta) }] });
+    expect(obra().estado).toBe('en_curso');
+    expect(String(vale.json.respuesta)).toMatch(/No tengo nada pendiente/);
   });
   it('el modelo solo ve las funciones elegir_accion y orden_jev (ninguna tool de escritura)', async () => {
     await post({ mensaje: 'cierra la obra de Paqui' });

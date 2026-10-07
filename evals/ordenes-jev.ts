@@ -228,6 +228,34 @@ export const ORDEN_POR_FRASE: Record<string, CasoOrdenJev> = {
     orden: { accion: 'GASTO', proveedor_texto: 'Saltoki', importe_texto: '121', iva_modo: 'incluido', obra_texto: 'Leire' },
     contiene: ['Saltoki (tel. 943 111 222)'],
   },
+  // ── Ronda 8 ──
+  'Aitor el pintor 7 y media y Jon el carpintero 6 en lo de Paqui': {
+    orden: { accion: 'HORAS', operario_texto: 'Aitor el pintor', horas_texto: '7 y media', obra_texto: 'Paqui', mas_operarios: [{ operario_texto: 'Jon el carpintero', horas_texto: '6' }] },
+    contiene: ['Aitor Gómez', '7,5 h', 'Después te pregunto por: las horas de Jon el carpintero'],
+    guardado: (t) => expect(ultimo(t, 'registros_jornada')).toMatchObject({ operario_id: IDS.operarioAitor, horas_reales: 7.5 }),
+  },
+  'factura suelta a Amaia por 85 más IVA': {
+    orden: { accion: 'CREAR_FACTURA', cliente_texto: 'Amaia', importe_texto: '85', iva_modo: 'mas', sin_obra: 'si' },
+    contiene: ['Base 85,00 € + IVA 21 % 17,85 € = Total 102,85 €', 'sin obra'],
+    guardado: (t) => expect(ultimo(t, 'facturas')).toMatchObject({ cliente_nif: '55555555C', cliente_direccion: 'Calle Amaia 5', total: 102.85 }),
+  },
+  'factura a Ane por 200': { orden: { accion: 'CREAR_FACTURA', cliente_texto: 'Ane', importe_texto: '200' }, comportamiento: 'pregunta_opciones', contiene: ['Ane Lasa', 'Ane Mendia'] },
+  'gasto 87,40 sin IVA en Saltoki': { orden: { accion: 'GASTO', proveedor_texto: 'Saltoki', importe_texto: '87,40' }, comportamiento: 'pregunta_o_error', contiene: ['Sin IVA'] },
+  'la visita con Ane Lasa pásala al jueves de la semana que viene': {
+    orden: { accion: 'CITA_MOVER', evento_texto: 'Ane Lasa', fecha_texto: 'el jueves de la semana que viene' },
+    contiene: ['2026-10-15', 'Visita con Ane Lasa'],
+    guardado: (t) => expect(t.agenda!.find((e) => e.id === 'ev-ane-lasa')).toMatchObject({ fecha: '2026-10-15' }),
+  },
+  'hazme la factura del presu 7 de Mikel': { orden: { accion: 'FACTURAR', presupuesto_texto: '7' }, contiene: ['nº 7', 'Paqui'] },
+  'visita con el de Maderas Oria el lunes a las 8': {
+    orden: { accion: 'CITA_CREAR', cliente_texto: 'el de Maderas Oria', fecha_texto: 'el lunes', hora_texto: 'a las 8' },
+    contiene: ['Maderas Oria (tel. 943 222 333)', '2026-10-12', '08:00'],
+    guardado: (t) => expect(ultimo(t, 'agenda')).toMatchObject({ fecha: '2026-10-12', hora: '08:00' }),
+  },
+  'presu pa Mikel Urkiola: alicatar el baño 12 metros a 40': {
+    orden: { accion: 'PRESUPUESTO_DICTADO', cliente_texto: 'Mikel Urkiola', partidas: [{ concepto_texto: 'alicatar el baño', cantidad_texto: '12', unidad_texto: 'metros', precio_texto: '40' }] },
+    contiene: ['Mikel PRUEBA Urkiola', '580,80 €'],
+  },
 };
 
 // «márcala pagada» está escrito con tilde en las frases de Pino.

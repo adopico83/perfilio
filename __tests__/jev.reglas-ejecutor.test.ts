@@ -139,7 +139,7 @@ describe('resumen de confirmación del gasto', () => {
   });
   it('sin teléfono, no pone nada raro', async () => {
     const db = crearFakeDb(baseRonda5());
-    db.tablas.proveedores[0]!.telefono = null;
+    db.tablas.proveedores.find((p) => p.nombre === 'Saltoki')!.telefono = null;
     const r = await sesion(db).di('gasto de 121 en Saltoki para lo de Leire', o({ accion: 'GASTO', proveedor_texto: 'Saltoki', importe_texto: '121', obra_texto: 'Leire' }));
     expect(r.respuesta).not.toContain('tel.');
   });

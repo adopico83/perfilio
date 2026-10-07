@@ -25,7 +25,8 @@ const partidaSlot = z.object({
 });
 
 const cambioPartidaSlot = z.object({
-  partida_texto: z.string().trim().min(1).max(200),
+  /** Sin partida («ponle 500») el ejecutor pregunta a cuál: nunca elige una por su cuenta. */
+  partida_texto: lit,
   cantidad_texto: lit,
   sumar_cantidad_texto: lit,
   /** Lo que dijo que había antes («pon 14 en vez de 12» → «12»): solo informativo, nunca se usa como valor nuevo. */
@@ -80,6 +81,13 @@ export const ORDENES = {
     cambiar: z.array(cambioPartidaSlot).max(20).nullish(),
     anadir: z.array(partidaSlot).max(20).nullish(),
   }),
+  /** Trabajo nuevo sobre un presupuesto ya aceptado o facturado: un presupuesto «hijo» (extra) vinculado, sin tocar el original. */
+  EXTRA_PRESUPUESTO: z.object({
+    accion: z.literal('EXTRA_PRESUPUESTO'),
+    presupuesto_texto: z.string().trim().min(1).max(200),
+    descripcion_texto: z.string().trim().min(1).max(500),
+    importe_texto: z.string().trim().min(1).max(40),
+  }),
   CAMBIAR_ESTADO_PRESUPUESTO: z.object({
     accion: z.literal('CAMBIAR_ESTADO_PRESUPUESTO'),
     presupuesto_texto: z.string().trim().min(1).max(200),
@@ -114,6 +122,8 @@ export const ORDENES = {
     obra_texto: z.string().trim().min(1).max(200),
     fecha_texto: lit,
     notas_texto: lit,
+    /** Más personas en la misma frase («Aitor 7 y media y Jon 6»): el motor las prepara una a una, ninguna se pierde. */
+    mas_operarios: z.array(z.object({ operario_texto: z.string().trim().min(1).max(200), horas_texto: z.string().trim().min(1).max(40) })).max(10).nullish(),
   }),
   GASTO: z.object({
     accion: z.literal('GASTO'),
@@ -176,6 +186,8 @@ export const ORDENES = {
     importe_texto: z.string().trim().min(1).max(40),
     iva_modo: iva,
     obra_texto: lit,
+    /** «sin obra»: la factura no va ligada a ninguna obra (no se pregunta cuál). */
+    sin_obra: z.enum(['si']).nullish(),
   }),
   CONSULTA_DIA: z.object({ accion: z.literal('CONSULTA_DIA') }),
   CONSULTA_OBRAS: z.object({ accion: z.literal('CONSULTA_OBRAS'), obra_texto: lit, estado: z.enum(['abiertas', 'cerradas', 'todas']).nullish() }),
@@ -193,14 +205,14 @@ export type OrdenDe<A extends NombreAccion> = z.infer<(typeof ORDENES)[A]>;
 /** Acciones que escriben (necesitan «Sí, hazlo»). El resto solo lee o conversa. */
 export const ACCIONES_ESCRITURA: ReadonlySet<NombreAccion> = new Set<NombreAccion>([
   'CREAR_CLIENTE', 'ACTUALIZAR_CLIENTE', 'CREAR_OBRA', 'CERRAR_OBRA', 'PRESUPUESTO_DICTADO', 'PRESUPUESTO_PARTIDAS',
-  'CAMBIAR_ESTADO_PRESUPUESTO', 'FACTURAR', 'MARCAR_PAGADA', 'CREAR_FACTURA', 'DIARIO', 'HORAS', 'GASTO', 'PROVEEDOR_CREAR',
+  'CAMBIAR_ESTADO_PRESUPUESTO', 'EXTRA_PRESUPUESTO', 'FACTURAR', 'MARCAR_PAGADA', 'CREAR_FACTURA', 'DIARIO', 'HORAS', 'GASTO', 'PROVEEDOR_CREAR',
   'CITA_CREAR', 'CITA_MOVER', 'CITA_BORRAR',
 ]);
 
 /** Qué acciones ve el traductor según la categoría que ya dio el router .jev de intención (categorías internas del agente). */
-const DOCS: NombreAccion[] = ['CREAR_FACTURA', 'CONSULTA_OBRAS', 'CONSULTA_PRESUPUESTOS', 'FACTURAR', 'MARCAR_PAGADA', 'PDF_ENLACE', 'CONSULTA_FACTURAS', 'CAMBIAR_ESTADO_PRESUPUESTO', 'ACTUALIZAR_CLIENTE', 'CREAR_OBRA', 'CERRAR_OBRA', 'CONSULTA_OBRA', 'PRESUPUESTO_DICTADO', 'PRESUPUESTO_PARTIDAS'];
+const DOCS: NombreAccion[] = ['EXTRA_PRESUPUESTO', 'CREAR_FACTURA', 'CONSULTA_OBRAS', 'CONSULTA_PRESUPUESTOS', 'FACTURAR', 'MARCAR_PAGADA', 'PDF_ENLACE', 'CONSULTA_FACTURAS', 'CAMBIAR_ESTADO_PRESUPUESTO', 'ACTUALIZAR_CLIENTE', 'CREAR_OBRA', 'CERRAR_OBRA', 'CONSULTA_OBRA', 'PRESUPUESTO_DICTADO', 'PRESUPUESTO_PARTIDAS'];
 export const ACCIONES_POR_CATEGORIA: Record<string, NombreAccion[]> = {
-  presupuesto: ['CONSULTA_PRESUPUESTOS', 'PRESUPUESTO_DICTADO', 'PRESUPUESTO_PARTIDAS', 'CAMBIAR_ESTADO_PRESUPUESTO', 'FACTURAR', 'PDF_ENLACE', 'ACTUALIZAR_CLIENTE', 'CREAR_CLIENTE'],
+  presupuesto: ['CONSULTA_PRESUPUESTOS', 'PRESUPUESTO_DICTADO', 'PRESUPUESTO_PARTIDAS', 'EXTRA_PRESUPUESTO', 'CAMBIAR_ESTADO_PRESUPUESTO', 'FACTURAR', 'PDF_ENLACE', 'ACTUALIZAR_CLIENTE', 'CREAR_CLIENTE'],
   documentos: [...DOCS, 'CREAR_CLIENTE'],
   diario: ['DIARIO'],
   operarios: ['HORAS'],
@@ -348,22 +360,23 @@ export const AYUDA_ACCION: Record<NombreAccion, { que: string; ejemplo: string }
   CREAR_OBRA: { que: 'Abrir/crear una obra nueva.', ejemplo: '«crea la obra Reforma baño Ane para Mikel Etxeberria» → nombre_texto «Reforma baño Ane», cliente_texto «Mikel Etxeberria»' },
   CERRAR_OBRA: { que: 'Cerrar, pausar o reabrir una obra.', ejemplo: '«cierra la obra de Paqui» → obra_texto «Paqui», estado «cerrada»' },
   PRESUPUESTO_DICTADO: { que: 'Crear un presupuesto NUEVO para un cliente a partir de los trabajos que dicta.', ejemplo: '«presupuesto para Paqui: alicatar el baño, 12 metros a 40 euros» → cliente_texto «Paqui», partidas [{concepto_texto «alicatar el baño», cantidad_texto «12», unidad_texto «metros», precio_texto «40»}]' },
-  PRESUPUESTO_PARTIDAS: { que: 'Quitar, cambiar o añadir partidas de un presupuesto que YA existe (borrador).', ejemplo: '«pon 14 en vez de 12 metros de alicatado en el 11» → presupuesto_texto «11», cambiar [{partida_texto «alicatado», cantidad_texto «14», cantidad_anterior_texto «12»}]; «quítale la mampara al 11 y pon 2 metros más de alicatado» → presupuesto_texto «11», quitar_texto [«mampara»], cambiar [{partida_texto «alicatado», sumar_cantidad_texto «2»}]; «pon una partida de pintura de 30 metros a 8 euros en el presupuesto de Paqui» → presupuesto_texto «Paqui», anadir [{concepto_texto «pintura», cantidad_texto «30», unidad_texto «metros», precio_texto «8»}]; «pon 2 metros más de alicatado en el 11» → presupuesto_texto «11», cambiar [{partida_texto «alicatado», sumar_cantidad_texto «2»}] (SIEMPRE rellena cambiar con la partida existente y lo que cambia); «quítale la mampara» (sin decir cuál) → presupuesto_texto «ese»' },
+  PRESUPUESTO_PARTIDAS: { que: 'Quitar, cambiar o añadir partidas de un presupuesto que YA existe (borrador).', ejemplo: '«pon 14 en vez de 12 metros de alicatado en el 11» → presupuesto_texto «11», cambiar [{partida_texto «alicatado», cantidad_texto «14», cantidad_anterior_texto «12»}]; «quítale la mampara al 11 y pon 2 metros más de alicatado» → presupuesto_texto «11», quitar_texto [«mampara»], cambiar [{partida_texto «alicatado», sumar_cantidad_texto «2»}]; «pon una partida de pintura de 30 metros a 8 euros en el presupuesto de Paqui» → presupuesto_texto «Paqui», anadir [{concepto_texto «pintura», cantidad_texto «30», unidad_texto «metros», precio_texto «8»}]; «pon 2 metros más de alicatado en el 11» → presupuesto_texto «11», cambiar [{partida_texto «alicatado», sumar_cantidad_texto «2»}] (SIEMPRE rellena cambiar con la partida existente y lo que cambia); «quítale la mampara» (sin decir cuál) → presupuesto_texto «ese»; «añádele dos enchufes a 35» → presupuesto_texto «ese», anadir [{concepto_texto «enchufes», cantidad_texto «dos», precio_texto «35»}]; «añádele colocar campana extractora 120 y quítale la fontanería» → anadir [{concepto_texto «colocar campana extractora», cantidad_texto «1», precio_texto «120»}], quitar_texto [«fontanería»]; «ponle 500» (sin decir a qué partida) → cambiar [{partida_texto null, precio_texto «500»}]' },
+  EXTRA_PRESUPUESTO: { que: 'Apuntar un trabajo EXTRA (nuevo) sobre un presupuesto ya aceptado o facturado, sin cambiar el original. Importe sin IVA.', ejemplo: '«extra en el 11: campana extractora, 120» → presupuesto_texto «11», descripcion_texto «campana extractora», importe_texto «120»' },
   CAMBIAR_ESTADO_PRESUPUESTO: { que: 'Pasar un presupuesto a aceptado, rechazado, enviado…', ejemplo: '«pasa el presupuesto 7 a rechazado» → presupuesto_texto «7», estado «rechazado»' },
-  FACTURAR: { que: 'Convertir en factura un presupuesto o un albarán QUE YA EXISTE (se identifica por número o cliente).', ejemplo: '«hazme la factura del presupuesto de García» → presupuesto_texto «García»; «factura el 11» → presupuesto_texto «11»; «factúrame ese presu» → presupuesto_texto «ese»; «factúrame el albarán 12» → albaran_texto «12»' },
+  FACTURAR: { que: 'Convertir en factura un presupuesto o un albarán QUE YA EXISTE (se identifica por número o cliente).', ejemplo: '«hazme la factura del presupuesto de García» → presupuesto_texto «García»; «factura el 11» → presupuesto_texto «11»; «hazme la factura del presu 7 de Mikel» → presupuesto_texto «7» (el número manda sobre el nombre); «factúrame ese presu» → presupuesto_texto «ese»; «factúrame el albarán 12» → albaran_texto «12»' },
   MARCAR_PAGADA: { que: 'Marcar una factura como pagada/cobrada.', ejemplo: '«marca la factura 3 como pagada» → factura_texto «3», estado «pagada»' },
   PDF_ENLACE: { que: 'Dar el PDF de un presupuesto o de una factura.', ejemplo: '«mándame el PDF de la factura 3» → documento «factura», ref_texto «3»' },
   DIARIO: { que: 'Anotar algo en el diario de una obra.', ejemplo: '«en el diario de Paqui: hoy se ha picado el baño» → obra_texto «Paqui», texto «hoy se ha picado el baño»' },
-  HORAS: { que: 'Apuntar horas trabajadas por un operario en una obra.', ejemplo: '«ponle 8 horas a Iker en lo de Paqui» → operario_texto «Iker», horas_texto «8», obra_texto «Paqui»' },
+  HORAS: { que: 'Apuntar horas trabajadas por uno o varios operarios en una obra.', ejemplo: '«ponle 8 horas a Iker en lo de Paqui» → operario_texto «Iker», horas_texto «8», obra_texto «Paqui»; «Aitor el pintor 7 y media y Jon el carpintero 6 en lo de Paqui» → operario_texto «Aitor el pintor», horas_texto «7 y media», mas_operarios [{operario_texto «Jon el carpintero», horas_texto «6»}], obra_texto «Paqui»' },
   GASTO: { que: 'Registrar un gasto/ticket de compra.', ejemplo: '«180 más IVA en Saltoki para lo de Leire» → importe_texto «180», iva_modo «mas», proveedor_texto «Saltoki», obra_texto «Leire»' },
   PROVEEDOR_CREAR: { que: 'Dar de alta un proveedor.', ejemplo: '«da de alta a Bricomart de Irún como proveedor» → nombre_texto «Bricomart», notas_texto «de Irún»' },
-  CITA_CREAR: { que: 'Crear una cita o recordatorio en la agenda.', ejemplo: '«visita mañana a las 10 con Ane» → titulo_texto «Visita con Ane», fecha_texto «mañana», hora_texto «a las 10»' },
+  CITA_CREAR: { que: 'Crear una cita o recordatorio en la agenda.', ejemplo: '«visita mañana a las 10 con Ane» → titulo_texto «Visita con Ane», cliente_texto «Ane», fecha_texto «mañana», hora_texto «a las 10». La persona con quien es la cita va SIEMPRE en cliente_texto (aunque salga en el título); «visita con el de Maderas Oria» → cliente_texto «el de Maderas Oria»' },
   CITA_MOVER: { que: 'Mover una cita que ya existe a otro día u hora.', ejemplo: '«pasa lo de Mikel al viernes a la misma hora» → evento_texto «Mikel», fecha_texto «el viernes»' },
   CITA_BORRAR: { que: 'Borrar una cita (solo si lo pide claramente).', ejemplo: '«borra la cita de Mikel» → evento_texto «Mikel»' },
   CONSULTA_AGENDA: { que: 'Preguntar qué hay en la agenda en un rango de días.', ejemplo: '«¿qué tengo esta semana?» → rango_texto «esta semana»' },
   CONSULTA_GASTOS: { que: 'Preguntar cuánto se ha gastado / listar gastos.', ejemplo: '«¿cuánto me he gastado en Saltoki?» → proveedor_texto «Saltoki»' },
   CONSULTA_OBRA: { que: 'Ficha de una obra concreta.', ejemplo: '«¿cómo va la obra de Amaia?» → obra_texto «Amaia»' },
-  CREAR_FACTURA: { que: 'Crear una factura LIBRE para un cliente con un importe (sin partir de un presupuesto).', ejemplo: '«hazle una factura de 500 a Paqui por la reforma» → cliente_texto «Paqui», importe_texto «500», descripcion_texto «la reforma»' },
+  CREAR_FACTURA: { que: 'Crear una factura LIBRE para un cliente con un importe (sin partir de un presupuesto).', ejemplo: '«hazle una factura de 500 más IVA a Paqui por la reforma» → cliente_texto «Paqui», importe_texto «500», iva_modo «mas», descripcion_texto «la reforma»; «factura a Ane por 200» → iva_modo null (el sistema preguntará); «factura a Paqui por 85 sin obra» → sin_obra «si»' },
   CONSULTA_DIA: { que: 'Preguntar qué hay hoy (agenda, obras…).', ejemplo: '«¿qué tengo hoy?»' },
   CONSULTA_OBRAS: { que: 'Listar obras (abiertas/cerradas) o preguntar por una obra concreta con obra_texto.', ejemplo: '«¿qué obras tengo activas?» → estado «abiertas»; «¿cómo va la obra de Amaia?» → obra_texto «Amaia»' },
   CONSULTA_PRESUPUESTOS: { que: 'Listar presupuestos (pendientes, aceptados, todos).', ejemplo: '«¿qué presupuestos tengo pendientes?» → estado «pendientes»' },
@@ -379,20 +392,21 @@ const DESCRIPCION_CAMPO: Record<string, string> = {
   proveedor_texto: 'El proveedor o tienda tal como lo dijo («Saltoki»). Si no nombra tienda pero dice qué compró («85 de material»), pon esa palabra («Material»).',
   operario_texto: 'La persona tal como la dijo, con su oficio si lo dijo («Iker», «Aitor el pintor»). No quites el oficio.',
   presupuesto_texto:
-    'RELLÉNALO SIEMPRE que el usuario hable de un presupuesto, copiando la referencia tal cual: «el 11» → «11»; «el presupuesto de Paqui» / «en el de Paqui» → «Paqui»; «ese», «ese presu», «el último» → «ese». Si el mensaje no dice cuál, pon «ese» (nunca un número que no esté en el mensaje).',
+    'RELLÉNALO SIEMPRE que el usuario hable de un presupuesto, copiando la referencia tal cual: «el 11» → «11»; «el presupuesto de Paqui» / «en el de Paqui» → «Paqui»; si dice número Y nombre («el presu 7 de Mikel», «la factura 3 de Paqui») pon SOLO el número («7», «3»): el número manda; «ese», «ese presu», «el último» → «ese». Si el mensaje no dice cuál, pon «ese» (nunca un número que no esté en el mensaje).',
   factura_texto: 'Qué factura: su número («3»), el cliente o «esa» si dice «esa factura / la última».',
   albaran_texto: 'Número o cliente del albarán («12»).',
   evento_texto: 'La cita que mueve o borra, por la persona o el título («Mikel»).',
   ref_texto: 'Número («3») o «ese»/«esa» si dice «ese presu / esa factura».',
   importe_texto: 'La cifra tal como la dijo, sin símbolo («180», «1.500»).',
-  horas_texto: 'Las horas tal como las dijo («8», «6 y media»).',
-  cantidad_texto: 'La cantidad FINAL que dijo («14» en «pon 14 en vez de 12»); si es un trabajo a precio cerrado, «1». En «N más» va a null (usa sumar_cantidad_texto). Nunca la calcules tú.',
+  horas_texto: 'Las horas TAL COMO las dijo, con letras o cifras («8», «7 y media», «7 y cuarto», «8 menos cuarto», «7:30», «media hora», «siete y media»). No las conviertas.',
+  cantidad_texto: 'Cantidad dicha («12», «dos»); si el usuario da SOLO un número tras el concepto, sin unidad ni «x» («colocar campana extractora 120»), es el PRECIO: cantidad_texto «1» y precio_texto «120». La cantidad FINAL que dijo («14» en «pon 14 en vez de 12»); si es un trabajo a precio cerrado, «1». En «N más» va a null (usa sumar_cantidad_texto). Nunca la calcules tú.',
   sumar_cantidad_texto: 'SOLO si dice «N más» / «N menos» / «quítale N»: el delta tal como lo dijo («2»; para restar, «-2»). NO calcules el total: el servidor suma. Si dice «pon 14» (valor final), esto va a null.',
   cantidad_anterior_texto: 'Solo si dice lo que había antes («pon 14 en vez de 12» → «12»).',
   precio_texto: 'El precio unitario dicho («40»); si es un precio cerrado del trabajo, ese importe.',
   unidad_texto: 'La unidad dicha («metros», «m2», «unidades»).',
   concepto_texto: 'El trabajo o material dictado («alicatar el baño»).',
-  partida_texto: 'La partida existente a la que se refiere («alicatado»).',
+  partida_texto: 'La partida existente a la que se refiere («alicatado»). Si el usuario NO dice a cuál («ponle 500»), null: nunca elijas una.',
+  mas_operarios: 'Las demás personas de la misma frase, cada una con sus horas («Aitor 7 y media y Jon 6» → operario_texto «Aitor», horas_texto «7 y media», mas_operarios [{operario_texto «Jon», horas_texto «6»}]).',
   nuevo_nombre_texto: 'Nuevo nombre de la partida, solo si lo cambia.',
   quitar_texto: 'Partidas que hay que quitar («mampara»).',
   cambiar: 'Partidas EXISTENTES que cambian: una por cada «pon N más de X», «cámbiale el precio a X», «ponle otro nombre». partida_texto = la partida («alicatado»); «N más» va en sumar_cantidad_texto.',
@@ -413,10 +427,11 @@ const DESCRIPCION_CAMPO: Record<string, string> = {
   email_texto: 'Email tal como lo dijo.',
   nif_texto: 'NIF/CIF tal como lo dijo.',
   nombre_nuevo_texto: 'Nuevo nombre del cliente, solo si lo cambia.',
-  iva_modo: '"mas" si dijo «más IVA»; "incluido" si dijo «con IVA / IVA incluido»; null si no lo dijo.',
+  iva_modo: '"mas" si dijo «más IVA» o «+ IVA»; "incluido" si dijo «con IVA / IVA incluido»; null si no lo dijo (también con «sin IVA»: el sistema preguntará).',
   categoria: 'Categoría del gasto, solo si se deduce («material», «herramienta»…).',
   estado: 'El estado pedido, tal como lo dijo («pagada», «rechazado», «pendientes», «cerrada»).',
   documento: '«presupuesto» o «factura».',
+  sin_obra: '"si" solo si dice que la factura NO es de ninguna obra («sin obra», «suelta»); si no, null.',
 };
 
 /** Una propiedad de zod→JSON Schema → su versión estricta. `obligatoria`: sin null (hay que rellenarla). */
@@ -455,9 +470,14 @@ export function jsonSchemaAccion(acciones: NombreAccion[]): JS {
     type: 'object',
     properties: {
       accion: { type: 'string', enum: accionesDelModelo(acciones), description: 'El tipo de orden que pide el usuario.' },
-      continua_tarea: { type: ['boolean', 'null'], description: 'true solo si corrige o completa la TAREA EN CURSO; si no, null.' },
+      continua_tarea: { type: ['boolean', 'null'], description: 'true solo si corrige o completa la TAREA EN CURSO o la orden PENDIENTE; si no, null.' },
+      otras_acciones: {
+        type: ['array', 'null'],
+        items: { type: 'string', enum: accionesDelModelo(acciones).filter((a) => a !== 'ACLARAR' && a !== 'CHARLA') },
+        description: 'Solo si el mensaje pide VARIAS cosas de tipos DISTINTOS: los tipos de las demás, en orden. Varias personas en horas = una sola HORAS. Si no, null.',
+      },
     },
-    required: ['accion', 'continua_tarea'],
+    required: ['accion', 'continua_tarea', 'otras_acciones'],
     additionalProperties: false,
   };
 }
@@ -477,4 +497,25 @@ export function jsonSchemaCampos(accion: NombreAccion): JS | null {
 export function normalizarAccionPublica(v: unknown): NombreAccion | null {
   const a = normalizarCrudo({ accion: v }).accion;
   return esAccion(a) ? a : null;
+}
+
+/** Lo que se va a hacer, en pocas palabras (para «después te pregunto por…»). */
+export function etiquetaOrden(o: Record<string, unknown>): string {
+  const a = String(o.accion ?? '') as NombreAccion;
+  const t = (k: string) => (typeof o[k] === 'string' ? (o[k] as string) : '');
+  if (a === 'HORAS') return `las horas de ${t('operario_texto') || 'otra persona'}${t('horas_texto') ? ` (${t('horas_texto')})` : ''}`;
+  if (a === 'CREAR_CLIENTE') return `dar de alta a ${t('nombre_texto')}`;
+  if (a === 'ACTUALIZAR_CLIENTE') return `guardar datos de ${t('cliente_texto') || 'un cliente'}`;
+  const que = (AYUDA_ACCION[a]?.que ?? a).split(/[.(]/)[0]!.trim();
+  return que.charAt(0).toLowerCase() + que.slice(1);
+}
+
+/** Una frase con varias órdenes iguales (varias personas en horas) → una orden por persona. Nada se pierde. */
+export function expandirOrden(o: OrdenCruda): OrdenCruda[] {
+  if (o.accion === 'HORAS' && Array.isArray(o.mas_operarios) && o.mas_operarios.length) {
+    const { mas_operarios, ...primera } = o as unknown as Record<string, unknown> & { mas_operarios: Array<Record<string, unknown>> };
+    const comunes = Object.fromEntries(['obra_texto', 'fecha_texto', 'notas_texto'].filter((k) => primera[k] !== undefined).map((k) => [k, primera[k]]));
+    return [primera as OrdenCruda, ...mas_operarios.map((m) => ({ accion: 'HORAS', ...comunes, ...m }) as OrdenCruda)];
+  }
+  return [o];
 }

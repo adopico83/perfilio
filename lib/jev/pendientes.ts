@@ -10,11 +10,18 @@ const TABLA = 'jev_ordenes_pendientes';
 const MINUTOS_PENDIENTE = 30;
 const MINUTOS_TAREA = 20;
 
-export type AccionResuelta = { tool: string; args: Record<string, unknown> };
+export type AccionResuelta = {
+  tool: string;
+  args: Record<string, unknown>;
+  /** Mensajes del usuario con los que se preparó (para volver a preparar una corrección: «espera, ponla a 230»). */
+  mensajes?: string[];
+  /** Órdenes que el usuario pidió en la misma frase o que hay que retomar después de esta («hago primero X; luego te pregunto Y»). */
+  siguientes?: OrdenCruda[];
+};
 
 export type OrdenPendiente = {
   id: string;
-  orden: OrdenJev;
+  orden: OrdenCruda | OrdenJev;
   accion: AccionResuelta;
   resumen: string;
 };
@@ -26,7 +33,18 @@ export type EstadoTarea = {
   /** Mensajes del usuario de esta tarea (para comprobar que los importes los dijo él). */
   mensajes: string[];
   /** Pregunta pendiente de respuesta, con las opciones cuyos ids ya salieron del resolvedor. */
-  pregunta?: { slot: string; texto_slot: string; texto: string; opciones: Array<{ n: number; id: string; etiqueta: string }> } | null;
+  pregunta?: {
+    slot: string;
+    texto_slot: string;
+    texto: string;
+    opciones: Array<{ n: number; id: string; etiqueta: string }>;
+    /** El resolvedor no encontró a nadie y se ofreció darlo de alta («¿Lo doy de alta o es otro nombre?»). */
+    alta?: boolean;
+    /** Falta un dato de la ficha del cliente para seguir (NIF, dirección): al llegar se guarda y se retoma la orden. */
+    retomar?: { cliente_id: string; cliente: string; campo: 'nif' | 'direccion'; faltan?: Array<'nif' | 'direccion'> };
+  } | null;
+  /** Órdenes que quedan por preparar tras esta (misma frase) o tras guardar un dato pedido. */
+  siguientes?: OrdenCruda[];
 };
 
 /** La orden de una tarea puede estar a medias (faltan datos): por eso es la orden cruda, que se completa con `completarOrden`. */
@@ -36,7 +54,7 @@ const ahoraMas = (min: number) => new Date(Date.now() + min * 60_000).toISOStrin
 
 export async function crearPendiente(
   supabase: SupabaseClient,
-  p: { businessId: string; userId: string; orden: OrdenJev; accion: AccionResuelta; resumen: string }
+  p: { businessId: string; userId: string; orden: OrdenCruda | OrdenJev; accion: AccionResuelta; resumen: string }
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   // Solo hay UNA propuesta viva por usuario: la nueva sustituye a la anterior.
   await supabase
@@ -76,7 +94,7 @@ export async function cargarPendiente(
     .eq('business_id', businessId)
     .eq('user_id', userId)
     .maybeSingle();
-  const fila = data as { id: string; orden: OrdenJev; args_resueltos: AccionResuelta | null; resumen: string | null; estado: string; expires_at: string } | null;
+  const fila = data as { id: string; orden: OrdenCruda | OrdenJev; args_resueltos: AccionResuelta | null; resumen: string | null; estado: string; expires_at: string } | null;
   if (!fila || !fila.args_resueltos || !['pendiente', 'confirmada', 'cancelada', 'caducada'].includes(fila.estado)) {
     return { ok: false, motivo: 'no_existe' };
   }
