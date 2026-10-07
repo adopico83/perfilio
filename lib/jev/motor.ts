@@ -4,7 +4,8 @@
  * lo guardado. Sin dependencias de Next: lo usan la ruta del chat y los tests.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { OrdenJev } from '@/lib/jev/ordenes';
+import { completarOrden, type OrdenCruda, type OrdenJev } from '@/lib/jev/ordenes';
+import { normalizarCrudo } from '@/lib/jev/normalizar';
 import { prepararOrden, type CtxEjecutor } from '@/lib/jev/ejecutor';
 import {
   cancelarPendiente,
@@ -73,15 +74,12 @@ export function elegirOpcion(mensaje: string, opciones: Array<{ n: number; id: s
 }
 
 /** Une la corrección con la orden anterior: solo cambian los datos que el usuario ha vuelto a decir. */
-export function fusionarOrden(previa: OrdenJev, nueva: OrdenJev): OrdenJev {
-  if (previa.accion !== nueva.accion) return nueva;
-  const out: Record<string, unknown> = { ...(previa as Record<string, unknown>) };
-  for (const [k, v] of Object.entries(nueva as Record<string, unknown>)) {
-    if (v === null || v === undefined) continue;
-    if (Array.isArray(v) && v.length === 0) continue;
-    out[k] = v;
-  }
-  return out as OrdenJev;
+export function fusionarOrden(previa: OrdenCruda | OrdenJev, nueva: OrdenCruda | OrdenJev): OrdenCruda {
+  const p = normalizarCrudo(previa);
+  const n = normalizarCrudo(nueva);
+  if (p.accion !== n.accion) return n as OrdenCruda;
+  // normalizarCrudo ya quitó los null / "" / "N/A": lo que queda en `n` lo ha dicho el usuario.
+  return { ...p, ...n } as OrdenCruda;
 }
 
 export async function procesarMensajeJev(ent: EntradaMotor): Promise<SalidaMotor> {
@@ -131,20 +129,36 @@ export async function procesarMensajeJev(ent: EntradaMotor): Promise<SalidaMotor
     tarea: tarea?.orden ?? null,
     ultimoAsistente: ent.ultimoAsistente,
   });
-  const orden = salida.orden;
-  if (orden.accion === 'CHARLA') return { respuesta: '', charla: true };
-  if (orden.accion === 'ACLARAR') return { respuesta: orden.pregunta };
+  const cruda = normalizarCrudo(salida.orden) as OrdenCruda;
+  if (cruda.accion === 'CHARLA') return { respuesta: '', charla: true };
 
-  const continua = Boolean(tarea) && salida.continuaTarea && tarea!.orden.accion === orden.accion;
-  const ordenFinal = continua ? fusionarOrden(tarea!.orden, orden) : orden;
+  // Si acabamos de preguntar por un dato que faltaba (texto_slot vacío), la respuesta continúa esa tarea aunque el modelo no lo marque.
+  const preguntabaFalta = tarea?.estado.pregunta != null && tarea.estado.pregunta.texto_slot === '' && tarea.estado.pregunta.opciones.length === 0;
+  const continua = Boolean(tarea) && (salida.continuaTarea || preguntabaFalta) && normalizarCrudo(tarea!.orden).accion === cruda.accion;
+  const ordenFinal = continua ? fusionarOrden(tarea!.orden, cruda) : cruda;
   const estado: EstadoTarea = continua
     ? { resueltos: { ...tarea!.estado.resueltos }, mensajes: [...tarea!.estado.mensajes, mensaje], pregunta: null }
     : { resueltos: {}, mensajes: [mensaje], pregunta: null };
   return ejecutarYResponder(ent, ordenFinal, estado, ahora);
 }
 
-async function ejecutarYResponder(ent: EntradaMotor, orden: OrdenJev, estado: EstadoTarea, ahora: Date): Promise<SalidaMotor> {
+async function ejecutarYResponder(ent: EntradaMotor, cruda: OrdenCruda | OrdenJev, estado: EstadoTarea, ahora: Date): Promise<SalidaMotor> {
   const { supabase, businessId, userId } = ent;
+  // Puerta única de validación: orden completa → se ejecuta; faltan datos → se guarda lo bueno y se pregunta solo lo que falta.
+  const c = completarOrden(cruda);
+  if (c.estado === 'aclarar') return { respuesta: c.pregunta };
+  if (c.estado === 'faltan') {
+    await guardarTarea(supabase, {
+      businessId,
+      userId,
+      orden: c.cruda,
+      estado: { ...estado, pregunta: { slot: c.faltantes[0]!, texto_slot: '', texto: c.pregunta, opciones: [] } },
+    });
+    return { respuesta: c.pregunta };
+  }
+  const orden = c.orden;
+  if (orden.accion === 'CHARLA') return { respuesta: '', charla: true };
+  if (orden.accion === 'ACLARAR') return { respuesta: orden.pregunta };
   const r = await prepararOrden(orden, {
     supabase,
     businessId,

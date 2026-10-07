@@ -10,7 +10,8 @@
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "typecheck": "tsc --noEmit",
     "limpiar:storage": "node scripts/limpiar-storage.mjs",
-    "eval:agente": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.eval.config.js"
+    "eval:agente": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.eval.config.js evals/agente.eval.ts",
+    "eval:jev-real": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.eval.config.js evals/jev-real.eval.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

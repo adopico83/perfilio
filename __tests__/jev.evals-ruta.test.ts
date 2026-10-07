@@ -1,3 +1,4 @@
+import { respuestaModelo } from './helpers/modelo-dos-pasos';
 /**
  * Todas las frases de evals/frases-pino.ts pasan por el motor .jev de la RUTA real (/api/agente):
  * el «modelo» (OpenAI simulado) solo devuelve la ORDEN que traduce la frase (`evals/ordenes-jev.ts`); el resto
@@ -55,12 +56,7 @@ function preparar(caso: CasoAgente, orden: Record<string, unknown>) {
     json: async () => ({ answers: { intent: { type: 'choice', choice: caso.intencionJev ?? 'general', confidence: 0.95 } } }),
   })) as never;
   createMock.mockReset();
-  createMock.mockImplementation(async (req: { tools?: Array<{ function: { name: string } }> }) => {
-    if (req.tools?.some((t) => t.function.name === 'orden_jev')) {
-      return { choices: [{ message: { content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'orden_jev', arguments: JSON.stringify({ orden }) } }] } }] };
-    }
-    return { choices: [{ message: { content: 'Aupa, ¿en qué te ayudo?' } }] };
-  });
+  createMock.mockImplementation(async (req: { tools?: Array<{ function: { name: string } }> }) => respuestaModelo(req, orden, { charla: 'Aupa, ¿en qué te ayudo?' }));
 }
 
 async function post(body: Record<string, unknown>) {
@@ -96,9 +92,10 @@ describe('todas las frases de Pino por el motor .jev', () => {
       expect(escrituras()).toBe(antes);
       return;
     }
-    // El modelo no ve ninguna tool de escritura: solo `orden_jev`.
-    const primera = createMock.mock.calls[0]![0] as { tools?: Array<{ function: { name: string } }> };
-    expect(primera.tools?.map((t) => t.function.name)).toEqual(['orden_jev']);
+    // El modelo no ve ninguna tool de escritura: solo `elegir_accion` y `orden_jev`.
+    const vistas = createMock.mock.calls.flatMap((c) => ((c[0] as { tools?: Array<{ function: { name: string } }> }).tools ?? []).map((t) => t.function.name));
+    expect(vistas.length).toBeGreaterThan(0);
+    for (const n of vistas) expect(['elegir_accion', 'orden_jev']).toContain(n);
 
     switch (comportamiento) {
       case 'pide_confirmacion':
