@@ -309,7 +309,8 @@ export async function ejecutarRegistrarJornada(
     businessId,
     obraIdArg,
     textoBusqueda,
-    'documento'
+    'documento',
+    { nombreEsperado: obraNombreArg || undefined }
   );
   if (!obraRes.ok) return aclaracionObra(obraRes);
   if (!obraRes.obra_id) {
@@ -474,7 +475,7 @@ export async function ejecutarConsultarHorasObra(
     obraIdArg,
     textoBusqueda,
     'documento',
-    { incluirCerradas: true }
+    { incluirCerradas: true, nombreEsperado: obraNombreArg || undefined }
   );
   if (!obraRes.ok) return aclaracionObra(obraRes);
   if (!obraRes.obra_id) {

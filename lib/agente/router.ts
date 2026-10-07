@@ -145,6 +145,7 @@ export const INTENT_TOOL_NAMES_AGENDA = new Set([
 ]);
 
 export const INTENT_TOOL_NAMES_GASTOS = new Set([
+  'listar_gastos',
   'registrar_gasto_ticket',
   'crear_proveedor',
   'buscar_proveedor',
@@ -351,4 +352,42 @@ export function toolsForAgentIntent(
   const names = INTENT_TOOL_NAMES[cat];
   if (!names) return all;
   return all.filter((t) => t.type === 'function' && names.has(t.function.name));
+}
+
+
+// ───────── Herramientas que BORRAN: solo si el mensaje pide claramente borrar o quitar ─────────
+
+export const TOOLS_DESTRUCTIVAS = new Set([
+  'eliminar_gasto',
+  'eliminar_partida_borrador',
+  'eliminar_registro_jornada',
+  'eliminar_entrada_diario',
+  'eliminar_recordatorio',
+  'eliminar_evento_agenda',
+  'eliminar_memoria',
+]);
+
+const RE_PIDE_BORRAR =
+  /\b(?:borr|elimin|quit|suprim|bota|tira|cancel|anul|retir|olvid|deshaz|descart|fuera)\w*/i;
+
+/**
+ * ¿El usuario pide borrar/quitar algo? Se mira su mensaje y, por si contesta «el segundo» a un «¿cuál borro?»,
+ * la última pregunta del asistente. Una consulta («¿cuánto me he gastado en Saltoki?») nunca cuenta.
+ */
+export function pideBorrar(mensaje: string, ultimoAsistente?: string): boolean {
+  const m = String(mensaje ?? '');
+  if (RE_PIDE_BORRAR.test(m)) return true;
+  const previo = String(ultimoAsistente ?? '').replace(/<!--[\s\S]*?-->/g, '');
+  // Solo vale la pregunta del asistente si el mensaje es una elección corta (no una consulta nueva).
+  return m.trim().length <= 40 && /(?:borr|elimin|quit)\w*[^.?!]*\?/i.test(previo) && !/[?¿]/.test(m);
+}
+
+/** Quita de la lista de herramientas las que borran, salvo que el mensaje pida borrar. */
+export function quitarToolsDestructivasSiNoPideBorrar(
+  tools: OpenAI.Chat.Completions.ChatCompletionTool[],
+  mensaje: string,
+  ultimoAsistente?: string
+): OpenAI.Chat.Completions.ChatCompletionTool[] {
+  if (pideBorrar(mensaje, ultimoAsistente)) return tools;
+  return tools.filter((t) => !(t.type === 'function' && TOOLS_DESTRUCTIVAS.has(t.function.name)));
 }

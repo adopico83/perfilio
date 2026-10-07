@@ -30,7 +30,7 @@ export type CasoAgente = {
   argsEsperados?: Record<string, unknown>;
   comportamiento: ComportamientoAgente;
   /** (Solo tests) id al que debe resolverse la acción pendiente: comprueba el aislamiento entre negocios. */
-  resueltoA?: Record<string, string>;
+  resueltoA?: Record<string, string | number>;
   /** (Solo tests) texto que debe aparecer en la respuesta al usuario. */
   respuestaContiene?: string[];
   /** Nota para quien lea el caso. */
@@ -311,7 +311,7 @@ export const CASOS_FRASES_PINO: CasoAgente[] = [
     frase: 'ponme cita con Mikel el jueves a las 10 y media en la obra',
     intencionJev: 'agenda',
     toolEsperada: 'crear_recordatorio',
-    argsEsperados: { titulo: 'Cita con Mikel Etxeberria', fecha: '2026-10-15', hora: '10:30', cliente: 'Mikel Etxeberria' },
+    argsEsperados: { titulo: 'Cita con Mikel Etxeberria', fecha: '2026-10-08', hora: '10:30', cliente: 'Mikel Etxeberria' },
     comportamiento: 'pide_confirmacion',
     respuestaContiene: ['Mikel Etxeberria', '611000333'],
     nota: 'Mikel Etxeberria: nunca el teléfono ni la dirección de Ainhoa o Amaia (comparten apellido).',
@@ -320,7 +320,7 @@ export const CASOS_FRASES_PINO: CasoAgente[] = [
     frase: 'ponme cita con Etxeberria el jueves a las 10',
     intencionJev: 'agenda',
     toolEsperada: 'crear_recordatorio',
-    argsEsperados: { titulo: 'Cita con Etxeberria', fecha: '2026-10-15', hora: '10:00', cliente: 'Etxeberria' },
+    argsEsperados: { titulo: 'Cita con Etxeberria', fecha: '2026-10-08', hora: '10:00', cliente: 'Etxeberria' },
     comportamiento: 'pregunta_opciones',
     respuestaContiene: ['Mikel Etxeberria', 'Ainhoa Etxeberria', 'Amaia Etxeberria'],
     nota: 'Tres clientes encajan con el apellido: se pregunta cuál, no se adivina.',
@@ -329,9 +329,9 @@ export const CASOS_FRASES_PINO: CasoAgente[] = [
     frase: 'pasa lo de Mikel al viernes a la misma hora',
     intencionJev: 'agenda',
     toolEsperada: 'modificar_evento_agenda',
-    argsEsperados: { titulo_fragmento: 'Mikel', nueva_fecha: '2026-10-16' },
+    argsEsperados: { titulo_fragmento: 'Mikel', nueva_fecha: '2026-10-09' },
     comportamiento: 'pide_confirmacion',
-    respuestaContiene: ['Cita con Mikel Etxeberria', '2026-10-16'],
+    respuestaContiene: ['Cita con Mikel Etxeberria', '2026-10-09'],
     nota: 'Sin nueva_hora la hora se queda como estaba («la misma hora»).',
   },
   {
@@ -382,7 +382,7 @@ export const CASOS_FRASES_PINO: CasoAgente[] = [
     nota: 'El NIF va a la ficha del cliente (con confirmación), nunca a la memoria del negocio.',
   },
   {
-    frase: 'pasa lo de Mikel al miércoles a la misma hora',
+    frase: 'pasa lo de Mikel al miércoles de la semana que viene a la misma hora',
     intencionJev: 'agenda',
     toolEsperada: 'modificar_evento_agenda',
     argsEsperados: { titulo_fragmento: 'Mikel', nueva_fecha: '2026-10-14' },
@@ -430,6 +430,82 @@ export const CASOS_FRASES_PINO: CasoAgente[] = [
     comportamiento: 'pide_confirmacion',
     resueltoA: { obra_id: IDS.obraLeire },
     respuestaContiene: ['Voy a cerrar la obra «Reforma cocina Leire Ugarte»'],
+  },
+  // ── Ronda 5: consultas que nunca borran, días de la semana, IVA, «ese presu» ───────────────────
+  {
+    frase: '¿cuánto me he gastado en Saltoki?',
+    intencionJev: 'gastos',
+    toolEsperada: 'listar_gastos',
+    argsEsperados: { proveedor: 'Saltoki' },
+    comportamiento: 'solo_lectura',
+    nota: 'Antes propuso ELIMINAR un gasto. Es una consulta: herramienta de solo lectura con totales; eliminar_gasto ni se ofrece.',
+  },
+  {
+    frase: 'ponme cita con Mikel el lunes a las 10',
+    intencionJev: 'agenda',
+    toolEsperada: 'crear_recordatorio',
+    argsEsperados: { titulo: 'Cita con Mikel Etxeberria', fecha: '2026-10-10', hora: '10:00', cliente: 'Mikel Etxeberria' },
+    comportamiento: 'pide_confirmacion',
+    resueltoA: { fecha: '2026-10-12' },
+    respuestaContiene: ['2026-10-12'],
+    nota: 'El modelo dijo el sábado 10; «el lunes» lo calcula el servidor (hoy es martes 6): lunes 12.',
+  },
+  {
+    frase: 'ponme cita con Mikel el jueves a las 11',
+    intencionJev: 'agenda',
+    toolEsperada: 'crear_recordatorio',
+    argsEsperados: { titulo: 'Cita con Mikel Etxeberria', fecha_relativa: 'martes', hora: '11:00', cliente: 'Mikel Etxeberria' },
+    comportamiento: 'pide_confirmacion',
+    resueltoA: { fecha: '2026-10-08' },
+    nota: 'El modelo dijo martes; el jueves es el 8.',
+  },
+  {
+    frase: 'apunta 250 más IVA en Saltoki, plato de ducha y grifería para lo de Leire',
+    intencionJev: 'gastos',
+    toolEsperada: 'registrar_gasto_ticket',
+    argsEsperados: { proveedor: 'Saltoki', importe: 206.61, iva: 43.39, importe_total: 250, fecha: '2026-10-06', categoria: 'material' },
+    comportamiento: 'pide_confirmacion',
+    resueltoA: { importe: 250, iva: 52.5, importe_total: 302.5, descripcion: 'Plato de ducha y grifería', proveedor_id: IDS.proveedorSaltoki },
+    respuestaContiene: ['Total: 302.50'],
+    nota: '«250 más IVA» es la base; la descripción sale del mensaje aunque el modelo no la mande.',
+  },
+  {
+    frase: '250 con IVA en Saltoki, plato de ducha y grifería para lo de Leire',
+    intencionJev: 'gastos',
+    toolEsperada: 'registrar_gasto_ticket',
+    argsEsperados: { proveedor: 'Saltoki', importe: 250, iva: 52.5, importe_total: 302.5, fecha: '2026-10-06', categoria: 'material' },
+    comportamiento: 'pide_confirmacion',
+    resueltoA: { importe: 206.61, iva: 43.39, importe_total: 250 },
+    respuestaContiene: ['Total: 250.00'],
+    nota: '«250 con IVA» es el total.',
+  },
+  {
+    frase: 'crea la obra Reforma baño Ane Hondarribia para Mikel Etxeberria',
+    intencionJev: 'documentos',
+    toolEsperada: 'crear_obra',
+    argsEsperados: { nombre: 'Reforma baño Ane', cliente_nombre: 'Mikel Etxeberria' },
+    comportamiento: 'pide_confirmacion',
+    resueltoA: { nombre: 'Reforma baño Ane Hondarribia' },
+    respuestaContiene: ['«Reforma baño Ane Hondarribia»'],
+    nota: 'Se respeta el nombre dicho (el modelo había quitado «Hondarribia»).',
+  },
+  {
+    frase: 'crea la obra Reforma cocina Leire Ugarte',
+    intencionJev: 'documentos',
+    toolEsperada: 'crear_obra',
+    argsEsperados: { nombre: 'Reforma cocina Leire Ugarte' },
+    comportamiento: 'pregunta_o_error',
+    respuestaContiene: ['Ya existe una obra llamada'],
+    nota: 'Nombre repetido: se avisa en vez de reutilizar en silencio.',
+  },
+  {
+    frase: 'da de alta a Bricomart de Irún como proveedor',
+    intencionJev: 'gastos',
+    toolEsperada: 'crear_proveedor',
+    argsEsperados: { nombre: 'Bricomart' },
+    comportamiento: 'pide_confirmacion',
+    resueltoA: { notas: 'Población: Irún' },
+    respuestaContiene: ['Población: Irún'],
   },
   {
     frase: 'Sí',

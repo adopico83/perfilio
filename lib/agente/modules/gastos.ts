@@ -1,5 +1,8 @@
 import { PROVEEDORES_AGENT_TOOLS, PROVEEDORES_HANDLED_TOOLS, handleProveedores, proveedorPorId, resolverProveedorPorNombre } from '@/lib/agente/modules/proveedores';
 import type OpenAI from 'openai';
+import { ymdHoyMadrid } from '@/lib/fechas-madrid';
+import { corregirImportesSegunMensaje, descripcionDelMensaje } from '@/lib/gastos-iva';
+import { resolverClientesPorNombre, resultadoResolveATool } from '@/lib/agente/modules/grounding';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { normalizeGastoCategoria } from '@/lib/gastos-categoria';
 import { clienteDesdeObraSiAplica, resolveClienteIdOpcional } from '@/lib/agente/modules/obras-clientes';
@@ -9,6 +12,7 @@ import {
   type Obra, aclaracionObra } from '@/lib/obras-context';
 
 export const GASTOS_HANDLED_TOOLS = new Set([
+  'listar_gastos',
   'registrar_gasto_ticket',
   'vincular_gasto',
   'eliminar_gasto',
@@ -18,6 +22,33 @@ export const GASTOS_HANDLED_TOOLS = new Set([
 
 export const GASTOS_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   ...PROVEEDORES_AGENT_TOOLS,
+  {
+    type: 'function',
+    function: {
+      name: 'listar_gastos',
+      description:
+        'SOLO LECTURA. Lista y suma gastos del negocio con totales de base, IVA y total. Úsala para «¿cuánto me he gastado en Saltoki?», «gastos de la obra de Leire», «gastos de este mes». Filtros opcionales: proveedor, obra, cliente, fechas o periodo. NUNCA modifica ni borra nada: para preguntas de consulta usa SIEMPRE esta tool, jamás eliminar_gasto.',
+      parameters: {
+        type: 'object',
+        properties: {
+          proveedor: { type: 'string', description: 'Nombre o parte del nombre del proveedor' },
+          obra_nombre: { type: 'string', description: 'Obra (también cerradas) o nombre del cliente de la obra' },
+          obra_id: { type: 'string', description: 'UUID de la obra' },
+          cliente_nombre: { type: 'string', description: 'Cliente al que se imputan los gastos' },
+          cliente_id: { type: 'string', description: 'UUID del cliente' },
+          categoria: { type: 'string', description: 'material, herramienta, vertido, subcontrata, transporte u otros' },
+          desde: { type: 'string', description: 'Fecha inicial YYYY-MM-DD (incluida)' },
+          hasta: { type: 'string', description: 'Fecha final YYYY-MM-DD (incluida)' },
+          periodo: {
+            type: 'string',
+            enum: ['este_mes', 'mes_pasado', 'este_ano'],
+            description: 'Atajo de fechas calculado en hora de Madrid (si no pasas desde/hasta)',
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
   {
     type: 'function',
     function: {
@@ -176,7 +207,12 @@ IDENTIDAD Y ROL:
 - Hablas siempre en español, de forma clara y directa.
 - Si el usuario cambia de tema drásticamente hacia agenda, operarios, presupuestos u obras, informa de que cierras el flujo de gastos y delega la respuesta al orquestador.
 
+CONSULTAS: «¿cuánto me he gastado en X?», «gastos de la obra de Y», «gastos de este mes» son SOLO LECTURA: usa listar_gastos (totales de base, IVA y total). JAMÁS uses eliminar_gasto ni modificar_gasto para responder una pregunta; eliminar solo si el usuario pide claramente borrar o quitar un gasto.
+
 REGLAS DE REGISTRO (registrar_gasto_ticket):
+- «más IVA», «+ IVA» = la cifra es la BASE; «con IVA», «IVA incluido» = la cifra es el TOTAL (el servidor lo comprueba leyendo el mensaje).
+- Pasa siempre en descripcion lo que se compró («plato de ducha y grifería»).
+- Si el proveedor no está dado de alta, NO lo des de alta tú: guarda el gasto y pregunta si quiere darlo de alta.
 - IVA: el importe que dice el usuario («85 de material») es el TOTAL con IVA incluido, salvo que diga «más IVA» / «+ IVA» / «sin IVA». Con IVA incluido, tú pasas importe_total = lo dicho y calculas importe (base) = total / 1,21 e iva = total − base (21 % si no dice otro tipo; 0 si el ticket no lleva IVA). Con «más IVA», lo dicho es la base y el total lo sumas tú. Nunca trates un importe dicho a secas como base.
 - Antes de registrar, verifica que tienes: proveedor, importe, IVA, importe_total y fecha. Si falta alguno, pregunta.
 - Validación de importes: verifica que importe + IVA ≈ importe_total. Permite un margen de error de +/- 0.05€ para ajustes de redondeo. Si la diferencia es mayor de 0.05€, detente e informa al usuario antes de guardar.
@@ -558,19 +594,150 @@ export async function handleGastosAgent(
       }
       return { mensaje: 'Gasto actualizado correctamente.', ok: true, id: upG.id as string };
     }
+    case 'listar_gastos': {
+      const bidLG = typeof businessId === 'string' ? businessId : String(businessId ?? '');
+      if (!bidLG) return { ok: false, error: 'business_id es requerido' };
+      const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+      // Fechas: desde/hasta, o un periodo calculado en hora de Madrid.
+      let desde = String(toolArgs.desde ?? '').trim();
+      let hasta = String(toolArgs.hasta ?? '').trim();
+      const periodo = String(toolArgs.periodo ?? '').trim();
+      if (!desde && !hasta && periodo) {
+        const hoy = ymdHoyMadrid();
+        const [y, m] = hoy.split('-').map(Number);
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const ultimoDia = (yy: number, mm: number) => new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+        if (periodo === 'este_mes') {
+          desde = `${y}-${pad(m)}-01`;
+          hasta = `${y}-${pad(m)}-${pad(ultimoDia(y, m))}`;
+        } else if (periodo === 'mes_pasado') {
+          const yy = m === 1 ? y - 1 : y;
+          const mm = m === 1 ? 12 : m - 1;
+          desde = `${yy}-${pad(mm)}-01`;
+          hasta = `${yy}-${pad(mm)}-${pad(ultimoDia(yy, mm))}`;
+        } else if (periodo === 'este_ano') {
+          desde = `${y}-01-01`;
+          hasta = `${y}-12-31`;
+        }
+      }
+      const ymdOk = (v: string) => !v || /^\d{4}-\d{2}-\d{2}$/.test(v);
+      if (!ymdOk(desde) || !ymdOk(hasta)) return { ok: false, error: 'desde y hasta deben tener formato YYYY-MM-DD' };
+
+      // Obra y cliente: se resuelven en el servidor (obras cerradas incluidas: es una consulta).
+      let obraIdFiltro = String(toolArgs.obra_id ?? '').trim();
+      let obraEtiqueta = '';
+      const obraNombreLG = String(toolArgs.obra_nombre ?? '').trim();
+      if (obraIdFiltro || obraNombreLG) {
+        const oRes = await resolverObraDocumentoAgente(supabase, bidLG, obraIdFiltro || undefined, obraIdFiltro ? '' : obraNombreLG, 'gasto', {
+          incluirCerradas: true,
+          nombreEsperado: obraIdFiltro ? obraNombreLG || undefined : undefined,
+        });
+        if (!oRes.ok) return aclaracionObra(oRes);
+        if (!oRes.obra_id) {
+          return { ok: false, error: `No he encontrado ninguna obra que coincida con «${obraNombreLG}». No te doy los gastos de otra.` };
+        }
+        obraIdFiltro = oRes.obra_id;
+        obraEtiqueta = oRes.obra_nombre ?? '';
+      }
+      let clienteIdFiltro = '';
+      const clienteIdLG = String(toolArgs.cliente_id ?? '').trim();
+      const clienteNombreLG = String(toolArgs.cliente_nombre ?? '').trim();
+      if (clienteIdLG) {
+        const cr = await resolveClienteIdOpcional(supabase, bidLG, clienteIdLG);
+        if (!cr.ok) return { ok: false, error: cr.error };
+        clienteIdFiltro = cr.id ?? '';
+      } else if (clienteNombreLG) {
+        const rc = await resolverClientesPorNombre(supabase, bidLG, clienteNombreLG);
+        const t = resultadoResolveATool(rc, clienteNombreLG, 'cliente');
+        if (!t.ok) return t;
+        clienteIdFiltro = t.match.id;
+      }
+
+      let q = supabase
+        .from('gastos')
+        .select('id, fecha, proveedor, descripcion, categoria, importe, iva, importe_total, obra_id, cliente_id')
+        .eq('business_id', bidLG);
+      if (obraIdFiltro) q = q.eq('obra_id', obraIdFiltro);
+      if (clienteIdFiltro) q = q.eq('cliente_id', clienteIdFiltro);
+      if (desde) q = q.gte('fecha', desde);
+      if (hasta) q = q.lte('fecha', hasta);
+      const cat = String(toolArgs.categoria ?? '').trim();
+      if (cat) q = q.eq('categoria', normalizeGastoCategoria(cat));
+      const provLG = String(toolArgs.proveedor ?? '').trim();
+      const palabrasProv = provLG
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/\p{M}/gu, '')
+        .split(/[^a-z0-9ñ]+/)
+        .filter((w) => w.length >= 2);
+      if (palabrasProv.length > 0) q = q.ilike('proveedor', `%${[...palabrasProv].sort((a, b) => b.length - a.length)[0]}%`);
+      const { data: filasLG, error: errLG } = await q.order('fecha', { ascending: false }).limit(500);
+      if (errLG) return { ok: false, error: errLG.message };
+
+      type GastoLG = { id: string; fecha: string | null; proveedor: string | null; descripcion: string | null; categoria: string | null; importe: number | null; iva: number | null; importe_total: number | null };
+      let filas = (filasLG ?? []) as GastoLG[];
+      // Proveedor: todas las palabras dichas tienen que salir en el nombre guardado.
+      if (palabrasProv.length > 1) {
+        filas = filas.filter((g) => {
+          const nombre = String(g.proveedor ?? '').toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+          return palabrasProv.every((w) => nombre.includes(w));
+        });
+      }
+      const base = r2(filas.reduce((a, g) => a + Number(g.importe ?? 0), 0));
+      const ivaTot = r2(filas.reduce((a, g) => a + Number(g.iva ?? 0), 0));
+      const total = r2(filas.reduce((a, g) => a + Number(g.importe_total ?? 0), 0));
+      const eur = (n: number) => `${n.toFixed(2).replace('.', ',')} €`;
+      const filtros = [
+        provLG ? `proveedor «${provLG}»` : '',
+        obraEtiqueta ? `obra «${obraEtiqueta}»` : '',
+        clienteNombreLG ? `cliente «${clienteNombreLG}»` : '',
+        cat ? `categoría ${cat}` : '',
+        desde || hasta ? `${desde || '…'} a ${hasta || '…'}` : '',
+      ].filter(Boolean);
+      return {
+        ok: true,
+        solo_lectura: true,
+        n: filas.length,
+        base_imponible: base,
+        iva: ivaTot,
+        total,
+        items: filas.slice(0, 30).map((g) => ({
+          fecha: g.fecha,
+          proveedor: g.proveedor,
+          descripcion: g.descripcion,
+          categoria: g.categoria,
+          importe: g.importe,
+          iva: g.iva,
+          importe_total: g.importe_total,
+        })),
+        mensaje:
+          filas.length === 0
+            ? `No hay gastos${filtros.length ? ` con ${filtros.join(', ')}` : ''}.`
+            : `${filas.length} gasto${filas.length === 1 ? '' : 's'}${filtros.length ? ` (${filtros.join(', ')})` : ''}: base ${eur(base)} + IVA ${eur(ivaTot)} = total ${eur(total)}.`,
+      };
+    }
     case 'crear_proveedor':
     case 'buscar_proveedor':
       return handleProveedores(toolName, toolArgs, typeof businessId === 'string' ? businessId : String(businessId ?? ''), supabase);
     case 'registrar_gasto_ticket': {
       const proveedor = String(toolArgs.proveedor ?? '').trim();
-      const importe = Number(toolArgs.importe);
-      const iva = Number(toolArgs.iva);
-      const importeTotal = Number(toolArgs.importe_total);
+      // «250 más IVA» = base; «250 con IVA» = total: lo decide el servidor leyendo el mensaje del usuario.
+      const importesCorregidos = corregirImportesSegunMensaje(mensajeTrim, {
+        importe: Number(toolArgs.importe),
+        iva: Number(toolArgs.iva),
+        importe_total: Number(toolArgs.importe_total),
+      });
+      const importe = importesCorregidos.datos.importe;
+      const iva = importesCorregidos.datos.iva;
+      const importeTotal = importesCorregidos.datos.importe_total;
       const fecha = String(toolArgs.fecha ?? '').trim();
       // El concepto («cable y mecanismos») puede llegar con otro nombre: no se pierde.
-      const descripcion = [toolArgs.descripcion, toolArgs.concepto, toolArgs.detalle]
+      const descripcionModelo = [toolArgs.descripcion, toolArgs.concepto, toolArgs.detalle]
         .map((v) => String(v ?? '').trim())
         .find((v) => v.length > 0) ?? '';
+      // Si el modelo no la manda, se saca del mensaje del usuario («plato de ducha y grifería»).
+      const descripcion = descripcionModelo || descripcionDelMensaje(mensajeTrim, proveedor);
       const businessIdGasto = typeof businessId === 'string' ? businessId : String(businessId ?? '');
       if (!businessIdGasto) {
         return { error: 'business_id es requerido' };
@@ -693,7 +860,8 @@ export async function handleGastosAgent(
         businessIdGasto,
         explicitObraGasto,
         textoObraGasto,
-        'gasto'
+        'gasto',
+        { nombreEsperado: obraNombreTool || undefined }
       );
       if (!obraGastoRes.ok) return aclaracionObra(obraGastoRes);
       const obraIdFinal = obraGastoRes.obra_id ?? '';

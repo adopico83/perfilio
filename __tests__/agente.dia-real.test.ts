@@ -3,7 +3,7 @@ import { handleAgenda } from '@/lib/agente/modules/agenda';
 import { parseNumeroDocumento, scoreNombreMatch, resolverClientesPorNombre } from '@/lib/agente/modules/grounding';
 import { parseEstadoPresupuesto } from '@/lib/presupuestos/estado';
 import { modificarPartidasPresupuesto } from '@/lib/presupuestos/editar-partidas';
-import { IDS, NEGOCIO_A, USUARIO, crearBaseSimulada } from '../evals/base-simulada';
+import { IDS, NEGOCIO_A, NEGOCIO_B, USUARIO, crearBaseSimulada } from '../evals/base-simulada';
 import { crearFakeDb } from './helpers/fake-db';
 import { prepararAccionPendiente } from '@/lib/agente/confirmacion';
 
@@ -436,6 +436,7 @@ describe('ronda 4: lo que se guarda es EXACTAMENTE lo que se enseñó', () => {
     (estructurarDictadoEnPartidas as jest.Mock).mockResolvedValueOnce([{ descripcion: 'OTRA COSA', cantidad: 1, unidad: 'ud', precio_unitario: 999, total: 999, categoria: 'x' }]);
     const r = (await handleDocumentosAgent('generar_presupuesto_por_dictado', args, NEGOCIO_A, USUARIO, db.client, {} as never, { mensajeTrim: '', mensaje: '' })) as Record<string, unknown>;
     expect(estructurarDictadoEnPartidas).not.toHaveBeenCalled();
+    await (estructurarDictadoEnPartidas as jest.Mock)('', []); // consume el «una vez» que no se usó
     expect(String(r.mensaje)).toContain('Alicatado de baño');
     expect(r.importe_total).toBe(580.8);
   });
@@ -577,5 +578,339 @@ describe('ronda 4: la confirmación de cerrar obra dice el nombre', () => {
     expect(prep.tipo).toBe('pendiente');
     expect((prep as { accion: { resumen: string; args: Record<string, unknown> } }).accion.resumen).toBe('Voy a cerrar la obra «Reforma cocina Leire Ugarte».');
     expect((prep as { accion: { args: Record<string, unknown> } }).accion.args.obra_id).toBe(IDS.obraLeire);
+  });
+});
+
+// ───────────────────────────── Ronda 5 ─────────────────────────────
+import { corregirPartidasConDictado, validarPartidasContraDictado, numerosDelDictado } from '@/lib/dictado-presupuesto';
+import { fechaDichaEnMensaje } from '@/lib/fechas-madrid';
+import { corregirImportesSegunMensaje, descripcionDelMensaje, modoIvaDelMensaje } from '@/lib/gastos-iva';
+import { completarNombreDesdeMensaje, datosExtraProveedor } from '@/lib/agente/confirmacion';
+import { inyectarUltimoPresupuesto, leerUltimoPresupuestoDeHistorial, marcaUltimoPresupuesto, ultimoPresupuestoDeResultados } from '@/lib/agente/orquestacion';
+import { pideBorrar, quitarToolsDestructivasSiNoPideBorrar, TOOLS_DESTRUCTIVAS } from '@/lib/agente/router';
+import { GASTOS_AGENT_TOOLS } from '@/lib/agente/modules/gastos';
+
+const partida = (descripcion: string, cantidad: number, precio: number) => ({
+  descripcion, cantidad, unidad: 'm2', precio_unitario: precio, total: Math.round(cantidad * precio * 100) / 100, categoria: 'alicatado',
+});
+
+describe('ronda 5.1: el dictado respeta los números dichos', () => {
+  it('«alicatar 16 metros a 34»: si el modelo pone 35 (la tarifa), se corrige a 34', () => {
+    const r = corregirPartidasConDictado('alicatar 16 metros a 34', [partida('Alicatado de azulejo', 16, 35)]);
+    expect(r[0]).toMatchObject({ cantidad: 16, precio_unitario: 34, total: 544 });
+  });
+  it('varias partidas: cada número va a SU partida', () => {
+    const r = corregirPartidasConDictado('alicatar 16 metros a 34, solar 20 m2 a 41', [partida('Alicatado de azulejo', 16, 35), { ...partida('Solado de gres', 20, 38), categoria: 'suelo' }]);
+    expect(r.map((p) => [p.cantidad, p.precio_unitario])).toEqual([[16, 34], [20, 41]]);
+  });
+  it('al corregir («no, a 34») sigue siendo 34, no vuelve a la tarifa', () => {
+    const r = corregirPartidasConDictado('alicatar 16 m2 a 34 euros el metro', [partida('Alicatado', 16, 35)]);
+    expect(r[0].precio_unitario).toBe(34);
+  });
+  it('valida: cada número dicho debe aparecer en las partidas; si no, pregunta', () => {
+    expect(validarPartidasContraDictado('alicatar 16 metros a 34', [partida('Alicatado', 16, 34)])).toBeNull();
+    const msg = validarPartidasContraDictado('alicatar 16 metros a 34', [partida('Alicatado', 16, 35)]);
+    expect(msg).toMatch(/34/);
+    expect(msg).toMatch(/No he guardado nada/);
+  });
+  it('un importe cerrado («colocar material, 942 euros») cuenta como dicho', () => {
+    expect(validarPartidasContraDictado('colocar material, 942 euros', [{ ...partida('Colocar material', 1, 942) }])).toBeNull();
+  });
+  it('números con coma, miles y unidades pegadas', () => {
+    expect(numerosDelDictado('alicatar 12,5 m2 a 40 y pintar 1.250 euros, 21%')).toEqual([12.5, 2 === 2 ? 40 : 0, 1250].filter((n) => n !== 2));
+  });
+  it('el servidor lo aplica: el modelo devuelve 35 y se guarda 34 (y lo enseñado = lo guardado)', async () => {
+    const { estructurarDictadoEnPartidas } = await import('@/lib/dictado-presupuesto');
+    (estructurarDictadoEnPartidas as jest.Mock).mockResolvedValueOnce([partida('Alicatado de azulejo', 16, 35)]);
+    const db = crearFakeDb(crearBaseSimulada());
+    const r = (await handleDocumentosAgent('generar_presupuesto_por_dictado', { dictado: 'alicatar 16 metros a 34', cliente_nombre: 'Mikel Etxeberria', cliente_id: IDS.clienteMikelEtxeberria, solo_vista_previa: true }, NEGOCIO_A, USUARIO, db.client, {} as never, { mensajeTrim: '', mensaje: '' })) as { importe_total: number; partidas: Array<{ precio_unitario: number }> };
+    expect(r.partidas[0].precio_unitario).toBe(34);
+    expect(r.importe_total).toBe(658.24); // 16 × 34 = 544 + 21 % IVA
+  });
+  it('si el modelo no cuadra con lo dicho y no se puede corregir, se pregunta y no se guarda', async () => {
+    const { estructurarDictadoEnPartidas } = await import('@/lib/dictado-presupuesto');
+    (estructurarDictadoEnPartidas as jest.Mock).mockResolvedValueOnce([{ ...partida('Cosa rara', 7, 99), categoria: 'varios' }]);
+    const db = crearFakeDb(crearBaseSimulada());
+    const r = (await handleDocumentosAgent('generar_presupuesto_por_dictado', { dictado: 'alicatar 16 metros a 34', cliente_nombre: 'Mikel Etxeberria', cliente_id: IDS.clienteMikelEtxeberria }, NEGOCIO_A, USUARIO, db.client, {} as never, { mensajeTrim: '', mensaje: '' })) as { ok?: boolean; error?: string };
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/No he guardado nada/);
+    expect(db.tablas.presupuestos.find((p) => p.cliente_nombre === 'Mikel Etxeberria' && p.numero_presupuesto === 12)).toBeUndefined();
+  });
+});
+
+describe('ronda 5.2: días de la semana calculados por el servidor (hora de Madrid)', () => {
+  // 6/10/2026 es martes. Las horas son del mediodía de Madrid.
+  const en = (iso: string) => new Date(iso);
+  it.each([
+    ['2026-10-05T10:00:00Z', 'lunes', 'ponme cita el lunes', '2026-10-05'], // hoy lunes: «el lunes» es hoy
+    ['2026-10-06T10:00:00Z', 'martes', 'cita el lunes a las 10', '2026-10-12'],
+    ['2026-10-06T10:00:00Z', 'martes', 'cita el jueves a las 10 y media', '2026-10-08'],
+    ['2026-10-07T10:00:00Z', 'miércoles', 'cita el jueves', '2026-10-08'],
+    ['2026-10-08T10:00:00Z', 'jueves', 'cita el jueves', '2026-10-08'],
+    ['2026-10-08T10:00:00Z', 'jueves', 'cita el jueves que viene', '2026-10-15'],
+    ['2026-10-09T10:00:00Z', 'viernes', 'cita el lunes', '2026-10-12'],
+    ['2026-10-10T10:00:00Z', 'sábado', 'cita el lunes', '2026-10-12'],
+    ['2026-10-11T10:00:00Z', 'domingo', 'cita el lunes', '2026-10-12'],
+    ['2026-10-06T10:00:00Z', 'martes', 'cita el lunes que viene', '2026-10-12'],
+    ['2026-10-05T10:00:00Z', 'lunes', 'cita el lunes que viene', '2026-10-12'],
+    ['2026-10-09T10:00:00Z', 'viernes', 'cita el lunes de la semana que viene', '2026-10-12'],
+    ['2026-10-06T10:00:00Z', 'martes', 'cita el miércoles de la semana que viene', '2026-10-14'],
+    ['2026-10-06T10:00:00Z', 'martes', 'cita mañana', '2026-10-07'],
+    ['2026-10-06T10:00:00Z', 'martes', 'cita pasado mañana', '2026-10-08'],
+    ['2026-10-06T10:00:00Z', 'martes', 'ponme cita hoy a las 5', '2026-10-06'],
+    ['2026-10-06T22:30:00Z', 'martes (00:30 del miércoles en Madrid)', 'cita mañana', '2026-10-08'],
+    ['2026-10-06T22:30:00Z', 'martes (00:30 del miércoles en Madrid)', 'cita el miércoles', '2026-10-07'],
+  ])('%s (%s): «%s» → %s', (iso, _dia, mensaje, esperado) => {
+    expect(fechaDichaEnMensaje(mensaje, en(iso))).toBe(esperado);
+  });
+  it('«por la mañana» no es «mañana»', () => {
+    expect(fechaDichaEnMensaje('cita el jueves por la mañana', en('2026-10-06T10:00:00Z'))).toBe('2026-10-08');
+  });
+  it('dos fechas distintas: al crear no decide; al mover coge la última («del lunes al viernes»)', () => {
+    const ahora = en('2026-10-06T10:00:00Z');
+    expect(fechaDichaEnMensaje('cita el lunes y el jueves', ahora)).toBeNull();
+    expect(fechaDichaEnMensaje('pasa lo del lunes al viernes', ahora, 'mover')).toBe('2026-10-09');
+  });
+  it('sin fecha dicha: null (manda lo que diga el modelo)', () => {
+    expect(fechaDichaEnMensaje('apúntame una visita a Olabide', en('2026-10-06T10:00:00Z'))).toBeNull();
+  });
+  it('crear cita: el servidor manda sobre un fecha_relativa/fecha equivocados del modelo', async () => {
+    relojEn('2026-10-06T10:00:00Z');
+    const db = crearFakeDb(crearBaseSimulada());
+    const llamar = (args: Record<string, unknown>, mensaje: string) => handleAgenda('crear_recordatorio', { solo_vista_previa: true, ...args }, NEGOCIO_A, USUARIO, db.client, {} as never, { mensajeTrim: mensaje });
+    const lunes = (await llamar({ titulo: 'Cita con Paqui', fecha: '2026-10-10', hora: '10:00' }, 'ponme cita con Paqui el lunes a las 10')) as { vista: { fecha: string } };
+    expect(lunes.vista.fecha).toBe('2026-10-12'); // el modelo dijo el sábado 10
+    const jueves = (await llamar({ titulo: 'Cita con Paqui', fecha_relativa: 'martes', hora: '11:00' }, 'ponme cita con Paqui el jueves a las 11')) as { vista: { fecha: string } };
+    expect(jueves.vista.fecha).toBe('2026-10-08'); // el modelo dijo el martes 13
+  });
+  it('mover cita: «al viernes» (o fecha_relativa) se calcula en el servidor', async () => {
+    relojEn('2026-10-06T10:00:00Z');
+    const db = crearFakeDb(crearBaseSimulada());
+    const r = (await handleAgenda('modificar_evento_agenda', { evento_id: 'ev-mikel', nueva_fecha: '2026-10-17', solo_vista_previa: true }, NEGOCIO_A, USUARIO, db.client, {} as never, { mensajeTrim: 'pasa lo de Mikel al viernes' })) as { mensaje: string };
+    expect(r.mensaje).toContain('2026-10-09');
+    const r2 = (await handleAgenda('modificar_evento_agenda', { evento_id: 'ev-mikel', fecha_relativa: 'viernes', solo_vista_previa: true }, NEGOCIO_A, USUARIO, db.client, {} as never, { mensajeTrim: '' })) as { mensaje: string };
+    expect(r2.mensaje).toContain('2026-10-09');
+  });
+});
+
+describe('ronda 5.3: obras cerradas y obra_id que no cuadra con el cliente', () => {
+  it('un obra_id que no cuadra con el cliente nombrado se rechaza (no se contesta con la obra de otro)', async () => {
+    const db = crearFakeDb(crearBaseSimulada());
+    const r = (await handleObrasClientesAgent('ver_ficha_obra', { obra_id: IDS.obraMikelEtxeberria, obra_nombre: 'Ane Zubiri' }, NEGOCIO_A, USUARIO, db.client)) as { ok?: boolean; mensaje?: string; error?: string; obra_id?: string };
+    expect(r.obra_id).toBeUndefined();
+    expect(`${r.mensaje ?? ''}${r.error ?? ''}`).toMatch(/no cuadra/);
+  });
+  it('un obra_id que sí cuadra con el nombre dicho se acepta (cliente o nombre de obra)', async () => {
+    const db = crearFakeDb(crearBaseSimulada());
+    const r = (await handleObrasClientesAgent('ver_ficha_obra', { obra_id: IDS.obraTerrazaAmaia, obra_nombre: 'Amaia' }, NEGOCIO_A, USUARIO, db.client)) as { obra_id?: string };
+    expect(r.obra_id).toBe(IDS.obraTerrazaAmaia);
+  });
+});
+
+describe('ronda 5.4: «ese presu»', () => {
+  const id = IDS.presupuestoMikelBorrador;
+  it('la marca viaja en el historial y se lee (la última gana)', () => {
+    const hist = [
+      { role: 'assistant', content: `Presupuesto nº 9.${marcaUltimoPresupuesto({ id: 'aaaaaaaa-0000-4000-8000-000000000009', numero: 9 })}` },
+      { role: 'user', content: 'gracias' },
+      { role: 'assistant', content: `Presupuesto nº 10.${marcaUltimoPresupuesto({ id, numero: 10 })}` },
+    ];
+    expect(leerUltimoPresupuestoDeHistorial(hist)).toEqual({ id, numero: 10 });
+    expect(leerUltimoPresupuestoDeHistorial([{ role: 'assistant', content: 'hola' }])).toBeNull();
+    expect(leerUltimoPresupuestoDeHistorial([{ role: 'assistant', content: 'x <!--presupuesto:{"id":"mal formado"-->' }])).toBeNull();
+  });
+  it('se saca del resultado de la tool', () => {
+    expect(ultimoPresupuestoDeResultados([{ ok: true, presupuesto_id: id, numero_presupuesto: 10 }])).toEqual({ id, numero: 10 });
+    expect(ultimoPresupuestoDeResultados([{ ok: false, error: 'x', presupuesto_id: id }])).toBeNull();
+    expect(ultimoPresupuestoDeResultados([{ mensaje: 'hola' }])).toBeNull();
+  });
+  it('«ese/este/el último» pisa el id inventado por el modelo; con número explícito se respeta', () => {
+    const plan = [{ tool: 'cambiar_estado_presupuesto', args: { presupuesto_id: 'inventado-123', estado: 'aceptado', numero: 3 } }];
+    const r = inyectarUltimoPresupuesto(plan, 'márcalo aceptado en ese presu', { id, numero: 10 });
+    expect(r[0].args).toMatchObject({ presupuesto_id: id, id, estado: 'aceptado' });
+    expect(r[0].args.numero).toBeUndefined();
+    expect(inyectarUltimoPresupuesto(plan, 'marca el 3 aceptado', { id, numero: 10 })).toBe(plan);
+    expect(inyectarUltimoPresupuesto(plan, 'márcalo', { id, numero: 10 })).toBe(plan); // sin «ese»: no se toca
+    expect(inyectarUltimoPresupuesto(plan, 'ese presu', null)).toBe(plan);
+    const otra = [{ tool: 'buscar_obra', args: { query: 'x' } }];
+    expect(inyectarUltimoPresupuesto(otra, 'ese presu', { id, numero: 10 })[0].args).toEqual({ query: 'x' });
+  });
+  it('resolverIdPresupuestoExistente no acepta un id inventado', async () => {
+    const db = crearFakeDb(crearBaseSimulada());
+    const r = (await presupuestos(db, 'cambiar_estado_presupuesto', { presupuesto_id: 'inventado-123', estado: 'aceptado' })) as { ok?: boolean; error?: string };
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/No se encontró/);
+    expect(db.updates).toHaveLength(0);
+  });
+});
+
+describe('ronda 5.5: listar_gastos (solo lectura) y herramientas de borrar', () => {
+  const lg = (db: Db, args: Record<string, unknown>) => handleGastosAgent('listar_gastos', args, NEGOCIO_A, USUARIO, db.client, {} as never, {});
+  const base = () => {
+    const b = crearBaseSimulada();
+    b.gastos = [
+      { id: 'g1', business_id: NEGOCIO_A, proveedor: 'Saltoki', fecha: '2026-10-01', importe: 100, iva: 21, importe_total: 121, categoria: 'material', obra_id: IDS.obraLeire, cliente_id: IDS.clienteLeire, descripcion: 'Cable' },
+      { id: 'g2', business_id: NEGOCIO_A, proveedor: 'Saltoki', fecha: '2026-09-20', importe: 50, iva: 10.5, importe_total: 60.5, categoria: 'material', obra_id: null, cliente_id: null, descripcion: 'Tornillos' },
+      { id: 'g3', business_id: NEGOCIO_A, proveedor: 'Bricomart', fecha: '2026-10-02', importe: 200, iva: 42, importe_total: 242, categoria: 'material', obra_id: IDS.obraMikelEtxeberria, cliente_id: IDS.clienteMikelEtxeberria, descripcion: 'Pintura' },
+      { id: 'g4', business_id: NEGOCIO_B, proveedor: 'Saltoki', fecha: '2026-10-01', importe: 999, iva: 0, importe_total: 999, categoria: 'material', obra_id: null, cliente_id: null, descripcion: 'AJENO' },
+    ];
+    return b;
+  };
+  it('suma base, IVA y total de un proveedor, solo del negocio', async () => {
+    const db = crearFakeDb(base());
+    const r = (await lg(db, { proveedor: 'Saltoki' })) as { n: number; base_imponible: number; iva: number; total: number; mensaje: string; solo_lectura: boolean };
+    expect(r).toMatchObject({ ok: true, solo_lectura: true, n: 2, base_imponible: 150, iva: 31.5, total: 181.5 });
+    expect(r.mensaje).toContain('181,50 €');
+    expect(db.updates).toHaveLength(0);
+    expect(db.inserts).toHaveLength(0);
+  });
+  it('filtra por obra, por cliente, por fechas y por periodo', async () => {
+    const db = crearFakeDb(base());
+    expect(await lg(db, { obra_nombre: 'Leire' })).toMatchObject({ n: 1, total: 121 });
+    expect(await lg(db, { cliente_nombre: 'Mikel Etxeberria' })).toMatchObject({ n: 1, total: 242 });
+    expect(await lg(db, { desde: '2026-10-01', hasta: '2026-10-01' })).toMatchObject({ n: 1, total: 121 });
+    relojEn('2026-10-06T10:00:00Z');
+    expect(await lg(db, { periodo: 'este_mes' })).toMatchObject({ n: 2, total: 363 });
+    expect(await lg(db, { periodo: 'mes_pasado' })).toMatchObject({ n: 1, total: 60.5 });
+  });
+  it('una obra que no existe se dice, no se contesta con otra', async () => {
+    const db = crearFakeDb(base());
+    const r = (await lg(db, { obra_nombre: 'Zorionak Garmendia' })) as { ok: boolean; error: string };
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/No he encontrado ninguna obra/);
+  });
+  it('sin gastos: lo dice', async () => {
+    const db = crearFakeDb(base());
+    expect(await lg(db, { proveedor: 'Inexistente' })).toMatchObject({ n: 0, total: 0, mensaje: expect.stringContaining('No hay gastos') });
+  });
+  it('listar_gastos está en el grupo de gastos y NO es una herramienta que borre', () => {
+    expect(GASTOS_AGENT_TOOLS.map((t) => (t.type === 'function' ? t.function.name : ''))).toContain('listar_gastos');
+    expect(TOOLS_DESTRUCTIVAS.has('listar_gastos')).toBe(false);
+  });
+  it.each([
+    '¿cuánto me he gastado en Saltoki?',
+    'cuánto llevo gastado en material este mes',
+    'dime los gastos de la obra de Leire',
+    'qué gastos tengo con Bricomart',
+    'enséñame lo de Saltoki',
+    'total de gastos',
+  ])('consulta «%s»: no pide borrar y se quitan todas las tools de borrar', (msg) => {
+    expect(pideBorrar(msg)).toBe(false);
+    const todas = [...TOOLS_DESTRUCTIVAS, 'listar_gastos'].map((name) => ({ type: 'function' as const, function: { name, parameters: {} } }));
+    const quedan = quitarToolsDestructivasSiNoPideBorrar(todas, msg).map((t) => (t.type === 'function' ? t.function.name : ''));
+    expect(quedan).toEqual(['listar_gastos']);
+  });
+  it.each(['borra el gasto de Saltoki', 'elimina ese gasto', 'quita el gasto de ayer', 'anula el ticket de Bricomart'])('«%s» sí pide borrar', (msg) => {
+    expect(pideBorrar(msg)).toBe(true);
+  });
+  it('contestar «el segundo» a un «¿cuál borro?» cuenta; una consulta nueva no', () => {
+    expect(pideBorrar('el segundo', 'Hay dos gastos. ¿Cuál quieres borrar?')).toBe(true);
+    expect(pideBorrar('¿y cuánto es en total?', 'Hay dos gastos. ¿Cuál quieres borrar?')).toBe(false);
+  });
+});
+
+describe('ronda 5.6: IVA, descripción y proveedor en gastos', () => {
+  it.each([
+    ['250 más IVA en Saltoki', 'base'],
+    ['250 + IVA', 'base'],
+    ['250 mas iva', 'base'],
+    ['250 sin IVA', 'sin_iva'],
+    ['250 con IVA', 'total'],
+    ['250 IVA incluido', 'total'],
+    ['250 euros', null],
+  ])('«%s» → %s', (msg, modo) => expect(modoIvaDelMensaje(msg)).toBe(modo));
+
+  it('«250 más IVA» es la BASE: el modelo lo puso como total y se corrige (250 + 52,50 = 302,50)', () => {
+    const r = corregirImportesSegunMensaje('apunta 250 más IVA en Saltoki, plato de ducha', { importe: 206.61, iva: 43.39, importe_total: 250 });
+    expect(r.datos).toEqual({ importe: 250, iva: 52.5, importe_total: 302.5 });
+    expect(r.corregido).toBe(true);
+  });
+  it('«250 con IVA» es el TOTAL (250 = 206,61 + 43,39)', () => {
+    const r = corregirImportesSegunMensaje('250 con IVA en Saltoki', { importe: 250, iva: 52.5, importe_total: 302.5 });
+    expect(r.datos).toEqual({ importe: 206.61, iva: 43.39, importe_total: 250 });
+  });
+  it('«250 sin IVA»: sin IVA', () => {
+    expect(corregirImportesSegunMensaje('250 sin IVA', { importe: 206.61, iva: 43.39, importe_total: 250 }).datos).toEqual({ importe: 250, iva: 0, importe_total: 250 });
+  });
+  it('respeta el tipo de IVA dicho (10 %) y no toca lo que ya está bien ni lo ambiguo', () => {
+    expect(corregirImportesSegunMensaje('100 más 10% de IVA', { importe: 100, iva: 10, importe_total: 100 }).datos).toEqual({ importe: 100, iva: 10, importe_total: 110 });
+    expect(corregirImportesSegunMensaje('250 más IVA', { importe: 250, iva: 52.5, importe_total: 302.5 }).corregido).toBe(false);
+    expect(corregirImportesSegunMensaje('85 de material', { importe: 70.25, iva: 14.75, importe_total: 85 }).corregido).toBe(false);
+  });
+  it('el servidor lo aplica al guardar: «250 más IVA» queda base 250 / total 302,50', async () => {
+    const db = crearFakeDb(crearBaseSimulada());
+    await gastos(db, { proveedor: 'Saltoki', importe: 206.61, iva: 43.39, importe_total: 250, fecha: '2026-10-06', categoria: 'material' }, '250 más IVA en Saltoki');
+    expect(db.tablas.gastos[0]).toMatchObject({ importe: 250, iva: 52.5, importe_total: 302.5 });
+  });
+  it('la descripción sale del mensaje si el modelo no la manda', async () => {
+    expect(descripcionDelMensaje('apunta 250 más IVA en Saltoki, plato de ducha y grifería', 'Saltoki')).toBe('Plato de ducha y grifería');
+    expect(descripcionDelMensaje('121 con IVA en Saltoki para lo de Leire, cable y mecanismos', 'Saltoki')).toBe('Cable y mecanismos');
+    expect(descripcionDelMensaje('250', 'Saltoki')).toBe('');
+    const db = crearFakeDb(crearBaseSimulada());
+    await gastos(db, { proveedor: 'Saltoki', importe: 250, iva: 52.5, importe_total: 302.5, fecha: '2026-10-06', categoria: 'material' }, 'apunta 250 más IVA en Saltoki, plato de ducha y grifería');
+    expect(db.tablas.gastos[0].descripcion).toBe('Plato de ducha y grifería');
+  });
+  it('proveedor existente → proveedor_id; inexistente → pregunta y NO lo da de alta solo', async () => {
+    const db = crearFakeDb(crearBaseSimulada());
+    await gastos(db, { proveedor: 'saltoki', importe: 100, iva: 21, importe_total: 121, fecha: '2026-10-06', categoria: 'material' }, '');
+    expect(db.tablas.gastos[0]).toMatchObject({ proveedor: 'Saltoki', proveedor_id: IDS.proveedorSaltoki });
+    const r = (await gastos(db, { proveedor: 'Ferretería Nueva', importe: 10, iva: 2.1, importe_total: 12.1, fecha: '2026-10-06', categoria: 'material' }, '')) as { mensaje: string };
+    expect(r.mensaje).toMatch(/¿quieres que lo dé de alta\?/);
+    expect(db.tablas.proveedores).toHaveLength(1); // no se creó
+  });
+});
+
+describe('ronda 5.6d: un «sí» suelto', () => {
+  it('detecta afirmaciones sueltas y las preguntas previas', async () => {
+    const { esAfirmacionSuelta, asistentePreguntoAlgo } = await import('@/lib/agente/orquestacion');
+    for (const t of ['sí', 'Sí.', 'vale', 'ok', 'hazlo', 'adelante!', 'dale', 'confirmo']) expect(esAfirmacionSuelta(t)).toBe(true);
+    for (const t of ['sí, pero con 21', 'vale, factura el 3', 'ponme cita', 'no']) expect(esAfirmacionSuelta(t)).toBe(false);
+    expect(asistentePreguntoAlgo('Gasto guardado. ¿quieres que lo dé de alta?')).toBe(true);
+    expect(asistentePreguntoAlgo('Hecho: factura creada.')).toBe(false);
+    expect(asistentePreguntoAlgo('Hecho. <!--presupuesto:{"id":"x"}-->')).toBe(false);
+  });
+});
+
+describe('ronda 5.7: crear obra respeta el nombre y avisa si ya existe', () => {
+  const deps = (db: Db, mensaje: string) => ({ supabase: db.client, businessId: NEGOCIO_A, mensajeUsuario: mensaje, runTool: async () => ({}) });
+  it('completa «Hondarribia» si el modelo la recortó', () => {
+    expect(completarNombreDesdeMensaje('Reforma baño Ane', 'crea la obra Reforma baño Ane Hondarribia para Ane', 'Ane Zubiri')).toBe('Reforma baño Ane Hondarribia');
+    expect(completarNombreDesdeMensaje('Reforma baño Ane', 'crea la obra Reforma baño Ane para Ane Zubiri', 'Ane Zubiri')).toBe('Reforma baño Ane');
+    expect(completarNombreDesdeMensaje('Obra X', 'otra cosa distinta', '')).toBe('Obra X');
+  });
+  it('la confirmación lleva el nombre completo', async () => {
+    const db = crearFakeDb(crearBaseSimulada());
+    const prep = await prepararAccionPendiente('crear_obra', { nombre: 'Reforma baño Ane', cliente_nombre: 'Ane Zubiri' }, deps(db, 'crea la obra Reforma baño Ane Hondarribia para Ane Zubiri'));
+    expect(prep.tipo).toBe('pendiente');
+    const a = (prep as { accion: { args: Record<string, unknown>; resumen: string } }).accion;
+    expect(a.args.nombre).toBe('Reforma baño Ane Hondarribia');
+    expect(a.resumen).toContain('«Reforma baño Ane Hondarribia»');
+  });
+  it('si ya existe una obra con ese nombre, avisa y no crea nada', async () => {
+    const db = crearFakeDb(crearBaseSimulada());
+    const prep = await prepararAccionPendiente('crear_obra', { nombre: 'reforma cocina leire ugarte' }, deps(db, 'crea la obra reforma cocina leire ugarte'));
+    expect(prep.tipo).toBe('resultado');
+    expect(JSON.stringify((prep as { result: unknown }).result)).toMatch(/Ya existe una obra llamada «Reforma cocina Leire Ugarte»/);
+    expect(db.inserts).toHaveLength(0);
+  });
+});
+
+describe('ronda 5.8: alta de proveedor guarda la población en notas', () => {
+  const deps = (db: Db, mensaje: string) => ({ supabase: db.client, businessId: NEGOCIO_A, mensajeUsuario: mensaje, runTool: async () => ({}) });
+  it('«Bricomart de Irún» → notas «Población: Irún»', async () => {
+    expect(datosExtraProveedor('Bricomart', 'da de alta a Bricomart de Irún')).toBe('Población: Irún');
+    expect(datosExtraProveedor('Bricomart', 'da de alta a Bricomart')).toBe('');
+    const db = crearFakeDb(crearBaseSimulada());
+    const prep = await prepararAccionPendiente('crear_proveedor', { nombre: 'Bricomart' }, deps(db, 'da de alta a Bricomart de Irún'));
+    const a = (prep as { accion: { args: Record<string, unknown>; resumen: string } }).accion;
+    expect(a.args.notas).toBe('Población: Irún');
+    const r = await handleGastosAgent('crear_proveedor', a.args, NEGOCIO_A, USUARIO, db.client, {} as never, {});
+    expect(r).toMatchObject({ ok: true });
+    expect(db.tablas.proveedores.find((p) => p.nombre === 'Bricomart')).toMatchObject({ notas: 'Población: Irún' });
+  });
+  it('conserva las notas que ya mandara el modelo', async () => {
+    const db = crearFakeDb(crearBaseSimulada());
+    const prep = await prepararAccionPendiente('crear_proveedor', { nombre: 'Bricomart', notas: 'Descuento 5 %' }, deps(db, 'da de alta a Bricomart de Irún'));
+    expect((prep as { accion: { args: Record<string, unknown> } }).accion.args.notas).toBe('Descuento 5 % · Población: Irún');
   });
 });

@@ -266,7 +266,7 @@ export function marcaOpcionesParaHistorial(opciones: OpcionAclaracion[]): string
 }
 
 export function quitarMarcaOpciones(texto: string): string {
-  return texto.replace(/\n?<!--opciones:\{[\s\S]*?\}-->/g, '');
+  return texto.replace(/\n?<!--opciones:\{[\s\S]*?\}-->/g, '').replace(/\n?<!--presupuesto:\{[\s\S]*?\}-->/g, '');
 }
 
 /**
@@ -401,3 +401,108 @@ export function buildToolLoopMessages(
     })),
   ];
 }
+
+// ───────────────── «Ese presu»: el último presupuesto de la conversación ─────────────────
+
+export type UltimoPresupuesto = { id: string; numero: number | null };
+
+/** Id de presupuesto: uuid en producción; se acepta cualquier cadena corta de letras, números y guiones (siempre se busca dentro del negocio). */
+const RE_UUID_PRES = /^[\w-]{6,64}$/;
+const RE_MARCA_PRESUPUESTO = /<!--presupuesto:(\{[\s\S]*?\})-->/g;
+
+/** Comentario HTML invisible con el id del último presupuesto tratado: el historial solo llevaba el número. */
+export function marcaUltimoPresupuesto(p: UltimoPresupuesto): string {
+  return `\n<!--presupuesto:${JSON.stringify({ id: p.id, numero: p.numero })}-->`;
+}
+
+/** El último presupuesto marcado en un mensaje del asistente del historial. */
+export function leerUltimoPresupuestoDeHistorial(
+  historial: Array<{ role: string; content: string }>
+): UltimoPresupuesto | null {
+  for (const m of [...historial].reverse()) {
+    if (m.role !== 'assistant' || typeof m.content !== 'string') continue;
+    const marcas = [...m.content.matchAll(RE_MARCA_PRESUPUESTO)];
+    if (marcas.length === 0) continue;
+    try {
+      const o = JSON.parse(marcas[marcas.length - 1]![1]) as { id?: unknown; numero?: unknown };
+      if (typeof o.id === 'string' && RE_UUID_PRES.test(o.id)) {
+        return { id: o.id, numero: typeof o.numero === 'number' ? o.numero : null };
+      }
+    } catch {
+      /* marca rota: se ignora */
+    }
+  }
+  return null;
+}
+
+/** El presupuesto que una tool acaba de crear o tocar (por su resultado), para marcarlo en la respuesta. */
+export function ultimoPresupuestoDeResultados(results: unknown[]): UltimoPresupuesto | null {
+  let out = null as UltimoPresupuesto | null;
+  for (const r of results) {
+    const o = (r && typeof r === 'object' ? r : {}) as Record<string, unknown>;
+    if (o.ok === false || typeof o.error === 'string') continue;
+    const id = typeof o.presupuesto_id === 'string' ? o.presupuesto_id : '';
+    if (RE_UUID_PRES.test(id)) {
+      out = { id, numero: typeof o.numero_presupuesto === 'number' ? o.numero_presupuesto : (out?.id === id ? out.numero : null) };
+    }
+  }
+  return out;
+}
+
+const TOOLS_SOBRE_PRESUPUESTO_EXISTENTE = new Set([
+  'cambiar_estado_presupuesto',
+  'editar_presupuesto',
+  'modificar_partidas_presupuesto',
+  'convertir_presupuesto_a_factura',
+  'convertir_presupuesto_a_albaran',
+  'obtener_enlace_pdf_presupuesto',
+  'vincular_presupuesto_cliente',
+]);
+
+const RE_ESE_PRESU =
+  /\b(?:ese|este|esa|esta|aquel)\s+(?:presu(?:puesto)?|ultimo|último)\b|\b(?:el|la)\s+(?:ultimo|último)\s*(?:presu(?:puesto)?)?\b|\bel\s+que\s+(?:acabo|acabamos)\s+de\b|\b(?:l[oa]|se\s+l[oa])\s+(?:marc|pas|fact|mand|ens)/i;
+
+/**
+ * «Ese presu», «el último»: el servidor pone el id REAL del último presupuesto tratado en la conversación.
+ * El modelo se inventaba ids; si el usuario dice «ese/este/el último», manda el que guardamos nosotros.
+ */
+export function inyectarUltimoPresupuesto<T extends { tool: string; args: Record<string, unknown> }>(
+  plan: T[],
+  mensaje: string,
+  ultimo: UltimoPresupuesto | null
+): T[] {
+  if (!ultimo || !RE_ESE_PRESU.test(String(mensaje ?? '').normalize('NFC'))) return plan;
+  return plan.map((p) => {
+    if (!TOOLS_SOBRE_PRESUPUESTO_EXISTENTE.has(p.tool)) return p;
+    // Si el usuario dijo un número o un cliente explícitos, se respeta (ya no es «ese»).
+    const dijoNumero = /\b(?:n[uú]m(?:ero)?\.?|n[º°o]\.?|#)\s*\d+|\b(?:el|presu(?:puesto)?)\s+\d+\b/i.test(mensaje);
+    if (dijoNumero) return p;
+    const args: Record<string, unknown> = { ...p.args, presupuesto_id: ultimo.id, id: ultimo.id };
+    delete args.numero;
+    delete args.query;
+    return { ...p, args };
+  });
+}
+
+// ───────────────── Un «sí» suelto sin nada pendiente ─────────────────
+
+const RE_AFIRMACION_SUELTA =
+  /^\s*¿?(?:s[ií]|sip|vale|ok|okey|dale|venga|hazlo|h[aá]zlo|adelante|confirmo|confirmado|de acuerdo|perfecto|correcto|claro|por supuesto)[\s.,!¡]*(?:hazlo|adelante|gracias)?[\s.,!¡]*$/i;
+
+export function esAfirmacionSuelta(mensaje: string): boolean {
+  return RE_AFIRMACION_SUELTA.test(String(mensaje ?? ''));
+}
+
+/** ¿La última respuesta del asistente terminó haciendo una pregunta a la que «sí» tenga sentido? */
+export function asistentePreguntoAlgo(ultimoAsistente: string | undefined): boolean {
+  const t = String(ultimoAsistente ?? '').replace(/<!--[\s\S]*?-->/g, '').trim();
+  if (!t) return false;
+  const cola = t.slice(-220);
+  return /\?\s*$/.test(cola) || /¿[^?]*\?[^?]{0,40}$/.test(cola);
+}
+
+export const MENSAJE_NADA_PENDIENTE =
+  'No tengo nada pendiente de confirmar ahora mismo, así que no hago nada. Dime qué necesitas y lo preparo.';
+
+export const REGLA_SI_SUELTO =
+  'El usuario acaba de contestar solo «sí» (o similar) y NO hay ninguna acción pendiente con botón. Eso responde ÚNICAMENTE a tu última pregunta: si esa pregunta proponía una acción concreta, haz exactamente esa y ninguna otra; si no proponía nada, responde que no hay nada pendiente. NO inicies otra acción distinta (ni borres, ni factures, ni crees nada nuevo por tu cuenta).';

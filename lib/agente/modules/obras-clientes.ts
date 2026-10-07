@@ -143,7 +143,7 @@ export const OBRAS_CLIENTES_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionT
     function: {
       name: 'crear_obra',
       description:
-        'Crea una nueva obra o proyecto. Usar cuando el usuario mencione una nueva obra, reforma o trabajo nuevo. Si ya existe una obra con el mismo nombre (sin distinguir mayúsculas) en el negocio, no crea duplicado: devuelve id de la existente y mensaje.',
+        'Crea una nueva obra o proyecto. Usa el nombre EXACTO que dijo el usuario, sin recortarlo ni cambiarlo (con la población si la dijo: «Reforma baño Ane Hondarribia»). Usar cuando el usuario mencione una nueva obra, reforma o trabajo nuevo. Si ya existe una obra con el mismo nombre (sin distinguir mayúsculas) en el negocio, no crea duplicado: devuelve id de la existente y mensaje.',
       parameters: {
         type: 'object',
         properties: {
@@ -672,7 +672,7 @@ export async function handleObrasClientesAgent(
             obraIdRaw || undefined,
             obraIdRaw ? '' : obraNombreRaw,
             'documento',
-            { incluirCerradas: true }
+            { incluirCerradas: true, nombreEsperado: obraIdRaw ? obraNombreRaw : undefined }
           );
           if (!obraRes.ok) return aclaracionObra(obraRes);
           if (!obraRes.obra_id) {

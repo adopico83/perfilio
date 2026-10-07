@@ -117,3 +117,60 @@ export function parseFechaNatural(
 
   return { ok: false, error: `No entiendo la fecha «${raw}». Dímela como «ayer», «el lunes», «el 3» o 2026-10-03.` };
 }
+
+const NOMBRE_DIA: Record<string, number> = { domingo: 0, lunes: 1, martes: 2, miercoles: 3, jueves: 4, viernes: 5, sabado: 6 };
+
+/** Día de la semana (0 = domingo) de una fecha civil YYYY-MM-DD. */
+export function diaSemanaDeYmd(ymd: string): number {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+
+/**
+ * Fecha que el USUARIO dijo en su mensaje («hoy», «mañana», «pasado mañana», «el lunes», «el jueves que viene»),
+ * calculada en hora de Madrid. El servidor la usa para mandar sobre la que escriba el modelo (que fallaba con
+ * los días de la semana: «el lunes» acababa siendo un sábado).
+ *
+ * - «el lunes»: el próximo lunes contando hoy. «el lunes que viene» / «próximo lunes»: estrictamente después de hoy.
+ * - Si el mensaje menciona varias fechas distintas: `crear` no decide (null); `mover` coge la ÚLTIMA («pasa lo del
+ *   lunes al viernes» → viernes).
+ */
+export function fechaDichaEnMensaje(
+  mensaje: string,
+  ahora: Date = new Date(),
+  modo: 'crear' | 'mover' = 'crear'
+): string | null {
+  const t = sinTildes(String(mensaje ?? '')).replace(/[¿?¡!.,;:]/g, ' ');
+  if (!t.trim()) return null;
+  const hoy = ymdHoyMadrid(ahora);
+  const hoyDow = diaSemanaDeYmd(hoy);
+  const encontradas: Array<{ pos: number; ymd: string }> = [];
+
+  for (const m of t.matchAll(/\bpasado manana\b/g)) encontradas.push({ pos: m.index ?? 0, ymd: sumarDiasYmd(hoy, 2) });
+  for (const m of t.matchAll(/\bmanana\b/g)) {
+    const antes = t.slice(Math.max(0, (m.index ?? 0) - 7), m.index ?? 0);
+    if (/pasado\s$/.test(antes)) continue; // ya contado como «pasado mañana»
+    // «por la mañana» / «de la mañana» es la franja horaria, no el día siguiente.
+    if (/\b(?:por|de|en|a)\s+la\s*$/.test(t.slice(0, m.index ?? 0))) continue;
+    encontradas.push({ pos: m.index ?? 0, ymd: sumarDiasYmd(hoy, 1) });
+  }
+  for (const m of t.matchAll(/\bhoy\b/g)) encontradas.push({ pos: m.index ?? 0, ymd: hoy });
+  for (const m of t.matchAll(/\b(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b(\s+que viene|\s+de la semana que viene|\s+proximo)?/g)) {
+    const dow = NOMBRE_DIA[m[1]]!;
+    const previo = t.slice(Math.max(0, (m.index ?? 0) - 12), m.index ?? 0);
+    const estrictamenteDespues = Boolean(m[2]) || /\b(proximo|siguiente)\s+$/.test(previo);
+    let add = (dow - hoyDow + 7) % 7; // 0 = hoy
+    if (estrictamenteDespues && add === 0) add = 7;
+    if (m[2] && /semana que viene/.test(m[2])) {
+      // «el jueves de la semana que viene»: el jueves de la semana siguiente (de lunes a domingo).
+      const hastaLunes = (8 - hoyDow) % 7 || 7;
+      add = hastaLunes + ((dow + 6) % 7);
+    }
+    encontradas.push({ pos: m.index ?? 0, ymd: sumarDiasYmd(hoy, add) });
+  }
+  if (encontradas.length === 0) return null;
+  encontradas.sort((a, b) => a.pos - b.pos);
+  const distintas = new Set(encontradas.map((e) => e.ymd));
+  if (distintas.size > 1 && modo === 'crear') return null;
+  return encontradas[encontradas.length - 1]!.ymd;
+}
