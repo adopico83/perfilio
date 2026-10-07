@@ -84,17 +84,30 @@ function nombresClienteSimilares(nuevo: string, existente: string): boolean {
 
 type ClienteFilaNombre = { id: string; nombre: string | null };
 
-function buscarClienteSimilarExistente(
+/** Solo coincidencia EXACTA (sin tildes ni mayúsculas): «Iker PRUEBA Etxeberria» ya no se confunde con «Mikel PRUEBA Etxeberria». */
+function buscarClienteExactoExistente(
   nombreBuscado: string,
   filas: ClienteFilaNombre[] | null | undefined
 ): { id: string; nombre: string } | null {
   if (!filas?.length) return null;
+  const norm = (x: string) => x.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const buscado = norm(nombreBuscado);
   for (const row of filas) {
     const nom = String(row.nombre ?? '').trim();
-    if (!nom) continue;
-    if (nombresClienteSimilares(nombreBuscado, nom)) return { id: row.id, nombre: nom };
+    if (nom && norm(nom) === buscado) return { id: row.id, nombre: nom };
   }
   return null;
+}
+
+/** Parecidos (no idénticos): se AVISA, pero nunca se bloquea el alta. */
+function clientesParecidos(
+  nombreBuscado: string,
+  filas: ClienteFilaNombre[] | null | undefined
+): string[] {
+  return (filas ?? [])
+    .map((r) => String(r.nombre ?? '').trim())
+    .filter((n) => n && nombresClienteSimilares(nombreBuscado, n))
+    .slice(0, 3);
 }
 
 export async function resolveClienteIdOpcional(
@@ -893,14 +906,15 @@ export async function handleObrasClientesAgent(
             .select('id, nombre')
             .eq('business_id', bid);
           if (errCliList) return { error: errCliList.message };
-          const similar = buscarClienteSimilarExistente(nombreCli, clientesRows ?? []);
+          const similar = buscarClienteExactoExistente(nombreCli, clientesRows ?? []);
           if (similar) {
             return {
               id: similar.id,
-              mensaje: `El cliente ${similar.nombre} ya existe, usando el existente.`,
+              mensaje: `El cliente ${similar.nombre} ya existe (mismo nombre), usando el existente.`,
               existente: true,
             };
           }
+          const parecidos = clientesParecidos(nombreCli, clientesRows ?? []);
           const telefono =
             toolArgs.telefono != null ? String(toolArgs.telefono).trim() || null : null;
           const email = toolArgs.email != null ? String(toolArgs.email).trim() || null : null;
@@ -941,7 +955,7 @@ export async function handleObrasClientesAgent(
           }
           return {
             id: nuevoId,
-            mensaje: `Cliente ${nombreCli} creado correctamente.`,
+            mensaje: `Cliente ${nombreCli} creado correctamente.${parecidos.length ? ` Ojo: hay clientes con un nombre parecido (${parecidos.join(', ')}); si era uno de ellos, dímelo.` : ''}`,
           };
         }
         case 'actualizar_cliente': {

@@ -55,7 +55,7 @@ function costeDesdeHorasReales(horasReales: number): number {
   return Math.round(horasReales * COSTE_HORA_REFERENCIA_EUR * 100) / 100;
 }
 
-async function buscarOperariosPorNombre(
+export async function buscarOperariosPorNombre(
   supabase: SupabaseClient,
   businessId: string,
   fragmento: string

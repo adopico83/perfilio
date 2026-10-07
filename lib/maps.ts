@@ -160,7 +160,10 @@ export function enriquecerTextoConMaps(texto: string): string {
   if (!texto || typeof texto !== 'string') return texto;
 
   const merged = recolectarSpansDireccion(texto);
-  const toReplace = merged.filter((s) => !estaEnTextoDeEnlaceMarkdown(texto, s.start));
+  // Nunca se toca una URL (ni el destino de un enlace markdown): una dirección «dentro» de una URL firmada la rompería.
+  const rangosUrl = [...texto.matchAll(/https?:\/\/[^\s)>\]]+/g)].map((m) => [m.index ?? 0, (m.index ?? 0) + m[0].length] as const);
+  const dentroDeUrl = (s: { start: number; end: number }) => rangosUrl.some(([a, b]) => s.start < b && s.end > a);
+  const toReplace = merged.filter((s) => !estaEnTextoDeEnlaceMarkdown(texto, s.start) && !dentroDeUrl(s));
 
   let result = texto;
   for (let i = toReplace.length - 1; i >= 0; i--) {

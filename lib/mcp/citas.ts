@@ -1,4 +1,5 @@
 import type { McpContext } from '@/lib/mcp/context';
+import { ejecutarOrdenMcp } from '@/lib/jev/mcp';
 
 const TZ_MADRID = 'Europe/Madrid';
 const DURACION_DEFECTO_MIN = 60;
@@ -505,30 +506,30 @@ export async function crearCitaAgenda(
     };
   }
 
-  const { data: row, error } = await ctx.supabase
-    .from('agenda')
-    .insert({
-      business_id: ctx.businessId,
-      titulo,
-      fecha,
-      hora,
-      completado: false,
-      description: descripcionCita(notas, horaFin),
-      location: lugar || null,
-      minutos_antelacion: 0,
-    })
-    .select('id, titulo, fecha, hora')
-    .single();
-
-  if (error || !row?.id) {
-    return { error: error?.message ?? 'No se pudo crear la cita.' };
-  }
+  // Mismo camino que el chat: orden .jev CITA_CREAR → ejecutor (valida y cierra la acción) → confirmar → el
+  // mismo handler `crear_recordatorio`. Las comprobaciones de duplicado y solape de arriba se conservan.
+  const r = await ejecutarOrdenMcp(
+    {
+      accion: 'CITA_CREAR',
+      titulo_texto: titulo,
+      fecha_texto: fecha,
+      hora_texto: hora,
+      ...(horaFin ? { hora_fin_texto: horaFin } : {}),
+      ...(lugar ? { lugar_texto: lugar } : {}),
+      ...(notas ? { notas_texto: notas } : {}),
+    },
+    ctx,
+    { mensajes: [`${titulo} ${fecha} ${hora}`], ahora: now, descripcionCita: descripcionCita(notas, horaFin) }
+  );
+  if (!r.ok) return { error: r.error };
+  const id = String(r.resultado.id ?? '');
+  if (!id) return { error: 'No se pudo crear la cita.' };
 
   return citaGuardada({
-    id: row.id as string,
-    titulo: String(row.titulo ?? titulo),
-    fecha: String(row.fecha ?? fecha).slice(0, 10),
-    hora: parseHoraCita(String(row.hora ?? hora)) ?? hora,
+    id,
+    titulo,
+    fecha,
+    hora,
     horaFin,
     lugar: lugar || null,
     notas,

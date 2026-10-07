@@ -472,6 +472,7 @@ async function ultimoEstadoPresupuestoObraOCliente(
   obraId: string | null,
   clienteId: string | null
 ): Promise<string | null> {
+  if (!obraId && !clienteId) return null;
   let q = supabase
     .from('presupuestos')
     .select('estado')
@@ -855,7 +856,9 @@ export async function handleAgenda(
       let fechaRaw = '';
       // Lo que dijo el USUARIO (hoy, mañana, el lunes, el jueves que viene) lo calcula el servidor en hora de
       // Madrid y manda sobre lo que haya escrito el modelo (que se equivocaba con los días de la semana).
-      const fechaDelUsuario = fechaDichaEnMensaje(ctx.mensajeTrim ?? '');
+      // `_resuelto`: la orden viene del ejecutor .jev (todo ya resuelto): no se deduce nada del mensaje.
+      const yaResuelto = toolArgs._resuelto === true;
+      const fechaDelUsuario = yaResuelto ? null : fechaDichaEnMensaje(ctx.mensajeTrim ?? '');
       if (fechaDelUsuario) {
         fechaRaw = fechaDelUsuario;
       } else if (relRaw) {
@@ -990,6 +993,8 @@ export async function handleAgenda(
       let clienteMatch: ClienteMatch | null = null;
       if (clienteIdArg) {
         clienteMatch = await buscarClientePorId(supabase, bid, clienteIdArg);
+      } else if (yaResuelto) {
+        clienteMatch = null; // sin id no hay cliente: no se busca por el título
       } else {
         const rc = await buscarClientePorTitulo(supabase, bid, textoBusqueda, Boolean(clienteNombreArg));
         if (rc.status === 'many') {
@@ -1002,6 +1007,8 @@ export async function handleAgenda(
       let obraMatch: ObraMatch | null = null;
       if (obraIdArg) {
         obraMatch = await buscarObraPorId(supabase, bid, obraIdArg);
+      } else if (yaResuelto) {
+        obraMatch = null;
       } else {
         const ro = await buscarObraPorTitulo(supabase, bid, [titulo, clienteNombreArg].filter(Boolean).join(' '), clienteMatch?.id ?? null);
         if (ro.status === 'many') {
@@ -1074,7 +1081,7 @@ export async function handleAgenda(
         fechaRaw,
         DURACION_DEFECTO_MIN
       );
-      if (horaFinal) {
+      if (horaFinal && toolArgs._solape_comprobado !== true) {
         const iniNuevo = horaTextoAMinutos(horaFinal);
         if (iniNuevo != null) {
           const nuevoSlot: IntervaloMin = {
@@ -1456,7 +1463,7 @@ export async function handleAgenda(
       let nuevaFechaM = String(toolArgs.nueva_fecha ?? '').trim();
       // Igual que al crear: la fecha que dijo el usuario («al viernes») la calcula el servidor en hora de Madrid
       // y manda; si no, se resuelve fecha_relativa.
-      const fechaMoverUsuario = fechaDichaEnMensaje(ctx.mensajeTrim ?? '', new Date(), 'mover');
+      const fechaMoverUsuario = toolArgs._resuelto === true ? null : fechaDichaEnMensaje(ctx.mensajeTrim ?? '', new Date(), 'mover');
       const relMover = String(toolArgs.fecha_relativa ?? '').trim();
       if (fechaMoverUsuario) {
         nuevaFechaM = fechaMoverUsuario;

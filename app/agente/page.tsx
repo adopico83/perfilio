@@ -20,6 +20,8 @@ type MessageRole = 'user' | 'assistant';
 interface AccionPendiente {
   tool: string;
   args: Record<string, unknown>;
+  /** Motor .jev: id de la orden pendiente guardada en el servidor (al confirmar solo viaja este id). */
+  ordenId?: string;
   resumen: string;
   estado: 'pendiente' | 'ejecutando' | 'confirmada' | 'cancelada';
 }
@@ -35,7 +37,8 @@ function parseAccionPendiente(raw: unknown): Omit<AccionPendiente, 'estado'> | n
   const o = raw as Record<string, unknown>;
   if (typeof o.tool !== 'string' || !o.tool.trim()) return null;
   const args = o.args && typeof o.args === 'object' && !Array.isArray(o.args) ? (o.args as Record<string, unknown>) : {};
-  return { tool: o.tool.trim(), args, resumen: typeof o.resumen === 'string' ? o.resumen : '' };
+  const ordenId = typeof o.orden_id === 'string' && o.orden_id.trim() ? o.orden_id.trim() : undefined;
+  return { tool: o.tool.trim(), args, resumen: typeof o.resumen === 'string' ? o.resumen : '', ...(ordenId ? { ordenId } : {}) };
 }
 
 interface PendingAiResponse {
@@ -207,6 +210,13 @@ function AgentePageContent() {
     if (!accion || accion.estado !== 'pendiente' || !selectedId) return;
     if (!confirmar) {
       marcarAccion(indice, 'cancelada');
+      if (accion.ordenId) {
+        void fetch('/api/agente', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ business_id: selectedId, cancelar_orden: accion.ordenId }),
+        }).catch(() => undefined);
+      }
       setHistorial((prev) => [...prev, { role: 'assistant', content: 'Vale, no hago nada.' }]);
       return;
     }
@@ -217,7 +227,7 @@ function AgentePageContent() {
       const res = await fetch('/api/agente', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ business_id: selectedId, confirmar_accion: { tool: accion.tool, args: accion.args } }),
+        body: JSON.stringify({ business_id: selectedId, confirmar_accion: accion.ordenId ? { orden_id: accion.ordenId } : { tool: accion.tool, args: accion.args } }),
       });
       const data = await res.json();
       if (!res.ok) {

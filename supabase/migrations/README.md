@@ -82,6 +82,9 @@ La del límite de uso de la IA (`20261009090000`) ya está aplicada (ver la tabl
    `on delete set null`). El agente funciona igual sin ella (si las columnas no existen, guarda la cita sin vínculo).
 3. `20261012090000_proveedores.sql` — aditiva (tabla `proveedores` con RLS por negocio y `gastos.proveedor_id`, nulo,
    `on delete set null`). Sin ella, el proveedor sigue siendo solo texto en el gasto y todo funciona igual.
+4. `20261013090000_jev_ordenes_pendientes.sql` — aditiva (tabla `jev_ordenes_pendientes`: las órdenes .jev pendientes de
+   «Sí, hazlo» y la tarea en curso, con RLS por negocio). **Esta SÍ es necesaria** para el motor .jev del chat: sin ella el
+   agente no puede guardar la orden pendiente (se puede volver al motor antiguo con `AGENTE_MOTOR=legacy`).
 
 ## Esquema de referencia
 

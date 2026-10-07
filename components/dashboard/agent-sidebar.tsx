@@ -45,6 +45,8 @@ interface EmailPendienteEnMensaje {
 interface AccionPendienteEnMensaje {
   tool: string;
   args: Record<string, unknown>;
+  /** Motor .jev: id de la orden pendiente guardada en el servidor (al confirmar solo viaja este id). */
+  ordenId?: string;
   resumen: string;
   estado: 'pendiente' | 'ejecutando' | 'confirmada' | 'cancelada';
 }
@@ -57,7 +59,8 @@ function parseAccionPendienteApi(raw: unknown): Omit<AccionPendienteEnMensaje, '
     o.args && typeof o.args === 'object' && !Array.isArray(o.args)
       ? (o.args as Record<string, unknown>)
       : {};
-  return { tool: o.tool.trim(), args, resumen: typeof o.resumen === 'string' ? o.resumen : '' };
+  const ordenId = typeof o.orden_id === 'string' && o.orden_id.trim() ? o.orden_id.trim() : undefined;
+  return { tool: o.tool.trim(), args, resumen: typeof o.resumen === 'string' ? o.resumen : '', ...(ordenId ? { ordenId } : {}) };
 }
 
 interface ChatMessage {
@@ -1095,6 +1098,14 @@ export default function AgentSidebar() {
 
     if (!confirmar) {
       marcarAccionPendiente(messageId, 'cancelada');
+      // Motor .jev: se avisa al servidor para que la orden pendiente no pueda confirmarse después.
+      if (accion.ordenId) {
+        void fetch('/api/agente', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ business_id: selectedId, cancelar_orden: accion.ordenId }),
+        }).catch(() => undefined);
+      }
       setHistorial((prev) => [
         ...prev,
         { id: nuevoIdMensaje('a'), role: 'assistant', content: 'Vale, no hago nada.' },
@@ -1111,7 +1122,7 @@ export default function AgentSidebar() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           business_id: selectedId,
-          confirmar_accion: { tool: accion.tool, args: accion.args },
+          confirmar_accion: accion.ordenId ? { orden_id: accion.ordenId } : { tool: accion.tool, args: accion.args },
         }),
       });
       const data = (await res.json()) as Record<string, unknown>;

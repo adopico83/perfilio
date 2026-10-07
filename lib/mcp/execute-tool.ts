@@ -1,4 +1,5 @@
 import type { McpContext } from '@/lib/mcp/context';
+import { ejecutarOrdenMcp } from '@/lib/jev/mcp';
 import {
   DIARIO_FOTO_INGEST_MAX_ITEMS,
   createDiarioObraSignedUpload,
@@ -395,68 +396,25 @@ export async function executeMcpTool(
       const fecha = parseYmdOptional(toolArgs.fecha) ?? ymdTodayMadrid();
       const horasN = Math.round(horas * 100) / 100;
 
-      const safeOp = escapeIlikePattern(operarioNombre).trim();
-      const { data: opRows, error: opErr } = await ctx.supabase
-        .from('operarios')
-        .select('id, nombre')
-        .eq('business_id', ctx.businessId)
-        .eq('activo', true)
-        .ilike('nombre', `%${safeOp}%`)
-        .limit(5);
-      if (opErr) return { error: opErr.message };
-      const operarios = opRows ?? [];
-      if (operarios.length === 0) {
-        return { error: `No encontré un operario activo que coincida con «${operarioNombre}».` };
-      }
-      if (operarios.length > 1) {
-        const lista = operarios
-          .map((o: { nombre?: string | null }, i: number) => `${i + 1}. ${o.nombre ?? '—'}`)
-          .join('\n');
-        return { error: `Hay varios operarios que encajan:\n${lista}` };
-      }
-      const operario = operarios[0] as { id: string; nombre: string | null };
-
-      const obraRes = await buscarObraPorNombre(ctx, obraNombre);
-      if (!obraRes.ok) return { error: obraRes.error };
-
-      const { data: existente } = await ctx.supabase
-        .from('registros_jornada')
-        .select('id')
-        .eq('business_id', ctx.businessId)
-        .eq('operario_id', operario.id)
-        .eq('obra_id', obraRes.id)
-        .eq('fecha', fecha)
-        .maybeSingle();
-
-      if (existente?.id) {
-        const { data: updated, error: updErr } = await ctx.supabase
-          .from('registros_jornada')
-          .update({
-            horas_reales: horasN,
-            horas_convenio: horasN,
-          })
-          .eq('id', existente.id)
-          .eq('business_id', ctx.businessId)
-          .select('id')
-          .maybeSingle();
-        if (updErr) return { error: updErr.message };
-        return { ok: true, actualizado: true, id: updated?.id ?? existente.id };
-      }
-
-      const { data: inserted, error: insErr } = await ctx.supabase
-        .from('registros_jornada')
-        .insert({
-          business_id: ctx.businessId,
-          operario_id: operario.id,
-          obra_id: obraRes.id,
-          fecha,
-          horas_reales: horasN,
-          horas_convenio: horasN,
-        })
-        .select('id')
-        .single();
-      if (insErr) return { error: insErr.message };
-      return { ok: true, id: (inserted as { id: string }).id };
+      // Mismo camino que el chat: orden .jev HORAS → ejecutor (resuelve operario y obra, valida) → confirmar.
+      const r = await ejecutarOrdenMcp(
+        {
+          accion: 'HORAS',
+          operario_texto: operarioNombre,
+          horas_texto: String(horasN),
+          obra_texto: obraNombre,
+          fecha_texto: fecha,
+        },
+        ctx,
+        { mensajes: [`${operarioNombre} ${obraNombre} ${horasN} ${fecha}`] }
+      );
+      if (!r.ok) return { error: r.error };
+      const res = r.resultado;
+      return {
+        ok: true,
+        ...(res.actualizado ? { actualizado: true } : {}),
+        id: (res.id as string | null) ?? null,
+      };
     }
     case 'crear_entrada_diario': {
       const obraNombre = String(toolArgs.obra_nombre ?? '').trim();
@@ -493,20 +451,25 @@ export async function executeMcpTool(
           : { error: obraRes.error };
       }
 
-      const { data: inserted, error: insErr } = await ctx.supabase
+      // Mismo camino que el chat: orden .jev DIARIO con la obra ya resuelta (id comprobado contra el negocio).
+      const textoObra = obraNombre || obraRes.nombre;
+      const r = await ejecutarOrdenMcp(
+        { accion: 'DIARIO', obra_texto: textoObra, texto: descripcion, fecha_texto: fecha },
+        ctx,
+        {
+          mensajes: [descripcion],
+          resueltos: { obra: { id: obraRes.id, etiqueta: obraRes.nombre, texto: textoObra } },
+        }
+      );
+      if (!r.ok) return { error: r.error };
+      const entradaId = String(r.resultado.id ?? '');
+      const { data: entrada } = await ctx.supabase
         .from('diario_obra')
-        .insert({
-          business_id: ctx.businessId,
-          obra_id: obraRes.id,
-          obra_nombre: obraRes.nombre,
-          obra_direccion: obraRes.direccion,
-          texto: descripcion,
-          fecha,
-        })
         .select('id, obra_nombre, texto, fecha')
-        .single();
-      if (insErr) return { error: insErr.message };
-      return { ok: true, entrada: inserted };
+        .eq('id', entradaId)
+        .eq('business_id', ctx.businessId)
+        .maybeSingle();
+      return { ok: true, entrada: entrada ?? { id: entradaId, obra_nombre: obraRes.nombre, texto: descripcion, fecha } };
     }
     case 'crear_upload_firmado_diario': {
       return createDiarioObraSignedUpload(ctx.supabase, {

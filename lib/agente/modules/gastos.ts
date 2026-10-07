@@ -723,7 +723,8 @@ export async function handleGastosAgent(
     case 'registrar_gasto_ticket': {
       const proveedor = String(toolArgs.proveedor ?? '').trim();
       // «250 más IVA» = base; «250 con IVA» = total: lo decide el servidor leyendo el mensaje del usuario.
-      const importesCorregidos = corregirImportesSegunMensaje(mensajeTrim, {
+      const yaResueltoGasto = toolArgs._resuelto === true; // viene del ejecutor .jev: importes ya calculados
+      const importesCorregidos = corregirImportesSegunMensaje(yaResueltoGasto ? '' : mensajeTrim, {
         importe: Number(toolArgs.importe),
         iva: Number(toolArgs.iva),
         importe_total: Number(toolArgs.importe_total),
@@ -737,7 +738,7 @@ export async function handleGastosAgent(
         .map((v) => String(v ?? '').trim())
         .find((v) => v.length > 0) ?? '';
       // Si el modelo no la manda, se saca del mensaje del usuario («plato de ducha y grifería»).
-      const descripcion = descripcionModelo || descripcionDelMensaje(mensajeTrim, proveedor);
+      const descripcion = descripcionModelo || (yaResueltoGasto ? '' : descripcionDelMensaje(mensajeTrim, proveedor));
       const businessIdGasto = typeof businessId === 'string' ? businessId : String(businessId ?? '');
       if (!businessIdGasto) {
         return { error: 'business_id es requerido' };
