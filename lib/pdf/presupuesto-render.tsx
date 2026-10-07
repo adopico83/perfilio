@@ -1,3 +1,4 @@
+import { ymdHoyMadrid, ymdMadridDeTimestamp } from '@/lib/fechas-madrid';
 import { renderToBuffer } from '@react-pdf/renderer';
 import { loadEmpresaEmisor, type EmpresaEmisor, type EmpresaLoaderClient } from '@/lib/pdf/empresa';
 import { parsePresupuestoGenerado } from '@/lib/pdf/parser';
@@ -63,7 +64,7 @@ export async function renderPresupuestoPdfConEmisor(
   const fechaRaw = pres.fecha;
   const createdAt = pres.created_at;
   const fechaFallback =
-    createdAt && createdAt.length >= 10 ? createdAt.slice(0, 10) : new Date().toISOString().split('T')[0];
+    ymdMadridDeTimestamp(createdAt) ?? ymdHoyMadrid();
   const fecha = fechaRaw && fechaRaw.trim().length > 0 ? fechaRaw.trim() : fechaFallback;
 
   const nCorr = pres.numero_presupuesto;

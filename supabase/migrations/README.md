@@ -80,6 +80,8 @@ La del límite de uso de la IA (`20261009090000`) ya está aplicada (ver la tabl
    borrado de filas viejas de `ia_registrar_uso` no recorra la tabla entera).
 2. `20261011090000_agenda_cliente_obra.sql` — aditiva (`agenda.cliente_id` y `agenda.obra_id`, nulas, con FK y
    `on delete set null`). El agente funciona igual sin ella (si las columnas no existen, guarda la cita sin vínculo).
+3. `20261012090000_proveedores.sql` — aditiva (tabla `proveedores` con RLS por negocio y `gastos.proveedor_id`, nulo,
+   `on delete set null`). Sin ella, el proveedor sigue siendo solo texto en el gasto y todo funciona igual.
 
 ## Esquema de referencia
 

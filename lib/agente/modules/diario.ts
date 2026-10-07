@@ -13,21 +13,9 @@ import {
   signDiarioObraEntriesMedia,
   uploadDiarioObraMediaToBucket,
 } from '@/lib/diario-obra';
+import { formatYmdInTimeZone, parseFechaNatural, ymdHoyMadrid } from '@/lib/fechas-madrid';
 import { resolverObraDocumentoAgente, aclaracionObra } from '@/lib/obras-context';
 
-/** YYYY-MM-DD del instante dado en la zona horaria indicada (p. ej. Europa/Madrid). */
-function formatYmdInTimeZone(date: Date, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(date);
-  const y = parts.find((p) => p.type === 'year')?.value;
-  const m = parts.find((p) => p.type === 'month')?.value;
-  const d = parts.find((p) => p.type === 'day')?.value;
-  return `${y}-${m}-${d}`;
-}
 
 export const DIARIO_HANDLED_TOOLS = new Set([
   'crear_entrada_diario',
@@ -63,6 +51,11 @@ export const DIARIO_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = 
             type: 'string',
             description:
               'Descripción del trabajo realizado, observaciones, materiales usados, etc.',
+          },
+          fecha: {
+            type: 'string',
+            description:
+              'Día en que se hizo el trabajo, si NO es hoy: «ayer», «anteayer», «el lunes», «el 3», «3 de octubre» o YYYY-MM-DD (hora de Madrid). Si el usuario dice «ayer desmontamos…», pasa fecha: "ayer". No admite fechas futuras. Omítelo si es hoy.',
           },
           fotos: {
             type: 'array',
@@ -284,7 +277,8 @@ export async function handleDiario(
         bidDiarioDel,
         obraIdDiarioArg,
         textoBusObraDiario,
-        'entrada_diario'
+        'entrada_diario',
+        { incluirCerradas: true }
       );
       if (!obraResDiario.ok) return aclaracionObra(obraResDiario);
       if (!obraResDiario.obra_id) {
@@ -366,6 +360,13 @@ export async function handleDiario(
           2
         )
       );
+
+      let fechaDiario: string | null = null;
+      if (String(toolArgs.fecha ?? '').trim()) {
+        const f = parseFechaNatural(toolArgs.fecha);
+        if (!f.ok) return { ok: false, error: f.error };
+        if (f.ymd !== ymdHoyMadrid()) fechaDiario = f.ymd;
+      }
 
       const obraNombreDiario = String(toolArgs.obra_nombre ?? '').trim();
       const obraIdDiarioArg = typeof toolArgs.obra_id === 'string' ? toolArgs.obra_id.trim() : '';
@@ -472,6 +473,7 @@ export async function handleDiario(
         texto: textoDiario || null,
         fotos: fotosParaInsertar,
         videos: videosParaInsertar,
+        fecha: fechaDiario,
       });
 
       if (errDiario || !entradaCreada) {
@@ -481,6 +483,7 @@ export async function handleDiario(
       }
 
       const fechaLargaDiario = new Date(entradaCreada.fecha).toLocaleDateString('es-ES', {
+        timeZone: 'Europe/Madrid',
         weekday: 'long',
         year: 'numeric',
         month: 'long',
@@ -524,7 +527,7 @@ export async function handleDiario(
         return { error: 'No se pudo generar el PDF' };
       }
 
-      const dateTagPdf = new Date().toISOString().slice(0, 10);
+      const dateTagPdf = ymdHoyMadrid();
       const safeObraPdf = sanitizeDiarioFilePart(obraNombrePdf);
       const pdfPath = `${businessIdPdfDiario}/pdfs/diario_${safeObraPdf}_${dateTagPdf}.pdf`;
 

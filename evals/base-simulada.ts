@@ -41,6 +41,11 @@ export const IDS = {
   obraMikelEtxeberria: 'obra-mikel-etxeberria',
   presupuestoMikelBorrador: 'aaaaaaaa-0000-4000-8000-000000000010',
   presupuestoAinhoaPendiente: 'aaaaaaaa-0000-4000-8000-000000000011',
+  clienteLeire: 'cli-leire',
+  obraLeire: 'obra-leire',
+  obraCocinaAjena: 'obra-cocina-zarautz',
+  obraTerrazaAmaia: 'obra-terraza-amaia',
+  proveedorSaltoki: 'prov-saltoki',
 } as const;
 
 /** Líneas del presupuesto nº 7 (formato de `presupuesto_generado`): hacen falta para poder facturarlo. */
@@ -89,6 +94,7 @@ export function crearBaseSimulada(): Record<string, Fila[]> {
       { id: IDS.clientePaqui, business_id: NEGOCIO_A, nombre: 'Paqui', nif: '12345678Z', direccion: 'Calle Mayor 1, Irún', telefono: '600111222' },
       { id: IDS.clienteGarciaNorte, business_id: NEGOCIO_A, nombre: 'García Norte', nif: 'B11111111', direccion: 'Calle Norte 2', telefono: null },
       { id: IDS.clienteGarciaSur, business_id: NEGOCIO_A, nombre: 'García Sur', nif: 'B22222222', direccion: 'Calle Sur 3', telefono: null },
+      { id: IDS.clienteLeire, business_id: NEGOCIO_A, nombre: 'Leire Ugarte', nif: '55555555K', direccion: 'Calle Leire 7, Irún', telefono: '655000777' },
       // Tres Etxeberria: «Mikel Etxeberria» NUNCA puede acabar siendo Ainhoa ni Amaia (comparten apellido).
       { id: IDS.clienteMikelEtxeberria, business_id: NEGOCIO_A, nombre: 'Mikel Etxeberria', nif: '33333333A', direccion: 'Calle Mikel 3, Irún', telefono: '611000333' },
       { id: IDS.clienteAinhoaEtxeberria, business_id: NEGOCIO_A, nombre: 'Ainhoa Etxeberria', nif: null, direccion: 'Calle Ainhoa 4', telefono: '622000444' },
@@ -103,6 +109,11 @@ export function crearBaseSimulada(): Record<string, Fila[]> {
       { id: IDS.obraBanoNorte, business_id: NEGOCIO_A, nombre: 'Reforma baño Norte', direccion: 'Calle Norte 2', estado: 'abierta', cliente_id: null, created_at: '2026-04-04T10:00:00Z' },
       { id: IDS.obraBanoSur, business_id: NEGOCIO_A, nombre: 'Reforma baño Sur', direccion: 'Calle Sur 3', estado: 'abierta', cliente_id: null, created_at: '2026-04-05T10:00:00Z' },
       { id: IDS.obraMikelEtxeberria, business_id: NEGOCIO_A, nombre: 'Reforma baño Mikel Etxeberria', direccion: 'Calle Mikel 3, Irún', estado: 'en_curso', cliente_id: IDS.clienteMikelEtxeberria, created_at: '2026-04-06T10:00:00Z' },
+      // Leire: su obra lleva «cocina»; otra obra abierta SIN cliente también (palabra suelta que no debe ganar).
+      { id: IDS.obraLeire, business_id: NEGOCIO_A, nombre: 'Reforma cocina Leire Ugarte', direccion: 'Calle Leire 7, Irún', estado: 'en_curso', cliente_id: IDS.clienteLeire, created_at: '2026-04-07T10:00:00Z' },
+      { id: IDS.obraCocinaAjena, business_id: NEGOCIO_A, nombre: 'Cocina Zarautz', direccion: 'Zarautz 3', estado: 'abierta', cliente_id: null, created_at: '2026-04-08T10:00:00Z' },
+      // Obra CERRADA: se puede consultar, no escribir.
+      { id: IDS.obraTerrazaAmaia, business_id: NEGOCIO_A, nombre: 'Reforma terraza Amaia', direccion: 'Calle Amaia 5', estado: 'cerrada', cliente_id: IDS.clienteAmaiaEtxeberria, created_at: '2026-01-10T10:00:00Z' },
       { id: IDS.obraPaquiAjena, business_id: NEGOCIO_B, nombre: 'Reforma Paqui', direccion: 'Otra calle 5', estado: 'en_curso', cliente_id: null, created_at: '2026-04-01T10:00:00Z' },
     ],
     operarios: [
@@ -142,6 +153,7 @@ export function crearBaseSimulada(): Record<string, Fila[]> {
       { id: IDS.albaran12Ajeno, business_id: NEGOCIO_B, numero_albaran: 12, cliente_nombre: 'Lola Ajena', cliente_id: 'cli-b-lola', obra_id: null, total: 90, estado: 'entregado', descripcion_trabajos: 'Arreglo', lineas: null, created_at: '2026-10-01T10:00:00Z' },
       { id: IDS.albaran14Facturado, business_id: NEGOCIO_A, numero_albaran: 14, cliente_nombre: 'García Sur', cliente_id: IDS.clienteGarciaSur, obra_id: null, total: 300, estado: 'facturado', descripcion_trabajos: 'Pintura', lineas: null, created_at: '2026-09-20T10:00:00Z' },
     ],
+    proveedores: [{ id: IDS.proveedorSaltoki, business_id: NEGOCIO_A, nombre: 'Saltoki', nif: null, telefono: null, email: null }],
     gastos: [],
     tarifas: [],
   };

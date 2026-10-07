@@ -100,6 +100,15 @@ async function postAgente(body: Record<string, unknown>) {
 const escrituras = () => db.inserts.length + db.updates.length;
 const nombresTools = (c: Llamada) => (c.tools ?? []).map((t) => t.function.name);
 
+// Reloj fijo (solo `Date`): martes 6/10/2026 12:00 en Madrid. Así «ayer», «el jueves»… no dependen de cuándo se pase el test.
+const SOLO_DATE = ['hrtime', 'nextTick', 'performance', 'queueMicrotask', 'requestAnimationFrame', 'cancelAnimationFrame', 'requestIdleCallback', 'cancelIdleCallback', 'setImmediate', 'clearImmediate', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] as const;
+beforeAll(() => {
+  jest.useFakeTimers({ now: new Date('2026-10-06T10:00:00Z'), doNotFake: [...SOLO_DATE] });
+});
+afterAll(() => {
+  jest.useRealTimers();
+});
+
 beforeAll(() => {
   delete process.env.AGENTE_CONFIRMACION; // aquí la barrera está ACTIVA (es lo que se prueba)
   process.env.OPENAI_API_KEY = 'test-key';

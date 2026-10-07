@@ -1,3 +1,4 @@
+import { resolverObraDocumentoAgente, aclaracionObra } from '@/lib/obras-context';
 import type OpenAI from 'openai';
 import { construirCambiosCliente } from '@/lib/clientes/cambios';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -588,6 +589,28 @@ export async function handleObrasClientesAgent(
               .limit(20);
             obrasRows = (res.data ?? []) as ObraRow[];
             error = res.error;
+            // «la obra de Leire»: si no hay obra con ese nombre, se busca por el nombre del cliente (todas las
+            // obras, también las cerradas).
+            if (!error && obrasRows.length === 0) {
+              const { data: clisPorNombre } = await supabase
+                .from('clientes')
+                .select('id')
+                .eq('business_id', bid)
+                .ilike('nombre', pat)
+                .limit(20);
+              const idsCli = ((clisPorNombre ?? []) as Array<{ id: string }>).map((c) => c.id);
+              if (idsCli.length > 0) {
+                const resCli = await supabase
+                  .from('obras')
+                  .select('id, nombre, cliente_id, direccion, estado, fecha_inicio, created_at')
+                  .eq('business_id', bid)
+                  .in('cliente_id', idsCli)
+                  .order('created_at', { ascending: false })
+                  .limit(20);
+                obrasRows = (resCli.data ?? []) as ObraRow[];
+                error = resCli.error;
+              }
+            }
           }
 
           if (error) return { error: error.message };
@@ -641,33 +664,31 @@ export async function handleObrasClientesAgent(
             return { error: 'obra_id u obra_nombre es obligatorio' };
           }
 
-          let obraId = obraIdRaw;
-          let obraNombre = obraNombreRaw;
-
-          if (!obraId) {
-            const safeQ = obraNombre.replace(/[%_*]/g, '').slice(0, 120);
-            const pat = `%${safeQ}%`;
-            const { data: row, error: err } = await supabase
-              .from('obras')
-              .select('id, nombre, cliente_id')
-              .eq('business_id', bid)
-              .ilike('nombre', pat)
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-            if (err) return { error: err.message };
-            if (!row?.id) return { error: 'No se encontró la obra' };
-            obraId = row.id;
-            obraNombre = row.nombre ?? obraNombre;
+          // Para CONSULTAR valen también las obras cerradas. Si no existe la pedida, se dice: nunca se
+          // contesta con otra obra.
+          const obraRes = await resolverObraDocumentoAgente(
+            supabase,
+            bid,
+            obraIdRaw || undefined,
+            obraIdRaw ? '' : obraNombreRaw,
+            'documento',
+            { incluirCerradas: true }
+          );
+          if (!obraRes.ok) return aclaracionObra(obraRes);
+          if (!obraRes.obra_id) {
+            return { ok: false, error: `No he encontrado ninguna obra que coincida con «${obraNombreRaw}». No te contesto con otra.` };
           }
+          const obraId = obraRes.obra_id;
+          const obraNombre = obraRes.obra_nombre ?? obraNombreRaw;
 
           const { data: obraRow, error: obraErr } = await supabase
             .from('obras')
             .select('id, business_id, cliente_id, nombre, direccion, estado, fecha_inicio, descripcion')
             .eq('id', obraId)
+            .eq('business_id', bid)
             .maybeSingle();
 
-          if (obraErr || !obraRow) return { error: 'Obra no encontrada' };
+          if (obraErr || !obraRow) return { ok: false, error: 'Obra no encontrada' };
 
           const clienteId = (obraRow.cliente_id as string | null) ?? null;
           const { data: clienteRow } = clienteId
@@ -682,26 +703,31 @@ export async function handleObrasClientesAgent(
             supabase
               .from('presupuestos')
               .select('*')
+              .eq('business_id', bid)
               .eq('obra_id', obraId)
               .order('fecha', { ascending: false }),
             supabase
               .from('facturas')
               .select('*')
+              .eq('business_id', bid)
               .eq('obra_id', obraId)
               .order('fecha', { ascending: false }),
             supabase
               .from('albaranes')
               .select('*')
+              .eq('business_id', bid)
               .eq('obra_id', obraId)
               .order('fecha', { ascending: false }),
             supabase
               .from('diario_obra')
               .select('*')
+              .eq('business_id', bid)
               .eq('obra_id', obraId)
               .order('fecha', { ascending: false }),
             supabase
               .from('gastos')
               .select('*')
+              .eq('business_id', bid)
               .eq('obra_id', obraId)
               .order('fecha', { ascending: false }),
           ]);
@@ -715,7 +741,7 @@ export async function handleObrasClientesAgent(
           const resumen = [
             `📋 **Ficha de obra**: ${obraRow.nombre}`,
             `Cliente: ${clienteRow?.nombre ?? '—'}`,
-            `Estado: ${obraRow.estado ?? '—'}`,
+            `Estado: ${obraRow.estado ?? '—'}${String(obraRow.estado ?? '').toLowerCase() === 'cerrada' ? ' (obra cerrada)' : ''}`,
             `Presupuestos: ${presupuestos.length}`,
             `Facturas: ${facturas.length}`,
             `Albaranes: ${albaranes.length}`,

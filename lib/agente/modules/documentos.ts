@@ -1,3 +1,4 @@
+import { ymdHoyMadrid } from '@/lib/fechas-madrid';
 import { insertarFacturaConNumeroCorrelativo } from '@/lib/facturas/numero';
 import { crearFacturaDesdeAlbaran } from '@/lib/facturas/desde-albaran';
 import { actualizarFactura } from '@/lib/facturas/editar';
@@ -848,7 +849,7 @@ export async function handleDocumentosAgent(
         {
           mensaje_cliente: mensajeOriginal,
           presupuesto_generado: texto,
-          fecha: new Date().toISOString().split('T')[0],
+          fecha: ymdHoyMadrid(),
           estado: 'borrador',
           ...(importe_total != null && { importe_total }),
           ...(clienteNombreFinal.length > 0 && { cliente_nombre: clienteNombreFinal }),
@@ -931,7 +932,7 @@ export async function handleDocumentosAgent(
           base_imponible: Number.isFinite(baseImponible) ? baseImponible : 0,
           iva: Number.isFinite(iva) ? iva : 0,
           total: Number.isFinite(totalNum) ? totalNum : 0,
-          fecha: new Date().toISOString().split('T')[0],
+          fecha: ymdHoyMadrid(),
           estado: 'pendiente',
           ...(clienteIdFinal != null && { cliente_id: clienteIdFinal }),
           ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
@@ -994,7 +995,7 @@ export async function handleDocumentosAgent(
         cliente_nombre: clienteNombreFinal,
         descripcion_trabajos: desc,
         total: totalNum,
-        fecha: new Date().toISOString().split('T')[0],
+        fecha: ymdHoyMadrid(),
         estado: 'pendiente',
         ...(clienteIdFinal != null && { cliente_id: clienteIdFinal }),
         ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
@@ -1130,7 +1131,7 @@ export async function handleDocumentosAgent(
           importe_total: importeNum,
           cliente_nombre: clienteNombreFinal,
           cliente_id: parent.cliente_id ?? null,
-          fecha: new Date().toISOString().split('T')[0],
+          fecha: ymdHoyMadrid(),
           estado: 'pendiente',
           mensaje_cliente: `EXTRA/MODIFICADO: ${descripcion}`,
           ...(obraIdExtra ? { obra_id: obraIdExtra } : {}),
@@ -1332,10 +1333,28 @@ export async function handleDocumentosAgent(
             }));
 
       let partidas;
-      try {
-        partidas = await estructurarDictadoEnPartidas(dictado, tarifasForApi);
-      } catch (e) {
-        return { error: e instanceof Error ? e.message : 'Error al estructurar el dictado' };
+      // Al confirmar con el botón llegan las partidas que se ENSEÑARON en la vista previa: no se vuelve a
+      // llamar al modelo (daría otras distintas).
+      const resueltas = Array.isArray(toolArgs.partidas_resueltas)
+        ? (toolArgs.partidas_resueltas as Array<Record<string, unknown>>)
+            .map((p) => ({
+              descripcion: String(p.descripcion ?? '').trim(),
+              cantidad: Number(p.cantidad),
+              unidad: String(p.unidad ?? 'ud'),
+              precio_unitario: Number(p.precio_unitario),
+              total: Number(p.total),
+              categoria: String(p.categoria ?? 'varios'),
+            }))
+            .filter((p) => p.descripcion && Number.isFinite(p.cantidad) && Number.isFinite(p.precio_unitario))
+        : [];
+      if (resueltas.length > 0) {
+        partidas = resueltas;
+      } else {
+        try {
+          partidas = await estructurarDictadoEnPartidas(dictado, tarifasForApi);
+        } catch (e) {
+          return { error: e instanceof Error ? e.message : 'Error al estructurar el dictado' };
+        }
       }
 
       const IVA_DICTADO = 21;
@@ -1373,6 +1392,12 @@ export async function handleDocumentosAgent(
           partidas: partidasValidadas,
           importe_total: canon.total,
           pendiente_confirmacion: true,
+          args_resueltos: {
+            partidas_resueltas: partidasValidadas,
+            ...(clienteIdFinal ? { cliente_id: clienteIdFinal } : {}),
+            ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
+            ...(clienteNombreParaDoc ? { cliente_nombre: clienteNombreParaDoc } : {}),
+          },
         };
       }
 
@@ -1382,21 +1407,25 @@ export async function handleDocumentosAgent(
         {
           presupuesto_generado: canon.texto,
           importe_total: canon.total,
-          fecha: new Date().toISOString().split('T')[0],
+          fecha: ymdHoyMadrid(),
           estado: 'borrador',
           mensaje_cliente: mensajeClienteDictado,
           ...(clienteNombreParaDoc.length > 0 && { cliente_nombre: clienteNombreParaDoc }),
           ...(clienteIdFinal != null && { cliente_id: clienteIdFinal }),
           ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
         },
-        'id'
+        'id, numero_presupuesto'
       );
       if (!creado.ok) return { error: creado.error };
 
+      const numeroCreado = creado.data.numero_presupuesto == null ? null : Number(creado.data.numero_presupuesto);
       return {
         mensaje:
-          `Borrador generado y guardado (revisa importes y textos).\n\n${textoVistaPrevia}`,
+          `Presupuesto${numeroCreado != null ? ` nº ${numeroCreado}` : ''}${clienteNombreParaDoc ? ` de ${clienteNombreParaDoc}` : ''} guardado como borrador (revisa importes y textos).\n\n${textoVistaPrevia}`,
+        ok: true,
         presupuesto_id: String(creado.data.id),
+        numero_presupuesto: numeroCreado,
+        cliente_nombre: clienteNombreParaDoc || null,
         partidas: partidasValidadas,
         importe_total: canon.total,
       };

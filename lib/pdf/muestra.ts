@@ -1,3 +1,4 @@
+import { ymdHoyMadrid } from '@/lib/fechas-madrid';
 import type { PresupuestoPdfRow } from '@/lib/pdf/presupuesto-render';
 
 /** Texto de un presupuesto de ejemplo (mismo formato que `presupuesto_generado`). 2 capítulos para ver títulos, filas alternas y totales. */
@@ -19,7 +20,7 @@ export function presupuestoMuestra(now: Date = new Date()): PresupuestoPdfRow {
   return {
     id: 'muestra',
     presupuesto_generado: TEXTO_MUESTRA,
-    fecha: now.toISOString().slice(0, 10),
+    fecha: ymdHoyMadrid(now),
     cliente_nombre: 'Cliente de ejemplo',
     numero_presupuesto: 1,
     obras: { nombre: 'Reforma de ejemplo' },

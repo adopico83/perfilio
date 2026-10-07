@@ -448,6 +448,8 @@ export async function insertDiarioObraEntry(
     texto?: string | null;
     fotos?: string[] | null;
     videos?: string[] | null;
+    /** Fecha del trabajo (YYYY-MM-DD, Madrid). Sin ella, la de ahora. */
+    fecha?: string | null;
   }
 ): Promise<{ data: DiarioObraRow | null; error: { message: string } | null }> {
   // Última línea de defensa (la API ya valida y responde 400): nunca se guarda una ruta ajena.
@@ -472,6 +474,8 @@ export async function insertDiarioObraEntry(
       texto: params.texto?.trim() || null,
       fotos: fotosNorm,
       videos: videosNorm,
+      // A mediodía UTC: cae siempre en ese mismo día en Madrid (invierno y verano).
+      ...(params.fecha ? { fecha: `${params.fecha}T12:00:00Z` } : {}),
     })
     .select('*')
     .single();
