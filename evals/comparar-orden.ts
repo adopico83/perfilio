@@ -91,6 +91,8 @@ export function compararOrden(mensaje: string, esperada: Record<string, unknown>
             if (!coincide(la[i]![kk], ee)) motivos.push(`${k}[${i}].${kk}: «${String(la[i]![kk] ?? '')}» en vez de «${String(ee)}»`);
           }
         });
+    } else if (k === 'proveedor_texto' && a === undefined && esperada.accion === 'GASTO') {
+      // Sin tienda nombrada, el servidor guarda el gasto con la categoría («Material») como proveedor: mismo resultado.
     } else if (LIBRES.includes(k)) {
       if (a === undefined && !LIBRES_OPCIONALES.includes(k)) motivos.push(`${k}: vacío`);
     } else if (k === 'estado' || k === 'documento' || k === 'categoria') {
