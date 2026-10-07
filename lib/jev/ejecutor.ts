@@ -427,20 +427,23 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
         importe = r2(total / (1 + tipo / 100));
         iva = r2(total - importe);
       }
-      const prov = await resolverProveedor(ctx, orden.proveedor_texto);
+      // Sin proveedor («85 de material para lo de Mikel»): se guarda con la categoría como nombre y sin buscarlo.
+      const provTexto = val(orden.proveedor_texto);
+      const categoriaGasto = orden.categoria ?? 'material';
+      const prov: Awaited<ReturnType<typeof resolverProveedor>> = provTexto ? await resolverProveedor(ctx, provTexto) : ({ status: 'sin_dato' } as never);
       let provId: string | undefined;
-      let provNombre = orden.proveedor_texto.trim();
+      let provNombre = provTexto || categoriaGasto.charAt(0).toUpperCase() + categoriaGasto.slice(1);
       let provAviso = '';
       if (prov.status === 'one') {
         provId = prov.id;
         provNombre = prov.nombre;
       } else if (prov.status === 'many') {
         const prevS = ctx.resueltos.proveedor;
-        if (prevS && norm(prevS.texto) === norm(orden.proveedor_texto)) {
+        if (prevS && norm(prevS.texto) === norm(provTexto)) {
           provId = prevS.id;
           provNombre = prevS.etiqueta;
         } else {
-          return { tipo: 'pregunta', texto: `Hay varios proveedores que encajan con «${orden.proveedor_texto}». ¿Cuál es?\n${prov.opciones.map((o, i) => `${i + 1}. ${o.etiqueta}`).join('\n')}`, slot: 'proveedor', textoSlot: orden.proveedor_texto, opciones: prov.opciones };
+          return { tipo: 'pregunta', texto: `Hay varios proveedores que encajan con «${provTexto}». ¿Cuál es?\n${prov.opciones.map((o, i) => `${i + 1}. ${o.etiqueta}`).join('\n')}`, slot: 'proveedor', textoSlot: provTexto, opciones: prov.opciones };
         }
       } else if (prov.status === 'none') {
         provAviso = `\nℹ️ «${provNombre}» no está dado de alta como proveedor: se guarda solo con el nombre. Después te pregunto si quieres darlo de alta.`;
@@ -656,8 +659,8 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
       return cerrar(
         ctx,
         'crear_factura',
-        { descripcion_trabajos: orden.descripcion_texto.trim(), total, cliente_id: cli.id, cliente_nombre: cli.etiqueta, ...(obraId ? { obra_id: obraId } : {}) },
-        `Voy a crear una factura para ${cli.etiqueta}${obraNombre ? ` (obra «${obraNombre}»)` : ''}: «${orden.descripcion_texto.trim()}». Total con IVA: ${eur(total)}${mas ? ` (${eur(n)} + IVA)` : ''}.`,
+        { descripcion_trabajos: (val(orden.descripcion_texto) || 'Trabajos realizados'), total, cliente_id: cli.id, cliente_nombre: cli.etiqueta, ...(obraId ? { obra_id: obraId } : {}) },
+        `Voy a crear una factura para ${cli.etiqueta}${obraNombre ? ` (obra «${obraNombre}»)` : ''}: «${val(orden.descripcion_texto) || 'Trabajos realizados'}». Total con IVA: ${eur(total)}${mas ? ` (${eur(n)} + IVA)` : ''}.`,
         false,
         todo
       );

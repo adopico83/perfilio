@@ -22,6 +22,8 @@ export function coincide(actual: unknown, esperado: unknown): boolean {
 const NUMERICOS = ['importe_texto', 'horas_texto', 'cantidad_texto', 'precio_texto'];
 const ENTIDADES = ['cliente_texto', 'obra_texto', 'proveedor_texto', 'operario_texto', 'presupuesto_texto', 'factura_texto'];
 /** Texto libre: basta con que el modelo lo haya rellenado. */
+/** Texto libre opcional: si el modelo no lo rellena, el servidor pone uno por defecto. */
+const LIBRES_OPCIONALES = ['titulo_texto', 'descripcion_texto'];
 const LIBRES = ['titulo_texto', 'descripcion_texto', 'texto', 'notas_texto', 'unidad_texto', 'lugar_texto', 'nombre_texto', 'direccion_texto', 'dictado'];
 const COMODINES = ['ese', 'esa', 'esta', 'este', 'ultimo', 'ultima', 'hoy', 'manana'];
 
@@ -45,6 +47,8 @@ export function datosInventados(mensaje: string, orden: Record<string, unknown>)
     if (NUMERICOS.includes(k)) {
       // Cifras en letras («doce») no se pueden comprobar: solo se revisan las que vienen en cifras.
       for (const n of numeros(v)) if (!numerosDichos.has(n)) out.push(`${k}="${v}" (no está en el mensaje)`);
+    } else if (k === 'fecha_texto' && /^\d{4}-\d{2}-\d{2}$/.test(v.trim())) {
+      out.push(`${k}="${v}" (fecha calculada por el modelo)`);
     } else if (ENTIDADES.includes(k)) {
       const t = tokens(v);
       if (t.length && !COMODINES.includes(norm(v)) && !t.some((x) => dichoTokens.has(x) || dicho.includes(x))) out.push(`${k}="${v}" (no está en el mensaje)`);
@@ -88,7 +92,7 @@ export function compararOrden(mensaje: string, esperada: Record<string, unknown>
           }
         });
     } else if (LIBRES.includes(k)) {
-      if (a === undefined) motivos.push(`${k}: vacío`);
+      if (a === undefined && !LIBRES_OPCIONALES.includes(k)) motivos.push(`${k}: vacío`);
     } else if (k === 'estado' || k === 'documento' || k === 'categoria') {
       if (a !== e) motivos.push(`${k}: ${JSON.stringify(a ?? null)} en vez de ${JSON.stringify(e)}`);
     } else if (typeof e === 'string' && !dichoEnMensaje(mensaje, e, k)) {

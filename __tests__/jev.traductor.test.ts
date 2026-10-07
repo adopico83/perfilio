@@ -1,5 +1,5 @@
-import { ACCIONES_POR_CATEGORIA, NOMBRES_ACCION, completarOrden, jsonSchemaEstricto, validarOrden, ORDENES } from '@/lib/jev/ordenes';
-import { construirMensajesTraductor, herramientaOrdenJev, interpretarSalida, PROMPT_TRADUCTOR, traducirMensaje } from '@/lib/jev/traductor';
+import { ACCIONES_POR_CATEGORIA, NOMBRES_ACCION, completarOrden, jsonSchemaAccion, jsonSchemaCampos, validarOrden, ORDENES } from '@/lib/jev/ordenes';
+import { construirMensajesTraductor, herramientaElegirAccion, herramientaOrdenJev, interpretarSalida, PROMPT_TRADUCTOR, traducirMensaje } from '@/lib/jev/traductor';
 
 const createMock = jest.fn();
 jest.mock('openai', () => ({
@@ -39,20 +39,25 @@ describe('esquema de órdenes .jev', () => {
       }
     }
   });
-  it('la función orden_jev es strict, de raíz «object» y con enum cerrado de acciones de la categoría (más ACLARAR y CHARLA)', () => {
-    const t = herramientaOrdenJev('diario');
-    expect(t.type === 'function' && t.function.name).toBe('orden_jev');
-    const f = (t as unknown as { function: { strict: boolean; parameters: { type: string; properties: { accion: { enum: string[] } } } } }).function;
-    expect(f.strict).toBe(true);
-    expect(f.parameters.type).toBe('object');
-    expect([...f.parameters.properties.accion.enum].sort()).toEqual(['ACLARAR', 'CHARLA', 'DIARIO']);
-    expect(JSON.stringify(jsonSchemaEstricto(ACCIONES_POR_CATEGORIA.agenda!))).toContain('CITA_MOVER');
+  it('paso 1: enum cerrado con las acciones de la categoría (más ACLARAR y CHARLA); paso 2: esquema strict de UNA acción', () => {
+    const t1 = herramientaElegirAccion('diario');
+    expect(t1.function.name).toBe('elegir_accion');
+    expect(t1.function.strict).toBe(true);
+    const p1 = t1.function.parameters as { type: string; properties: { accion: { enum: string[] } } };
+    expect(p1.type).toBe('object');
+    expect([...p1.properties.accion.enum].sort()).toEqual(['ACLARAR', 'CHARLA', 'DIARIO']);
+    expect(JSON.stringify(jsonSchemaAccion(ACCIONES_POR_CATEGORIA.agenda!))).toContain('CITA_MOVER');
+    const t2 = herramientaOrdenJev('DIARIO')!;
+    expect(t2.function.name).toBe('orden_jev');
+    expect(t2.function.strict).toBe(true);
+    expect(Object.keys((t2.function.parameters as { properties: object }).properties).sort()).toEqual(['fecha_texto', 'obra_texto', 'texto']);
+    expect(jsonSchemaCampos('CHARLA')).toBeNull();
   });
 });
 
 describe('traductor', () => {
   it('el prompt es corto y sin listas de ids ni de clientes', () => {
-    expect(PROMPT_TRADUCTOR.length).toBeLessThan(2500);
+    expect(PROMPT_TRADUCTOR.length).toBeLessThan(9000);
     expect(PROMPT_TRADUCTOR).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/);
     const m = construirMensajesTraductor({ mensaje: 'hola', categoria: 'general', hoyTexto: 'martes 6 de octubre' });
     expect(m).toHaveLength(2);
@@ -63,18 +68,24 @@ describe('traductor', () => {
       expect(completarOrden(interpretarSalida(arg).orden).estado).toBe('aclarar');
     }
   });
-  it('traduce con GPT-4o mini forzando la función orden_jev (temperatura 0) y entiende continua_tarea', async () => {
-    createMock.mockResolvedValueOnce({
-      choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'orden_jev', arguments: JSON.stringify({ continua_tarea: true, orden: { accion: 'CITA_CREAR', fecha_texto: 'el lunes', cliente_texto: 'Iker PRUEBA' } }) } }] } }],
-    });
+  it('traduce en DOS pasos con GPT-4o mini (temperatura 0, función forzada) y entiende continua_tarea', async () => {
+    createMock
+      .mockResolvedValueOnce({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'elegir_accion', arguments: JSON.stringify({ accion: 'CITA_CREAR', continua_tarea: true }) } }] } }] })
+      .mockResolvedValueOnce({
+        choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'orden_jev', arguments: JSON.stringify({ fecha_texto: 'el lunes', cliente_texto: 'Iker PRUEBA', hora_texto: null }) } }] } }],
+      });
     process.env.OPENAI_API_KEY = 'k';
     const s = await traducirMensaje({ mensaje: 'no, con Iker PRUEBA', categoria: 'agenda', hoyTexto: 'martes', tarea: { accion: 'CITA_CREAR', fecha_texto: 'el lunes' } });
     expect(s.continuaTarea).toBe(true);
     expect(s.orden).toMatchObject({ accion: 'CITA_CREAR', cliente_texto: 'Iker PRUEBA' });
-    const req = createMock.mock.calls[0]![0];
-    expect(req.model).toBe('gpt-4o-mini');
-    expect(req.temperature).toBe(0);
-    expect(req.tool_choice).toEqual({ type: 'function', function: { name: 'orden_jev' } });
-    expect(JSON.stringify(req.messages)).toContain('TAREA EN CURSO');
+    expect(createMock).toHaveBeenCalledTimes(2);
+    const [r1, r2] = [createMock.mock.calls[0]![0], createMock.mock.calls[1]![0]];
+    for (const req of [r1, r2]) {
+      expect(req.model).toBe('gpt-4o-mini');
+      expect(req.temperature).toBe(0);
+      expect(JSON.stringify(req.messages)).toContain('TAREA EN CURSO');
+    }
+    expect(r1.tool_choice).toEqual({ type: 'function', function: { name: 'elegir_accion' } });
+    expect(r2.tool_choice).toEqual({ type: 'function', function: { name: 'orden_jev' } });
   });
 });

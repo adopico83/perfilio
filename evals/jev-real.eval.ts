@@ -19,6 +19,18 @@ import { compararOrden } from './comparar-orden';
 import { NEGOCIO_A, USUARIO, crearBaseSimulada } from './base-simulada';
 import { crearFakeDb } from '../__tests__/helpers/fake-db';
 
+// Los PDF no se generan en el eval (@react-pdf/renderer es ESM y no hace falta): se simulan igual que en los tests.
+jest.mock('@/lib/pdf/factura-render', () => ({
+  FACTURA_PDF_COLUMNS: 'id, business_id, numero_factura, cliente_nombre',
+  nombreArchivoFacturaPdf: (_f: string, n: number) => `factura-${n}.pdf`,
+  renderFacturaPdf: async () => ({ ok: true, buffer: Buffer.from('%PDF'), fecha: '2026-10-06', numero_factura: 3 }),
+}));
+jest.mock('@/lib/pdf/presupuesto-render', () => ({
+  PRESUPUESTO_PDF_COLUMNS: 'id, business_id, numero_presupuesto, cliente_nombre, estado',
+  nombreArchivoPresupuestoPdf: () => 'presupuesto.pdf',
+  renderPresupuestoPdf: async () => ({ ok: true, buffer: Buffer.from('%PDF'), fecha: '2026-10-06' }),
+}));
+
 const hayClave = Boolean(process.env.OPENAI_API_KEY?.trim());
 const umbral = Number(process.env.EVAL_UMBRAL ?? '0.95');
 const veces = Math.max(1, Number(process.env.EVAL_VECES ?? '1'));
@@ -79,6 +91,10 @@ const MARCA_F = /<!--factura:(\{.*?\})-->/;
           error = e instanceof Error ? e.message : String(e);
         }
         const veredicto = compararOrden(f.frase, f.esperada, completarOrden(cruda));
+        // Si lo esperado es una pregunta («Anota esto», «Factura el albarán»): vale cualquier camino que NO acabe en una
+        // acción preparada (orden pendiente) ni escriba nada; lo decide el servidor, no el modelo.
+        if (f.esperada.accion === 'ACLARAR' && salida?.accionPendiente) veredicto.motivos.push('esperaba una pregunta y quedó una orden pendiente');
+        if (f.esperada.accion === 'ACLARAR') veredicto.motivos = veredicto.motivos.filter((m) => !m.startsWith('esperaba una pregunta y salió'));
         const escrituras = db.inserts.filter((i) => i.tabla !== 'jev_ordenes_pendientes').length + db.updates.filter((u) => u.tabla !== 'jev_ordenes_pendientes').length;
         const motivos = [...veredicto.motivos];
         if (error) motivos.push(`error: ${error}`);

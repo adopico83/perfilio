@@ -1,3 +1,4 @@
+import { respuestaModelo } from './helpers/modelo-dos-pasos';
 import { NextRequest } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { NEGOCIO_A, USUARIO, IDS, crearBaseSimulada } from '../evals/base-simulada';
@@ -29,11 +30,7 @@ beforeEach(() => {
   (createClient as jest.Mock).mockResolvedValue({ auth: { getUser: async () => ({ data: { user: { id: USUARIO, email: 'p@x.es' } } }) } });
   ordenDelModelo = { accion: 'CERRAR_OBRA', obra_texto: 'Reforma Paqui' };
   createMock.mockReset();
-  createMock.mockImplementation(async (req: { tools?: Array<{ function: { name: string } }> }) =>
-    req.tools?.some((t) => t.function.name === 'orden_jev')
-      ? { choices: [{ message: { content: null, tool_calls: [{ id: 'c', type: 'function', function: { name: 'orden_jev', arguments: JSON.stringify({ orden: ordenDelModelo }) } }] } }] }
-      : { choices: [{ message: { content: 'Hola' } }] }
-  );
+  createMock.mockImplementation(async (req: { tools?: Array<{ function: { name: string } }> }) => respuestaModelo(req, ordenDelModelo));
 });
 
 async function post(body: Record<string, unknown>) {
@@ -83,10 +80,12 @@ describe('ruta /api/agente con el motor .jev: la confirmación solo acepta el id
     expect(si.status).toBe(200);
     expect(obra().estado).toBe('cerrada');
   });
-  it('el modelo solo ve la función orden_jev (ninguna tool de escritura)', async () => {
+  it('el modelo solo ve las funciones elegir_accion y orden_jev (ninguna tool de escritura)', async () => {
     await post({ mensaje: 'cierra la obra de Paqui' });
     const req = createMock.mock.calls[0]![0] as { tools: Array<{ function: { name: string } }> };
-    expect(req.tools.map((t) => t.function.name)).toEqual(['orden_jev']);
+    expect(req.tools.map((t) => t.function.name)).toEqual(['elegir_accion']);
+    const todas = createMock.mock.calls.flatMap((c) => (c[0] as typeof req).tools.map((t) => t.function.name));
+    expect(new Set(todas)).toEqual(new Set(['elegir_accion', 'orden_jev']));
   });
   it('si el modelo devuelve una orden inventada, se pregunta (no se ejecuta)', async () => {
     ordenDelModelo = { accion: 'BORRAR_TODO' };

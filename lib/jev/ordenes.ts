@@ -10,7 +10,7 @@
  */
 import { z } from 'zod';
 import { logJev } from '@/lib/jev/log';
-import { normalizarConAvisos } from '@/lib/jev/normalizar';
+import { normalizarConAvisos, normalizarCrudo } from '@/lib/jev/normalizar';
 
 /** Un literal del mensaje, o nada. */
 const lit = z.string().trim().min(1).max(600).nullish();
@@ -115,7 +115,8 @@ export const ORDENES = {
   }),
   GASTO: z.object({
     accion: z.literal('GASTO'),
-    proveedor_texto: z.string().trim().min(1).max(200),
+    /** Sin proveedor («85 de material para lo de Mikel»): se guarda como «Material» (o la categoría). */
+    proveedor_texto: lit,
     importe_texto: z.string().trim().min(1).max(40),
     iva_modo: iva,
     obra_texto: lit,
@@ -168,13 +169,14 @@ export const ORDENES = {
   CREAR_FACTURA: z.object({
     accion: z.literal('CREAR_FACTURA'),
     cliente_texto: z.string().trim().min(1).max(200),
-    descripcion_texto: z.string().trim().min(1).max(500),
+    /** Si no dice el concepto, la factura va como «Trabajos realizados». */
+    descripcion_texto: lit,
     importe_texto: z.string().trim().min(1).max(40),
     iva_modo: iva,
     obra_texto: lit,
   }),
   CONSULTA_DIA: z.object({ accion: z.literal('CONSULTA_DIA') }),
-  CONSULTA_OBRAS: z.object({ accion: z.literal('CONSULTA_OBRAS'), estado: z.enum(['abiertas', 'cerradas', 'todas']).nullish() }),
+  CONSULTA_OBRAS: z.object({ accion: z.literal('CONSULTA_OBRAS'), obra_texto: lit, estado: z.enum(['abiertas', 'cerradas', 'todas']).nullish() }),
   CONSULTA_PRESUPUESTOS: z.object({ accion: z.literal('CONSULTA_PRESUPUESTOS'), estado: z.enum(['pendientes', 'aceptados', 'todos']).nullish() }),
   CONSULTA_FACTURAS: z.object({ accion: z.literal('CONSULTA_FACTURAS'), estado: z.enum(['pendiente', 'pagada', 'vencida']).nullish() }),
 } as const;
@@ -282,7 +284,9 @@ export function completarOrden(raw: unknown): ResultadoCompletar {
     return { estado: 'aclarar', pregunta, motivo: 'modelo' };
   }
   // «Qué hay en la obra X» sin obra → lista de obras (solo lectura).
-  const nombre: NombreAccion = accion === 'CONSULTA_OBRA' && n.obra_texto === undefined ? 'CONSULTA_OBRAS' : accion;
+  // y «cómo va la obra de Amaia» (lista de obras con una obra concreta) → la ficha de esa obra.
+  const nombre: NombreAccion =
+    accion === 'CONSULTA_OBRA' && n.obra_texto === undefined ? 'CONSULTA_OBRAS' : accion === 'CONSULTA_OBRAS' && n.obra_texto !== undefined ? 'CONSULTA_OBRA' : accion;
 
   const ok: Record<string, unknown> = { accion: nombre };
   const faltantes: string[] = [];
@@ -303,6 +307,7 @@ export function completarOrden(raw: unknown): ResultadoCompletar {
     if (obligatorio) faltantes.push(k);
     descartados.push({ campo: k, motivo: r.error.issues[0]?.message ?? 'inválido' });
   }
+  if (nombre === 'MARCAR_PAGADA' && ok.estado === undefined) ok.estado = 'pagada'; // «márcala pagada» ya dice el estado
   if (descartados.length) logJev('campo_descartado', { accion: nombre, descartados, orden: raw });
   if (faltantes.length) {
     logJev('orden_incompleta', { accion: nombre, faltantes, orden: raw });
@@ -324,63 +329,148 @@ export function validarOrden(raw: unknown): { ok: true; orden: OrdenJev } | { ok
   return { ok: false, error: r.estado === 'faltan' ? `faltan: ${r.faltantes.join(', ')}` : r.motivo };
 }
 
-// ───────────────────────── Esquema ESTRICTO para OpenAI (Structured Outputs) ─────────────────────────
+// ───────────────────────── Esquemas ESTRICTOS para OpenAI (Structured Outputs) en DOS pasos ─────────────────────────
+//
+// Paso 1 (`elegir_accion`): enum cerrado con el tipo de orden (un esquema diminuto: no hay campos que dejar a null).
+// Paso 2 (`orden_jev`): esquema estricto SOLO de esa acción, con sus pocos campos. Los obligatorios NO admiten
+// null (el modelo tiene que copiarlos del mensaje; si de verdad no los dijo, ""), los opcionales sí.
 
 type JS = Record<string, unknown>;
 
-/** Una propiedad del esquema de una acción → su versión estricta: tipo + "null", sin límites de longitud. */
-function propEstricta(js: JS): JS {
+/** Qué hace cada acción, para que el modelo no las confunda (una línea + un ejemplo). */
+export const AYUDA_ACCION: Record<NombreAccion, { que: string; ejemplo: string }> = {
+  ACLARAR: { que: 'No se entiende qué quiere, o pide algo que el asistente no puede hacer (p. ej. cambiar el estado de un albarán). Lleva una pregunta corta.', ejemplo: '«Anota esto» → ¿En qué obra lo anoto y qué quieres apuntar?' },
+  CHARLA: { que: 'SOLO saludos, gracias o charla sin ninguna petición.', ejemplo: '«Hola, buenas»' },
+  CREAR_CLIENTE: { que: 'Dar de alta un cliente nuevo.', ejemplo: '«crea el cliente Jon Arrieta, teléfono 600123123, de Irún» → nombre_texto «Jon Arrieta», telefono_texto «600123123», direccion_texto «Irún»' },
+  ACTUALIZAR_CLIENTE: { que: 'Cambiar datos de un cliente que ya existe (NIF, dirección, teléfono, email).', ejemplo: '«el NIF de Ainhoa es 44444444B» → cliente_texto «Ainhoa», nif_texto «44444444B»' },
+  CREAR_OBRA: { que: 'Abrir/crear una obra nueva.', ejemplo: '«crea la obra Reforma baño Ane para Mikel Etxeberria» → nombre_texto «Reforma baño Ane», cliente_texto «Mikel Etxeberria»' },
+  CERRAR_OBRA: { que: 'Cerrar, pausar o reabrir una obra.', ejemplo: '«cierra la obra de Paqui» → obra_texto «Paqui», estado «cerrada»' },
+  PRESUPUESTO_DICTADO: { que: 'Crear un presupuesto NUEVO para un cliente a partir de los trabajos que dicta.', ejemplo: '«presupuesto para Paqui: alicatar el baño, 12 metros a 40 euros» → cliente_texto «Paqui», partidas [{concepto_texto «alicatar el baño», cantidad_texto «12», unidad_texto «metros», precio_texto «40»}]' },
+  PRESUPUESTO_PARTIDAS: { que: 'Quitar, cambiar o añadir partidas de un presupuesto que YA existe (borrador).', ejemplo: '«quítale la mampara al 11 y pon 2 metros más de alicatado» → presupuesto_texto «11», quitar_texto [«mampara»], cambiar [{partida_texto «alicatado», sumar_cantidad_texto «2»}]' },
+  CAMBIAR_ESTADO_PRESUPUESTO: { que: 'Pasar un presupuesto a aceptado, rechazado, enviado…', ejemplo: '«pasa el presupuesto 7 a rechazado» → presupuesto_texto «7», estado «rechazado»' },
+  FACTURAR: { que: 'Convertir en factura un presupuesto o un albarán QUE YA EXISTE (se identifica por número o cliente).', ejemplo: '«hazme la factura del presupuesto de García» → presupuesto_texto «García»' },
+  MARCAR_PAGADA: { que: 'Marcar una factura como pagada/cobrada.', ejemplo: '«marca la factura 3 como pagada» → factura_texto «3», estado «pagada»' },
+  PDF_ENLACE: { que: 'Dar el PDF de un presupuesto o de una factura.', ejemplo: '«mándame el PDF de la factura 3» → documento «factura», ref_texto «3»' },
+  DIARIO: { que: 'Anotar algo en el diario de una obra.', ejemplo: '«en el diario de Paqui: hoy se ha picado el baño» → obra_texto «Paqui», texto «hoy se ha picado el baño»' },
+  HORAS: { que: 'Apuntar horas trabajadas por un operario en una obra.', ejemplo: '«ponle 8 horas a Iker en lo de Paqui» → operario_texto «Iker», horas_texto «8», obra_texto «Paqui»' },
+  GASTO: { que: 'Registrar un gasto/ticket de compra.', ejemplo: '«180 más IVA en Saltoki para lo de Leire» → importe_texto «180», iva_modo «mas», proveedor_texto «Saltoki», obra_texto «Leire»' },
+  PROVEEDOR_CREAR: { que: 'Dar de alta un proveedor.', ejemplo: '«da de alta a Bricomart de Irún como proveedor» → nombre_texto «Bricomart», notas_texto «de Irún»' },
+  CITA_CREAR: { que: 'Crear una cita o recordatorio en la agenda.', ejemplo: '«visita mañana a las 10 con Ane» → titulo_texto «Visita con Ane», fecha_texto «mañana», hora_texto «a las 10»' },
+  CITA_MOVER: { que: 'Mover una cita que ya existe a otro día u hora.', ejemplo: '«pasa lo de Mikel al viernes a la misma hora» → evento_texto «Mikel», fecha_texto «el viernes»' },
+  CITA_BORRAR: { que: 'Borrar una cita (solo si lo pide claramente).', ejemplo: '«borra la cita de Mikel» → evento_texto «Mikel»' },
+  CONSULTA_AGENDA: { que: 'Preguntar qué hay en la agenda en un rango de días.', ejemplo: '«¿qué tengo esta semana?» → rango_texto «esta semana»' },
+  CONSULTA_GASTOS: { que: 'Preguntar cuánto se ha gastado / listar gastos.', ejemplo: '«¿cuánto me he gastado en Saltoki?» → proveedor_texto «Saltoki»' },
+  CONSULTA_OBRA: { que: 'Ficha de una obra concreta.', ejemplo: '«¿cómo va la obra de Amaia?» → obra_texto «Amaia»' },
+  CREAR_FACTURA: { que: 'Crear una factura LIBRE para un cliente con un importe (sin partir de un presupuesto).', ejemplo: '«hazle una factura de 500 a Paqui por la reforma» → cliente_texto «Paqui», importe_texto «500», descripcion_texto «la reforma»' },
+  CONSULTA_DIA: { que: 'Preguntar qué hay hoy (agenda, obras…).', ejemplo: '«¿qué tengo hoy?»' },
+  CONSULTA_OBRAS: { que: 'Listar obras (abiertas/cerradas) o preguntar por una obra concreta con obra_texto.', ejemplo: '«¿qué obras tengo activas?» → estado «abiertas»; «¿cómo va la obra de Amaia?» → obra_texto «Amaia»' },
+  CONSULTA_PRESUPUESTOS: { que: 'Listar presupuestos (pendientes, aceptados, todos).', ejemplo: '«¿qué presupuestos tengo pendientes?» → estado «pendientes»' },
+  CONSULTA_FACTURAS: { que: 'Listar facturas (pendientes de cobro, pagadas, vencidas).', ejemplo: '«¿qué facturas tengo pendientes de cobro?» → estado «pendiente»' },
+};
+
+/** Cómo rellenar cada campo (se manda en la `description` del esquema). Lo que no dijo: null (opcional) o "" (obligatorio). */
+const DESCRIPCION_CAMPO: Record<string, string> = {
+  pregunta: 'La pregunta corta al usuario.',
+  nombre_texto: 'El nombre tal como lo dijo («Jon PRUEBA Arrieta», «Reforma baño Ane»).',
+  cliente_texto: 'El cliente tal como lo dijo («Paqui», «Mikel Etxeberria»).',
+  obra_texto: 'La obra tal como la nombró («Paqui», «lo de Leire», «Olabide 9»).',
+  proveedor_texto: 'El proveedor tal como lo dijo («Saltoki»).',
+  operario_texto: 'El operario («Iker»).',
+  presupuesto_texto: 'Qué presupuesto: su número («11»), el cliente («García») o «ese» si dice «ese presu / el último».',
+  factura_texto: 'Qué factura: su número («3»), el cliente o «esa» si dice «esa factura / la última».',
+  albaran_texto: 'Número o cliente del albarán («12»).',
+  evento_texto: 'La cita que mueve o borra, por la persona o el título («Mikel»).',
+  ref_texto: 'Número («3») o «ese»/«esa» si dice «ese presu / esa factura».',
+  importe_texto: 'La cifra tal como la dijo, sin símbolo («180», «1.500»).',
+  horas_texto: 'Las horas tal como las dijo («8», «6 y media»).',
+  cantidad_texto: 'La cantidad dicha («12»); si es un trabajo a precio cerrado, «1».',
+  sumar_cantidad_texto: 'Cuánto SE AÑADE a la cantidad actual («2» en «2 metros más»).',
+  precio_texto: 'El precio unitario dicho («40»); si es un precio cerrado del trabajo, ese importe.',
+  unidad_texto: 'La unidad dicha («metros», «m2», «unidades»).',
+  concepto_texto: 'El trabajo o material dictado («alicatar el baño»).',
+  partida_texto: 'La partida existente a la que se refiere («alicatado»).',
+  nuevo_nombre_texto: 'Nuevo nombre de la partida, solo si lo cambia.',
+  quitar_texto: 'Partidas que hay que quitar («mampara»).',
+  cambiar: 'Partidas existentes que cambian (cantidad, precio o nombre).',
+  anadir: 'Partidas nuevas que se añaden.',
+  partidas: 'Una por cada trabajo dictado, con cantidad y precio solo si los dijo.',
+  fecha_texto: 'COPIA las palabras del usuario («hoy», «ayer», «el jueves», «el lunes que viene», «12 de octubre»). NUNCA una fecha en formato 2026-10-05 ni calculada.',
+  hora_texto: 'La hora tal como la dijo («a las 10», «10 y media», «a las 5»).',
+  hora_fin_texto: 'Hora de fin, solo si la dijo.',
+  rango_texto: 'El rango dicho («esta semana», «mañana», «el jueves»).',
+  periodo_texto: 'El periodo dicho («este mes»).',
+  titulo_texto: 'Título corto de la cita, solo si se puede deducir («Visita con Ane»).',
+  lugar_texto: 'Lugar, solo si lo dijo.',
+  notas_texto: 'Notas extra, solo si las dijo.',
+  descripcion_texto: 'El concepto o descripción, solo si lo dijo («la reforma», «cable y mecanismos»).',
+  texto: 'Lo que hay que anotar, tal como lo dijo.',
+  direccion_texto: 'Dirección o población, tal como la dijo.',
+  telefono_texto: 'Teléfono tal como lo dijo.',
+  email_texto: 'Email tal como lo dijo.',
+  nif_texto: 'NIF/CIF tal como lo dijo.',
+  nombre_nuevo_texto: 'Nuevo nombre del cliente, solo si lo cambia.',
+  iva_modo: '"mas" si dijo «más IVA»; "incluido" si dijo «con IVA / IVA incluido»; null si no lo dijo.',
+  categoria: 'Categoría del gasto, solo si se deduce («material», «herramienta»…).',
+  estado: 'El estado pedido, tal como lo dijo («pagada», «rechazado», «pendientes», «cerrada»).',
+  documento: '«presupuesto» o «factura».',
+};
+
+/** Una propiedad de zod→JSON Schema → su versión estricta. `obligatoria`: sin null (hay que rellenarla). */
+function propEstricta(js: JS, obligatoria: boolean): JS {
   const variantes = (js.anyOf as JS[] | undefined) ?? [js];
   const base: JS = variantes.find((x) => x.type !== 'null') ?? {};
-  if (base.type === 'array') return { type: ['array', 'null'], items: objetoEstricto(base.items as JS) };
-  if (base.enum) return { type: ['string', 'null'], enum: [...(base.enum as string[]), null] };
-  return { type: ['string', 'null'] };
+  const tipo = (t: string) => (obligatoria ? t : [t, 'null']);
+  if (base.type === 'array') return { type: tipo('array'), items: objetoEstricto(base.items as JS) };
+  if (base.enum) return { type: tipo('string'), enum: obligatoria ? [...(base.enum as string[])] : [...(base.enum as string[]), null] };
+  return { type: tipo('string') };
 }
 
-/** Objeto estricto: TODAS las propiedades obligatorias (pueden valer null) y nada de propiedades de más. */
+/** Objeto estricto: TODAS las propiedades obligatorias en el esquema (los opcionales pueden valer null), sin extras. */
 function objetoEstricto(js: JS): JS {
   if (js.type !== 'object') return { type: 'string' };
   const props = (js.properties ?? {}) as Record<string, JS>;
+  const oblig = new Set((js.required ?? []) as string[]);
   const out: Record<string, JS> = {};
-  for (const [k, p] of Object.entries(props)) out[k] = propEstricta(p);
+  for (const [k, p] of Object.entries(props)) {
+    // Dentro de una lista, el campo clave no admite null; el resto sí.
+    out[k] = { ...propEstricta(p, oblig.has(k)), ...(DESCRIPCION_CAMPO[k] ? { description: DESCRIPCION_CAMPO[k] } : {}) };
+  }
   return { type: 'object', properties: out, required: Object.keys(out), additionalProperties: false };
 }
 
-const DESCRIPCION: Record<string, string> = {
-  continua_tarea: 'true solo si corrige o completa la TAREA EN CURSO; si no, null',
-  pregunta: 'Solo para ACLARAR: la pregunta corta al usuario',
-  estado: 'Estado tal como lo dijo el usuario, si lo dijo',
-  iva_modo: '"mas" si dijo «más IVA»; "incluido" si dijo «con IVA / IVA incluido»; si no lo dijo, null',
-  partidas: 'Una por cada trabajo dictado',
-  texto: 'Lo que hay que anotar en el diario, tal como lo dijo',
-};
+/** Acciones que ve el modelo: `CONSULTA_OBRA` no está (es CONSULTA_OBRAS con `obra_texto`). */
+export function accionesDelModelo(acciones: NombreAccion[]): NombreAccion[] {
+  const l = new Set<NombreAccion>([...acciones, 'ACLARAR', 'CHARLA']);
+  if (l.delete('CONSULTA_OBRA')) l.add('CONSULTA_OBRAS');
+  return [...l];
+}
 
-/**
- * Esquema de la función `orden_jev` para una lista de acciones, listo para `strict: true`.
- *
- * Es UN solo objeto plano: `accion` (enum cerrado) + la unión de los campos de todas las órdenes (~45). Todos
- * obligatorios pero con `null` permitido (así el modelo puede decir «esto no lo dijo» sin inventar un ""), y
- * `additionalProperties: false` en todos los niveles. `completarOrden` se queda después solo con los campos
- * que pertenecen a la acción elegida.
- */
-export function jsonSchemaEstricto(acciones: NombreAccion[]): JS {
-  const lista = [...new Set<NombreAccion>([...acciones, 'ACLARAR', 'CHARLA'])];
-  const props: Record<string, JS> = { accion: { type: 'string', enum: lista } };
-  const enums: Record<string, Set<string>> = {};
-  for (const a of lista) {
-    const js = z.toJSONSchema(ORDENES[a], { io: 'input' }) as JS;
-    for (const [k, p] of Object.entries((js.properties ?? {}) as Record<string, JS>)) {
-      if (k === 'accion') continue;
-      const est = propEstricta(p);
-      if (est.enum) {
-        enums[k] ??= new Set();
-        for (const e of est.enum as Array<string | null>) if (e !== null) enums[k]!.add(e);
-      }
-      if (!props[k]) props[k] = est;
-    }
-  }
-  for (const [k, vals] of Object.entries(enums)) props[k] = { type: ['string', 'null'], enum: [...vals, null] };
-  const todas: Record<string, JS> = { continua_tarea: { type: ['boolean', 'null'] }, ...props };
-  for (const [k, d] of Object.entries(DESCRIPCION)) if (todas[k]) todas[k] = { ...todas[k]!, description: d };
-  return { type: 'object', properties: todas, required: Object.keys(todas), additionalProperties: false };
+/** Paso 1: solo el tipo de orden (enum cerrado) y si continúa la tarea en curso. */
+export function jsonSchemaAccion(acciones: NombreAccion[]): JS {
+  return {
+    type: 'object',
+    properties: {
+      accion: { type: 'string', enum: accionesDelModelo(acciones), description: 'El tipo de orden que pide el usuario.' },
+      continua_tarea: { type: ['boolean', 'null'], description: 'true solo si corrige o completa la TAREA EN CURSO; si no, null.' },
+    },
+    required: ['accion', 'continua_tarea'],
+    additionalProperties: false,
+  };
+}
+
+/** Paso 2: esquema estricto de UNA acción (sin el campo `accion`, que ya se sabe). `null` si no tiene campos. */
+export function jsonSchemaCampos(accion: NombreAccion): JS | null {
+  if (accion === 'CHARLA') return null;
+  const js = z.toJSONSchema(ORDENES[accion], { io: 'input' }) as JS;
+  const props = { ...((js.properties ?? {}) as Record<string, JS>) };
+  delete props.accion;
+  if (!Object.keys(props).length) return null;
+  const obj = objetoEstricto({ type: 'object', properties: props, required: ((js.required ?? []) as string[]).filter((k) => k !== 'accion') });
+  return obj;
+}
+
+/** Nombre de acción que viene del modelo → un `NombreAccion` válido (o null). */
+export function normalizarAccionPublica(v: unknown): NombreAccion | null {
+  const a = normalizarCrudo({ accion: v }).accion;
+  return esAccion(a) ? a : null;
 }

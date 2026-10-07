@@ -7,20 +7,15 @@ import { ORDEN_POR_FRASE } from '../evals/ordenes-jev';
 import { FRASES_RONDA6 } from '../evals/ronda6';
 import { compararOrden, coincide, datosInventados } from '../evals/comparar-orden';
 import { ACCIONES_POR_CATEGORIA, completarOrden } from '@/lib/jev/ordenes';
-import { interpretarSalida } from '@/lib/jev/traductor';
-import { herramientaOrdenJev } from '@/lib/jev/traductor';
+import { herramientaElegirAccion, interpretarSalida } from '@/lib/jev/traductor';
 
 const todas: Array<[string, Record<string, unknown>]> = [
   ...Object.entries(ORDEN_POR_FRASE).map(([f, c]) => [f, c.orden] as [string, Record<string, unknown>]),
   ...FRASES_RONDA6.map((c) => [c.frase, c.orden] as [string, Record<string, unknown>]),
 ];
 
-/** Lo que devolvería un modelo perfecto con strict: todos los campos del esquema, null donde no dijo nada. */
-function comoEstricto(orden: Record<string, unknown>): string {
-  const props = Object.keys((herramientaOrdenJev('general') as unknown as { function: { parameters: { properties: Record<string, unknown> } } }).function.parameters.properties);
-  const out: Record<string, unknown> = Object.fromEntries(props.map((k) => [k, null]));
-  return JSON.stringify({ ...out, ...orden });
-}
+/** Lo que devolvería un modelo perfecto: la orden, con null en lo que no dijo. */
+const comoEstricto = (orden: Record<string, unknown>) => JSON.stringify({ continua_tarea: null, ...orden });
 
 /** Frases cuya orden de `ordenes-jev.ts` SIMULA un fallo del modelo (IVA al revés, importe inventado): el comparador debe cazarlas. */
 const FALLOS_SIMULADOS = new Set([
@@ -58,6 +53,6 @@ describe('comparador del eval real', () => {
     expect(datosInventados('gasto de 180 en Saltoki', { importe_texto: '181', proveedor_texto: 'Bricomart' })).toHaveLength(2);
   });
   it('la categoría del traductor siempre tiene herramienta', () => {
-    for (const c of Object.keys(ACCIONES_POR_CATEGORIA)) expect(herramientaOrdenJev(c).type).toBe('function');
+    for (const c of Object.keys(ACCIONES_POR_CATEGORIA)) expect(herramientaElegirAccion(c).type).toBe('function');
   });
 });
