@@ -109,6 +109,14 @@ import {
   idsParaPlanEjecutado,
   logAgenteTurno,
   marcaOpcionesParaHistorial,
+  marcaUltimoPresupuesto,
+  esAfirmacionSuelta,
+  asistentePreguntoAlgo,
+  MENSAJE_NADA_PENDIENTE,
+  REGLA_SI_SUELTO,
+  leerUltimoPresupuestoDeHistorial,
+  ultimoPresupuestoDeResultados,
+  inyectarUltimoPresupuesto,
   opcionesDeResultados,
   pareceAccionQueRequiereTool,
   plannedToolsFromAssistantToolCalls,
@@ -127,6 +135,9 @@ import {
   intentPorSenalExplicita,
   parseAgentIntentCategory,
   toolsForAgentIntent,
+  pideBorrar,
+  quitarToolsDestructivasSiNoPideBorrar,
+  TOOLS_DESTRUCTIVAS,
 } from '@/lib/agente/router';
 
 let openaiCliente: OpenAI | null = null;
@@ -233,6 +244,7 @@ export async function POST(request: NextRequest) {
     const ultimoAsistenteHistorial = [...historialValido]
       .reverse()
       .find((m) => m.role === 'assistant' && m.content.trim().length > 0);
+    const ultimoPresupuestoConv = leerUltimoPresupuestoDeHistorial(historialValido);
     const mensajeOriginalTrim = typeof mensaje === 'string' ? mensaje.trim() : '';
     const mensajeTrim =
       resolverEleccionOpcion(mensajeOriginalTrim, ultimoAsistenteHistorial?.content) ?? mensajeOriginalTrim;
@@ -651,8 +663,9 @@ export async function POST(request: NextRequest) {
         plan: { fuente: 'ninguno', ejecutado: [valida.tool] },
         result: { n: 1, resumen: [{ tool: valida.tool, result: resumirToolResultParaLog(resultadoConfirmado) }] },
       });
+      const presConf = ultimoPresupuestoDeResultados([resultadoConfirmado]);
       return NextResponse.json({
-        respuesta: enriquecerTextoConMaps(prosaConf),
+        respuesta: enriquecerTextoConMaps(prosaConf) + (presConf ? marcaUltimoPresupuesto(presConf) : ''),
         email_pendiente: emailPendienteParaCliente,
         canvas: canvasParaCliente,
         obra_modal: obraFichaParaCliente,
@@ -760,6 +773,29 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
       .order('created_at', { ascending: false })
       .limit(10);
 
+    // Obras cerradas recientes: solo para CONSULTAR («¿cómo va la obra de Ane?» con la obra ya cerrada).
+    const { data: obrasCerradas } = await supabase
+      .from('obras')
+      .select('id, nombre, cliente_id, direccion')
+      .eq('business_id', business_id)
+      .eq('estado', 'cerrada')
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    // Nombre del cliente de cada obra del prompt: así «la obra de Ane» se asocia a la obra de Ane y no a otra.
+    const idsClientesObras = [
+      ...new Set([...(obrasAbiertas ?? []), ...(obrasCerradas ?? [])].map((o) => o.cliente_id).filter((x): x is string => Boolean(x))),
+    ];
+    const nombreClienteDeObra = new Map<string, string>();
+    if (idsClientesObras.length > 0) {
+      const { data: cliObras } = await supabase.from('clientes').select('id, nombre').eq('business_id', business_id).in('id', idsClientesObras);
+      for (const c of (cliObras ?? []) as Array<{ id: string; nombre: string | null }>) {
+        if (c.nombre) nombreClienteDeObra.set(c.id, c.nombre);
+      }
+    }
+    const lineaObra = (o: { nombre: string; id: string; direccion?: string | null; cliente_id?: string | null }) =>
+      `- ${o.nombre} (id: ${o.id})${o.cliente_id && nombreClienteDeObra.get(o.cliente_id) ? ', cliente: ' + nombreClienteDeObra.get(o.cliente_id) : ''}${o.direccion ? ', dir: ' + o.direccion : ''}`;
+
     const { data: clientesActivos } = await supabase
       .from('clientes')
       .select('id, nombre, email, telefono')
@@ -782,14 +818,12 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
         : `Tienes acceso a la gestión de operarios. Puedes registrar horas de trabajo por obra, listar operarios y consultar resúmenes de horas. Aún no hay operarios activos listados en el sistema para este negocio. Cuando registres horas, si el usuario no distingue entre reales y convenio, guarda el mismo valor en ambos.`;
 
     const obrasCtx =
-      (obrasAbiertas ?? []).length > 0
-        ? `\nOBRAS ABIERTAS ACTUALES:\n${(obrasAbiertas ?? [])
-            .map(
-              (o) =>
-                `- ${o.nombre} (id: ${o.id})${o.direccion ? ', dir: ' + o.direccion : ''}`
-            )
-            .join('\n')}`
-        : '\nNo hay obras abiertas actualmente.';
+      ((obrasAbiertas ?? []).length > 0
+        ? `\nOBRAS ABIERTAS ACTUALES:\n${(obrasAbiertas ?? []).map(lineaObra).join('\n')}`
+        : '\nNo hay obras abiertas actualmente.') +
+      ((obrasCerradas ?? []).length > 0
+        ? `\nOBRAS CERRADAS RECIENTES (solo para consultar; no se les añade nada):\n${(obrasCerradas ?? []).map(lineaObra).join('\n')}\nSi te preguntan por una obra de un cliente, usa la obra de ESE cliente (abierta o cerrada). Si no aparece aquí, búscala con buscar_obra o ver_ficha_obra; si no existe, dilo: NUNCA contestes con la obra de otro cliente.`
+        : '');
 
     const clientesCtx =
       (clientesActivos ?? []).length > 0
@@ -994,6 +1028,9 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
     if (tools.length === 0) {
       tools = ALL_AGENT_TOOLS;
     }
+    // Las herramientas que BORRAN solo se ofrecen si el mensaje pide claramente borrar o quitar: una
+    // consulta («¿cuánto me he gastado en Saltoki?») nunca debe poder acabar en un borrado.
+    tools = quitarToolsDestructivasSiNoPideBorrar(tools, mensajeTrim, ultimoAsistenteHistorial?.content);
 
     const fechaHoyMadrid = new Date().toLocaleDateString('es-ES', {
       timeZone: 'Europe/Madrid',
@@ -1016,10 +1053,17 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
               ? `${promptEspecialidad(GASTOS_AGENT_SYSTEM_PROMPT)}\n\n---\nContexto del negocio (solo referencia).\nNegocio: ${nombre} (${sector}). Fecha: ${fechaActual}.${obrasCtx}${clientesCtx}\n${memoriaNegocioBlockNoPresupuestos}`
             : systemPrompt;
 
+    // Un «sí» escrito sin confirmación pendiente (el botón ya lo gestiona `confirmar_accion`) no lanza otra
+    // acción: si el asistente no había preguntado nada, se contesta que no hay nada pendiente.
+    const afirmacionSuelta = esAfirmacionSuelta(mensajeTrim) && !hasBorradorActivo;
+    if (afirmacionSuelta && !asistentePreguntoAlgo(ultimoAsistenteHistorial?.content)) {
+      return NextResponse.json({ respuesta: MENSAJE_NADA_PENDIENTE, email_pendiente: null, canvas: null, obra_modal: null });
+    }
+
     const historialLimitado = historialValido.slice(-10);
 
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-      { role: 'system', content: systemPromptEfectivo },
+      { role: 'system', content: afirmacionSuelta ? `${systemPromptEfectivo}\n\n${REGLA_SI_SUELTO}` : systemPromptEfectivo },
       ...historialLimitado.map((m) => ({ role: m.role, content: m.content })),
       { role: 'user', content: userContent },
     ];
@@ -1105,12 +1149,19 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
     let accionPendiente = null as AccionPendiente | null; // se asigna dentro de procesarPasos (TS no ve esas asignaciones)
 
     if (firstToolCalls?.length) {
-      const plan = plannedToolsFromAssistantToolCalls(firstToolCalls);
+      const planBruto = inyectarUltimoPresupuesto(plannedToolsFromAssistantToolCalls(firstToolCalls), mensajeTrim, ultimoPresupuestoConv);
+      // Defensa en el servidor: aunque el modelo pida borrar, sin una petición clara de borrar no se ejecuta.
+      const plan = pideBorrar(mensajeTrim, ultimoAsistenteHistorial?.content)
+        ? planBruto
+        : planBruto.filter((p) => !TOOLS_DESTRUCTIVAS.has(p.tool));
       const draftAssistant =
         typeof firstMessage?.content === 'string' ? firstMessage.content.trim() : '';
 
       if (plan.length === 0) {
-        respuesta = draftAssistant || 'No hay acciones de herramientas para ejecutar.';
+        respuesta =
+          planBruto.length > 0
+            ? 'No he borrado nada: no me has pedido borrar ni quitar. Si quieres borrarlo, dímelo claro (por ejemplo «borra ese gasto»).'
+            : draftAssistant || 'No hay acciones de herramientas para ejecutar.';
       } else {
         const guard = applyPerfilioGuardrails(plan, mensajeTrim);
         if (!guard.ok) {
@@ -1243,7 +1294,7 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
               if (typeof texto === 'string' && texto.trim()) respuestaTrasLectura = texto;
               break;
             }
-            const planSig = plannedToolsFromAssistantToolCalls(llamadas);
+            const planSig = inyectarUltimoPresupuesto(plannedToolsFromAssistantToolCalls(llamadas), mensajeTrim, ultimoPresupuestoConv);
             const guardSig = applyPerfilioGuardrails(planSig, mensajeTrim);
             if (planSig.length === 0 || !guardSig.ok) break;
             await procesarPasos(guardSig.plan, idsParaPlanEjecutado(guardSig.plan, llamadas));
@@ -1342,6 +1393,8 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
     // HTML invisible: así «la 2» se resuelve al id exacto en el turno siguiente.
     const opciones = opcionesDeResultados(resultadosDelTurno);
     if (opciones.length > 0) respuesta += marcaOpcionesParaHistorial(opciones);
+    const presTratado = ultimoPresupuestoDeResultados(resultadosDelTurno);
+    if (presTratado) respuesta += marcaUltimoPresupuesto(presTratado);
 
     return NextResponse.json({
       respuesta,

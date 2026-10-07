@@ -16,6 +16,8 @@ import {
 } from '@/lib/albaranes-sin-facturar';
 import {
   estructurarDictadoEnPartidas,
+  corregirPartidasConDictado,
+  validarPartidasContraDictado,
   formatearBorradorPresupuestoDictado,
   type TarifaReferencia,
 } from '@/lib/dictado-presupuesto';
@@ -1353,8 +1355,10 @@ export async function handleDocumentosAgent(
         try {
           partidas = await estructurarDictadoEnPartidas(dictado, tarifasForApi);
         } catch (e) {
-          return { error: e instanceof Error ? e.message : 'Error al estructurar el dictado' };
+          return { ok: false, error: e instanceof Error ? e.message : 'Error al estructurar el dictado' };
         }
+        // Los números que dijo el usuario mandan: se corrigen o se pregunta, nunca se guarda otro precio.
+        partidas = corregirPartidasConDictado(dictado, partidas);
       }
 
       const IVA_DICTADO = 21;
@@ -1367,6 +1371,10 @@ export async function handleDocumentosAgent(
         IVA_DICTADO
       );
       if (!canon.ok) return { error: canon.error };
+      if (resueltas.length === 0) {
+        const noCuadra = validarPartidasContraDictado(dictado, partidas);
+        if (noCuadra) return { ok: false, error: noCuadra };
+      }
 
       const partidasValidadas = partidas.map((p, i) => ({
         ...p,

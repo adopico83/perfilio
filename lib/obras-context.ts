@@ -107,6 +107,11 @@ function palabrasUsuarioCoincidenConObra(
 }
 
 export type OpcionesBusquedaObra = {
+  /**
+   * Nombre (de obra o de cliente) que el usuario dijo junto a un `obra_id`. Si el id no cuadra con él, se
+   * rechaza: el modelo a veces manda el id de otra obra y se acababa respondiendo con la de otro cliente.
+   */
+  nombreEsperado?: string;
   /** Para CONSULTAR (ficha, horas, gastos…): también obras cerradas. Para escribir, no (se priorizan las abiertas). */
   incluirCerradas?: boolean;
 };
@@ -464,6 +469,28 @@ export async function resolverObraDocumentoAgente(
       .eq('business_id', businessId)
       .eq('id', ex)
       .maybeSingle();
+    if (!error && row?.id && opciones.nombreEsperado?.trim()) {
+      const { data: obraCli } = await supabase
+        .from('obras')
+        .select('cliente_id')
+        .eq('business_id', businessId)
+        .eq('id', ex)
+        .maybeSingle();
+      const cid = (obraCli as { cliente_id?: string | null } | null)?.cliente_id;
+      let nombreCli = '';
+      if (cid) {
+        const { data: cli } = await supabase.from('clientes').select('nombre').eq('business_id', businessId).eq('id', cid).maybeSingle();
+        nombreCli = String((cli as { nombre?: string | null } | null)?.nombre ?? '');
+      }
+      const objetivo = normalizeForMatch(`${String(row.nombre ?? '')} ${nombreCli}`);
+      const pals = significantWords(normalizeForMatch(opciones.nombreEsperado), 3);
+      if (pals.length > 0 && !pals.every((w) => objetivo.includes(w))) {
+        return {
+          ok: false,
+          mensaje: `Ese obra_id es la obra «${String(row.nombre ?? '')}»${nombreCli ? ` (cliente ${nombreCli})` : ''}, que no cuadra con «${opciones.nombreEsperado.trim()}». No hago nada con ella: dime a qué obra te refieres.`,
+        };
+      }
+    }
     if (!error && row?.id) {
       const abierta = ESTADOS_ABIERTAS.has(String((row as { estado?: string | null }).estado ?? '').toLowerCase());
       if (abierta || incluirCerradas) {

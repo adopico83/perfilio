@@ -3,6 +3,7 @@ import { textoResumen } from '@/lib/resumen-diario/calcular';
 import type OpenAI from 'openai';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { normalizarNombreComparable, pedirAclaracion } from '@/lib/agente/modules/grounding';
+import { fechaDichaEnMensaje } from '@/lib/fechas-madrid';
 
 /** Normaliza hora dictada o en texto libre a HH:MM cuando es posible. */
 function normalizeHora(raw: string): string | null {
@@ -754,6 +755,7 @@ export const AGENDA_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = 
           evento_id: { type: 'string', description: 'UUID del evento' },
           titulo_fragmento: { type: 'string', description: 'Para buscar si no hay evento_id' },
           fecha: { type: 'string', description: 'Fecha YYYY-MM-DD para buscar' },
+          fecha_relativa: { type: 'string', description: 'Nuevo día dicho de forma relativa: mañana, pasado mañana, lunes… domingo. El servidor lo calcula en hora de Madrid.' },
           nuevo_titulo: { type: 'string', description: 'Nuevo título' },
           nueva_fecha: { type: 'string', description: 'Nueva fecha YYYY-MM-DD' },
           nueva_hora: { type: 'string', description: 'Nueva hora (texto libre) o vacío para quitar' },
@@ -851,7 +853,12 @@ export async function handleAgenda(
       const hoyYmdAgenda = formatYmdInMadrid(new Date());
       const relRaw = String(toolArgs.fecha_relativa ?? '').trim();
       let fechaRaw = '';
-      if (relRaw) {
+      // Lo que dijo el USUARIO (hoy, mañana, el lunes, el jueves que viene) lo calcula el servidor en hora de
+      // Madrid y manda sobre lo que haya escrito el modelo (que se equivocaba con los días de la semana).
+      const fechaDelUsuario = fechaDichaEnMensaje(ctx.mensajeTrim ?? '');
+      if (fechaDelUsuario) {
+        fechaRaw = fechaDelUsuario;
+      } else if (relRaw) {
         const resRel = resolveFechaRelativaToYmd(relRaw, hoyYmdAgenda);
         if (!resRel) {
           return {
@@ -1446,7 +1453,20 @@ export async function handleAgenda(
           : '';
 
       const nuevoTit = toolArgs.nuevo_titulo != null ? String(toolArgs.nuevo_titulo).trim() : '';
-      const nuevaFechaM = String(toolArgs.nueva_fecha ?? '').trim();
+      let nuevaFechaM = String(toolArgs.nueva_fecha ?? '').trim();
+      // Igual que al crear: la fecha que dijo el usuario («al viernes») la calcula el servidor en hora de Madrid
+      // y manda; si no, se resuelve fecha_relativa.
+      const fechaMoverUsuario = fechaDichaEnMensaje(ctx.mensajeTrim ?? '', new Date(), 'mover');
+      const relMover = String(toolArgs.fecha_relativa ?? '').trim();
+      if (fechaMoverUsuario) {
+        nuevaFechaM = fechaMoverUsuario;
+      } else if (relMover) {
+        const r = resolveFechaRelativaToYmd(relMover, formatYmdInMadrid(new Date()));
+        if (!r) {
+          return { error: 'fecha_relativa no reconocida. Valores válidos: mañana, pasado mañana, lunes, martes, miércoles, jueves, viernes, sábado, domingo.' };
+        }
+        nuevaFechaM = r;
+      }
       const nuevaHoraM = toolArgs.nueva_hora !== undefined ? String(toolArgs.nueva_hora) : undefined;
 
       const tieneAlguno =

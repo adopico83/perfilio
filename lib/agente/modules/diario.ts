@@ -412,7 +412,8 @@ export async function handleDiario(
         businessIdDiario,
         explicitObraDiario,
         textoDetDiario,
-        'entrada_diario'
+        'entrada_diario',
+        { nombreEsperado: obraNombreDiario || undefined }
       );
       if (!obraDiarioRes.ok) return aclaracionObra(obraDiarioRes);
       if (obraIdDiarioArg && !obraNombreDiario && !obraDiarioRes.obra_id) {

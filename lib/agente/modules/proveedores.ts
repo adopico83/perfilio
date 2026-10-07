@@ -97,7 +97,7 @@ export const PROVEEDORES_AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool
     function: {
       name: 'crear_proveedor',
       description:
-        'Da de alta un proveedor (nombre obligatorio; NIF, teléfono, email y notas opcionales). Si ya existe uno con ese nombre, no lo duplica. Los gastos de ese proveedor se vinculan solos a su ficha. Pide confirmación.',
+        'Da de alta un proveedor (nombre obligatorio; NIF, teléfono, email y notas opcionales). Si ya existe uno con ese nombre, no lo duplica. Los gastos de ese proveedor se vinculan solos a su ficha. Pide confirmación. Usa el nombre EXACTO que dijo el usuario; la población («de Irún») y cualquier dato extra van en notas.',
       parameters: {
         type: 'object',
         properties: {

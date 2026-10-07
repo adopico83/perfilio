@@ -825,6 +825,8 @@ export async function handlePresupuestos(
       return {
         ok: true,
         id: row.id as string,
+        presupuesto_id: row.id as string,
+        numero_presupuesto: fila.numero_presupuesto ?? null,
         mensaje: `Presupuesto ${fila.numero_presupuesto != null ? `nº ${fila.numero_presupuesto} de ` : 'de '}${fila.cliente_nombre ?? 'sin cliente'} marcado como ${estado}.`,
       };
     }
@@ -1005,6 +1007,8 @@ export async function handlePresupuestos(
       }
       return {
         ok: true,
+        presupuesto_id: loc.match.id,
+        numero_presupuesto: loc.match.numero_presupuesto ?? null,
         factura_id: r.factura_id,
         numero_factura: r.numero_factura,
         total: r.total,
@@ -1035,7 +1039,7 @@ export async function handlePresupuestos(
           presupuesto_id: r.presupuesto_id,
         };
       }
-      return { ok: true, id: r.presupuesto_id, mensaje: `Presupuesto ${quien} actualizado: ${r.cambios.join('; ')}. ${totales}` };
+      return { ok: true, id: r.presupuesto_id, presupuesto_id: r.presupuesto_id, numero_presupuesto: r.numero, mensaje: `Presupuesto ${quien} actualizado: ${r.cambios.join('; ')}. ${totales}` };
     }
     case 'iniciar_borrador_presupuesto': {
       if (!userId) return failClosed('Usuario no autenticado.');

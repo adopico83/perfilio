@@ -564,6 +564,47 @@ export async function prepararAccionPendiente(
     };
   }
 
+  if (tool === 'crear_proveedor') {
+    const nombre = String(args.nombre ?? '').trim();
+    if (!nombre) return resultadoError('¿Cómo se llama el proveedor?');
+    // «Saltoki de Irún»: la población (o cualquier dato extra) no se pierde: va a notas.
+    const extra = datosExtraProveedor(nombre, deps.mensajeUsuario);
+    const notas = [String(args.notas ?? '').trim(), extra].filter(Boolean).join(' · ');
+    const nuevos: Record<string, unknown> = { ...args, ...(notas ? { notas } : {}) };
+    const partes = [
+      valorLegible(nuevos.nif) ? `NIF: ${valorLegible(nuevos.nif)}` : '',
+      valorLegible(nuevos.telefono) ? `tel: ${valorLegible(nuevos.telefono)}` : '',
+      notas ? `notas: ${notas}` : '',
+    ].filter(Boolean);
+    return {
+      tipo: 'pendiente',
+      accion: { tool, args: nuevos, resumen: `Voy a dar de alta al proveedor «${nombre}»${partes.length ? ` (${partes.join(', ')})` : ''}.` },
+    };
+  }
+
+  if (tool === 'crear_obra') {
+    let nombre = String(args.nombre ?? '').trim();
+    if (!nombre) return resultadoError('¿Cómo se llama la obra?');
+    // Se respeta el nombre que dijo el usuario: si el modelo lo ha recortado («Reforma baño Ane» en vez de
+    // «Reforma baño Ane Hondarribia»), se completa con las palabras que siguen en el mensaje.
+    nombre = completarNombreDesdeMensaje(nombre, deps.mensajeUsuario, String(args.cliente_nombre ?? ''));
+    args.nombre = nombre;
+    // Si ya existe una obra con ese nombre, se AVISA (antes se reutilizaba en silencio).
+    const norm = (x: string) => x.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const { data: existentes } = await deps.supabase.from('obras').select('id, nombre, estado, cliente_id').eq('business_id', deps.businessId);
+    const igual = ((existentes ?? []) as Array<{ id: string; nombre: string | null; estado: string | null }>).find((o) => norm(String(o.nombre ?? '')) === norm(nombre));
+    if (igual) {
+      return resultadoError(
+        `Ya existe una obra llamada «${igual.nombre}» (${igual.estado ?? 'sin estado'}). ¿Quieres usar esa o prefieres otro nombre para la nueva? No he creado nada.`
+      );
+    }
+    const cli = String(args.cliente_nombre ?? '').trim();
+    return {
+      tipo: 'pendiente',
+      accion: { tool, args, resumen: `Voy a crear la obra «${nombre}»${cli ? ` para ${cli}` : ''}${valorLegible(args.direccion) ? ` (dirección: ${valorLegible(args.direccion)})` : ''}.` },
+    };
+  }
+
   if (tool === 'actualizar_obra') {
     type FilaObra = { id: string; nombre: string | null; estado: string | null };
     let obraFila = null as FilaObra | null;
@@ -701,4 +742,37 @@ export function fraseAccionHecha(tool: string): string {
 /** «Hecho: crear un recordatorio en la agenda (título: Visita, fecha: 2026-10-15).» con los datos reales. */
 export function fraseHechoConDatos(tool: string, args: Record<string, unknown>): string {
   return describirAccionGenerica(tool, args).replace(/^Voy a /, 'Hecho: ');
+}
+
+/**
+ * Si el nombre que mandó el modelo es el principio de lo que dijo el usuario y justo después vienen palabras
+ * con mayúscula («Hondarribia») que no son el cliente, se añaden: el nombre dicho se respeta.
+ */
+export function completarNombreDesdeMensaje(nombre: string, mensaje: string, clienteNombre = ''): string {
+  const quitar = (x: string) => x.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  const m = String(mensaje ?? '');
+  const idx = quitar(m).indexOf(quitar(nombre));
+  if (idx < 0 || !nombre.trim()) return nombre;
+  const resto = m.slice(idx + nombre.length);
+  const extra: string[] = [];
+  const palabrasCliente = new Set(quitar(clienteNombre).split(/\s+/).filter(Boolean));
+  for (const w of resto.trim().split(/\s+/)) {
+    if (!/^[A-ZÁÉÍÓÚÑ][\p{L}'-]+[,.;:]?$/u.test(w)) break;
+    const limpio = w.replace(/[,.;:]$/, '');
+    if (palabrasCliente.has(quitar(limpio))) break;
+    extra.push(limpio);
+    if (/[,.;:]$/.test(w)) break;
+  }
+  return extra.length > 0 ? `${nombre.trim()} ${extra.join(' ')}` : nombre;
+}
+
+/** Población u otros datos que el usuario dijo junto al proveedor («Saltoki de Irún»): para guardarlos en notas. */
+export function datosExtraProveedor(nombre: string, mensaje: string): string {
+  const quitar = (x: string) => x.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  const m = String(mensaje ?? '');
+  const idx = quitar(m).indexOf(quitar(nombre));
+  if (idx < 0) return '';
+  const resto = m.slice(idx + nombre.length);
+  const mm = resto.match(/^\s*(?:,\s*)?(?:de|en|del|—|-)\s+([A-ZÁÉÍÓÚÑ][\p{L}'-]+(?:\s+(?:de\s+)?[A-ZÁÉÍÓÚÑ][\p{L}'-]+)*)/u);
+  return mm ? `Población: ${mm[1]}` : '';
 }

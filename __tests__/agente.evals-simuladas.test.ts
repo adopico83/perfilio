@@ -277,3 +277,109 @@ describe('sin Jev: respaldo local por palabras clave', () => {
     expect(tools).toContain('resumen_del_dia');
   });
 });
+
+describe('ronda 5: a nivel de ruta', () => {
+  const vacio: CasoAgente = { frase: 'x', comportamiento: 'solo_lectura' };
+
+  it('el prompt incluye las obras CERRADAS recientes con su cliente (para «¿cómo va la obra de Amaia?»)', async () => {
+    preparar({ ...vacio, intencionJev: 'documentos' });
+    await postAgente({ mensaje: '¿cómo va la obra de Amaia?' });
+    const sistema = String((createMock.mock.calls[0]![0] as Llamada).messages[0]!.content);
+    expect(sistema).toContain('OBRAS CERRADAS RECIENTES');
+    expect(sistema).toContain('Reforma terraza Amaia');
+    expect(sistema).toContain('cliente: Amaia Etxeberria');
+    expect(sistema).toContain('cliente: Leire Ugarte'); // las abiertas también llevan su cliente
+  });
+
+  it('una pregunta de consulta («¿cuánto me he gastado en Saltoki?») NO ofrece herramientas de borrar y sí listar_gastos', async () => {
+    preparar({ ...vacio, intencionJev: 'gastos' });
+    await postAgente({ mensaje: '¿cuánto me he gastado en Saltoki?' });
+    const tools = nombresTools(createMock.mock.calls[0]![0] as Llamada);
+    expect(tools).toContain('listar_gastos');
+    for (const t of tools) expect(t).not.toMatch(/^eliminar_/);
+  });
+
+  it('en «general» (todas las tools) una consulta tampoco ofrece borrar; «borra ese gasto» sí', async () => {
+    preparar({ ...vacio });
+    await postAgente({ mensaje: '¿cuánto llevo gastado este mes?' });
+    expect(nombresTools(createMock.mock.calls[0]![0] as Llamada).filter((t) => t.startsWith('eliminar_'))).toHaveLength(0);
+    preparar({ ...vacio });
+    await postAgente({ mensaje: 'borra el gasto de Saltoki de ayer' });
+    expect(nombresTools(createMock.mock.calls[0]![0] as Llamada)).toContain('eliminar_gasto');
+  });
+
+  it('aunque el modelo pida eliminar_gasto ante una consulta, el servidor no borra nada', async () => {
+    preparar({ ...vacio, toolEsperada: 'eliminar_gasto', argsEsperados: { proveedor: 'Saltoki', solo_vista_previa: true } });
+    const antes = escrituras();
+    const { json } = await postAgente({ mensaje: '¿cuánto me he gastado en Saltoki?' });
+    expect(escrituras()).toBe(antes);
+    expect(json.accion_pendiente).toBeUndefined();
+    expect(String(json.respuesta)).toMatch(/No he borrado nada/);
+  });
+
+  it('un «sí» suelto sin nada pendiente (y sin pregunta previa) no llama al modelo ni hace nada', async () => {
+    preparar({ ...vacio });
+    db.tablas.presupuesto_borrador.length = 0; // sin presupuesto a medias
+    const antes = escrituras();
+    const { json } = await postAgente({
+      mensaje: 'sí',
+      historial: [{ role: 'assistant', content: 'Hecho: factura creada.' }],
+    });
+    expect(String(json.respuesta)).toMatch(/No tengo nada pendiente/);
+    expect(createMock).not.toHaveBeenCalled();
+    expect(escrituras()).toBe(antes);
+  });
+
+  it('un «sí» a una pregunta del asistente sí va al modelo, con la regla de no lanzar otra acción', async () => {
+    preparar({ ...vacio });
+    db.tablas.presupuesto_borrador.length = 0;
+    await postAgente({
+      mensaje: 'sí',
+      historial: [{ role: 'assistant', content: 'Gasto guardado. «Bricomart» no está dado de alta como proveedor: ¿quieres que lo dé de alta?' }],
+    });
+    expect(createMock).toHaveBeenCalled();
+    expect(String((createMock.mock.calls[0]![0] as Llamada).messages[0]!.content)).toMatch(/ÚNICAMENTE a tu última pregunta/);
+  });
+
+  it('«ese presu» usa el id REAL del último presupuesto de la conversación, no el que invente el modelo', async () => {
+    preparar({
+      ...vacio,
+      intencionJev: 'presupuesto',
+      toolEsperada: 'cambiar_estado_presupuesto',
+      argsEsperados: { presupuesto_id: 'bbbbbbbb-0000-4000-8000-0000000000ff', estado: 'aceptado' }, // id inventado
+    });
+    const marca = `\n<!--presupuesto:${JSON.stringify({ id: IDS.presupuestoMikelBorrador, numero: 10 })}-->`;
+    const { json } = await postAgente({
+      mensaje: 'el cliente ha dicho que sí, márcalo aceptado en ese presu',
+      historial: [{ role: 'assistant', content: `Presupuesto nº 10 de Mikel Etxeberria guardado como borrador.${marca}` }],
+    });
+    const accion = json.accion_pendiente as { args: Record<string, unknown>; resumen: string } | undefined;
+    expect(accion?.args.presupuesto_id).toBe(IDS.presupuestoMikelBorrador);
+    expect(accion?.resumen).toContain('nº 10');
+  });
+
+  it('un id inventado sin «ese presu» no se acepta: «No se encontró…» y nada pendiente', async () => {
+    preparar({
+      ...vacio,
+      intencionJev: 'presupuesto',
+      toolEsperada: 'cambiar_estado_presupuesto',
+      argsEsperados: { presupuesto_id: 'bbbbbbbb-0000-4000-8000-0000000000ff', estado: 'aceptado' },
+    });
+    const { json } = await postAgente({ mensaje: 'márcalo aceptado' });
+    expect(json.accion_pendiente).toBeUndefined();
+  });
+
+  it('la respuesta tras dictar lleva la marca invisible con el id del presupuesto guardado', async () => {
+    preparar({
+      ...vacio,
+      intencionJev: 'presupuesto',
+      toolEsperada: 'generar_presupuesto_por_dictado',
+      argsEsperados: { dictado: 'alicatar el baño, 12 metros a 40 euros', cliente_nombre: 'Mikel Etxeberria', cliente_id: IDS.clienteMikelEtxeberria },
+    });
+    const { json } = await postAgente({ mensaje: 'hazle un presupuesto a Mikel: alicatar el baño, 12 metros a 40 euros' });
+    // Pide confirmación (todavía no hay presupuesto guardado): sin marca. Al confirmar sí:
+    const accion = json.accion_pendiente as { tool: string; args: Record<string, unknown> };
+    const conf = await postAgente({ mensaje: 'sí', confirmar_accion: { tool: accion.tool, args: accion.args } });
+    expect(String(conf.json.respuesta)).toMatch(/<!--presupuesto:\{"id":"[^"]+","numero":12\}-->/);
+  });
+});

@@ -29,6 +29,7 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
     const distintos: Array<[string, unknown]> = [];
     const esNulo: string[] = [];
     const mayorIgual: Array<[string, unknown]> = [];
+    const menorIgual: Array<[string, unknown]> = [];
     /** Cada .or('a.is.null,b.neq.x') es un grupo: basta que cumpla UNA condición del grupo. */
     const grupos: Array<Array<(r: Fila) => boolean>> = [];
     let orden: { col: string; asc: boolean } | null = null;
@@ -47,6 +48,7 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
           distintos.every(([c, v]) => r[c] !== v) &&
           esNulo.every((c) => r[c] == null) &&
           mayorIgual.every(([c, v]) => r[c] != null && String(r[c]) >= String(v)) &&
+          menorIgual.every(([c, v]) => r[c] != null && String(r[c]) <= String(v)) &&
           grupos.every((g) => g.some((cond) => cond(r)))
       );
       if (orden) {
@@ -131,6 +133,10 @@ export function crearFakeDb(inicial: Record<string, Fila[]> = {}) {
       },
       gte(c: string, v: unknown) {
         mayorIgual.push([c, v]);
+        return chain;
+      },
+      lte(c: string, v: unknown) {
+        menorIgual.push([c, v]);
         return chain;
       },
       neq(c: string, v: unknown) {
