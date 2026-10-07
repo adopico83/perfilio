@@ -114,7 +114,7 @@ describe('día completo de la ronda 5', () => {
     const cita = T.agenda!.at(-1)!;
     expect(cita).toMatchObject({ fecha: '2026-10-12', hora: '17:00', cliente_id: iker.id, obra_id: obra.id });
     await hecho('pasa lo de Iker al jueves', { accion: 'CITA_MOVER', evento_texto: 'Iker PRUEBA', fecha_texto: 'al jueves' });
-    expect(T.agenda!.find((e) => e.id === cita.id)).toMatchObject({ fecha: '2026-10-08', hora: '17:00' });
+    expect(T.agenda!.find((e) => e.id === cita.id)).toMatchObject({ fecha: '2026-10-15', hora: '17:00' }); // «al jueves» cuenta desde la fecha de la cita (lunes 12)
 
     // 12) Cerrar la obra y consultarla cerrada (no se contesta con otra).
     await hecho('cierra la obra de Iker', { accion: 'CERRAR_OBRA', obra_texto: 'Reforma baño Iker Hondarribia' });

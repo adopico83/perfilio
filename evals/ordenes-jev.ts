@@ -130,8 +130,8 @@ export const ORDEN_POR_FRASE: Record<string, CasoOrdenJev> = {
   },
   'pasa lo de Mikel al viernes a la misma hora': {
     orden: { accion: 'CITA_MOVER', evento_texto: 'Mikel', fecha_texto: 'al viernes' },
-    contiene: ['2026-10-09'],
-    guardado: (t) => expect(t.agenda!.find((e) => e.id === 'ev-mikel')).toMatchObject({ fecha: '2026-10-09' }),
+    contiene: ['2026-10-16'],
+    guardado: (t) => expect(t.agenda!.find((e) => e.id === 'ev-mikel')).toMatchObject({ fecha: '2026-10-16' }),
   },
   '85 de material para lo de Mikel': {
     orden: { accion: 'GASTO', proveedor_texto: 'Material', importe_texto: '85', iva_modo: 'incluido', obra_texto: 'Mikel', categoria: 'material' },
@@ -199,6 +199,34 @@ export const ORDEN_POR_FRASE: Record<string, CasoOrdenJev> = {
     orden: { accion: 'PROVEEDOR_CREAR', nombre_texto: 'Bricomart' },
     contiene: ['Población: Irún'],
     guardado: (t) => expect(t.proveedores!.find((p) => p.nombre === 'Bricomart')).toMatchObject({ notas: 'Población: Irún' }),
+  },
+  // ── Ronda 7: reglas generales del ejecutor ──
+  'pon 14 en vez de 18 metros de alicatado en el 11': {
+    orden: { accion: 'PRESUPUESTO_PARTIDAS', presupuesto_texto: '11', cambiar: [{ partida_texto: 'alicatado', cantidad_texto: '14', cantidad_anterior_texto: '18' }] },
+    contiene: ['18 × 40 € → 14 × 40 €', 'ya está aceptado'],
+  },
+  'quítale 3 metros al alicatado del 11': {
+    orden: { accion: 'PRESUPUESTO_PARTIDAS', presupuesto_texto: '11', cambiar: [{ partida_texto: 'alicatado', sumar_cantidad_texto: '-3' }] },
+    contiene: ['18 × 40 € → 15 × 40 €'],
+  },
+  'ponle 6 horas a Aitor el pintor en lo de Paqui': {
+    orden: { accion: 'HORAS', operario_texto: 'Aitor el pintor', horas_texto: '6', obra_texto: 'Paqui' },
+    contiene: ['Aitor Gómez', 'Reforma Paqui'],
+    guardado: (t) => expect(ultimo(t, 'registros_jornada')).toMatchObject({ operario_id: IDS.operarioAitor, obra_id: IDS.obraPaqui, horas_reales: 6 }),
+  },
+  'apunta en el diario del baño de Unai que hoy se ha picado': {
+    orden: { accion: 'DIARIO', obra_texto: 'el baño de Unai', texto: 'Hoy se ha picado' },
+    contiene: ['Reforma baño completo'],
+    guardado: (t) => expect(ultimo(t, 'diario_obra')).toMatchObject({ obra_id: IDS.obraBanoUnai }),
+  },
+  'pasa lo de Mikel al jueves': {
+    orden: { accion: 'CITA_MOVER', evento_texto: 'Mikel', fecha_texto: 'al jueves' },
+    contiene: ['2026-10-15'],
+    guardado: (t) => expect(t.agenda!.find((e) => e.id === 'ev-mikel')).toMatchObject({ fecha: '2026-10-15' }),
+  },
+  '121 con IVA en Saltoki para lo de Leire': {
+    orden: { accion: 'GASTO', proveedor_texto: 'Saltoki', importe_texto: '121', iva_modo: 'incluido', obra_texto: 'Leire' },
+    contiene: ['Saltoki (tel. 943 111 222)'],
   },
 };
 

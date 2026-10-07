@@ -22,6 +22,8 @@ import { crearFakeDb } from '../__tests__/helpers/fake-db';
 const hayClave = Boolean(process.env.OPENAI_API_KEY?.trim());
 const umbral = Number(process.env.EVAL_UMBRAL ?? '0.95');
 const veces = Math.max(1, Number(process.env.EVAL_VECES ?? '1'));
+/** Dos llamadas al modelo por frase y `EVAL_VECES` pasadas: 30 min sobran (el timeout general de jest.eval.config.js es de 2). */
+const TIMEOUT_MS = 30 * 60 * 1000;
 
 type Frase = { frase: string; categoria: string; esperada: Record<string, unknown>; historial: Array<{ role: 'user' | 'assistant'; content: string }> };
 
@@ -104,7 +106,7 @@ const MARCA_F = /<!--factura:(\{.*?\})-->/;
     expect(inventados).toBe(0);
     expect(escrituras).toBe(0);
     expect(pct).toBeGreaterThanOrEqual(umbral);
-  });
+  }, TIMEOUT_MS);
 });
 
 if (!hayClave) {

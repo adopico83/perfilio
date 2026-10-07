@@ -7,7 +7,7 @@ export function respuestaModelo(req: Req, orden: Record<string, unknown>, opcion
   const nombres = req.tools?.map((t) => t.function.name) ?? [];
   if (nombres.includes('elegir_accion')) return llamada('elegir_accion', { accion: orden.accion, continua_tarea: opciones.continua === true ? true : null });
   if (nombres.includes('orden_jev')) {
-    const { accion: _accion, ...campos } = orden;
+    const campos = Object.fromEntries(Object.entries(orden).filter(([k]) => k !== "accion"));
     return llamada('orden_jev', campos);
   }
   return { choices: [{ message: { content: opciones.charla ?? 'Hola' } }] };

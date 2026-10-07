@@ -115,7 +115,7 @@ beforeAll(() => {
 });
 
 describe('frases de Pino con OpenAI simulado', () => {
-  const normales = CASOS_FRASES_PINO.filter((c) => c.frase !== 'Sí');
+  const normales = CASOS_FRASES_PINO.filter((c) => c.frase !== 'Sí' && !c.soloJev);
 
   it.each(normales.map((c) => [c.frase, c] as const))('«%s»', async (_frase, caso) => {
     preparar(caso);

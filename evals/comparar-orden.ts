@@ -23,8 +23,8 @@ const NUMERICOS = ['importe_texto', 'horas_texto', 'cantidad_texto', 'precio_tex
 const ENTIDADES = ['cliente_texto', 'obra_texto', 'proveedor_texto', 'operario_texto', 'presupuesto_texto', 'factura_texto'];
 /** Texto libre: basta con que el modelo lo haya rellenado. */
 /** Texto libre opcional: si el modelo no lo rellena, el servidor pone uno por defecto. */
-const LIBRES_OPCIONALES = ['titulo_texto', 'descripcion_texto'];
-const LIBRES = ['titulo_texto', 'descripcion_texto', 'texto', 'notas_texto', 'unidad_texto', 'lugar_texto', 'nombre_texto', 'direccion_texto', 'dictado'];
+const LIBRES_OPCIONALES = ['titulo_texto', 'descripcion_texto', 'cantidad_anterior_texto'];
+const LIBRES = ['titulo_texto', 'descripcion_texto', 'cantidad_anterior_texto', 'texto', 'notas_texto', 'unidad_texto', 'lugar_texto', 'nombre_texto', 'direccion_texto', 'dictado'];
 const COMODINES = ['ese', 'esa', 'esta', 'este', 'ultimo', 'ultima', 'hoy', 'manana'];
 
 const numeros = (s: string) => (norm(s).match(/\d+(?: \d+)?/g) ?? []).map((n) => n.replace(/ /g, ''));

@@ -182,10 +182,8 @@ describe('fechas relativas desde cada día de la semana (también si el día se 
     '2026-10-05': '2026-10-05', '2026-10-06': '2026-10-12', '2026-10-07': '2026-10-12', '2026-10-08': '2026-10-12',
     '2026-10-09': '2026-10-12', '2026-10-10': '2026-10-12', '2026-10-11': '2026-10-12',
   };
-  const PROXIMO_JUEVES: Record<string, string> = {
-    '2026-10-05': '2026-10-08', '2026-10-06': '2026-10-08', '2026-10-07': '2026-10-08', '2026-10-08': '2026-10-08',
-    '2026-10-09': '2026-10-15', '2026-10-10': '2026-10-15', '2026-10-11': '2026-10-15',
-  };
+  // «Al jueves» al mover una cita cuenta desde la fecha de la CITA (la de Mikel es el martes 13): siempre el jueves 15.
+  const PROXIMO_JUEVES: Record<string, string> = Object.fromEntries(Object.keys(PROXIMO_LUNES).map((d) => [d, '2026-10-15']));
   it.each(Object.keys(PROXIMO_LUNES))('hoy %s: «el lunes» y «al jueves»', async (hoy) => {
     const db = crearFakeDb(baseRonda5());
     const s = sesion(db, `${hoy}T10:00:00Z`);

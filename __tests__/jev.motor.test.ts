@@ -101,15 +101,15 @@ describe('jev: gasto «180 más IVA» (fallo 3): lo guardado == lo mostrado', ()
 });
 
 describe('jev: mover «al jueves» (fallo 4) y «el lunes» tras una corrección (fallo 5)', () => {
-  it('la vista previa dice 2026-10-08 y se guarda 2026-10-08', async () => {
+  it('«al jueves» cuenta desde la fecha de la CITA (martes 13): la vista previa dice 2026-10-15 y se guarda 2026-10-15', async () => {
     const db = crearFakeDb(baseRonda5());
     const s = sesion(db);
     const r = await s.di('pasa lo de Mikel al jueves', { accion: 'CITA_MOVER', evento_texto: 'Mikel', fecha_texto: 'al jueves' });
     expect(r.accionPendiente).toBeDefined();
-    expect(r.respuesta).toContain('2026-10-08');
+    expect(r.respuesta).toContain('2026-10-15');
     s.cambiarReloj('2026-10-07T20:00:00Z'); // confirma otro día: da igual, la acción ya está cerrada
     await s.confirmar(r.accionPendiente!.orden_id);
-    expect(db.tablas.agenda.find((e) => e.id === 'ev-mikel')).toMatchObject({ fecha: '2026-10-08' });
+    expect(db.tablas.agenda.find((e) => e.id === 'ev-mikel')).toMatchObject({ fecha: '2026-10-15' });
   });
   it('«no, con Iker PRUEBA» corrige solo el cliente y conserva «el lunes 17:00»; luego un «sí» escrito confirma', async () => {
     const db = crearFakeDb(baseRonda5());

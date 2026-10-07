@@ -35,6 +35,8 @@ export type CasoAgente = {
   respuestaContiene?: string[];
   /** Nota para quien lea el caso. */
   nota?: string;
+  /** Solo se prueba con el motor .jev (la barrera antigua no lo cubre: no hay simulación de tools). */
+  soloJev?: boolean;
 };
 
 export const CASOS_FRASES_PINO: CasoAgente[] = [
@@ -514,4 +516,11 @@ export const CASOS_FRASES_PINO: CasoAgente[] = [
     comportamiento: 'ejecuta',
     nota: 'Confirmación tras una acción pendiente: el panel reenvía confirmar_accion y el servidor la ejecuta.',
   },
+  // ── Ronda 7 (prueba e2e en producción): reglas GENERALES del ejecutor .jev ──
+  { frase: 'pon 14 en vez de 18 metros de alicatado en el 11', intencionJev: 'presupuesto', comportamiento: 'pide_confirmacion', soloJev: true, nota: 'Sustitución de cantidad: llega literal («14»); además el presupuesto 11 está aceptado: se avisa.' },
+  { frase: 'quítale 3 metros al alicatado del 11', intencionJev: 'presupuesto', comportamiento: 'pide_confirmacion', soloJev: true, nota: 'Delta negativo literal («-3»); el servidor calcula 15.' },
+  { frase: 'ponle 6 horas a Aitor el pintor en lo de Paqui', intencionJev: 'operarios', comportamiento: 'pide_confirmacion', soloJev: true, nota: 'Nombre + oficio: se busca por «Aitor» y el oficio sobra.' },
+  { frase: 'apunta en el diario del baño de Unai que hoy se ha picado', intencionJev: 'diario', comportamiento: 'pide_confirmacion', soloJev: true, nota: 'La obra se encuentra por el CLIENTE (Unai), no por el nombre de la obra.' },
+  { frase: 'pasa lo de Mikel al jueves', intencionJev: 'agenda', comportamiento: 'pide_confirmacion', soloJev: true, nota: '«Al jueves» cuenta desde la fecha de la cita (martes 13), no desde hoy.' },
+  { frase: '121 con IVA en Saltoki para lo de Leire', intencionJev: 'gastos', comportamiento: 'pide_confirmacion', soloJev: true, nota: 'El resumen enseña el teléfono del proveedor.' },
 ];
