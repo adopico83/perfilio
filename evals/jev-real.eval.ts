@@ -19,18 +19,6 @@ import { compararOrden } from './comparar-orden';
 import { NEGOCIO_A, USUARIO, crearBaseSimulada } from './base-simulada';
 import { crearFakeDb } from '../__tests__/helpers/fake-db';
 
-// Los PDF no se generan en el eval (@react-pdf/renderer es ESM y no hace falta): se simulan igual que en los tests.
-jest.mock('@/lib/pdf/factura-render', () => ({
-  FACTURA_PDF_COLUMNS: 'id, business_id, numero_factura, cliente_nombre',
-  nombreArchivoFacturaPdf: (_f: string, n: number) => `factura-${n}.pdf`,
-  renderFacturaPdf: async () => ({ ok: true, buffer: Buffer.from('%PDF'), fecha: '2026-10-06', numero_factura: 3 }),
-}));
-jest.mock('@/lib/pdf/presupuesto-render', () => ({
-  PRESUPUESTO_PDF_COLUMNS: 'id, business_id, numero_presupuesto, cliente_nombre, estado',
-  nombreArchivoPresupuestoPdf: () => 'presupuesto.pdf',
-  renderPresupuestoPdf: async () => ({ ok: true, buffer: Buffer.from('%PDF'), fecha: '2026-10-06' }),
-}));
-
 const hayClave = Boolean(process.env.OPENAI_API_KEY?.trim());
 const umbral = Number(process.env.EVAL_UMBRAL ?? '0.95');
 const veces = Math.max(1, Number(process.env.EVAL_VECES ?? '1'));
@@ -65,6 +53,9 @@ const MARCA_F = /<!--factura:(\{.*?\})-->/;
         const db = crearFakeDb(crearBaseSimulada());
         const ultimoAsistente = [...f.historial].reverse().find((h) => h.role === 'assistant')?.content;
         const runTool = crearRunToolJev({ supabase: db.client, businessId: NEGOCIO_A, userId: USUARIO });
+        // Los PDF no se generan en el eval (@react-pdf/renderer es ESM y los mocks de jest se pierden entre pasadas):
+        // la tool de PDF se simula aquí, justo donde el servidor la llamaría con el id ya resuelto.
+        const runToolEval: typeof runTool = async (tool, args) => (/pdf/.test(tool) ? { ok: true, mensaje: `[PDF simulado: ${tool}]` } : runTool(tool, args));
         let cruda: unknown = null;
         let salida: SalidaMotor | null = null;
         let error = '';
@@ -80,7 +71,7 @@ const MARCA_F = /<!--factura:(\{.*?\})-->/;
             ultimoAsistente,
             ultimoPresupuestoId: (() => { try { return (JSON.parse(ultimoAsistente?.match(MARCA)?.[1] ?? 'null') as { id?: string } | null)?.id ?? null; } catch { return null; } })(),
             ultimaFacturaId: (() => { try { return (JSON.parse(ultimoAsistente?.match(MARCA_F)?.[1] ?? 'null') as { id?: string } | null)?.id ?? null; } catch { return null; } })(),
-            runTool,
+            runTool: runToolEval,
             traducir: async (e) => {
               const s = await traducirMensaje(e);
               cruda = s.orden;
