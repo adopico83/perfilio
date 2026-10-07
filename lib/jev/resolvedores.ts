@@ -32,6 +32,8 @@ export type CtxResolver = {
   ultimoPresupuestoId?: string | null;
   /** Última factura tratada en la conversación (para «márcala pagada»). */
   ultimaFacturaId?: string | null;
+  /** Última cita creada o movida en la conversación (para «pásala al viernes»). */
+  ultimoEventoId?: string | null;
 };
 
 const lista = (ops: Opcion[]) => ops.slice(0, 8).map((o, i) => `${i + 1}. ${o.etiqueta}`).join('\n');
@@ -62,6 +64,8 @@ export async function resolverObra(
 ): Promise<Resuelto> {
   const t = texto.trim();
   if (!t) return error('¿De qué obra hablas?');
+  // Con el cliente conocido, SOLO se miran (y se ofrecen) las obras de ese cliente. Nunca las de otro.
+  if (opciones.clienteId) return resolverObraDeCliente(ctx, t, opciones.clienteId, opciones.cerradas === true);
   const r = await resolverObraDocumentoAgente(ctx.supabase, ctx.businessId, undefined, t, 'documento', {
     incluirCerradas: opciones.cerradas === true,
   });
@@ -82,6 +86,32 @@ export async function resolverObra(
     if (cid && cid !== opciones.clienteId) return error(`La obra «${r.obra_nombre ?? t}» es de otro cliente. Dime cuál es la obra de ese cliente.`);
   }
   return { ok: true, id: r.obra_id, etiqueta: r.obra_nombre ?? t };
+}
+
+/** Obras de UN cliente que encajan con lo dicho. Si no encaja ninguna pero tiene otras, se las ofrece (solo suyas). */
+async function resolverObraDeCliente(ctx: CtxResolver, texto: string, clienteId: string, cerradas: boolean): Promise<Resuelto> {
+  const { data } = await ctx.supabase
+    .from('obras')
+    .select('id, nombre, direccion, estado')
+    .eq('business_id', ctx.businessId)
+    .eq('cliente_id', clienteId)
+    .order('created_at', { ascending: false })
+    .limit(50);
+  type O = { id: string; nombre: string | null; direccion: string | null; estado: string | null };
+  const esCerrada = (o: O) => /cerrad|finaliz|termin/.test(norm(String(o.estado ?? '')));
+  const todas = ((data ?? []) as O[]).filter((o) => cerradas || !esCerrada(o));
+  if (todas.length === 0) return error(`Ese cliente no tiene ninguna obra${cerradas ? '' : ' abierta'}.`);
+  const pals = norm(texto).split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 3 && !ARTICULOS.has(w));
+  const coincide = (o: O) => pals.length === 0 || pals.every((w) => norm(`${o.nombre ?? ''} ${o.direccion ?? ''}`).split(/[^a-z0-9ñ]+/).some((x) => x.startsWith(w) || w.startsWith(x)));
+  const etiqueta = (o: O) => `${o.nombre ?? 'Obra'}${o.direccion ? ` · ${o.direccion}` : ''}${esCerrada(o) ? ' (cerrada)' : ''}`;
+  const coinc = todas.filter(coincide);
+  if (coinc.length === 1) return { ok: true, id: coinc[0]!.id, etiqueta: coinc[0]!.nombre ?? texto };
+  const lote = coinc.length > 1 ? coinc : todas;
+  const ops = lote.slice(0, 8).map((o) => ({ id: o.id, etiqueta: etiqueta(o) }));
+  return pregunta(
+    coinc.length > 1 ? `Hay varias obras de ese cliente que encajan con «${texto}». ¿Cuál es?\n${lista(ops)}` : `No veo ninguna obra de ese cliente que se llame «${texto}». Sus obras son:\n${lista(ops)}\n¿Cuál es?`,
+    ops
+  );
 }
 
 const ARTICULOS = new Set(['el', 'la', 'los', 'las', 'un', 'una', 'de', 'del', 'lo', 'obra', 'para']);
@@ -113,6 +143,15 @@ async function obrasPorClienteYTema(ctx: CtxResolver, texto: string, cerradas: b
   return pregunta(`Hay varias obras de ${clientes.length === 1 ? clientes[0]!.nombre : 'esos clientes'} que pueden ser «${texto}». ¿Cuál es?\n${lista(ops)}`, ops);
 }
 
+/** «el presu 8 de Mikel», «presupuesto nº 8», «la factura 3», «el 8 de García» → 8. Sin número explícito, null. */
+export function numeroExplicito(texto: string): number | null {
+  const t = norm(texto);
+  const m =
+    t.match(/\b(?:presu(?:puesto)?|factura|albaran|nº|n°|numero|num|n\.?o)\s*#?\s*(\d{1,6})\b/) ??
+    t.match(/^(?:el|la|ese|esa)?\s*#?(\d{1,6})\b(?:\s+(?:de|del|para)\b|$)/);
+  return m ? Number(m[1]) : null;
+}
+
 const RE_ESE = /^(?:ese|este|esa|esta|aquel|el ultimo|la ultima|ultimo|ultima|el que acabo de (?:hacer|dictar|crear)|ese presu(?:puesto)?|este presu(?:puesto)?)$/;
 
 export async function resolverPresupuesto(ctx: CtxResolver, texto: string): Promise<Resuelto> {
@@ -125,7 +164,8 @@ export async function resolverPresupuesto(ctx: CtxResolver, texto: string): Prom
     if (!f.ok) return error('No encuentro ese presupuesto en tu negocio. Dime el número o el cliente.');
     return { ok: true, id: f.match.id, etiqueta: etiquetaPresupuesto(f.match), extra: f.match as unknown as Record<string, unknown> };
   }
-  const numero = parseNumeroDocumento(t);
+  // Un número explícito («el presu 8 de Mikel», «el 8») gana siempre sobre el nombre.
+  const numero = numeroExplicito(t) ?? parseNumeroDocumento(t);
   const r = await resolverPresupuestosPorTexto(ctx.supabase, ctx.businessId, numero != null ? { numero } : { clienteNombre: t });
   const f = toolFailDesdePresupuestoResolve(r, t);
   if (f.ok) return { ok: true, id: f.match.id, etiqueta: etiquetaPresupuesto(f.match), extra: f.match as unknown as Record<string, unknown> };
@@ -152,7 +192,7 @@ export async function resolverDocumento(ctx: CtxResolver, tipo: TipoDocumento, t
     const l = await localizarDesdeArgs(ctx.supabase, ctx.businessId, tipo, { id });
     return l.ok ? { ok: true, id: l.match.id, etiqueta: describirDocumento(tipo, l.match), extra: l.match as unknown as Record<string, unknown> } : error(l.error);
   }
-  const numero = parseNumeroDocumento(t);
+  const numero = numeroExplicito(t) ?? parseNumeroDocumento(t);
   const l = await localizarDesdeArgs(ctx.supabase, ctx.businessId, tipo, numero != null ? { numero } : { cliente: t });
   if (l.ok) return { ok: true, id: l.match.id, etiqueta: describirDocumento(tipo, l.match), extra: l.match as unknown as Record<string, unknown> };
   if (l.candidatos?.length) return pregunta(l.error, l.candidatos);
@@ -196,20 +236,32 @@ export async function resolverOperario(ctx: CtxResolver, texto: string): Promise
   return error(`No encuentro a «${t}».${nombres.length ? ` Los operarios que tengo son: ${nombres.join(', ')}. ¿Cuál es?` : ' No tienes operarios activos.'}`);
 }
 
+const RE_ESA_CITA = /^(?:ella|ese|esa|este|esta|esa cita|esa visita|ese evento|la cita|la visita|el evento|la ultima|la ultima cita|esa reunion|la reunion|lo|la)$/;
+
 export async function resolverEvento(ctx: CtxResolver, texto: string, fechaYmd?: string | null, hoy: string = ymdHoyMadrid()): Promise<Resuelto> {
   const t = texto.trim();
   if (!t) return error('¿Qué cita? Dime con quién o qué día.');
-  const palabras = norm(t).split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 4 && !['cita', 'visita', 'reunion', 'lo', 'de'].includes(w));
+  type Ev = { id: string; titulo: string | null; fecha: string | null; hora: string | null };
+  const etiqueta = (e: Ev) => `${e.titulo ?? 'Evento'} (${e.fecha ?? '—'}${e.hora ? ` ${String(e.hora).slice(0, 5)}` : ''})`;
+  // «pásala al viernes» justo después de crear o mover una cita = ESA cita.
+  if (RE_ESA_CITA.test(norm(t).replace(/[¿?¡!.]/g, ''))) {
+    if (!ctx.ultimoEventoId) return error('¿Qué cita? Dime con quién es o qué día (por ejemplo «la de Ane»).');
+    const { data } = await ctx.supabase.from('agenda').select('id, titulo, fecha, hora').eq('id', ctx.ultimoEventoId).eq('business_id', ctx.businessId).maybeSingle();
+    const ev = data as Ev | null;
+    if (!ev) return error('No encuentro esa cita en tu agenda. Dime con quién es o qué día.');
+    return { ok: true, id: ev.id, etiqueta: etiqueta(ev), extra: ev as unknown as Record<string, unknown> };
+  }
+  // Palabras de 3 letras o más cuentan («Ane»); solo se descartan las genéricas.
+  const GENERICAS = new Set(['cita', 'visita', 'reunion', 'con', 'del', 'las', 'los', 'por', 'que', 'una', 'uno', 'ese', 'esa']);
+  const palabras = norm(t).split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 3 && !GENERICAS.has(w));
   let q = ctx.supabase.from('agenda').select('id, titulo, fecha, hora').eq('business_id', ctx.businessId);
   if (fechaYmd) q = q.eq('fecha', fechaYmd);
   const { data, error: err } = await q.order('fecha', { ascending: true }).limit(200);
   if (err) return error(err.message);
-  type Ev = { id: string; titulo: string | null; fecha: string | null; hora: string | null };
   let filas = ((data ?? []) as Ev[]).filter((e) => palabras.length === 0 || palabras.every((w) => norm(String(e.titulo ?? '')).includes(w)));
   // Sin fecha dicha, importan las de hoy en adelante (lo que se mueve o se borra suele ser futuro).
   const futuras = filas.filter((e) => String(e.fecha ?? '') >= hoy);
   if (!fechaYmd && futuras.length > 0) filas = futuras;
-  const etiqueta = (e: Ev) => `${e.titulo ?? 'Evento'} (${e.fecha ?? '—'}${e.hora ? ` ${String(e.hora).slice(0, 5)}` : ''})`;
   if (filas.length === 0) return error(`No encuentro ninguna cita que coincida con «${t}».`);
   if (filas.length === 1) return { ok: true, id: filas[0]!.id, etiqueta: etiqueta(filas[0]!), extra: filas[0] as unknown as Record<string, unknown> };
   const ops = filas.slice(0, 8).map((e) => ({ id: e.id, etiqueta: etiqueta(e) }));

@@ -258,10 +258,35 @@ export async function resolverClientesPorNombre(
     .order('nombre', { ascending: true })
     .limit(20);
   if (error) return { status: 'none' };
-  return colapsarResolve(
+  const porTexto = colapsarResolve(
     (data ?? []) as Array<{ id: string; nombre: string | null }>,
     needle
   );
+  if (porTexto.status !== 'none') return porTexto;
+  // Sin coincidencia de texto seguido: por PALABRAS, en cualquier orden y sin acentos («Mikel Urkiola» → «Mikel PRUEBA Urkiola»).
+  return resolverClientesPorPalabras(supabase, businessId, needle);
+}
+
+const sinAcentosMin = (t: string) => t.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+const PALABRAS_VACIAS_NOMBRE = new Set(['de', 'del', 'la', 'el', 'los', 'las', 'y', 'e', 'con', 'don', 'dona', 'sr', 'sra']);
+
+/** Todas las palabras que dijo el usuario están en el nombre (por el principio de palabra, sin acentos, en cualquier orden). */
+async function resolverClientesPorPalabras(
+  supabase: SupabaseClient,
+  businessId: string,
+  needle: string
+): Promise<ResolveResult<{ id: string; nombre: string | null }>> {
+  const pals = sinAcentosMin(needle).split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 2 && !PALABRAS_VACIAS_NOMBRE.has(w));
+  if (pals.length === 0) return { status: 'none' };
+  const { data, error } = await supabase.from('clientes').select('id, nombre').eq('business_id', businessId).order('nombre', { ascending: true }).limit(500);
+  if (error) return { status: 'none' };
+  const filas = ((data ?? []) as Array<{ id: string; nombre: string | null }>).filter((c) => {
+    const nom = sinAcentosMin(String(c.nombre ?? '')).split(/[^a-z0-9ñ]+/).filter(Boolean);
+    return pals.every((w) => nom.some((x) => x.startsWith(w) || w.startsWith(x)));
+  });
+  if (filas.length === 0) return { status: 'none' };
+  if (filas.length === 1) return { status: 'one', match: filas[0]! };
+  return { status: 'many', candidatos: filas };
 }
 
 export async function resolverObrasPorNombre(
@@ -422,8 +447,11 @@ export function toolFailDesdePresupuestoResolve(
   etiqueta: string
 ): { ok: true; match: PresupuestoMatch } | ToolFailClosed {
   if (resolved.status === 'none') {
+    const soloNumero = String(etiqueta).trim().match(/^(?:n[º°.]*\s*)?(\d{1,6})$/);
     return failClosed(
-      `No encuentro ningún presupuesto para «${etiqueta}». No he añadido partidas ni he creado cliente ni presupuesto de paso.`
+      soloNumero
+        ? `El presupuesto nº ${soloNumero[1]} no existe en tu negocio. Dime otro número o el nombre del cliente. No he cambiado nada.`
+        : `No encuentro ningún presupuesto para «${etiqueta}». No he cambiado nada ni he creado cliente ni presupuesto de paso.`
     );
   }
   if (resolved.status === 'many') {

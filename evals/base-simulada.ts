@@ -40,6 +40,11 @@ export const IDS = {
   clienteUnai: 'cli-unai-sarasola',
   obraBanoUnai: 'obra-bano-unai',
   operarioAitor: 'op-aitor-gomez',
+  operarioJon: 'op-jon-arrieta',
+  clienteMikelUrkiola: 'cli-mikel-urkiola',
+  clienteAneLasa: 'cli-ane-lasa',
+  clienteAneMendia: 'cli-ane-mendia',
+  proveedorMaderas: 'prov-maderas-oria',
   clienteAmaiaEtxeberria: 'cli-amaia-etxeberria',
   obraMikelEtxeberria: 'obra-mikel-etxeberria',
   presupuestoMikelBorrador: 'aaaaaaaa-0000-4000-8000-000000000010',
@@ -94,6 +99,9 @@ export function crearBaseSimulada(): Record<string, Fila[]> {
   return {
     business_profiles: [perfil(NEGOCIO_A, 'Pino Albañilería'), perfil(NEGOCIO_B, 'Estudio Orbegozo')],
     clientes: [
+      { id: IDS.clienteMikelUrkiola, business_id: NEGOCIO_A, nombre: 'Mikel PRUEBA Urkiola', nif: '44444444D', direccion: 'Calle Urkiola 8, Irún', telefono: null },
+      { id: IDS.clienteAneLasa, business_id: NEGOCIO_A, nombre: 'Ane Lasa', nif: '66666666Q', direccion: 'Calle Lasa 1, Irún', telefono: null },
+      { id: IDS.clienteAneMendia, business_id: NEGOCIO_A, nombre: 'Ane Mendia', nif: '77777777B', direccion: 'Calle Mendia 2, Irún', telefono: null },
       { id: IDS.clienteUnai, business_id: NEGOCIO_A, nombre: 'Unai Sarasola', nif: '33333333P', direccion: 'Calle Unai 4, Irún', telefono: null },
       { id: IDS.clientePaqui, business_id: NEGOCIO_A, nombre: 'Paqui', nif: '12345678Z', direccion: 'Calle Mayor 1, Irún', telefono: '600111222' },
       { id: IDS.clienteGarciaNorte, business_id: NEGOCIO_A, nombre: 'García Norte', nif: 'B11111111', direccion: 'Calle Norte 2', telefono: null },
@@ -123,6 +131,7 @@ export function crearBaseSimulada(): Record<string, Fila[]> {
       { id: IDS.obraPaquiAjena, business_id: NEGOCIO_B, nombre: 'Reforma Paqui', direccion: 'Otra calle 5', estado: 'en_curso', cliente_id: null, created_at: '2026-04-01T10:00:00Z' },
     ],
     operarios: [
+      { id: IDS.operarioJon, business_id: NEGOCIO_A, nombre: 'Jon Arrieta', activo: true },
       { id: IDS.operarioAitor, business_id: NEGOCIO_A, nombre: 'Aitor Gómez', activo: true },
       { id: IDS.operarioIker, business_id: NEGOCIO_A, nombre: 'Iker Etxeberria', activo: true },
       { id: IDS.operarioMikelGoni, business_id: NEGOCIO_A, nombre: 'Mikel Goñi', activo: true },
@@ -149,6 +158,7 @@ export function crearBaseSimulada(): Record<string, Fila[]> {
     presupuesto_previews: [],
     agenda: [
       { id: 'ev-olabide', business_id: NEGOCIO_A, titulo: 'Visita obra Olabide', fecha: '2026-10-14', hora: '10:30' },
+      { id: 'ev-ane-lasa', business_id: NEGOCIO_A, titulo: 'Visita con Ane Lasa', fecha: '2026-10-20', hora: '09:00' },
       { id: 'ev-mikel', business_id: NEGOCIO_A, titulo: 'Cita con Mikel Etxeberria', fecha: '2026-10-13', hora: '10:30' },
     ],
     memoria_negocio: [],
@@ -160,7 +170,7 @@ export function crearBaseSimulada(): Record<string, Fila[]> {
       { id: IDS.albaran12Ajeno, business_id: NEGOCIO_B, numero_albaran: 12, cliente_nombre: 'Lola Ajena', cliente_id: 'cli-b-lola', obra_id: null, total: 90, estado: 'entregado', descripcion_trabajos: 'Arreglo', lineas: null, created_at: '2026-10-01T10:00:00Z' },
       { id: IDS.albaran14Facturado, business_id: NEGOCIO_A, numero_albaran: 14, cliente_nombre: 'García Sur', cliente_id: IDS.clienteGarciaSur, obra_id: null, total: 300, estado: 'facturado', descripcion_trabajos: 'Pintura', lineas: null, created_at: '2026-09-20T10:00:00Z' },
     ],
-    proveedores: [{ id: IDS.proveedorSaltoki, business_id: NEGOCIO_A, nombre: 'Saltoki', nif: null, telefono: '943 111 222', email: null }],
+    proveedores: [{ id: IDS.proveedorMaderas, business_id: NEGOCIO_A, nombre: 'Maderas Oria', nif: null, telefono: '943 222 333', email: null }, { id: IDS.proveedorSaltoki, business_id: NEGOCIO_A, nombre: 'Saltoki', nif: null, telefono: '943 111 222', email: null }],
     gastos: [],
     tarifas: [],
   };

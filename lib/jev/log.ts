@@ -22,7 +22,7 @@ export function seguro(v: unknown, prof = 0): unknown {
   return String(typeof v);
 }
 
-export type EventoJev = 'orden_incompleta' | 'campo_descartado' | 'aclarar' | 'accion_desconocida' | 'salida_ilegible' | 'api_esquema_rechazado' | 'api_error';
+export type EventoJev = 'si_sin_confirmacion' | 'orden_incompleta' | 'campo_descartado' | 'aclarar' | 'accion_desconocida' | 'salida_ilegible' | 'api_esquema_rechazado' | 'api_error';
 
 export function logJev(evento: EventoJev, datos: Record<string, unknown>): void {
   try {

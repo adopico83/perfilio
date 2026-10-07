@@ -1090,11 +1090,11 @@ export async function handleAgenda(
             inicio: iniNuevo,
             fin: iniNuevo + duracionMin,
           };
-          const solapa = ocupados.some((o) => intervalosSolapan(nuevoSlot, o));
-          if (solapa) {
+          const choques = ocupados.filter((o) => intervalosSolapan(nuevoSlot, o));
+          if (choques.length > 0) {
             const hueco = sugerirHuecoLibre(iniNuevo, duracionMin, ocupados);
             return {
-              error: 'Solape en agenda: ya hay un evento en esa franja horaria.',
+              error: `Solape en agenda: ya hay un evento en esa franja horaria: choca con ${choques.map((c) => `«${c.titulo}» (${formatMinutesToHm(c.inicio)})`).join(', ')}.`,
               solapamiento: true,
               hueco_sugerido: hueco,
             };

@@ -22,7 +22,7 @@ import {
   type Opcion,
   type Resuelto,
 } from '@/lib/jev/resolvedores';
-import { importeApareceEnTexto, parseImporteTexto, resolverFechaFutura, resolverFechaPasada, resolverHoraTexto, resolverRangoTexto } from '@/lib/jev/fechas';
+import { horasApareceEnTexto, importeApareceEnTexto, parseHorasTexto, parseImporteTexto, resolverFechaFutura, resolverFechaPasada, resolverHoraTexto, resolverRangoTexto } from '@/lib/jev/fechas';
 import { prepararAccionPendiente } from '@/lib/agente/confirmacion';
 import { corregirPartidasConDictado, validarPartidasContraDictado, type PartidaPresupuesto } from '@/lib/dictado-presupuesto';
 import { descripcionDelMensaje, modoIvaDelMensaje } from '@/lib/gastos-iva';
@@ -44,6 +44,10 @@ export type CtxEjecutor = {
   resueltos: EstadoTarea['resueltos'];
   ultimoPresupuestoId?: string | null;
   ultimaFacturaId?: string | null;
+  /** Última cita creada o movida en la conversación («pásala al viernes»). */
+  ultimoEventoId?: string | null;
+  /** El usuario está CORRIGIENDO la orden que acababa de enseñar («espera, la encimera ponla a 230»): lo que cuenta es lo último que dijo. */
+  esCorreccion?: boolean;
   /** Rutas de fotos ya subidas que acompañan al mensaje (diario). */
   fotosAdjuntas?: string[];
   /** Solo MCP: texto exacto de la descripción de la cita (el chat usa la plantilla con teléfono y estado). */
@@ -55,7 +59,17 @@ export type CtxEjecutor = {
 
 export type ResultadoOrden =
   | { tipo: 'pendiente'; accion: AccionResuelta; resumen: string }
-  | { tipo: 'pregunta'; texto: string; slot: string; textoSlot: string; opciones: Opcion[] }
+  | {
+      tipo: 'pregunta';
+      texto: string;
+      slot: string;
+      textoSlot: string;
+      opciones: Opcion[];
+      /** No hay nadie con ese nombre y se ofreció darlo de alta. */
+      alta?: boolean;
+      /** Falta un dato de la ficha del cliente: al llegar se guarda y se retoma esta orden sola. */
+      retomar?: { cliente_id: string; cliente: string; campo: 'nif' | 'direccion'; faltan?: Array<'nif' | 'direccion'> };
+    }
   | { tipo: 'respuesta'; texto: string; extra?: Record<string, unknown> }
   | { tipo: 'error'; texto: string };
 
@@ -74,14 +88,15 @@ async function slot(
   fn: () => Promise<Resuelto>
 ): Promise<{ ok: true; id: string; etiqueta: string; extra?: Record<string, unknown> } | { ok: false; resultado: ResultadoOrden }> {
   const previo = ctx.resueltos[nombre];
-  if (previo && norm(previo.texto) === norm(txt)) return { ok: true, id: previo.id, etiqueta: previo.etiqueta };
+  // texto '' = el usuario eligió una opción de una pregunta de la propia tool («la 2»): vale para ese hueco, diga lo que diga la orden.
+  if (previo && (previo.texto === '' || norm(previo.texto) === norm(txt))) return { ok: true, id: previo.id, etiqueta: previo.etiqueta };
   const r = await fn();
   if (r.ok) {
     ctx.resueltos[nombre] = { id: r.id, etiqueta: r.etiqueta, texto: txt };
     return { ok: true, id: r.id, etiqueta: r.etiqueta, extra: r.extra };
   }
   if (r.tipo === 'pregunta') {
-    return { ok: false, resultado: { tipo: 'pregunta', texto: r.texto, slot: nombre, textoSlot: txt, opciones: r.opciones } };
+    return { ok: false, resultado: { tipo: 'pregunta', texto: r.texto, slot: nombre, textoSlot: txt, opciones: r.opciones, ...(r.ofrecerAlta ? { alta: true } : {}) } };
   }
   return { ok: false, resultado: texto(r.texto) };
 }
@@ -92,7 +107,9 @@ function pregunta(t: string, slotNombre = 'dato'): ResultadoOrden {
 
 /** Acción cerrada → se valida con las vistas previas de las tools (sin escribir) y se devuelve pendiente. */
 async function cerrar(ctx: CtxEjecutor, tool: string, args: Record<string, unknown>, resumen: string, usarResumenDeTool = false, mensajeUsuario = ''): Promise<ResultadoOrden> {
-  const conMarca = { ...args, _resuelto: true };
+  // Una obra elegida entre las opciones de una pregunta de la tool («la 2») viaja como obra_id.
+  const elegidaObra = ctx.resueltos.obra?.texto === '' && !args.obra_id ? ctx.resueltos.obra : undefined;
+  const conMarca = { ...args, ...(elegidaObra ? { obra_id: elegidaObra.id } : {}), _resuelto: true };
   const prep = await prepararAccionPendiente(tool, conMarca, {
     supabase: ctx.supabase,
     businessId: ctx.businessId,
@@ -104,6 +121,29 @@ async function cerrar(ctx: CtxEjecutor, tool: string, args: Record<string, unkno
   if (prep.tipo === 'resultado') {
     const o = prep.result as Record<string, unknown>;
     const t = [o.error, o.mensaje].find((x) => typeof x === 'string' && x.trim()) as string | undefined;
+    // Falta el NIF o la dirección del cliente: se pide ANTES del «sí» y la tarea se guarda para retomarla sola al llegar el dato.
+    if (Array.isArray(o.faltan_datos_cliente) && typeof o.cliente_id === 'string' && o.faltan_datos_cliente.some((f) => f === 'nif' || f === 'direccion')) {
+      const { data: cli } = await ctx.supabase.from('clientes').select('nombre').eq('id', o.cliente_id).eq('business_id', ctx.businessId).maybeSingle();
+      const campo = o.faltan_datos_cliente.includes('nif') ? 'nif' : 'direccion';
+      return {
+        tipo: 'pregunta',
+        texto: t ?? 'Me falta un dato de la ficha del cliente.',
+        slot: campo,
+        textoSlot: '',
+        opciones: [],
+        retomar: { cliente_id: o.cliente_id, cliente: String((cli as { nombre?: string | null } | null)?.nombre ?? 'el cliente'), campo, faltan: o.faltan_datos_cliente.filter((f): f is 'nif' | 'direccion' => f === 'nif' || f === 'direccion') },
+      };
+    }
+    // Una pregunta de la propia tool con opciones (varias obras…): pasa a ser una pregunta de la tarea, para que «la 2» o «ninguna» funcionen.
+    if (o.necesita_aclaracion === true && Array.isArray(o.candidatos) && o.candidatos.length > 0) {
+      const ops = (o.candidatos as Array<Record<string, unknown>>)
+        .map((c) => ({ id: String(c.id ?? ''), etiqueta: String(c.etiqueta ?? c.nombre ?? c.id ?? '') }))
+        .filter((c) => c.id);
+      if (ops.length) {
+        const slotAclaracion = /obra/i.test(String(t ?? '')) ? 'obra' : /cliente/i.test(String(t ?? '')) ? 'cliente' : 'dato';
+        return { tipo: 'pregunta', texto: `${t ?? 'Hay varias opciones.'}\n(Dime el número, o «ninguna».)`, slot: slotAclaracion, textoSlot: '', opciones: ops };
+      }
+    }
     return texto(t ?? 'No he podido preparar la acción. No he cambiado nada.');
   }
   const avisos = prep.accion.resumen
@@ -125,9 +165,12 @@ async function clienteDeObra(ctx: CtxEjecutor, obraId: string): Promise<string> 
 
 // ───────────────────────────── Importes e IVA ─────────────────────────────
 
-const unidadNorm = (u: string | null | undefined): string => {
+/** Conceptos que se miden en metros LINEALES aunque se diga «metros» (encimera, rodapié, tubería…). */
+const RE_LINEAL = /\b(?:encimeras?|rodapi[eé]s?|zocalos?|zócalos?|tuberias?|tubos?|cables?|cableados?|canal(?:es|etas?)?|bajantes?|molduras?|cornisas?|perfil(?:es)?|barandill?as?|barandas?|rail(?:es)?|junquillos?|remates?|vierteaguas|cenefas?|listel(?:es)?|mangueras?|conductos?|goterones?|pasamanos|vallas?|alambradas?)\b/i;
+
+const unidadNorm = (u: string | null | undefined, concepto = ''): string => {
   const t = norm(String(u ?? ''));
-  if (/^(m2|m²|metros? cuadrados?|metros?|m)$/.test(t)) return 'm2';
+  if (/^(m2|m²|metros? cuadrados?|metros?|m)$/.test(t)) return /^(m2|m²|metros? cuadrados?)$/.test(t) ? 'm2' : RE_LINEAL.test(norm(concepto)) ? 'ml' : 'm2';
   if (/^(ml|metros? lineales?)$/.test(t)) return 'ml';
   if (/^(m3|metros? cubicos?)$/.test(t)) return 'm3';
   if (/^(h|horas?)$/.test(t)) return 'hora';
@@ -160,6 +203,23 @@ async function precioDeTarifa(ctx: CtxEjecutor, concepto: string): Promise<Tarif
 }
 
 const CANTIDAD_UNO = /^(1|un|una|uno)$/i;
+
+/**
+ * Qué dijo el usuario del IVA, mirando el mensaje MÁS RECIENTE que lo menciona (así «con IVA» tras la pregunta pesa más
+ * que el «sin IVA» de antes). «Sin IVA» a secas es ambiguo (¿hay que sumarlo o el gasto va exento?) y devuelve 'ambiguo'.
+ */
+function modoIvaFinal(mensajes: string[]): 'base' | 'total' | 'exento' | 'ambiguo' | null {
+  for (const m of [...mensajes].reverse()) {
+    const t = norm(m);
+    if (/\bexent[oa]s?\b|\b0\s*%\s*(?:de\s+)?iva\b|\bno lleva iva\b/.test(t)) return 'exento';
+    const x = modoIvaDelMensaje(m);
+    if (x === 'sin_iva') return 'ambiguo';
+    if (x === 'base' || x === 'total') return x;
+  }
+  return null;
+}
+const PREGUNTA_SIN_IVA = (n: number) =>
+  `«Sin IVA» puede querer decir dos cosas: que a los ${eur(n)} hay que sumarle el IVA, o que no llevan IVA (exento). ¿Son ${eur(n)} + IVA, ${eur(n)} con el IVA incluido, o exento?`;
 
 // ───────────────────────────── La función principal ─────────────────────────────
 
@@ -253,6 +313,9 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
         obraId = obra.id;
         obraNombre = obra.etiqueta;
       }
+      if (modoIvaFinal(dichos) === 'ambiguo') {
+        return pregunta('«Sin IVA» puede querer decir que los precios son sin IVA (y se le suma al presupuesto) o que el presupuesto va exento de IVA. ¿Los precios son + IVA, con el IVA incluido, o va exento?', 'iva');
+      }
       const partidas: PartidaPresupuesto[] = [];
       const deTarifa: string[] = [];
       for (const p of orden.partidas) {
@@ -266,7 +329,7 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
           return pregunta(`No veo la cantidad ${cantidad} en lo que me has dicho. ¿Cuántos son de «${concepto}»?`, 'cantidad');
         }
         let precio: number | null = null;
-        let unidad = unidadNorm(p.unidad_texto);
+        let unidad = unidadNorm(p.unidad_texto, concepto);
         if (val(p.precio_texto)) {
           precio = parseImporteTexto(p.precio_texto);
           if (precio == null || !importeApareceEnTexto(precio, dichos)) {
@@ -281,14 +344,18 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
         }
         partidas.push({ descripcion: concepto, cantidad, unidad: unidad || 'ud', precio_unitario: r2(precio), total: r2(cantidad * r2(precio)), categoria: 'general' });
       }
-      const corregidas = corregirPartidasConDictado(todo, partidas);
-      const noCuadra = validarPartidasContraDictado(todo, corregidas);
+      // En una corrección, los números que se acaban de sustituir (210 → 230) ya no cuentan: se valida contra lo último que dijo.
+      const textoDictado = ctx.esCorreccion ? dichos.at(-1) ?? todo : todo;
+      const corregidas = corregirPartidasConDictado(textoDictado, partidas);
+      const noCuadra = validarPartidasContraDictado(textoDictado, corregidas);
       if (noCuadra) return pregunta(noCuadra, 'cantidad');
       const canon = generarTextoCanonico(corregidas.map((p) => ({ concepto: p.descripcion, cantidad: p.cantidad, precio: p.precio_unitario })), 21);
       if (!canon.ok) return texto(canon.error);
-      const lineas = corregidas.map((p, i) => `${i + 1}. ${p.descripcion}: ${p.cantidad} ${p.unidad} × ${eur(p.precio_unitario)} = ${eur(p.total)}`);
+      const { data: fichaCli } = await ctx.supabase.from('clientes').select('direccion').eq('id', cli.id).eq('business_id', ctx.businessId).maybeSingle();
+      const dirCliente = String((fichaCli as { direccion?: string | null } | null)?.direccion ?? '').trim();
+      const lineas = corregidas.map((p, i) => `${i + 1}. ${p.descripcion}: ${String(p.cantidad).replace('.', ',')} ${p.unidad} × ${eur(p.precio_unitario)} = ${eur(p.total)}`);
       const resumen =
-        `Voy a guardar el presupuesto de ${cli.etiqueta}${obraNombre ? ` (obra «${obraNombre}»)` : ''}:\n${lineas.join('\n')}\n` +
+        `Voy a guardar el presupuesto de ${cli.etiqueta}${dirCliente ? ` (${dirCliente})` : ''}${obraNombre ? ` (obra «${obraNombre}»)` : ''}:\n${lineas.join('\n')}\n` +
         `Base ${eur(canon.base)} + IVA 21 % ${eur(canon.ivaImporte)} = Total ${eur(canon.total)}.` +
         (deTarifa.length ? `\nℹ️ Precio de tu tarifa (no lo dijiste): ${deTarifa.join('; ')}.` : '');
       return cerrar(
@@ -301,14 +368,31 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
     case 'PRESUPUESTO_PARTIDAS': {
       const pres = await slot(ctx, 'presupuesto', orden.presupuesto_texto, () => resolverPresupuesto(ctx, orden.presupuesto_texto));
       if (!pres.ok) return pres.resultado;
+      const estadoPres = norm(String((pres.extra as { estado?: unknown } | undefined)?.estado ?? ''));
+      // Un presupuesto ya facturado o pagado no se toca: se propone apuntarlo como EXTRA (presupuesto hijo vinculado).
+      if (/^(facturado|pagado)$/.test(estadoPres)) {
+        return texto(`El ${pres.etiqueta} ya está ${estadoPres}: no puedo cambiarle las partidas. Si es un trabajo nuevo, lo apunto como un EXTRA vinculado a ese presupuesto: dime «extra: <qué es>, <importe sin IVA>» (por ejemplo «extra: campana extractora, 120»).`);
+      }
       const num = (t: string | null | undefined, que: string): { ok: true; n: number } | { ok: false; r: ResultadoOrden } => {
         const n = parseImporteTexto(t);
         if (n == null || !importeApareceEnTexto(n, dichos)) return { ok: false, r: pregunta(`No veo ${que} (${t}) en lo que me has dicho. ¿Cuál es?`, 'cantidad') };
         return { ok: true, n };
       };
+      // Regla general: una partida a la que se refiere el usuario tiene que estar en lo que dijo. Si no («ponle 500»), se pregunta
+      // a cuál (y si es precio o cantidad); el servidor nunca elige una partida por su cuenta.
+      const dichoNorm = norm(todo);
+      const aparece = (t: string) => {
+        const pals = norm(t).split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 4).map(raizPalabra);
+        return pals.length > 0 && pals.some((w) => dichoNorm.split(/[^a-z0-9ñ]+/).map(raizPalabra).includes(w));
+      };
       const cambiar: Array<Record<string, unknown>> = [];
       for (const c of orden.cambiar ?? []) {
-        const o: Record<string, unknown> = { partida: c.partida_texto };
+        const partida = val(c.partida_texto);
+        if (!partida || !aparece(partida)) {
+          const dato = val(c.precio_texto) || val(c.cantidad_texto) || val(c.sumar_cantidad_texto);
+          return pregunta(`¿A qué partida del ${pres.etiqueta} le${dato ? ` pongo ${dato}` : ' hago el cambio'}? Y dime si es el precio o la cantidad. No cambio nada hasta que me lo digas.`, 'partida');
+        }
+        const o: Record<string, unknown> = { partida };
         const dicho = (t: string) => {
           const n = parseImporteTexto(t.replace(/^\s*-/, ''));
           return n != null && importeApareceEnTexto(n, dichos);
@@ -336,16 +420,26 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
       }
       const anadir: Array<Record<string, unknown>> = [];
       for (const a of orden.anadir ?? []) {
-        const cUno = CANTIDAD_UNO.test(val(a.cantidad_texto));
-        const c: { ok: true; n: number } | { ok: false; r: ResultadoOrden } = cUno ? { ok: true, n: 1 } : num(a.cantidad_texto, 'la cantidad');
+        // «colocar campana extractora 120»: concepto + UN número sin unidad = ese es el PRECIO (cantidad 1), como en el dictado.
+        let cantTxt = val(a.cantidad_texto);
+        let precioTxt = val(a.precio_texto);
+        if (!precioTxt && cantTxt && !CANTIDAD_UNO.test(cantTxt) && !unidadNorm(a.unidad_texto, a.concepto_texto)) {
+          precioTxt = cantTxt;
+          cantTxt = '1';
+        }
+        const cUno = CANTIDAD_UNO.test(cantTxt);
+        const c: { ok: true; n: number } | { ok: false; r: ResultadoOrden } = cUno ? { ok: true, n: 1 } : num(cantTxt, 'la cantidad');
         if (!c.ok) return c.r;
-        if (!val(a.precio_texto)) return pregunta(`¿A cuánto es «${a.concepto_texto}»? No invento precios.`, 'precio');
-        const pr = num(a.precio_texto, 'el precio');
+        if (!precioTxt) return pregunta(`¿A cuánto es «${a.concepto_texto}»? No invento precios.`, 'precio');
+        const pr = num(precioTxt, 'el precio');
         if (!pr.ok) return pr.r;
-        const ud = unidadNorm(a.unidad_texto);
+        const ud = unidadNorm(a.unidad_texto, a.concepto_texto);
         anadir.push({ concepto: a.concepto_texto, cantidad: c.n, precio_unitario: pr.n, ...(ud ? { unidad: ud } : {}) });
       }
       const quitar = orden.quitar_texto ?? [];
+      for (const q of quitar) {
+        if (!aparece(q)) return pregunta(`¿Qué partida del ${pres.etiqueta} quito? No he entendido «${q}». No cambio nada.`, 'partida');
+      }
       if (quitar.length + cambiar.length + anadir.length === 0) return pregunta('¿Qué quieres cambiar del presupuesto: quitar una partida, cambiar una cantidad o precio, o añadir una?');
       const r = await cerrar(
         ctx,
@@ -354,12 +448,26 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
         '',
         true
       );
-      // Un presupuesto ya aceptado es lo que el cliente dio por bueno: se puede cambiar, pero NUNCA sin avisar.
-      const estadoPres = norm(String((pres.extra as { estado?: unknown } | undefined)?.estado ?? ''));
+      // Un presupuesto ya aceptado es lo que el cliente dio por bueno: se puede cambiar, pero NUNCA sin avisar (y se propone el extra).
       if (r.tipo === 'pendiente' && /^(aceptado|aprobado)$/.test(estadoPres)) {
-        r.resumen = `⚠️ Este presupuesto ya está ${estadoPres}: si cambias sus partidas, ya no coincide con lo que aceptó el cliente. Avísale del cambio.\n${r.resumen}`;
+        r.resumen = `⚠️ Este presupuesto ya está ${estadoPres}: si cambias sus partidas, ya no coincide con lo que aceptó el cliente. Si es un trabajo nuevo, mejor apúntalo como EXTRA (dime «extra: <qué es>, <importe>» y no confirmes este cambio).\n${r.resumen}`;
       }
       return r;
+    }
+    case 'EXTRA_PRESUPUESTO': {
+      const pres = await slot(ctx, 'presupuesto', orden.presupuesto_texto, () => resolverPresupuesto(ctx, orden.presupuesto_texto));
+      if (!pres.ok) return pres.resultado;
+      const n = parseImporteTexto(orden.importe_texto);
+      if (n == null || n <= 0 || !importeApareceEnTexto(n, dichos)) return pregunta(`¿Cuánto es el extra (sin IVA)? No veo el importe en lo que me has dicho.`, 'importe');
+      const { data: filaPres } = await ctx.supabase.from('presupuestos').select('obra_id').eq('id', pres.id).eq('business_id', ctx.businessId).maybeSingle();
+      const obraP = String((filaPres as { obra_id?: string | null } | null)?.obra_id ?? '');
+      const descE = orden.descripcion_texto.trim();
+      return cerrar(
+        ctx,
+        'registrar_extra',
+        { descripcion: descE, importe: n, presupuesto_parent_id: pres.id, notificar_cliente: false, ...(obraP ? { obra_id: obraP } : {}) },
+        `Voy a apuntar un EXTRA de ${eur(n)} (sin IVA, +21 % = ${eur(r2(n * 1.21))}): «${descE}», vinculado al ${pres.etiqueta}. El presupuesto original no se toca.`
+      );
     }
     case 'CAMBIAR_ESTADO_PRESUPUESTO': {
       const pres = await slot(ctx, 'presupuesto', orden.presupuesto_texto, () => resolverPresupuesto(ctx, orden.presupuesto_texto));
@@ -418,23 +526,26 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
       if (!op.ok) return op.resultado;
       const obra = await slot(ctx, 'obra', orden.obra_texto, () => resolverObra(ctx, orden.obra_texto));
       if (!obra.ok) return obra.resultado;
-      const horas = parseImporteTexto(orden.horas_texto);
-      if (horas == null || horas < 0 || horas > 24 || !importeApareceEnTexto(horas, dichos)) {
+      // «7 y media» = 7,5; «7 y cuarto», «8 menos cuarto», «7:30», «7h30», «media hora», «siete y media»…
+      const horas = parseHorasTexto(orden.horas_texto);
+      if (horas == null || horas <= 0 || horas > 24 || !horasApareceEnTexto(horas, dichos)) {
         return pregunta(`No veo cuántas horas son (${orden.horas_texto}). ¿Cuántas horas fueron?`, 'horas');
       }
       const f = resolverFechaPasada(orden.fecha_texto, ctx.ahora);
       if (!f.ok) return texto(f.error);
       const args = { operario_nombre: op.etiqueta, obra_id: obra.id, horas_reales: horas, horas_convenio: horas, fecha: f.ymd, ...(val(orden.notas_texto) ? { notas: val(orden.notas_texto) } : {}) };
       const cliH = await clienteDeObra(ctx, obra.id);
-      return cerrar(ctx, 'registrar_jornada', args, `Voy a apuntar ${horas} h a ${op.etiqueta} en la obra «${obra.etiqueta}» (cliente: ${cliH || '—'}) (${f.ymd === hoy ? 'hoy' : f.ymd}).`);
+      return cerrar(ctx, 'registrar_jornada', args, `Voy a apuntar ${String(horas).replace('.', ',')} h a ${op.etiqueta} en la obra «${obra.etiqueta}» (cliente: ${cliH || '—'}) (${f.ymd === hoy ? 'hoy' : f.ymd}).`);
     }
     case 'GASTO': {
       const n = parseImporteTexto(orden.importe_texto);
       if (n == null || n <= 0) return pregunta(`No entiendo el importe «${orden.importe_texto}». ¿Cuánto fue?`, 'importe');
       if (!importeApareceEnTexto(n, dichos)) return pregunta(`No veo el importe ${n} en lo que me has dicho. ¿Cuánto fue exactamente?`, 'importe');
       // IVA: manda lo que dijo el usuario («más IVA» = base; «con IVA / incluido» = total); sin nada, IVA incluido.
-      const modoMsg = modoIvaDelMensaje(todo);
-      const modo = modoMsg === 'sin_iva' ? 'sin_iva' : modoMsg ?? (orden.iva_modo === 'mas' ? 'base' : 'total');
+      // Ticket de gasto: sin decir nada se toma IVA incluido (se enseña el desglose); «sin IVA» a secas es ambiguo y se pregunta.
+      const modoMsg = modoIvaFinal(dichos);
+      if (modoMsg === 'ambiguo') return pregunta(PREGUNTA_SIN_IVA(n), 'iva');
+      const modo = modoMsg === 'exento' ? 'sin_iva' : modoMsg ?? (orden.iva_modo === 'mas' ? 'base' : 'total');
       const tipoMsg = todo.match(/\b(4|10|21)\s*%/);
       const tipo = tipoMsg ? Number(tipoMsg[1]) : 21;
       let importe: number;
@@ -540,11 +651,27 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
     case 'CITA_CREAR': {
       let clienteId: string | undefined;
       let clienteNombre = '';
+      let conProveedor = '';
       if (val(orden.cliente_texto)) {
-        const c = await slot(ctx, 'cliente', val(orden.cliente_texto), () => resolverCliente(ctx, val(orden.cliente_texto)));
-        if (!c.ok) return c.resultado;
-        clienteId = c.id;
-        clienteNombre = c.etiqueta;
+        // «visita con el de Maderas Oria»: si no es un cliente pero SÍ un proveedor, la cita no se liga a ningún cliente (y no se
+        // ofrece dar de alta a nadie): el proveedor queda en las notas.
+        const textoCliente = val(orden.cliente_texto).replace(/^(?:el|la)\s+(?:de|del)\s+/i, '').trim();
+        const c = await slot(ctx, 'cliente', val(orden.cliente_texto), () => resolverCliente(ctx, textoCliente));
+        if (!c.ok) {
+          const r = c.resultado;
+          if (r.tipo === 'pregunta' && r.alta) {
+            const prov = await resolverProveedor(ctx, textoCliente);
+            if (prov.status === 'one') {
+              conProveedor = `${prov.nombre}${prov.telefono ? ` (tel. ${prov.telefono})` : ''}`;
+            } else if (prov.status === 'many') {
+              return { tipo: 'pregunta', texto: `Hay varios proveedores que encajan con «${textoCliente}». ¿Cuál es?\n${prov.opciones.slice(0, 8).map((o, i) => `${i + 1}. ${o.etiqueta}`).join('\n')}`, slot: 'proveedor', textoSlot: '', opciones: prov.opciones };
+            }
+          }
+          if (!conProveedor) return r;
+        } else {
+          clienteId = c.id;
+          clienteNombre = c.etiqueta;
+        }
       }
       let obraId: string | undefined;
       let obraNombre = '';
@@ -567,7 +694,7 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
       if (!val(orden.hora_texto)) return pregunta('¿A qué hora?', 'hora');
       const h = resolverHoraTexto(orden.hora_texto);
       if (!h.ok) return pregunta(h.error, 'hora');
-      const titulo = val(orden.titulo_texto) || (clienteNombre ? `Cita con ${clienteNombre}` : 'Cita');
+      const titulo = val(orden.titulo_texto) || (clienteNombre ? `Cita con ${clienteNombre}` : conProveedor ? `Cita con ${conProveedor.replace(/ \(tel\..*$/, '')}` : 'Cita');
       const tituloFinal = clienteNombre && !norm(titulo).includes(norm(clienteNombre).split(' ')[0]!) ? `${titulo} con ${clienteNombre}` : titulo;
       let horaFin = '';
       if (val(orden.hora_fin_texto)) {
@@ -576,7 +703,7 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
         if (hf.hora <= h.hora) return texto('La hora de fin tiene que ser posterior a la de inicio.');
         horaFin = hf.hora;
       }
-      const notasCita = [val(orden.notas_texto), horaFin ? `Hora de fin: ${horaFin}` : ''].filter(Boolean).join('\n');
+      const notasCita = [val(orden.notas_texto), conProveedor ? `Proveedor: ${conProveedor}` : '', horaFin ? `Hora de fin: ${horaFin}` : ''].filter(Boolean).join('\n');
       const args = {
         titulo: tituloFinal,
         fecha: f.ymd,
@@ -588,7 +715,7 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
         ...(ctx.descripcionCita !== undefined ? { description: ctx.descripcionCita } : {}),
         ...(ctx.modoMcp ? { _solape_comprobado: true } : {}),
       };
-      const resumen = `Voy a crear la cita «${tituloFinal}» el ${f.ymd} a las ${h.hora}.\nCliente: ${clienteNombre || '—'} · Obra: ${obraNombre || '—'}${args.notas ? `\nNotas: ${args.notas}` : ''}`;
+      const resumen = `Voy a crear la cita «${tituloFinal}» el ${f.ymd} a las ${h.hora}.\nCliente vinculado: ${clienteNombre || '—'} · Obra: ${obraNombre || '—'}${args.notas ? `\nNotas: ${args.notas}` : ''}`;
       return cerrar(ctx, 'crear_recordatorio', args, resumen);
     }
     case 'CITA_MOVER': {
@@ -694,22 +821,38 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
       const n = parseImporteTexto(orden.importe_texto);
       if (n == null || n <= 0) return pregunta(`No entiendo el importe «${orden.importe_texto}». ¿Cuánto es la factura?`, 'importe');
       if (!importeApareceEnTexto(n, dichos)) return pregunta(`No veo el importe ${n} en lo que me has dicho. ¿Cuánto es la factura?`, 'importe');
-      const modoMsg = modoIvaDelMensaje(todo);
-      const mas = modoMsg === 'base' || (modoMsg == null && orden.iva_modo === 'mas');
-      const total = mas ? r2(n * 1.21) : r2(n);
+      // IVA: en una factura NO se supone nada. Hay que haber dicho «con IVA» o «más IVA»; «sin IVA» a secas también se pregunta.
+      const modoMsg = modoIvaFinal(dichos);
+      if (modoMsg === 'ambiguo') return pregunta(PREGUNTA_SIN_IVA(n), 'iva');
+      let ivaDicho: 'base' | 'total' | 'exento' | null = modoMsg;
+      if (!ivaDicho && orden.iva_modo && /\biva\b/.test(norm(todo))) ivaDicho = orden.iva_modo === 'mas' ? 'base' : 'total';
+      if (!ivaDicho) return pregunta(`¿Los ${eur(n)} de la factura son con el IVA incluido o hay que sumarle el IVA (${eur(n)} + IVA)?`, 'iva');
+      const ivaPct = ivaDicho === 'exento' ? 0 : 21;
+      const baseF = ivaDicho === 'total' ? r2(n / (1 + ivaPct / 100)) : r2(n);
+      const ivaF = r2(baseF * (ivaPct / 100));
+      const total = r2(baseF + ivaF);
+      // Obra: solo si la dice. «Sin obra» (o no decir nada) = factura suelta: nunca se pregunta ni se elige otra por su cuenta.
       let obraId: string | undefined;
       let obraNombre = '';
-      if (val(orden.obra_texto)) {
-        const o = await slot(ctx, 'obra', val(orden.obra_texto), () => resolverObra(ctx, val(orden.obra_texto), { clienteId: cli.id }));
+      if (val(orden.obra_texto) && orden.sin_obra !== 'si') {
+        const o = await slot(ctx, 'obra', val(orden.obra_texto), () => resolverObra(ctx, val(orden.obra_texto), { clienteId: cli.id, cerradas: true }));
         if (!o.ok) return o.resultado;
         obraId = o.id;
         obraNombre = o.etiqueta;
       }
+      const concepto = val(orden.descripcion_texto) || 'Trabajos realizados';
       return cerrar(
         ctx,
         'crear_factura',
-        { descripcion_trabajos: (val(orden.descripcion_texto) || 'Trabajos realizados'), total, cliente_id: cli.id, cliente_nombre: cli.etiqueta, ...(obraId ? { obra_id: obraId } : {}) },
-        `Voy a crear una factura para ${cli.etiqueta}${obraNombre ? ` (obra «${obraNombre}»)` : ''}: «${val(orden.descripcion_texto) || 'Trabajos realizados'}». Total con IVA: ${eur(total)}${mas ? ` (${eur(n)} + IVA)` : ''}.`,
+        {
+          descripcion_trabajos: concepto,
+          total,
+          iva_porcentaje: ivaPct,
+          cliente_id: cli.id,
+          cliente_nombre: cli.etiqueta,
+          ...(obraId ? { obra_id: obraId } : {}),
+        },
+        `Voy a crear una factura para ${cli.etiqueta}${obraNombre ? ` (obra «${obraNombre}»)` : ' (sin obra)'}: «${concepto}».\nBase ${eur(baseF)} + IVA ${ivaPct} % ${eur(ivaF)} = Total ${eur(total)}. Vence a los 30 días.`,
         false,
         todo
       );

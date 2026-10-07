@@ -4,6 +4,7 @@
  */
 import { fechaDichaEnMensaje, parseFechaNatural, sumarDiasYmd, ymdHoyMadrid, diaSemanaDeYmd } from '@/lib/fechas-madrid';
 import { numerosDelDictado } from '@/lib/dictado-presupuesto';
+import { letrasACifras, numerosEnLetras } from '@/lib/numeros-letras';
 
 const sinTildes = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -137,14 +138,63 @@ export function resolverRangoTexto(texto: string | null | undefined, ahora: Date
 
 // ───────────────────────────── Importes ─────────────────────────────
 
-/** «180», «1.250,50», «180 euros» → número. null si no hay un importe claro. */
+/** Números que dijo el usuario, con cifras («180») o con letras («dos», «treinta y cinco»). */
+export function numerosDelMensaje(texto: string): number[] {
+  return [...numerosDelDictado(String(texto ?? '')), ...numerosEnLetras(String(texto ?? ''))];
+}
+
+/** «180», «1.250,50», «dos», «180 euros» → número. null si no hay un importe claro. */
 export function parseImporteTexto(texto: string | null | undefined): number | null {
-  const n = numerosDelDictado(String(texto ?? ''));
-  return n.length === 1 ? n[0]! : n.length > 1 ? null : null;
+  const n = numerosDelMensaje(String(texto ?? ''));
+  return n.length === 1 ? n[0]! : null;
 }
 
 /** ¿Este número lo dijo el usuario en alguno de sus mensajes? (Un importe que no está en el texto se rechaza.) */
 export function importeApareceEnTexto(valor: number, mensajes: string[]): boolean {
-  const dichos = new Set(numerosDelDictado(mensajes.join(' \n ')).map((n) => Math.round(n * 100) / 100));
+  const dichos = new Set(numerosDelMensaje(mensajes.join(' \n ')).map((n) => Math.round(n * 100) / 100));
   return dichos.has(Math.round(valor * 100) / 100);
+}
+
+// ───────────────────────────── Horas ─────────────────────────────
+
+const redondea = (n: number) => Math.round(n * 100) / 100;
+
+/** Horas trabajadas dichas de las formas habituales: «7», «7,5», «7 y media», «7 y cuarto», «8 menos cuarto», «7:30», «7h30», «media hora». */
+export function horasEnTexto(texto: string): number[] {
+  const t = letrasACifras(sinTildes(String(texto ?? ''))).replace(/\s+/g, ' ');
+  const out: number[] = [];
+  const usados: Array<[number, number]> = [];
+  const tomar = (re: RegExp, f: (m: RegExpMatchArray) => number) => {
+    for (const m of t.matchAll(re)) {
+      const ini = m.index ?? 0;
+      if (usados.some(([a, b]) => ini < b && ini + m[0].length > a)) continue;
+      out.push(redondea(f(m)));
+      usados.push([ini, ini + m[0].length]);
+    }
+  };
+  tomar(/\b(\d{1,2})\s*(?:h|horas?)?\s*y\s*media\b/g, (m) => +m[1]! + 0.5);
+  tomar(/\b(\d{1,2})\s*(?:h|horas?)?\s*y\s*cuarto\b/g, (m) => +m[1]! + 0.25);
+  tomar(/\b(\d{1,2})\s*(?:h|horas?)?\s*y\s*(?:tres cuartos|3 cuartos)\b/g, (m) => +m[1]! + 0.75);
+  tomar(/\b(\d{1,2})\s*(?:h|horas?)?\s*menos\s*cuarto\b/g, (m) => +m[1]! - 0.25);
+  tomar(/\b(\d{1,2})\s*(?:[:h]|h\s)\s*(\d{2})\b/g, (m) => +m[1]! + +m[2]! / 60);
+  tomar(/\b(?:una|un|1)\s+hora\s+y\s+media\b/g, () => 1.5);
+  tomar(/\bmedia\s+hora\b/g, () => 0.5);
+  tomar(/\b(?:una|un)\s+hora\b/g, () => 1);
+  // El resto de números sueltos («7», «7,5»), si no son parte de una de las formas de arriba.
+  let resto = t;
+  for (const [a, b] of [...usados].sort((x, y) => y[0] - x[0])) resto = resto.slice(0, a) + ' '.repeat(b - a) + resto.slice(b);
+  out.push(...numerosDelDictado(resto).map(redondea));
+  return out;
+}
+
+/** Horas de un slot («7 y media») → número. null si no hay una cifra de horas clara. */
+export function parseHorasTexto(texto: string | null | undefined): number | null {
+  const n = horasEnTexto(String(texto ?? ''));
+  return n.length === 1 ? n[0]! : null;
+}
+
+/** ¿El usuario dijo estas horas en alguno de sus mensajes? */
+export function horasApareceEnTexto(valor: number, mensajes: string[]): boolean {
+  const dichas = new Set(horasEnTexto(mensajes.join(' \n ')));
+  return dichas.has(redondea(valor));
 }

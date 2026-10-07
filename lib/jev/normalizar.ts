@@ -59,7 +59,7 @@ type Obj = Record<string, unknown>;
 const esObjeto = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** Items de una lista (partidas, cambios): cada item se limpia; se tira el que no tiene su campo clave. */
-function limpiarItems(v: unknown, claveItem: string): Obj[] | undefined {
+function limpiarItems(v: unknown, claveItem: string, soloSiHayAlgo = false): Obj[] | undefined {
   const lista = Array.isArray(v) ? v : esObjeto(v) ? [v] : undefined;
   if (!lista) return undefined;
   const out: Obj[] = [];
@@ -70,7 +70,8 @@ function limpiarItems(v: unknown, claveItem: string): Obj[] | undefined {
       const t = limpiarTexto(val);
       if (t !== undefined) limpio[k] = t;
     }
-    if (limpio[claveItem] !== undefined) out.push(limpio);
+    // En los cambios de partida la partida puede faltar («ponle 500»): se conserva el cambio y el ejecutor pregunta cuál.
+    if (limpio[claveItem] !== undefined || (soloSiHayAlgo && Object.keys(limpio).length > 0)) out.push(limpio);
   }
   return out;
 }
@@ -96,8 +97,11 @@ export function normalizarConAvisos(raw: unknown): { orden: Obj; descartados: Ar
     if (k === 'partidas' || k === 'anadir') {
       const l = limpiarItems(v, 'concepto_texto');
       if (l !== undefined && l.length) out[k] = l;
+    } else if (k === 'mas_operarios') {
+      const l = limpiarItems(v, 'operario_texto');
+      if (l !== undefined && l.length) out[k] = l;
     } else if (k === 'cambiar') {
-      const l = limpiarItems(v, 'partida_texto');
+      const l = limpiarItems(v, 'partida_texto', true);
       if (l !== undefined && l.length) out[k] = l;
     } else if (k === 'quitar_texto') {
       const lista = (Array.isArray(v) ? v : [v]).map(limpiarTexto).filter((x): x is string => x !== undefined);
@@ -128,6 +132,11 @@ export function normalizarConAvisos(raw: unknown): { orden: Obj; descartados: Ar
       delete out.categoria;
       descartados.push({ campo: 'categoria', motivo: 'valor no válido' });
     }
+  }
+  const sinObra = str('sin_obra');
+  if (sinObra) {
+    if (/^(?:si|sí|true|sin obra|suelta|1)$/.test(clave(sinObra))) out.sin_obra = 'si';
+    else delete out.sin_obra;
   }
   const doc = str('documento');
   if (doc) {

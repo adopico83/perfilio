@@ -114,10 +114,10 @@ describe('jev: mover «al jueves» (fallo 4) y «el lunes» tras una corrección
   it('«no, con Iker PRUEBA» corrige solo el cliente y conserva «el lunes 17:00»; luego un «sí» escrito confirma', async () => {
     const db = crearFakeDb(baseRonda5());
     const s = sesion(db);
-    const a = await s.di('cita con Mikel el lunes a las 5', { accion: 'CITA_CREAR', cliente_texto: 'Mikel PRUEBA', fecha_texto: 'el lunes', hora_texto: '17:00' });
+    const a = await s.di('cita con Mikel el lunes a las 5', { accion: 'CITA_CREAR', cliente_texto: 'Mikel PRUEBA Etxeberria', fecha_texto: 'el lunes', hora_texto: '17:00' });
     expect(a.accionPendiente).toBeDefined();
     // Corrige el cliente: el traductor solo trae lo nuevo (cliente); el resto se conserva de la tarea.
-    const antes = await s.di('cita con Mikel el lunes a las 5', { accion: 'CITA_CREAR', cliente_texto: 'Mikel PRUEBA', fecha_texto: 'el lunes', hora_texto: '17:00' });
+    const antes = await s.di('cita con Mikel el lunes a las 5', { accion: 'CITA_CREAR', cliente_texto: 'Mikel PRUEBA Etxeberria', fecha_texto: 'el lunes', hora_texto: '17:00' });
     expect(antes.respuesta).toContain('2026-10-12');
     // Tarea a medias: falta la hora → pregunta; luego se completa («a las 5») sin repetir el día.
     const b = await s.di('visita con Iker PRUEBA el lunes', { accion: 'CITA_CREAR', cliente_texto: 'Iker PRUEBA', fecha_texto: 'el lunes' });

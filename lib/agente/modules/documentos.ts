@@ -1,4 +1,5 @@
 import { ymdHoyMadrid } from '@/lib/fechas-madrid';
+import { DIAS_VENCIMIENTO_FACTURA, sumarDiasYmd } from '@/lib/facturas/desde-presupuesto';
 import { insertarFacturaConNumeroCorrelativo } from '@/lib/facturas/numero';
 import { crearFacturaDesdeAlbaran } from '@/lib/facturas/desde-albaran';
 import { actualizarFactura } from '@/lib/facturas/editar';
@@ -557,7 +558,6 @@ export async function handleDocumentosAgent(
   _openai: OpenAI,
   ctx: HandleDocumentosCtx = {}
 ): Promise<Record<string, unknown>> {
-  void authUserId;
   void _openai;
   const mensajeTrim = ctx.mensajeTrim ?? '';
   const mensajeOriginal = ctx.mensaje ?? mensajeTrim;
@@ -869,11 +869,15 @@ export async function handleDocumentosAgent(
       if (!desc) {
         return { error: 'descripcion_trabajos es obligatorio' };
       }
+      // Resuelta por el ejecutor .jev: cliente, obra, importe e IVA ya comprobados; nada se vuelve a deducir del texto.
+      const resuelto = toolArgs._resuelto === true;
       const totalRaw = toolArgs.total;
       const totalNum =
         totalRaw != null && Number.isFinite(Number(totalRaw)) ? Number(totalRaw) : 0;
-      const baseImponible = totalNum ? totalNum / 1.21 : 0;
-      const iva = totalNum ? totalNum - baseImponible : 0;
+      const ivaPct = toolArgs.iva_porcentaje != null && Number.isFinite(Number(toolArgs.iva_porcentaje)) ? Number(toolArgs.iva_porcentaje) : 21;
+      const r2f = (n: number) => Math.round(n * 100) / 100;
+      const baseImponible = totalNum ? r2f(totalNum / (1 + ivaPct / 100)) : 0;
+      const iva = totalNum ? r2f(totalNum - baseImponible) : 0;
 
       const cr = await resolveClienteIdOpcional(supabase, businessId, toolArgs.cliente_id);
       if (!cr.ok) return { error: cr.error };
@@ -899,16 +903,20 @@ export async function handleDocumentosAgent(
         typeof toolArgs.obra_id === 'string' && toolArgs.obra_id.trim()
           ? String(toolArgs.obra_id).trim()
           : undefined;
-      const textoObra = [desc, mensajeTrim].filter(Boolean).join(' ').trim();
-      const obraRes = await resolverObraDocumentoAgente(
-        supabase,
-        businessId,
-        explicitObra,
-        textoObra,
-        'documento'
-      );
-      if (!obraRes.ok) return aclaracionObra(obraRes);
-      const obraIdFinal = obraRes.obra_id ?? '';
+      let obraIdFinal = '';
+      if (resuelto) {
+        // La obra (o «sin obra») la decidió el ejecutor: aquí solo se comprueba que es de este negocio.
+        if (explicitObra) {
+          const { data: o } = await supabase.from('obras').select('id').eq('id', explicitObra).eq('business_id', businessId).maybeSingle();
+          if (!o) return { error: 'obra_id no existe en tu negocio' };
+          obraIdFinal = explicitObra;
+        }
+      } else {
+        const textoObra = [desc, mensajeTrim].filter(Boolean).join(' ').trim();
+        const obraRes = await resolverObraDocumentoAgente(supabase, businessId, explicitObra, textoObra, 'documento');
+        if (!obraRes.ok) return aclaracionObra(obraRes);
+        obraIdFinal = obraRes.obra_id ?? '';
+      }
 
       let clienteIdFinal = clienteIdFactura;
       let clienteNombreFinal: string | null = clienteNombreFactura || null;
@@ -924,17 +932,34 @@ export async function handleDocumentosAgent(
         }
       }
 
+      // NIF y dirección de la ficha del cliente: se COPIAN a la factura (igual que al facturar un presupuesto).
+      let clienteNif: string | null = null;
+      let clienteDireccion: string | null = null;
+      if (clienteIdFinal != null) {
+        const { data: ficha } = await supabase.from('clientes').select('nif, direccion').eq('id', clienteIdFinal).eq('business_id', businessId).maybeSingle();
+        clienteNif = String((ficha as { nif?: string | null } | null)?.nif ?? '').trim() || null;
+        clienteDireccion = String((ficha as { direccion?: string | null } | null)?.direccion ?? '').trim() || null;
+      }
+
+      // Siempre UNA línea con el concepto (cantidad 1, precio base, importe base): el PDF y las listas leen `lineas`.
+      const fechaFactura = ymdHoyMadrid();
+      const lineas = [{ descripcion: desc, cantidad: 1, unidad: null, precio_unitario: baseImponible, importe: baseImponible, capitulo: null }];
+
       // Número correlativo POR NEGOCIO (antes cogía el contador global de la base de datos).
       const ins = await insertarFacturaConNumeroCorrelativo(
         supabase,
         businessId,
         {
           cliente_nombre: clienteNombreFinal,
+          ...(clienteNif ? { cliente_nif: clienteNif } : {}),
+          ...(clienteDireccion ? { cliente_direccion: clienteDireccion } : {}),
           descripcion_trabajos: desc,
+          lineas,
           base_imponible: Number.isFinite(baseImponible) ? baseImponible : 0,
           iva: Number.isFinite(iva) ? iva : 0,
           total: Number.isFinite(totalNum) ? totalNum : 0,
-          fecha: ymdHoyMadrid(),
+          fecha: fechaFactura,
+          fecha_vencimiento: sumarDiasYmd(fechaFactura, DIAS_VENCIMIENTO_FACTURA),
           estado: 'pendiente',
           ...(clienteIdFinal != null && { cliente_id: clienteIdFinal }),
           ...(obraIdFinal ? { obra_id: obraIdFinal } : {}),
@@ -943,7 +968,12 @@ export async function handleDocumentosAgent(
       );
 
       if (!ins.ok) return { error: ins.error };
-      return { ok: true, numero_factura: ins.data.numero_factura ?? null };
+      return {
+        ok: true,
+        numero_factura: ins.data.numero_factura ?? null,
+        factura_id: typeof ins.data.id === 'string' ? ins.data.id : undefined,
+        mensaje: `Factura nº ${ins.data.numero_factura ?? ''} creada${clienteNombreFinal ? ` para ${clienteNombreFinal}` : ''}: base ${baseImponible.toFixed(2).replace('.', ',')} € + IVA ${iva.toFixed(2).replace('.', ',')} € = ${totalNum.toFixed(2).replace('.', ',')} €. Vence el ${sumarDiasYmd(fechaFactura, DIAS_VENCIMIENTO_FACTURA)}.`,
+      };
     }
     case 'crear_albaran': {
       const desc = String(toolArgs.descripcion_trabajos ?? '').trim();
@@ -1112,15 +1142,15 @@ export async function handleDocumentosAgent(
         .filter(Boolean)
         .join(' ')
         .trim();
-      const obraExtraRes = await resolverObraDocumentoAgente(
-        supabase,
-        businessId,
-        explicitObraExtra,
-        textoObraExtra,
-        'extra'
-      );
-      if (!obraExtraRes.ok) return aclaracionObra(obraExtraRes);
-      const obraIdExtra = obraExtraRes.obra_id ?? '';
+      // Resuelta por el ejecutor .jev: la obra es la del presupuesto padre (o ninguna); no se deduce del texto.
+      let obraIdExtra = '';
+      if (toolArgs._resuelto === true) {
+        obraIdExtra = explicitObraExtra ?? '';
+      } else {
+        const obraExtraRes = await resolverObraDocumentoAgente(supabase, businessId, explicitObraExtra, textoObraExtra, 'extra');
+        if (!obraExtraRes.ok) return aclaracionObra(obraExtraRes);
+        obraIdExtra = obraExtraRes.obra_id ?? '';
+      }
 
       // Los extras también son filas de `presupuestos`: llevan su propio número correlativo.
       const extraCreado = await insertarPresupuestoConNumeroCorrelativo(
@@ -1270,6 +1300,9 @@ export async function handleDocumentosAgent(
           return { error: 'La obra indicada no existe o no está abierta.' };
         }
         obraIdFinal = obraRow.id;
+      } else if (toolArgs._resuelto === true) {
+        // Resuelto por el ejecutor .jev: si no nombró obra, el presupuesto va sin obra (no se deduce ninguna del texto).
+        obraIdFinal = '';
       } else {
         const obraNombreExplicito =
           typeof toolArgs.obra_nombre === 'string' && toolArgs.obra_nombre.trim()
@@ -1425,6 +1458,45 @@ export async function handleDocumentosAgent(
         'id, numero_presupuesto'
       );
       if (!creado.ok) return { error: creado.error };
+
+      // La UNIDAD (m², ml, ud) no cabe en el texto canónico: se guarda en una previsualización ya confirmada, de donde la leen
+      // la edición de partidas y las facturas (si no, las líneas de la factura salían sin unidad). Nunca rompe el guardado.
+      try {
+        const ahoraPv = new Date();
+        const { data: pv } = await supabase
+          .from('presupuesto_previews')
+          .insert({
+            business_id: businessId,
+            creado_por: authUserId,
+            cliente_nombre: clienteNombreParaDoc,
+            obra_id: obraIdFinal || null,
+            iva_porcentaje: IVA_DICTADO,
+            partidas: canon.partidas.map((p, i) => ({
+              concepto: p.concepto,
+              cantidad: p.cantidad,
+              precio: p.precio,
+              capitulo: p.capitulo,
+              unidad: String(partidasValidadas[i]?.unidad ?? '').trim() || null,
+            })),
+            texto_canonico: canon.texto,
+            base_imponible: canon.base,
+            iva_importe: canon.ivaImporte,
+            total: canon.total,
+            avisos: [],
+            estado: 'confirmado',
+            origen: 'atajo',
+            presupuesto_id: String(creado.data.id),
+            confirmed_at: ahoraPv.toISOString(),
+            expires_at: new Date(ahoraPv.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+            created_at: ahoraPv.toISOString(),
+          })
+          .select('id')
+          .single();
+        const pvId = (pv as { id?: string } | null)?.id;
+        if (pvId) await supabase.from('presupuestos').update({ preview_id: pvId }).eq('id', String(creado.data.id)).eq('business_id', businessId);
+      } catch {
+        /* sin unidades en la factura, pero el presupuesto ya está guardado */
+      }
 
       const numeroCreado = creado.data.numero_presupuesto == null ? null : Number(creado.data.numero_presupuesto);
       return {

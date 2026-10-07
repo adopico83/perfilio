@@ -399,7 +399,7 @@ describe('ronda 4: lo que se guarda es EXACTAMENTE lo que se enseñó', () => {
     expect(db.tablas.proveedores.find((p) => p.nombre === 'Bricomart')).toMatchObject({ business_id: NEGOCIO_A, nif: 'A12345678' });
     const otra = await handleGastosAgent('crear_proveedor', { nombre: 'saltoki' }, NEGOCIO_A, USUARIO, db.client, {} as never, {});
     expect(otra).toMatchObject({ ok: true, existente: true });
-    expect(db.tablas.proveedores).toHaveLength(2);
+    expect(db.tablas.proveedores).toHaveLength(3); // Maderas Oria + Saltoki + el nuevo
   });
   it('cita: «el jueves» queda como fecha concreta en la acción confirmada (aunque pase la medianoche)', async () => {
     relojEn('2026-10-06T10:00:00Z');
@@ -856,7 +856,7 @@ describe('ronda 5.6: IVA, descripción y proveedor en gastos', () => {
     expect(db.tablas.gastos[0]).toMatchObject({ proveedor: 'Saltoki', proveedor_id: IDS.proveedorSaltoki });
     const r = (await gastos(db, { proveedor: 'Ferretería Nueva', importe: 10, iva: 2.1, importe_total: 12.1, fecha: '2026-10-06', categoria: 'material' }, '')) as { mensaje: string };
     expect(r.mensaje).toMatch(/¿quieres que lo dé de alta\?/);
-    expect(db.tablas.proveedores).toHaveLength(1); // no se creó
+    expect(db.tablas.proveedores).toHaveLength(2); // no se creó (Maderas Oria + Saltoki)
   });
 });
 
