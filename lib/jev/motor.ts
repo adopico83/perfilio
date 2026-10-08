@@ -126,7 +126,36 @@ const AVISO_DESCARTADA = 'He dejado sin hacer lo que tenía pendiente. ';
  * servidor tiene guardado como pendiente, con la intención CONFIRMA y si el último mensaje del asistente fue la pregunta
  * de ESA orden. Ante cualquier duda, no se hace nada y se vuelve a preguntar.
  */
+type SalidaInterna = SalidaMotor & { _meta?: { ordenes: Array<Record<string, unknown>>; varias: boolean } };
+
 export async function procesarMensajeJev(ent: EntradaMotor): Promise<SalidaMotor> {
+  const { _meta, ...salida } = await procesarInterno(ent);
+  return _meta ? guardianFinal(ent.mensaje.trim(), salida, _meta.ordenes, _meta.varias) : salida;
+}
+
+/**
+ * GUARDIÁN FINAL: único punto de salida de una petición traducida. Perder algo EN SILENCIO tiene que ser imposible: si el mensaje trae
+ * una cifra (con su unidad) o un nombre que ninguna orden recoge, o pedía varias cosas y la respuesta no dice qué pasa con las demás,
+ * la respuesta lo dice y pregunta. Preguntar de más no es un fallo; callar sí.
+ */
+export function guardianFinal(mensaje: string, salida: SalidaMotor, ordenes: Array<Record<string, unknown>>, varias: boolean): SalidaMotor {
+  const marca = /(\n?<!--orden:[\w-]+-->)?$/;
+  let respuesta = salida.respuesta;
+  const sinUsar = datosSinUsar(mensaje, ordenes);
+  if (sinUsar && !/También me has dicho/.test(respuesta)) {
+    logJev('datos_sin_usar', { dato: sinUsar });
+    respuesta = respuesta.replace(marca, `\n\n⚠️ También me has dicho «${sinUsar}» y eso no lo he preparado. ¿Lo apunto después? Dímelo cuando acabemos con esto.$1`);
+  } else if (ordenes.length > 1 && !/Después te pregunto|Después te preparo|También me has dicho/.test(respuesta)) {
+    const resto = ordenes.slice(1).map((o) => etiquetaOrden(o));
+    respuesta = respuesta.replace(marca, `\n\nDespués te preparo: ${resto.join('; ')}.$1`);
+  } else if (varias && ordenes.length === 1 && !/También me has dicho|Después te pregunto/.test(respuesta)) {
+    logJev('datos_sin_usar', { dato: 'varias órdenes, solo una preparada' });
+    respuesta = respuesta.replace(marca, `\n\n⚠️ Me has pedido más de una cosa y solo he preparado esta. ¿Qué más querías? Dímelo cuando acabemos con esto.$1`);
+  }
+  return { ...salida, respuesta };
+}
+
+async function procesarInterno(ent: EntradaMotor): Promise<SalidaInterna> {
   const { supabase, businessId, userId } = ent;
   const ahora = ent.ahora ?? new Date();
   const mensaje = ent.mensaje.trim();
@@ -277,16 +306,10 @@ export async function procesarMensajeJev(ent: EntradaMotor): Promise<SalidaMotor
     return { respuesta: `No veo qué dato cambiar respecto a lo que tenía preparado. Dime qué quieres que cambie (o lo dejamos).` };
   }
 
-  // Red de seguridad: si el mensaje trae datos que NINGUNA orden ha usado, se dice (no se calla).
-  let respuesta = `${aviso}${r.respuesta}`;
-  if (!r.charla && intencion !== 'RESPUESTA') {
-    const sinUsar = datosSinUsar(mensaje, todas);
-    if (sinUsar) {
-      logJev('datos_sin_usar', { dato: sinUsar });
-      respuesta = respuesta.replace(/(\n?<!--orden:[\w-]+-->)?$/, `\n\n⚠️ También me has dicho «${sinUsar}» y eso no lo he preparado. ¿Lo apunto después? Dímelo cuando acabemos con esto.$1`);
-    }
-  }
-  return { ...r, respuesta };
+  // El aviso de lo que no se ha preparado lo pone el guardián final (`guardianFinal`), por un único camino.
+  const respuesta = `${aviso}${r.respuesta}`;
+  if (r.charla || intencion === 'RESPUESTA') return { ...r, respuesta };
+  return { ...r, respuesta, _meta: { ordenes: todas as Array<Record<string, unknown>>, varias: intencion === 'VARIAS' || otras.length > 0 || salida.rescate === true } };
 }
 
 /** Slot de una pregunta del ejecutor → campo de la orden que rellena la respuesta. */

@@ -46,6 +46,10 @@ export type EscenarioR8 = {
   final?: (db: Db) => string[];
   /** Presupuesto/cita «recordados» al empezar (como las marcas del historial del chat). */
   contexto?: { ultimoPresupuestoId?: string; ultimoEventoId?: string };
+  /** El primer mensaje pide varias órdenes: si la respuesta no avisa de las demás, es una orden PERDIDA SIN AVISO. */
+  varias?: boolean;
+  /** Filas que, como mucho, puede haber guardado el escenario por tabla; guardar más (o en otra tabla) es una ESCRITURA INCORRECTA. */
+  maxEscrituras?: Record<string, number>;
 };
 
 const esperar = (cond: unknown, problema: string): string[] => (cond ? [] : [problema]);
@@ -222,12 +226,13 @@ export async function ejecutarEscenario(
   traductor: (e: EntradaTraductor, paso: Extract<PasoR8, { mensaje: string }>) => Promise<SalidaTraductor>,
   /** Sin clasificador se usa el REAL (eval); en los tests se pasa el simulado. */
   clasificador?: (e: EntradaIntencion, paso: Extract<PasoR8, { mensaje: string }>) => Promise<SalidaIntencion>
-): Promise<{ problemas: string[]; db: Db }> {
+): Promise<{ problemas: string[]; db: Db; respuestas: string[] }> {
   const base = baseRonda5();
   esc.preparar?.(base);
   const db = crearFakeDb(base);
   const runTool = crearRunToolJev({ supabase: db.client, businessId: NEGOCIO_A, userId: USUARIO });
   const problemas: string[] = [];
+  const respuestas: string[] = [];
   let ultimoAsistente: string | undefined;
   let ultimaOrdenId: string | null = null;
   let ultimoEventoId = esc.contexto?.ultimoEventoId ?? null;
@@ -260,6 +265,7 @@ export async function ejecutarEscenario(
       });
     }
     ultimoAsistente = r.respuesta;
+    respuestas.push(r.respuesta);
     ultimaOrdenId = r.accionPendiente?.orden_id ?? null;
     const ev = (r.resultado as { evento_id?: unknown } | undefined)?.evento_id;
     if (typeof ev === 'string') ultimoEventoId = ev;
@@ -267,5 +273,25 @@ export async function ejecutarEscenario(
     for (const p of paso.ok?.(r, db) ?? []) problemas.push(`paso ${i + 1} ${nombrePaso}: ${p}`);
   }
   for (const p of esc.final?.(db) ?? []) problemas.push(`final: ${p}`);
-  return { problemas, db };
+  return { problemas, db, respuestas };
+}
+
+/** Escrituras de un escenario por tabla (sin las órdenes pendientes, que son del propio motor). */
+export function escriturasPorTabla(db: Db): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const i of db.inserts) if (i.tabla !== 'jev_ordenes_pendientes') out[i.tabla] = (out[i.tabla] ?? 0) + 1;
+  for (const u of db.updates) if (u.tabla !== 'jev_ordenes_pendientes') out[`${u.tabla}(update)`] = (out[`${u.tabla}(update)`] ?? 0) + 1;
+  return out;
+}
+
+/** ¿Guardó más de lo permitido (o en una tabla no permitida)? Devuelve los motivos. */
+export function escriturasIncorrectas(esc: EscenarioR8, db: Db): string[] {
+  if (!esc.maxEscrituras) return [];
+  const hechas = escriturasPorTabla(db);
+  return Object.entries(hechas).flatMap(([t, n]) => ((esc.maxEscrituras![t] ?? 0) < n ? [`guardó ${n} en «${t}» (máximo ${esc.maxEscrituras![t] ?? 0})`] : []));
+}
+
+/** ¿Perdió una orden sin avisar? (el primer turno de un escenario `varias` debe nombrar lo que queda o preguntar). */
+export function ordenPerdidaSinAviso(esc: EscenarioR8, respuestas: string[]): boolean {
+  return Boolean(esc.varias) && !/Después te pregunto|Después te preparo|También me has dicho|más de una cosa/.test(respuestas[0] ?? '');
 }

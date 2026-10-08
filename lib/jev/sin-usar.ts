@@ -1,4 +1,5 @@
 import { horasEnTexto, numerosDelMensaje } from '@/lib/jev/fechas';
+import { letrasACifras } from '@/lib/numeros-letras';
 
 /** Datos del mensaje (cifras) que ninguna orden ha recogido, con un trocito del mensaje para que se entienda. null si no sobra nada. */
 export function datosSinUsar(mensaje: string, ordenes: Array<Record<string, unknown>>): string | null {
@@ -50,6 +51,34 @@ export function datoSinUsarDetalle(mensaje: string, ordenes: Array<Record<string
     const n = numerosDelMensaje(m[0])[0];
     if (n == null || usados.has(Math.round(n * 100) / 100)) continue;
     return { trozo: trozoAlrededor(m.index ?? 0, m[0].length), indice: m.index ?? 0 };
+  }
+  // Una cifra con UNIDAD tiene que estar en el hueco de esa unidad: «6 horas» en un campo de horas (no como importe de un gasto),
+  // «87 euros» en un campo de importe o precio. Es lectura de datos, no de frases.
+  const enClave = (clave: RegExp): Set<number> => {
+    const out = new Set<number>();
+    const rec = (v: unknown, k = ''): void => {
+      if (typeof v === 'string') {
+        if (clave.test(k)) for (const n of [...numerosDelMensaje(v), ...horasEnTexto(v)]) out.add(Math.round(n * 100) / 100);
+      } else if (Array.isArray(v)) v.forEach((x) => rec(x, k));
+      else if (v && typeof v === 'object') for (const [kk, x] of Object.entries(v as Record<string, unknown>)) rec(x, kk);
+    };
+    ordenes.forEach((o) => rec(o));
+    return out;
+  };
+  const conUnidad = letrasACifras(texto);
+  const reglas: Array<[RegExp, RegExp]> = [
+    [/(\d+(?:[.,]\d+)?)\s*(?:horas?|h)\b/gi, /hora|duraci/],
+    [/(\d+(?:[.,]\d+)?)\s*(?:€|euros?)/gi, /importe|precio|total|anticipo|adelanto|sena|cobro|pago|coste/],
+  ];
+  for (const [re, clave] of reglas) {
+    const validos = enClave(clave);
+    for (const m of conUnidad.matchAll(re)) {
+      const n = numerosDelMensaje(m[1]!)[0];
+      if (n == null || validos.has(Math.round(n * 100) / 100)) continue;
+      const pos = texto.search(new RegExp(`\\b${m[1]!.replace('.', '\\.')}\\b`));
+      const indice = pos >= 0 ? pos : 0;
+      return { trozo: trozoAlrededor(indice, m[1]!.length), indice };
+    }
   }
   const todo = textoDeOrdenes(ordenes);
   for (const m of texto.matchAll(/(?<![.!?¿¡]\s)(?<=\S\s)\b[A-ZÁÉÍÓÚÑ][\wáéíóúñÁÉÍÓÚÑ]{2,}/g)) {

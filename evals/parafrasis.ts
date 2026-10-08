@@ -30,26 +30,31 @@ const pendienteHoras = (): PasoR8 => ({ mensaje: MSG_HORAS, orden: HORAS, catego
 const pendienteCita = (): PasoR8 => ({ mensaje: MSG_CITA, orden: CITA, categoria: 'agenda', ok: (r) => esperar(r.accionPendiente, 'no quedó pendiente la cita') });
 
 const cancelaGasto = (frase: string): EscenarioR8 => ({
+  maxEscrituras: {},
   nombre: `[paráfrasis · cancelar] «${frase}» con un gasto pendiente → no se guarda`,
   pasos: [pendienteGasto(), { mensaje: frase, intencion: 'CANCELA', ok: (r) => esperar(!r.accionPendiente, `dejó una orden pendiente: «${r.respuesta.slice(0, 120)}»`) }],
   final: (db) => [...esperar(tabla(db, 'gastos').length === 0, 'se guardó un gasto que se canceló'), ...esperar(escrituras(db) === 0, 'escribió algo')],
 });
 const cancelaHoras = (frase: string): EscenarioR8 => ({
+  maxEscrituras: {},
   nombre: `[paráfrasis · cancelar] «${frase}» con horas pendientes → no se guardan`,
   pasos: [pendienteHoras(), { mensaje: frase, intencion: 'CANCELA', ok: (r) => esperar(!r.accionPendiente, `dejó una orden pendiente: «${r.respuesta.slice(0, 120)}»`) }],
   final: (db) => esperar(tabla(db, 'registros_jornada').length === 0 && escrituras(db) === 0, 'se guardaron horas que se cancelaron'),
 });
 const confirmaGasto = (frase: string): EscenarioR8 => ({
+  maxEscrituras: { gastos: 1 },
   nombre: `[paráfrasis · confirmar] «${frase}» con un gasto pendiente → se guarda`,
   pasos: [pendienteGasto(), { mensaje: frase, intencion: 'CONFIRMA' }],
   final: (db) => esperar(tabla(db, 'gastos').length === 1 && tabla(db, 'gastos')[0]!.importe_total === 87.4, `gastos guardados: ${JSON.stringify(tabla(db, 'gastos').map((g) => g.importe_total))}`),
 });
 const confirmaHoras = (frase: string): EscenarioR8 => ({
+  maxEscrituras: { registros_jornada: 1 },
   nombre: `[paráfrasis · confirmar] «${frase}» con horas pendientes → se guardan`,
   pasos: [pendienteHoras(), { mensaje: frase, intencion: 'CONFIRMA' }],
   final: (db) => esperar(tabla(db, 'registros_jornada').length === 1 && tabla(db, 'registros_jornada')[0]!.horas_reales === 7, `horas guardadas: ${JSON.stringify(tabla(db, 'registros_jornada').map((x) => x.horas_reales))}`),
 });
 const corrigeHoras = (frase: string, orden: Record<string, unknown>, enseña: string, guardado: { horas: number; operario?: string }): EscenarioR8 => ({
+  maxEscrituras: { registros_jornada: 1 },
   nombre: `[paráfrasis · corregir] «${frase}» → vuelve a enseñar «${enseña}» y guarda lo corregido`,
   pasos: [
     pendienteHoras(),
@@ -62,11 +67,13 @@ const corrigeHoras = (frase: string, orden: Record<string, unknown>, enseña: st
   },
 });
 const corrigeCita = (frase: string, orden: Record<string, unknown>, enseña: string): EscenarioR8 => ({
+  maxEscrituras: {},
   nombre: `[paráfrasis · corregir] «${frase}» con una cita pendiente → nuevo resumen con «${enseña}»`,
   pasos: [pendienteCita(), { mensaje: frase, intencion: 'CORRIGE', orden: { ...CITA, ...orden }, continua: true, categoria: 'agenda', ok: (r) => [...contiene(r, enseña), ...esperar(r.accionPendiente, 'no volvió a pedir confirmación')] }],
   final: (db) => esperar(tabla(db, 'agenda').length === 3, 'guardó la cita sin confirmación'),
 });
 const horaCorta = (frase: string, hora: string): EscenarioR8 => ({
+  maxEscrituras: {},
   nombre: `[paráfrasis · respuesta corta] cita sin hora, «${frase}» → ${hora}`,
   pasos: [
     { mensaje: 'cita con Paqui el lunes', orden: { accion: 'CITA_CREAR', cliente_texto: 'Paqui', fecha_texto: 'el lunes' }, categoria: 'agenda', ok: (r) => esperar(/hora/i.test(r.respuesta) && !r.accionPendiente, 'no preguntó la hora') },
@@ -74,6 +81,7 @@ const horaCorta = (frase: string, hora: string): EscenarioR8 => ({
   ],
 });
 const clienteCorto = (frase: string): EscenarioR8 => ({
+  maxEscrituras: {},
   nombre: `[paráfrasis · respuesta corta] «factura a Ane por 200», «${frase}» → Ane Mendia`,
   pasos: [
     { mensaje: 'factura a Ane por 200', orden: { accion: 'CREAR_FACTURA', cliente_texto: 'Ane', importe_texto: '200' }, categoria: 'documentos', ok: (r) => esperar((r.opciones?.length ?? 0) === 2 && !r.accionPendiente, 'no preguntó cuál Ane') },
@@ -83,6 +91,7 @@ const clienteCorto = (frase: string): EscenarioR8 => ({
   final: (db) => esperar(!tabla(db, 'facturas').some((f) => /Ane/.test(String(f.cliente_nombre))), 'creó la factura sin confirmación'),
 });
 const proveedorGasto = (frase: string, orden: Record<string, unknown>, total: string): EscenarioR8 => ({
+  maxEscrituras: { gastos: 1 },
   nombre: `[paráfrasis · proveedor frente a cliente] «${frase}» → gasto de Maderas Oria (${total})`,
   pasos: [
     { mensaje: frase, orden: { accion: 'GASTO', proveedor_texto: 'Maderas Oria', ...orden }, categoria: 'gastos', ok: (r) => [...contiene(r, 'Maderas Oria', total), ...esperar(r.accionPendiente && !/dar de alta/i.test(r.respuesta), 'no preparó el gasto o ofreció dar de alta')] },
@@ -91,17 +100,21 @@ const proveedorGasto = (frase: string, orden: Record<string, unknown>, total: st
   final: (db) => esperar(tabla(db, 'gastos').length === 1 && !tabla(db, 'facturas').some((f) => /Maderas/.test(String(f.cliente_nombre))), `gastos ${tabla(db, 'gastos').length}, facturas a Maderas ${tabla(db, 'facturas').filter((f) => /Maderas/.test(String(f.cliente_nombre))).length}`),
 });
 const proveedorCita = (frase: string, orden: Record<string, unknown>): EscenarioR8 => ({
+  maxEscrituras: {},
   nombre: `[paráfrasis · proveedor frente a cliente] «${frase}» → cita con Maderas Oria, sin alta de cliente`,
   pasos: [{ mensaje: frase, orden: { accion: 'CITA_CREAR', ...orden }, categoria: 'agenda', ok: (r) => [...contiene(r, 'Maderas Oria'), ...esperar(r.accionPendiente && !/alta/i.test(r.respuesta), 'ofreció dar de alta o no preparó la cita')] }],
   final: (db) => esperar(escrituras(db) === 0, 'escribió antes del «Sí»'),
 });
 const duda = (frase: string, intencion: Intencion = 'CANCELA'): EscenarioR8 => ({
+  maxEscrituras: {},
   nombre: `[paráfrasis · duda] «${frase}» con un gasto pendiente → NO se guarda`,
   pasos: [pendienteGasto(), { mensaje: frase, intencion, orden: { accion: 'ACLARAR', pregunta: '¿Qué necesitas?' }, ok: (r) => esperar(!/Hecho|apuntado|guardado/i.test(r.respuesta), `parece que lo hizo: «${r.respuesta.slice(0, 120)}»`) }],
   final: (db) => esperar(tabla(db, 'gastos').length === 0 && escrituras(db) === 0, 'guardó algo ante una duda'),
 });
 // El orden en que el asistente enseña las órdenes no importa: lo que importa es que ninguna se pierda y que ambas se guarden.
 const variasHoras = (frase: string, orden: Record<string, unknown>, otras?: Array<Record<string, unknown>>): EscenarioR8 => ({
+  varias: true,
+  maxEscrituras: { gastos: 0, registros_jornada: 2 },
   nombre: `[paráfrasis · varias órdenes] «${frase}» → las dos órdenes, ninguna perdida`,
   pasos: [
     { mensaje: frase, intencion: 'VARIAS', orden, ...(otras ? { otras } : {}), categoria: 'operarios', ok: (r) => esperar(r.accionPendiente && /Aitor|Jon/.test(r.respuesta) && /Después te pregunto|Jon|Aitor/.test(r.respuesta), 'no preparó una y avisó de la otra') },
@@ -111,6 +124,8 @@ const variasHoras = (frase: string, orden: Record<string, unknown>, otras?: Arra
   final: (db) => esperar(JSON.stringify(tabla(db, 'registros_jornada').map((x) => x.horas_reales).sort()) === JSON.stringify([6, 7.5]), `horas guardadas: ${JSON.stringify(tabla(db, 'registros_jornada').map((x) => x.horas_reales))}`),
 });
 const variasMixtas = (frase: string): EscenarioR8 => ({
+  varias: true,
+  maxEscrituras: { gastos: 1, registros_jornada: 1 },
   nombre: `[paráfrasis · varias órdenes] «${frase}» → gasto y horas, ninguno perdido`,
   pasos: [
     {
@@ -126,6 +141,40 @@ const variasMixtas = (frase: string): EscenarioR8 => ({
   ],
   final: (db) => esperar(tabla(db, 'gastos').length === 1 && tabla(db, 'registros_jornada').length === 1, `gastos ${tabla(db, 'gastos').length}, jornadas ${tabla(db, 'registros_jornada').length}`),
 });
+
+
+// Varias órdenes de TIPOS DISTINTOS, en cualquier orden y con otras palabras: nada se pierde sin aviso y cada una se guarda una vez.
+type OrdenSim = Record<string, unknown>;
+const G = (importe: string, obra = 'Leire'): OrdenSim => ({ accion: 'GASTO', proveedor_texto: 'Saltoki', importe_texto: importe, iva_modo: 'incluido', obra_texto: obra });
+const GM = (importe: string): OrdenSim => ({ accion: 'GASTO', proveedor_texto: 'Saltoki', importe_texto: importe, iva_modo: 'mas', obra_texto: 'Leire' });
+const H = (op: string, horas: string): OrdenSim => ({ accion: 'HORAS', operario_texto: op, horas_texto: horas, obra_texto: 'Paqui' });
+const C = (fecha: string, hora: string): OrdenSim => ({ accion: 'CITA_CREAR', cliente_texto: 'Paqui', fecha_texto: fecha, hora_texto: hora });
+const D = (texto: string): OrdenSim => ({ accion: 'DIARIO', obra_texto: 'Paqui', texto });
+const mezcla = (frase: string, ordenes: OrdenSim[], esperado: Record<string, number>, categoria = 'general'): EscenarioR8 => ({
+  nombre: `[paráfrasis · varias de distinto tipo] «${frase}» → ${ordenes.map((o) => String(o.accion)).join(' + ')}, ninguna perdida`,
+  varias: true,
+  maxEscrituras: esperado,
+  pasos: [
+    { mensaje: frase, intencion: 'VARIAS', orden: ordenes[0]!, otras: ordenes.slice(1), categoria, ok: (r) => esperar(r.accionPendiente, 'no preparó la primera') },
+    ...ordenes.slice(1).map((): PasoR8 => ({ confirmar: true, ok: (r) => esperar(r.accionPendiente, 'no preparó la siguiente') })),
+    { confirmar: true },
+  ],
+  final: (db) => Object.entries(esperado).flatMap(([t, n]) => esperar(tabla(db, t).length >= n && escriturasPorTablaN(db, t) === n, `«${t}»: ${escriturasPorTablaN(db, t)} guardadas en vez de ${n}`)),
+});
+const escriturasPorTablaN = (db: Db, t: string) => db.inserts.filter((i) => i.tabla === t).length;
+
+export const PARAFRASIS_VARIAS: EscenarioR8[] = [
+  mezcla('Saltoki me ha cobrado 87,40 con IVA por lo de Leire, y Jon hizo 6 horas ayer en lo de Paqui', [G('87,40'), H('Jon', '6')], { gastos: 1, registros_jornada: 1 }),
+  mezcla('Iker ha echado 5 horas en lo de Paqui y el jueves a las 9 tengo visita con Paqui', [H('Iker', '5'), C('el jueves', 'a las 9')], { registros_jornada: 1, agenda: 1 }),
+  mezcla('metí 45 con IVA de tornillos en Saltoki para lo de Leire; en el diario de Paqui pon que hoy se ha picado el baño', [G('45'), D('hoy se ha picado el baño')], { gastos: 1, diario_obra: 1 }),
+  mezcla('anota en el diario de Paqui que se ha pintado el techo y que Aitor hizo 8 horas', [D('se ha pintado el techo'), H('Aitor', '8')], { diario_obra: 1, registros_jornada: 1 }),
+  mezcla('mañana a las 10 reunión con Paqui, ah y apunta un ticket de Saltoki de 20 con IVA para Leire', [C('mañana', 'a las 10'), G('20')], { agenda: 1, gastos: 1 }),
+  mezcla('Aitor 4 y media en lo de Paqui; también la factura de Saltoki de 120 más IVA de lo de Leire', [H('Aitor', '4 y media'), GM('120')], { registros_jornada: 1, gastos: 1 }),
+  mezcla('pon en el diario de Paqui que llovió y apúntame visita con Paqui el viernes a las 11', [D('llovió'), C('el viernes', 'a las 11')], { diario_obra: 1, agenda: 1 }),
+  mezcla('gasto de 33 con IVA en Saltoki para Leire, Jon 6 horas en lo de Paqui y visita con Paqui el lunes a las 8', [G('33'), H('Jon', '6'), C('el lunes', 'a las 8')], { gastos: 1, registros_jornada: 1, agenda: 1 }),
+  mezcla('visita con Paqui el lunes a las 8 y anota en el diario que se acabó el alicatado', [C('el lunes', 'a las 8'), D('se acabó el alicatado')], { agenda: 1, diario_obra: 1 }),
+  mezcla('Jon hizo 7 horas en lo de Paqui y Saltoki me pasó 61 más IVA para lo de Leire', [H('Jon', '7'), GM('61')], { registros_jornada: 1, gastos: 1 }),
+];
 
 export const PARAFRASIS_R9: EscenarioR8[] = [
   // CANCELAR (15)
@@ -178,6 +227,8 @@ export const PARAFRASIS_R9: EscenarioR8[] = [
   proveedorCita('el jueves a las 9 me paso por Maderas Oria', { proveedor_texto: 'Maderas Oria', fecha_texto: 'el jueves', hora_texto: 'a las 9' }),
   proveedorCita('quedo con los de Maderas Oria el viernes a las 11', { proveedor_texto: 'Maderas Oria', fecha_texto: 'el viernes', hora_texto: 'a las 11' }),
   proveedorCita('el lunes temprano, a las 8, reunión en Maderas Oria', { proveedor_texto: 'Maderas Oria', fecha_texto: 'el lunes', hora_texto: 'a las 8' }),
+  // VARIAS DE DISTINTO TIPO (10)
+  ...PARAFRASIS_VARIAS,
   // DUDAS: ante la duda NUNCA se guarda (6)
   duda('mmm, no sé, déjame pensarlo'),
   duda('¿tú crees?'),

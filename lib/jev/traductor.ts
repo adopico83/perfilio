@@ -38,6 +38,8 @@ export type SalidaTraductor = {
   continuaTarea: boolean;
   /** Otras órdenes de tipos distintos que pedía el mismo mensaje: nunca se descartan en silencio. */
   otras?: Array<OrdenCruda | OrdenJev>;
+  /** Una cláusula se rescató traduciéndola aparte (el motor lo cuenta al usuario). */
+  rescate?: boolean;
 };
 
 const REGLAS = `Eres el TRADUCTOR de Perfilio (asistente de un negocio de obras y reformas). No haces nada: traduces lo que dice el usuario a una orden cerrada.
@@ -224,11 +226,19 @@ async function recogerCláusulaHuérfana(e: EntradaTraductor, salida: SalidaTrad
   if (!d) return salida;
   const clausula = clausulaEn(e.mensaje, d.indice);
   if (!clausula || clausula.length >= e.mensaje.trim().length - 2) return salida;
-  const extra = await traducirUnaVez({ ...e, mensaje: clausula, revision: undefined });
+  // La cláusula se traduce SOLA. Solo se acepta si la orden recoge TODOS sus datos (cifras con su unidad y nombres); si no, se prueba
+  // otra vez sin el tipo que falló. Si ninguna sirve, no se añade nada y el motor AVISA de lo que quedó sin preparar.
+  const excluir: NombreAccion[] = [];
+  let extra: SalidaTraductor | null = null;
+  for (let intento = 0; intento < 2 && !extra; intento++) {
+    const c = await traducirUnaVez({ ...e, mensaje: clausula, revision: undefined }, excluir);
+    const o = c.orden as Record<string, unknown>;
+    if (!o.accion || o.accion === 'ACLARAR' || o.accion === 'CHARLA') break;
+    if (datosSinUsar(clausula, [o]) === null && !ordenes.some((x) => JSON.stringify(x) === JSON.stringify(o))) extra = c;
+    else excluir.push(o.accion as NombreAccion);
+  }
+  if (!extra) return salida;
   const o = extra.orden as Record<string, unknown>;
-  if (!o.accion || o.accion === 'ACLARAR' || o.accion === 'CHARLA' || datosSinUsar(clausula, [o]) !== null) return salida;
-  if (ordenes.some((x) => JSON.stringify(x) === JSON.stringify(o))) return salida;
   logJev('traduccion_incompleta', { dato: d.trozo, recogido: String(o.accion) });
-  // El dato se quita de las órdenes que lo tenían mal (copias) solo si eran idénticas a otra: aquí solo se AÑADE.
-  return { ...salida, otras: [...(salida.otras ?? []), extra.orden, ...(extra.otras ?? [])] };
+  return { ...salida, otras: [...(salida.otras ?? []), extra.orden, ...(extra.otras ?? [])], rescate: true };
 }

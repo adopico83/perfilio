@@ -18,7 +18,7 @@ import { CASOS_FRASES_PINO } from './frases-pino';
 import { ORDEN_POR_FRASE } from './ordenes-jev';
 import { FRASES_RONDA6 } from './ronda6';
 import { compararOrden } from './comparar-orden';
-import { ESCENARIOS_RONDA8, ejecutarEscenario } from './ronda8';
+import { ESCENARIOS_RONDA8, ejecutarEscenario, escriturasIncorrectas, ordenPerdidaSinAviso } from './ronda8';
 import { PARAFRASIS_R9 } from './parafrasis';
 import { NEGOCIO_A, USUARIO, crearBaseSimulada } from './base-simulada';
 import { crearFakeDb } from '../__tests__/helpers/fake-db';
@@ -54,6 +54,9 @@ const MARCA_F = /<!--factura:(\{.*?\})-->/;
 
     const lista = frases();
     const filas: Array<{ frase: string; ok: boolean; motivos: string[]; inventados: string[]; escrituras: number; parafrasis?: boolean }> = [];
+    // MÉTRICAS QUE MANDAN (el % total es secundario): guardar algo distinto de lo pedido o perder una orden sin avisar es un fallo duro.
+    const escriturasMal: string[] = [];
+    const perdidasSinAviso: string[] = [];
     for (let v = 0; v < veces; v++) {
       for (const f of lista) {
         const db = crearFakeDb(crearBaseSimulada());
@@ -121,7 +124,10 @@ const MARCA_F = /<!--factura:(\{.*?\})-->/;
       for (const esc of PARAFRASIS_R9) {
         let problemas: string[];
         try {
-          ({ problemas } = await ejecutarEscenario(esc, (e) => traducirMensaje(e)));
+          const r = await ejecutarEscenario(esc, (e) => traducirMensaje(e));
+          problemas = r.problemas;
+          for (const m of escriturasIncorrectas(esc, r.db)) escriturasMal.push(`${esc.nombre}: ${m}`);
+          if (ordenPerdidaSinAviso(esc, r.respuestas)) perdidasSinAviso.push(esc.nombre);
         } catch (err) {
           problemas = [`error: ${err instanceof Error ? err.message : String(err)}`];
         }
@@ -139,8 +145,12 @@ const MARCA_F = /<!--factura:(\{.*?\})-->/;
     const paraPct = para.length ? paraBuenas / para.length : 1;
     console.log(
       `\n${tabla}\n\nÓRDENES CORRECTAS (TOTAL): ${buenas}/${filas.length} (${(pct * 100).toFixed(1)} %) · frases con datos inventados: ${inventados} · escrituras sin «Sí»: ${escrituras}` +
-        `\nBLOQUE DE PARÁFRASIS: ${paraBuenas}/${para.length} (${(paraPct * 100).toFixed(1)} %)\n`
+        `\nBLOQUE DE PARÁFRASIS: ${paraBuenas}/${para.length} (${(paraPct * 100).toFixed(1)} %)` +
+        `\nESCRITURAS INCORRECTAS: ${escriturasMal.length}${escriturasMal.length ? `\n  ${escriturasMal.join('\n  ')}` : ''}` +
+        `\nÓRDENES PERDIDAS SIN AVISO: ${perdidasSinAviso.length}${perdidasSinAviso.length ? `\n  ${perdidasSinAviso.join('\n  ')}` : ''}\n`
     );
+    expect(escriturasMal).toEqual([]);
+    expect(perdidasSinAviso).toEqual([]);
     expect(inventados).toBe(0);
     expect(escrituras).toBe(0);
     expect(pct).toBeGreaterThanOrEqual(umbral);

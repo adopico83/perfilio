@@ -7,7 +7,7 @@ import { baseRonda5, sesion } from './helpers/jev-sesion';
 import { IDS, NEGOCIO_A, USUARIO } from '../evals/base-simulada';
 import type { OrdenJev } from '@/lib/jev/ordenes';
 import { crearPendiente } from '@/lib/jev/pendientes';
-import { confirmarOrdenJev, datosSinUsar, elegirOpcion } from '@/lib/jev/motor';
+import { confirmarOrdenJev, datosSinUsar, elegirOpcion, guardianFinal } from '@/lib/jev/motor';
 import { crearRunToolJev } from '@/lib/jev/despacho';
 import { comprobarCoherencia } from '@/lib/jev/coherencia';
 import { sanearCharla } from '@/lib/jev/dialogo';
@@ -495,6 +495,24 @@ describe('cita pendiente corregida por el modelo con CITA_MOVER', () => {
     const r = await s.di('ponla el miércoles mejor', o({ accion: 'CITA_MOVER', evento_texto: 'Cita con Paqui', fecha_texto: 'el miércoles' }), { continua: true, intencion: 'CORRIGE', categoria: 'agenda' });
     expect(r.respuesta).toContain('2026-10-07');
     expect(r.accionPendiente).toBeDefined();
+  });
+});
+
+describe('guardián final: perder algo en silencio es imposible', () => {
+  const msg = 'apunta 87,40 de Saltoki para lo de Leire y de paso ponle 6 horas a Jon en lo de Paqui';
+  const gasto = { accion: 'GASTO', proveedor_texto: 'Saltoki', importe_texto: '87,40', obra_texto: 'Leire' };
+  it('unas horas que acaban como importe de un gasto falso se detectan por la unidad', () => {
+    const falso = { accion: 'GASTO', proveedor_texto: 'Jon', importe_texto: '6', obra_texto: 'Paqui' };
+    expect(datosSinUsar(msg, [gasto, falso])).toMatch(/6 horas/);
+    const r = guardianFinal(msg, { respuesta: 'Voy a registrar un gasto…\n¿Lo hago?<!--orden:x-->' }, [gasto, falso], true);
+    expect(r.respuesta).toMatch(/También me has dicho «.*6 horas.*¿Lo apunto después\?/);
+    expect(r.respuesta.endsWith('<!--orden:x-->')).toBe(true);
+  });
+  it('con varias órdenes y sin nada que decir, nombra las que quedan; con VARIAS y una sola, avisa', () => {
+    const horas = { accion: 'HORAS', operario_texto: 'Jon', horas_texto: '6', obra_texto: 'Paqui' };
+    expect(guardianFinal(msg, { respuesta: 'Voy a registrar un gasto.' }, [gasto, horas], true).respuesta).toMatch(/Después te preparo: las horas de Jon/);
+    expect(guardianFinal('apunta 87,40 de Saltoki para lo de Leire', { respuesta: 'Voy a registrar un gasto.' }, [gasto], true).respuesta).toMatch(/más de una cosa/);
+    expect(guardianFinal('apunta 87,40 de Saltoki para lo de Leire', { respuesta: 'Voy a registrar un gasto.' }, [gasto], false).respuesta).toBe('Voy a registrar un gasto.');
   });
 });
 
