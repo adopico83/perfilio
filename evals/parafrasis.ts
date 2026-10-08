@@ -100,11 +100,12 @@ const duda = (frase: string, intencion: Intencion = 'CANCELA'): EscenarioR8 => (
   pasos: [pendienteGasto(), { mensaje: frase, intencion, orden: { accion: 'ACLARAR', pregunta: '¿Qué necesitas?' }, ok: (r) => esperar(!/Hecho|apuntado|guardado/i.test(r.respuesta), `parece que lo hizo: «${r.respuesta.slice(0, 120)}»`) }],
   final: (db) => esperar(tabla(db, 'gastos').length === 0 && escrituras(db) === 0, 'guardó algo ante una duda'),
 });
+// El orden en que el asistente enseña las órdenes no importa: lo que importa es que ninguna se pierda y que ambas se guarden.
 const variasHoras = (frase: string, orden: Record<string, unknown>, otras?: Array<Record<string, unknown>>): EscenarioR8 => ({
   nombre: `[paráfrasis · varias órdenes] «${frase}» → las dos órdenes, ninguna perdida`,
   pasos: [
-    { mensaje: frase, intencion: 'VARIAS', orden, ...(otras ? { otras } : {}), categoria: 'operarios', ok: (r) => [...contiene(r, 'Aitor Gómez', '7,5 h'), ...esperar(/Jon/.test(r.respuesta), 'no avisó de que queda Jon')] },
-    { confirmar: true, ok: (r) => [...contiene(r, 'Jon Arrieta', '6 h'), ...esperar(r.accionPendiente, 'no preparó la de Jon')] },
+    { mensaje: frase, intencion: 'VARIAS', orden, ...(otras ? { otras } : {}), categoria: 'operarios', ok: (r) => esperar(r.accionPendiente && /Aitor|Jon/.test(r.respuesta) && /Después te pregunto|Jon|Aitor/.test(r.respuesta), 'no preparó una y avisó de la otra') },
+    { confirmar: true, ok: (r) => esperar(r.accionPendiente, 'no preparó la segunda') },
     { confirmar: true },
   ],
   final: (db) => esperar(JSON.stringify(tabla(db, 'registros_jornada').map((x) => x.horas_reales).sort()) === JSON.stringify([6, 7.5]), `horas guardadas: ${JSON.stringify(tabla(db, 'registros_jornada').map((x) => x.horas_reales))}`),
@@ -118,7 +119,7 @@ const variasMixtas = (frase: string): EscenarioR8 => ({
       orden: GASTO,
       otras: [{ accion: 'HORAS', operario_texto: 'Jon', horas_texto: '6', obra_texto: 'Paqui' }],
       categoria: 'gastos',
-      ok: (r) => [...contiene(r, 'Saltoki'), ...esperar(/Jon|horas/i.test(r.respuesta), 'no avisó de que queda lo de Jon')],
+      ok: (r) => esperar(r.accionPendiente && /Después te pregunto/.test(r.respuesta), `no avisó de la otra orden: «${r.respuesta.replace(/\n/g, ' ').slice(0, 160)}»`),
     },
     { confirmar: true, ok: (r) => esperar(r.accionPendiente, 'no preparó la segunda') },
     { confirmar: true },

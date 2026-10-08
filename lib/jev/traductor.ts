@@ -2,6 +2,7 @@
  * Traductor .jev: GPT-4o mini SOLO traduce el mensaje del usuario a UNA orden cerrada (función `orden_jev`).
  * No decide ids, fechas finales ni importes finales: copia literales. Todo lo demás lo hace el ejecutor.
  */
+import { datosSinUsar } from '@/lib/jev/sin-usar';
 import OpenAI from 'openai';
 import { AGENTE_MODELO_POR_DEFECTO } from '@/lib/agente/modelo';
 import { logJev } from '@/lib/jev/log';
@@ -24,6 +25,8 @@ export type EntradaTraductor = {
   pendiente?: boolean;
   /** Última pregunta del asistente (para «sí, créalo», «el segundo»…). */
   ultimoAsistente?: string;
+  /** Uso interno: aviso del segundo intento (datos que el primero dejó fuera). */
+  revision?: string;
 };
 
 /**
@@ -65,6 +68,7 @@ function contexto(e: EntradaTraductor): string {
       `ORDEN PENDIENTE DE CONFIRMAR (preparada, todavía NO guardada): ${JSON.stringify(e.tarea)}\nSi el usuario la corrige («espera, la encimera ponla a 230», «no, son 7 y media», «con Iker PRUEBA») devuelve la MISMA acción, COMPLETA y con el cambio (copia lo que no cambia), y continua_tarea true. Una orden pendiente se corrige con su misma acción, nunca con PRESUPUESTO_PARTIDAS (que es solo para presupuestos YA guardados). Si pide otra cosa distinta, continua_tarea null.`
     );
   } else if (e.tarea) partes.push(`TAREA EN CURSO / PENDIENTE (orden anterior): ${JSON.stringify(e.tarea)}`);
+  if (e.revision) partes.push(`REVISIÓN: en un primer intento ${e.revision} Todo dato que dijo el usuario (cifras, nombres, cantidades) debe quedar en algún campo de alguna orden; si el tipo de orden elegido no tiene dónde ponerlo, elige otro tipo que sí lo recoja.`);
   if (e.ultimoAsistente) partes.push(`Última respuesta del asistente: ${e.ultimoAsistente.replace(/<!--[\s\S]*?-->/g, '').slice(0, 500)}`);
   return partes.join('\n');
 }
@@ -148,7 +152,7 @@ async function llamar(nombre: string, hacerTool: (estricto: boolean) => OpenAI.C
  * Traducción en DOS pasos: (1) enum cerrado con el tipo de orden; (2) esquema estricto SOLO de esa orden. Con un
  * esquema plano de ~37 campos todos anulables, el modelo real dejaba a null campos que el usuario sí había dicho.
  */
-export async function traducirMensaje(e: EntradaTraductor): Promise<SalidaTraductor> {
+async function traducirUnaVez(e: EntradaTraductor): Promise<SalidaTraductor> {
   const acciones = ACCIONES_POR_CATEGORIA[e.categoria] ?? ACCIONES_POR_CATEGORIA.general!;
   const paso1 = await llamar('elegir_accion', (st) => herramientaElegirAccion(e.categoria, st), mensajes(PROMPT_ELEGIR_ACCION(acciones), e), 120);
   const accion = normalizarAccionPublica(paso1?.accion);
@@ -178,4 +182,21 @@ export async function traducirMensaje(e: EntradaTraductor): Promise<SalidaTraduc
     if (o) otras.push(o);
   }
   return { orden: principal, continuaTarea, ...(otras.length ? { otras } : {}) };
+}
+
+/**
+ * Traduce y se REVISA: si el mensaje trae cifras que ninguna orden recogió (el modelo eligió un tipo sin hueco para ellas o dejó
+ * campos vacíos), se repite una vez diciéndole qué dejó fuera. Se queda con el segundo intento solo si recoge más datos.
+ */
+export async function traducirMensaje(e: EntradaTraductor): Promise<SalidaTraductor> {
+  const primera = await traducirUnaVez(e);
+  if (e.tarea || e.revision) return primera;
+  const ordenes = [primera.orden, ...(primera.otras ?? [])] as Array<Record<string, unknown>>;
+  if (ordenes.some((o) => o.accion === 'CHARLA' || o.accion === 'CHARLA_ACLARAR')) return primera;
+  const fuera = datosSinUsar(e.mensaje, ordenes);
+  if (!fuera) return primera;
+  logJev('traduccion_incompleta', { dato: fuera });
+  const segunda = await traducirUnaVez({ ...e, revision: `dejaste fuera «${fuera}».` });
+  const fuera2 = datosSinUsar(e.mensaje, [segunda.orden, ...(segunda.otras ?? [])] as Array<Record<string, unknown>>);
+  return fuera2 === null ? segunda : primera;
 }

@@ -25,6 +25,7 @@ import {
   type Tarea,
 } from '@/lib/jev/pendientes';
 import { modoIvaDelMensaje } from '@/lib/gastos-iva';
+import { datosSinUsar } from '@/lib/jev/sin-usar';
 import { traducirMensaje, type EntradaTraductor, type SalidaTraductor } from '@/lib/jev/traductor';
 import { preguntaConfirmacion } from '@/lib/agente/confirmacion';
 import { MENSAJE_NADA_PENDIENTE } from '@/lib/agente/orquestacion';
@@ -108,6 +109,8 @@ export function fusionarOrden(previa: OrdenCruda | OrdenJev, nueva: OrdenCruda |
   return { ...p, ...n } as OrdenCruda;
 }
 
+export { datosSinUsar };
+
 const RE_NIF = /\b(?:[XYZ]\d{7}[A-Z]|\d{8}[A-Z]|[A-HJNPQRSUVW]\d{7}[0-9A-J])\b/i;
 
 
@@ -185,8 +188,10 @@ export async function procesarMensajeJev(ent: EntradaMotor): Promise<SalidaMotor
       };
       return ejecutarYResponder(ent, { accion: 'CREAR_CLIENTE', nombre_texto: tarea.estado.pregunta.texto_slot } as OrdenCruda, estado, ahora);
     }
-    // El último mensaje era la confirmación de una orden que ya no está viva (cancelada, usada o caducada), o no hay nada: no se hace nada.
-    return { respuesta: MENSAJE_NADA_PENDIENTE };
+    // Nada que confirmar: un asentimiento suelto («vale») no hace nada. Pero un mensaje con contenido que solo CONTIENE un «sí»
+    // («el cliente ha dicho que sí, márcalo aceptado») es una orden nueva: pasa por el traductor (que solo prepara, no guarda).
+    if (!tarea && palabras > 4) intencion = 'NUEVA';
+    else return { respuesta: MENSAJE_NADA_PENDIENTE };
   }
 
   // 3) RESPUESTA a una pregunta abierta de la tarea en curso: se rellena el hueco SIN inventar nada.
@@ -265,26 +270,6 @@ export async function procesarMensajeJev(ent: EntradaMotor): Promise<SalidaMotor
     }
   }
   return { ...r, respuesta };
-}
-
-/** Datos del mensaje (cifras) que ninguna orden ha recogido, con un trocito del mensaje para que se entienda. null si no sobra nada. */
-export function datosSinUsar(mensaje: string, ordenes: Array<Record<string, unknown>>): string | null {
-  const quitaPorcentajes = (t: string) => t.replace(/\d+(?:[.,]\d+)?\s?%/g, ' ');
-  const usados = new Set<number>();
-  const recoge = (v: unknown): void => {
-    if (typeof v === 'string') for (const n of [...numerosDelMensaje(quitaPorcentajes(v)), ...horasEnTexto(v)]) usados.add(Math.round(n * 100) / 100);
-    else if (Array.isArray(v)) v.forEach(recoge);
-    else if (v && typeof v === 'object') Object.values(v as Record<string, unknown>).forEach(recoge);
-  };
-  ordenes.forEach(recoge);
-  const texto = quitaPorcentajes(mensaje);
-  for (const m of texto.matchAll(/\d+(?:[.,]\d+)?/g)) {
-    const n = numerosDelMensaje(m[0])[0];
-    if (n == null || usados.has(Math.round(n * 100) / 100)) continue;
-    const ini = Math.max(0, (m.index ?? 0) - 25);
-    return texto.slice(ini, (m.index ?? 0) + m[0].length + 25).replace(/\s+/g, ' ').trim();
-  }
-  return null;
 }
 
 /** Slot de una pregunta del ejecutor → campo de la orden que rellena la respuesta. */

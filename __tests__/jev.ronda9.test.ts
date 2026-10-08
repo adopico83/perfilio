@@ -447,3 +447,14 @@ describe('unidades y datos con coma en los resúmenes', () => {
     expect(r.respuesta).toMatch(/El presupuesto nº 999 no existe/);
   });
 });
+
+describe('CONFIRMA sin nada pendiente', () => {
+  it('«vale» suelto no hace nada; «el cliente ha dicho que sí, márcalo aceptado» es una orden nueva que pasa por el traductor', async () => {
+    const db = crearFakeDb(baseRonda5());
+    const s = sesion(db);
+    const a = await s.sinTraductor('vale', 'CONFIRMA');
+    expect(a.respuesta).toMatch(/pendiente/i);
+    const b = await s.di('el cliente ha dicho que sí, márcalo aceptado', o({ accion: 'CAMBIAR_ESTADO_PRESUPUESTO', presupuesto_texto: 'ese', estado: 'aceptado' }), { ultimoPresupuestoId: IDS.presupuestoMikelBorrador, intencion: 'CONFIRMA' });
+    expect(b.accionPendiente).toBeDefined();
+  });
+});

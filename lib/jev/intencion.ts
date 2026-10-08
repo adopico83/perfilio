@@ -39,7 +39,8 @@ Tipos:
 - VARIAS: pide dos o más cosas distintas en el mismo mensaje.
 - RESPUESTA: contesta a una pregunta abierta del asistente (da el dato que faltaba, elige una opción de una lista, dice un nombre…).
 Reglas:
-- Si NO hay orden pendiente ni pregunta abierta, CONFIRMA y CORRIGE no existen: usa NUEVA o VARIAS.
+- CONFIRMA es solo aceptar: si el mensaje pide hacer algo (aunque lleve un «sí» dentro, como contar lo que ha dicho un tercero), es NUEVA.
+- Si NO hay orden pendiente ni pregunta abierta: un mensaje que solo asiente o acepta («vale», «ok») es CONFIRMA (el sistema dirá que no hay nada pendiente y no hará nada); si pide algo, es NUEVA o VARIAS. CORRIGE no existe.
 - Si hay una orden pendiente y el mensaje no la acepta con claridad ni aporta datos nuevos, es CANCELA. En la duda entre CONFIRMA y cualquier otra cosa, NO es CONFIRMA: elige la otra y pon segura=false.
 - Si hay una pregunta abierta y el mensaje es corto y da lo que se pedía, es RESPUESTA.
 - segura=false cuando dudes entre dos tipos.`;

@@ -89,3 +89,29 @@ describe('traductor', () => {
     expect(r2.tool_choice).toEqual({ type: 'function', function: { name: 'orden_jev' } });
   });
 });
+
+describe('revisión de datos sin usar', () => {
+  const tc = (name: string, args: unknown) => ({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name, arguments: JSON.stringify(args) } }] } }] });
+  it('si el primer intento deja fuera cifras que dijo el usuario, repite una vez avisando y se queda con el que las recoge', async () => {
+    createMock.mockReset();
+    createMock
+      .mockResolvedValueOnce(tc('elegir_accion', { accion: 'FACTURAR', continua_tarea: false }))
+      .mockResolvedValueOnce(tc('orden_jev', { presupuesto_texto: '' }))
+      .mockResolvedValueOnce(tc('elegir_accion', { accion: 'CREAR_FACTURA', continua_tarea: false }))
+      .mockResolvedValueOnce(tc('orden_jev', { cliente_texto: 'Txema', importe_texto: '300', iva_modo: null }));
+    process.env.OPENAI_API_KEY = 'k';
+    const s = await traducirMensaje({ mensaje: 'Mete la factura de Txema de 300 euros', categoria: 'general', hoyTexto: 'martes' });
+    expect(s.orden).toMatchObject({ accion: 'CREAR_FACTURA', cliente_texto: 'Txema', importe_texto: '300' });
+    expect(JSON.stringify(createMock.mock.calls[2]![0].messages)).toContain('REVISIÓN');
+  });
+  it('si no falta ningún dato, no repite', async () => {
+    createMock.mockReset();
+    createMock
+      .mockResolvedValueOnce(tc('elegir_accion', { accion: 'HORAS', continua_tarea: false }))
+      .mockResolvedValueOnce(tc('orden_jev', { operario_texto: 'Iker', horas_texto: '7', obra_texto: null }));
+    const s = await traducirMensaje({ mensaje: 'ponle 7 horas a Iker', categoria: 'operarios', hoyTexto: 'martes' });
+    expect(s.orden).toMatchObject({ accion: 'HORAS' });
+    expect(createMock).toHaveBeenCalledTimes(2);
+  });
+});
+
