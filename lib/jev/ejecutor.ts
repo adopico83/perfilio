@@ -32,6 +32,7 @@ import { raizPalabra } from '@/lib/presupuestos/editar-partidas';
 import { datosExtraProveedor } from '@/lib/agente/confirmacion';
 import { generarLinkMaps } from '@/lib/maps';
 import { ymdHoyMadrid } from '@/lib/fechas-madrid';
+import { validarRoles } from '@/lib/jev/roles';
 
 export type CtxEjecutor = {
   supabase: SupabaseClient;
@@ -227,6 +228,12 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
   const hoy = ymdHoyMadrid(ctx.ahora);
   const dichos = ctx.mensajes;
   const todo = dichos.join('\n');
+
+  // CONTRATO DE ROLES: cada nombre tiene que estar del lado de la base de datos que pide su hueco (cliente / proveedor). Si no, no se prepara nada.
+  if (!ctx.modoMcp && !ctx.resueltos.cliente && !ctx.resueltos.proveedor) {
+    const fuera = await validarRoles(orden as Record<string, unknown>, ctx);
+    if (fuera) return pregunta(fuera, 'rol');
+  }
 
   switch (orden.accion) {
     case 'ACLARAR':
@@ -491,6 +498,8 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
         if (!alb.ok) return alb.resultado;
         return cerrar(ctx, 'convertir_albaran_a_factura', { albaran_id: alb.id }, '', true);
       }
+      // Nunca se ELIGE un presupuesto: sale de lo que se nombró (número o cliente) o de «ese» con un presupuesto tratado de verdad en la conversación.
+      if (!val(orden.presupuesto_texto) && !ctx.ultimoPresupuestoId) return pregunta('¿De qué presupuesto quieres la factura? Dime el número o el cliente.', 'presupuesto');
       const ref = val(orden.presupuesto_texto) || 'ese';
       const pres = await slot(ctx, 'presupuesto', ref, () => resolverPresupuesto(ctx, ref));
       if (!pres.ok) return pres.resultado;

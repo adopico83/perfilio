@@ -25,6 +25,7 @@ import {
   type Tarea,
 } from '@/lib/jev/pendientes';
 import { modoIvaDelMensaje } from '@/lib/gastos-iva';
+import { validarPlan } from '@/lib/jev/roles';
 import { datosSinUsar } from '@/lib/jev/sin-usar';
 import { traducirMensaje, type EntradaTraductor, type SalidaTraductor } from '@/lib/jev/traductor';
 import { preguntaConfirmacion } from '@/lib/agente/confirmacion';
@@ -142,10 +143,10 @@ export function guardianFinal(mensaje: string, salida: SalidaMotor, ordenes: Arr
   const marca = /(\n?<!--orden:[\w-]+-->)?$/;
   let respuesta = salida.respuesta;
   const sinUsar = datosSinUsar(mensaje, ordenes);
-  if (sinUsar && !/También me has dicho/.test(respuesta)) {
+  if (sinUsar && !/También me has dicho|es un proveedor tuyo/.test(respuesta)) {
     logJev('datos_sin_usar', { dato: sinUsar });
     respuesta = respuesta.replace(marca, `\n\n⚠️ También me has dicho «${sinUsar}» y eso no lo he preparado. ¿Lo apunto después? Dímelo cuando acabemos con esto.$1`);
-  } else if (ordenes.length > 1 && !/Después te pregunto|Después te preparo|También me has dicho/.test(respuesta)) {
+  } else if (ordenes.length > 1 && !/Después te pregunto|Después te preparo|También me has dicho|es un proveedor tuyo/.test(respuesta)) {
     const resto = ordenes.slice(1).map((o) => etiquetaOrden(o));
     respuesta = respuesta.replace(marca, `\n\nDespués te preparo: ${resto.join('; ')}.$1`);
   } else if (varias && ordenes.length === 1 && !/También me has dicho|Después te pregunto/.test(respuesta)) {
@@ -289,7 +290,12 @@ async function procesarInterno(ent: EntradaMotor): Promise<SalidaInterna> {
   }
 
   const ordenBase = base ? fusionarOrden(base.orden, cruda) : cruda;
-  const todas = [ordenBase, ...otras].flatMap((o) => expandirOrden(o));
+  const plan = await validarPlan(supabase, businessId, mensaje, [ordenBase, ...otras].flatMap((o) => expandirOrden(o)));
+  const todas = plan.ordenes;
+  if (todas.length === 0) {
+    if (viva || tarea) await cerrarTarea(supabase, businessId, userId);
+    return { respuesta: `${aviso}${plan.avisos.join('\n')}` };
+  }
   const [primera, ...resto] = todas;
   const estado: EstadoTarea = {
     resueltos: base?.estado.resueltos ?? {},
@@ -307,7 +313,8 @@ async function procesarInterno(ent: EntradaMotor): Promise<SalidaInterna> {
   }
 
   // El aviso de lo que no se ha preparado lo pone el guardián final (`guardianFinal`), por un único camino.
-  const respuesta = `${aviso}${r.respuesta}`;
+  let respuesta = `${aviso}${r.respuesta}`;
+  if (plan.avisos.length) respuesta = respuesta.replace(/(\n?<!--orden:[\w-]+-->)?$/, `\n\n⚠️ ${plan.avisos.join(' ')}$1`);
   if (r.charla || intencion === 'RESPUESTA') return { ...r, respuesta };
   return { ...r, respuesta, _meta: { ordenes: todas as Array<Record<string, unknown>>, varias: intencion === 'VARIAS' || otras.length > 0 || salida.rescate === true } };
 }

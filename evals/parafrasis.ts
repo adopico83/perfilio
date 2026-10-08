@@ -174,6 +174,11 @@ export const PARAFRASIS_VARIAS: EscenarioR8[] = [
   mezcla('gasto de 33 con IVA en Saltoki para Leire, Jon 6 horas en lo de Paqui y visita con Paqui el lunes a las 8', [G('33'), H('Jon', '6'), C('el lunes', 'a las 8')], { gastos: 1, registros_jornada: 1, agenda: 1 }),
   mezcla('visita con Paqui el lunes a las 8 y anota en el diario que se acabó el alicatado', [C('el lunes', 'a las 8'), D('se acabó el alicatado')], { agenda: 1, diario_obra: 1 }),
   mezcla('Jon hizo 7 horas en lo de Paqui y Saltoki me pasó 61 más IVA para lo de Leire', [H('Jon', '7'), GM('61')], { registros_jornada: 1, gastos: 1 }),
+  // La palabra «factura» con un PROVEEDOR es un gasto, nunca una factura de cliente ni tocar un presupuesto (contrato de roles).
+  mezcla('Aitor 4 y media en lo de Paqui; también la factura de Saltoki de 120 más IVA de lo de Leire', [H('Aitor', '4 y media'), GM('120')], { registros_jornada: 1, gastos: 1 }),
+  mezcla('la factura de Saltoki de 61 con IVA es para lo de Leire, y Jon hizo 6 horas en lo de Paqui', [G('61'), H('Jon', '6')], { gastos: 1, registros_jornada: 1 }),
+  mezcla('me ha llegado la factura de Maderas Oria de 90 más IVA para Paqui, y apúntale 5 horas a Iker en lo de Paqui', [{ accion: 'GASTO', proveedor_texto: 'Maderas Oria', importe_texto: '90', iva_modo: 'mas', obra_texto: 'Paqui' }, H('Iker', '5')], { gastos: 1, registros_jornada: 1 }),
+  mezcla('pasa la factura de Saltoki, 45 con IVA, a lo de Leire, y la visita con Paqui el viernes a las 10', [G('45'), C('el viernes', 'a las 10')], { gastos: 1, agenda: 1 }),
 ];
 
 export const PARAFRASIS_R9: EscenarioR8[] = [
