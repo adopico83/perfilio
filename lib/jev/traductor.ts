@@ -52,7 +52,7 @@ Reglas:
 export const PROMPT_ELEGIR_ACCION = (acciones: NombreAccion[]) =>
   `${REGLAS}\n\nPASO 1: elige el tipo de orden con la función elegir_accion. Tipos:\n${accionesDelModelo(acciones)
     .map((a) => `- ${a}: ${AYUDA_ACCION[a].que} Ej.: ${AYUDA_ACCION[a].ejemplo}`)
-    .join('\n')}\nCHARLA solo para saludos o gracias. Si falta un dato pero sabes qué quiere hacer, elige la acción (el sistema preguntará lo que falte). Borrar solo si lo pide claramente.`;
+    .join('\n')}\nSi dice «en/al presupuesto de <cliente>» (ya existe), añadir o quitar partidas es PRESUPUESTO_PARTIDAS; PRESUPUESTO_DICTADO es solo un presupuesto NUEVO. Con un cliente y un importe y sin nombrar presupuesto ni albarán, es CREAR_FACTURA (FACTURAR solo parte de un presupuesto o albarán que existe). CHARLA solo para saludos o gracias. Si falta un dato pero sabes qué quiere hacer, elige la acción (el sistema preguntará lo que falte). Borrar solo si lo pide claramente.`;
 
 /** Paso 2: rellenar los campos de la acción elegida. */
 export const PROMPT_RELLENAR = (accion: NombreAccion, soloEsta = false, ordinal?: { k: number; n: number }) =>
@@ -88,8 +88,8 @@ const herramienta = (name: string, description: string, parameters: Record<strin
   function: { name, description, parameters, strict },
 });
 
-export function herramientaElegirAccion(categoria: string, estricto = true) {
-  return herramienta('elegir_accion', 'Elige el tipo de orden que pide el usuario.', jsonSchemaAccion(ACCIONES_POR_CATEGORIA[categoria] ?? ACCIONES_POR_CATEGORIA.general!), estricto);
+export function herramientaElegirAccion(categoria: string, estricto = true, acciones?: NombreAccion[]) {
+  return herramienta('elegir_accion', 'Elige el tipo de orden que pide el usuario.', jsonSchemaAccion(acciones ?? ACCIONES_POR_CATEGORIA[categoria] ?? ACCIONES_POR_CATEGORIA.general!), estricto);
 }
 
 export function herramientaOrdenJev(accion: NombreAccion, estricto = true) {
@@ -152,9 +152,9 @@ async function llamar(nombre: string, hacerTool: (estricto: boolean) => OpenAI.C
  * Traducción en DOS pasos: (1) enum cerrado con el tipo de orden; (2) esquema estricto SOLO de esa orden. Con un
  * esquema plano de ~37 campos todos anulables, el modelo real dejaba a null campos que el usuario sí había dicho.
  */
-async function traducirUnaVez(e: EntradaTraductor): Promise<SalidaTraductor> {
-  const acciones = ACCIONES_POR_CATEGORIA[e.categoria] ?? ACCIONES_POR_CATEGORIA.general!;
-  const paso1 = await llamar('elegir_accion', (st) => herramientaElegirAccion(e.categoria, st), mensajes(PROMPT_ELEGIR_ACCION(acciones), e), 120);
+async function traducirUnaVez(e: EntradaTraductor, excluir: NombreAccion[] = []): Promise<SalidaTraductor> {
+  const acciones = (ACCIONES_POR_CATEGORIA[e.categoria] ?? ACCIONES_POR_CATEGORIA.general!).filter((a) => !excluir.includes(a));
+  const paso1 = await llamar('elegir_accion', (st) => herramientaElegirAccion(e.categoria, st, acciones), mensajes(PROMPT_ELEGIR_ACCION(acciones), e), 120);
   const accion = normalizarAccionPublica(paso1?.accion);
   const continuaTarea = paso1?.continua_tarea === true;
   if (!accion || ![...acciones, ...accionesDelModelo(acciones)].includes(accion)) {
@@ -181,7 +181,15 @@ async function traducirUnaVez(e: EntradaTraductor): Promise<SalidaTraductor> {
     const o = await rellenar(a, true, a === accion ? { k, n: mismas + 1 } : undefined);
     if (o) otras.push(o);
   }
-  return { orden: principal, continuaTarea, ...(otras.length ? { otras } : {}) };
+  // Dos órdenes IDÉNTICAS no son dos peticiones sino una copia del modelo: se queda una (nunca se guarda dos veces).
+  const vistas = new Set([JSON.stringify(principal)]);
+  const distintas = otras.filter((o) => {
+    const k = JSON.stringify(o);
+    if (vistas.has(k)) return false;
+    vistas.add(k);
+    return true;
+  });
+  return { orden: principal, continuaTarea, ...(distintas.length ? { otras: distintas } : {}) };
 }
 
 /**
@@ -196,7 +204,10 @@ export async function traducirMensaje(e: EntradaTraductor): Promise<SalidaTraduc
   const fuera = datosSinUsar(e.mensaje, ordenes);
   if (!fuera) return primera;
   logJev('traduccion_incompleta', { dato: fuera });
-  const segunda = await traducirUnaVez({ ...e, revision: `dejaste fuera «${fuera}».` });
+  // Si la orden principal salió VACÍA (el tipo elegido no recogió nada de lo dicho), ese tipo se descarta en el segundo intento.
+  const principalVacia = Object.entries(primera.orden as Record<string, unknown>).every(([k, v]) => k === 'accion' || v == null || v === '' || (Array.isArray(v) && v.length === 0));
+  const excluir = principalVacia ? [primera.orden.accion as NombreAccion] : [];
+  const segunda = await traducirUnaVez({ ...e, revision: `dejaste fuera «${fuera}»${excluir.length ? ` y elegiste ${excluir[0]}, que no recogió nada` : ''}.` }, excluir);
   const fuera2 = datosSinUsar(e.mensaje, [segunda.orden, ...(segunda.otras ?? [])] as Array<Record<string, unknown>>);
   return fuera2 === null ? segunda : primera;
 }

@@ -458,3 +458,28 @@ describe('CONFIRMA sin nada pendiente', () => {
     expect(b.accionPendiente).toBeDefined();
   });
 });
+
+describe('copias del modelo y dudas de intención', () => {
+  const gasto = { accion: 'GASTO', proveedor_texto: 'Saltoki', importe_texto: '87,40', iva_modo: 'incluido', obra_texto: 'Leire' } as never;
+  it('una orden idéntica a otra del mismo mensaje no se guarda dos veces y las horas no se pierden', async () => {
+    const db = crearFakeDb(baseRonda5());
+    const s = sesion(db);
+    const horas = { accion: 'HORAS', operario_texto: 'Jon', horas_texto: '6', obra_texto: 'Paqui' } as never;
+    const p = await s.di('apunta 87,40 de Saltoki para lo de Leire y de paso ponle 6 horas a Jon en lo de Paqui', gasto, { otras: [gasto, horas], intencion: 'VARIAS', categoria: 'gastos' });
+    const c1 = await s.confirmar(p.accionPendiente!.orden_id);
+    expect(c1.accionPendiente).toBeDefined();
+    expect(c1.respuesta).toMatch(/Jon/);
+    await s.confirmar(c1.accionPendiente!.orden_id);
+    expect(db.tablas.gastos.length).toBe(1);
+    expect(db.tablas.registros_jornada.length).toBe(1);
+  });
+  it('si el clasificador duda entre corregir y cancelar con una pendiente, corrige (no repregunta ni descarta)', async () => {
+    const db = crearFakeDb(baseRonda5());
+    const s = sesion(db);
+    await s.di('ponle 7 horas a Iker en lo de Paqui', o({ accion: 'HORAS', operario_texto: 'Iker', horas_texto: '7', obra_texto: 'Paqui' }), { categoria: 'operarios' });
+    const r = await s.di('no, eran de Jon', o({ accion: 'HORAS', operario_texto: 'Jon', horas_texto: '7', obra_texto: 'Paqui' }), { continua: true, intencion: 'CORRIGE', segura: false, categoria: 'operarios' });
+    expect(r.respuesta).toContain('Jon Arrieta');
+    expect(r.accionPendiente).toBeDefined();
+  });
+});
+

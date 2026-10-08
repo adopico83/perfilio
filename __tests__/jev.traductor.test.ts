@@ -113,5 +113,18 @@ describe('revisión de datos sin usar', () => {
     expect(s.orden).toMatchObject({ accion: 'HORAS' });
     expect(createMock).toHaveBeenCalledTimes(2);
   });
+  it('si la orden principal sale vacía, el segundo intento descarta ese tipo', async () => {
+    createMock.mockReset();
+    createMock
+      .mockResolvedValueOnce(tc('elegir_accion', { accion: 'PRESUPUESTO_DICTADO', continua_tarea: false }))
+      .mockResolvedValueOnce(tc('orden_jev', { cliente_texto: '', partidas: [] }))
+      .mockResolvedValueOnce(tc('elegir_accion', { accion: 'PRESUPUESTO_PARTIDAS', continua_tarea: false }))
+      .mockResolvedValueOnce(tc('orden_jev', { presupuesto_texto: 'Paqui', anadir: [{ concepto_texto: 'pintura', cantidad_texto: '30', unidad_texto: 'metros', precio_texto: '8' }] }));
+    process.env.OPENAI_API_KEY = 'k';
+    const s = await traducirMensaje({ mensaje: 'Pon una partida de pintura de 30 metros a 8 euros en el presupuesto de Paqui', categoria: 'general', hoyTexto: 'martes' });
+    expect(s.orden).toMatchObject({ accion: 'PRESUPUESTO_PARTIDAS', presupuesto_texto: 'Paqui' });
+    const enumSegundo = createMock.mock.calls[2]![0].tools[0].function.parameters.properties.accion.enum as string[];
+    expect(enumSegundo).not.toContain('PRESUPUESTO_DICTADO');
+  });
 });
 

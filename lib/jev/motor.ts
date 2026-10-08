@@ -151,7 +151,7 @@ export async function procesarMensajeJev(ent: EntradaMotor): Promise<SalidaMotor
     segura = c.segura;
   }
   // Con algo pendiente, una clasificación dudosa NUNCA ejecuta ni descarta: se vuelve a preguntar.
-  if (viva && !segura) {
+  if (viva && !segura && intencion !== 'CORRIGE') {
     logJev('si_sin_confirmacion', { motivo: 'intención dudosa con una orden pendiente', intencion });
     return {
       respuesta: `No estoy seguro de si quieres que lo haga. Tengo preparado esto:\n${viva.resumen}\n¿Lo hago o lo dejamos?${marcaOrden(viva.id)}`,
@@ -214,7 +214,15 @@ export async function procesarMensajeJev(ent: EntradaMotor): Promise<SalidaMotor
     ultimoAsistente: ent.ultimoAsistente,
   });
   const cruda = normalizarCrudo(salida.orden) as OrdenCruda;
-  const otras = (salida.otras ?? []).map((o) => normalizarCrudo(o) as OrdenCruda).filter((o) => o.accion);
+  const vistas = new Set([JSON.stringify(cruda)]);
+  // Una orden idéntica a otra del mismo mensaje es una copia del modelo, no otra petición: nunca se guarda dos veces.
+  const otras = (salida.otras ?? []).map((o) => normalizarCrudo(o) as OrdenCruda).filter((o) => {
+    if (!o.accion) return false;
+    const k = JSON.stringify(o);
+    if (vistas.has(k)) return false;
+    vistas.add(k);
+    return true;
+  });
 
   let aviso = '';
   let base: { orden: OrdenCruda | OrdenJev; estado: EstadoTarea } | null = null;

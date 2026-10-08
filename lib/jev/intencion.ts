@@ -32,16 +32,16 @@ function getOpenAI(): OpenAI {
 
 export const PROMPT_INTENCION = `Eres el CLASIFICADOR de intención de Perfilio (asistente de un negocio de obras). No haces nada: lees el último mensaje del usuario y dices qué quiere hacer, con la función clasificar_intencion.
 Tipos:
-- CONFIRMA: acepta la orden pendiente tal cual, sin cambiar nada. Solo si es claro.
+- CONFIRMA: dice sí/vale/ok/adelante a la orden pendiente tal cual, sin cambiar nada. Solo si es claro. Un saludo, una pregunta o charla NO es CONFIRMA.
 - CANCELA: no la quiere, o todavía no, o ya está hecha por otro lado, o se arrepiente; también si pide parar o esperar sin dar datos nuevos.
-- CORRIGE: la quiere, pero cambia un dato de la pendiente (una cifra, un nombre, una fecha, una hora…).
+- CORRIGE: la quiere, pero cambia un dato de la pendiente (una cifra, un nombre, una fecha, una hora…). Aunque empiece por «no» o «espera», si a continuación dice cuál es el dato correcto o qué cambiar, es CORRIGE, nunca CANCELA (ej.: «no, es del jueves», «espera, ponlo a 400», «no, el cliente es otro: Mikel»).
 - NUEVA: pide otra cosa distinta (o hace una pregunta o consulta nueva).
 - VARIAS: pide dos o más cosas distintas en el mismo mensaje.
 - RESPUESTA: contesta a una pregunta abierta del asistente (da el dato que faltaba, elige una opción de una lista, dice un nombre…).
 Reglas:
 - CONFIRMA es solo aceptar: si el mensaje pide hacer algo (aunque lleve un «sí» dentro, como contar lo que ha dicho un tercero), es NUEVA.
 - Si NO hay orden pendiente ni pregunta abierta: un mensaje que solo asiente o acepta («vale», «ok») es CONFIRMA (el sistema dirá que no hay nada pendiente y no hará nada); si pide algo, es NUEVA o VARIAS. CORRIGE no existe.
-- Si hay una orden pendiente y el mensaje no la acepta con claridad ni aporta datos nuevos, es CANCELA. En la duda entre CONFIRMA y cualquier otra cosa, NO es CONFIRMA: elige la otra y pon segura=false.
+- Si hay una orden pendiente y el mensaje no la acepta con claridad ni aporta ningún dato nuevo ni cambio, es CANCELA. En la duda entre CONFIRMA y cualquier otra cosa, NO es CONFIRMA: elige la otra y pon segura=false.
 - Si hay una pregunta abierta y el mensaje es corto y da lo que se pedía, es RESPUESTA.
 - segura=false cuando dudes entre dos tipos.`;
 
