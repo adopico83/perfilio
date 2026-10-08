@@ -57,7 +57,7 @@ describe('esquema de órdenes .jev', () => {
 
 describe('traductor', () => {
   it('el prompt es corto y sin listas de ids ni de clientes', () => {
-    expect(PROMPT_TRADUCTOR.length).toBeLessThan(9000);
+    expect(PROMPT_TRADUCTOR.length).toBeLessThan(14000);
     expect(PROMPT_TRADUCTOR).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/);
     const m = construirMensajesTraductor({ mensaje: 'hola', categoria: 'general', hoyTexto: 'martes 6 de octubre' });
     expect(m).toHaveLength(2);

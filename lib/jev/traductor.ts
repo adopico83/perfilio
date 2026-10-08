@@ -42,7 +42,7 @@ Reglas:
 - Copia LITERALES del mensaje («el jueves», «Jon PRUEBA Arrieta», «180»). Nada de ids, fechas en formato 2026-10-05 ni totales calculados.
 - Lo que el usuario SÍ dijo, rellénalo siempre. Lo que NO dijo: null (o "" si el campo es obligatorio). Nunca inventes.
 - «ese presu», «el último» → presupuesto_texto «ese». «esa factura», «la última» → factura_texto «esa». «el 11», «la 3» → ese número.
-- Si el mensaje pide VARIAS cosas, no te quedes con una: la principal en accion y los tipos de las demás en otras_acciones.
+- Si el mensaje pide VARIAS cosas, no te quedes con una: la principal en accion y los tipos de las demás en otras_acciones (también si son del MISMO tipo: dos obras, dos gastos → el tipo repetido). Si una frase mezcla un apunte con horas de alguien («anota en el diario de Paqui que se ha pintado y apunta 3 horas a Iker»), son DOS órdenes.
 - Con TAREA EN CURSO o PENDIENTE: si el usuario la corrige o completa («con Iker PRUEBA», «a las 5», «sí»), devuelve la orden COMPLETA (copia los datos anteriores que no cambian) y continua_tarea true; si pide otra cosa distinta, null.`;
 
 /** Paso 1: elegir el tipo de orden. */
@@ -52,8 +52,8 @@ export const PROMPT_ELEGIR_ACCION = (acciones: NombreAccion[]) =>
     .join('\n')}\nCHARLA solo para saludos o gracias. Si falta un dato pero sabes qué quiere hacer, elige la acción (el sistema preguntará lo que falte). Borrar solo si lo pide claramente.`;
 
 /** Paso 2: rellenar los campos de la acción elegida. */
-export const PROMPT_RELLENAR = (accion: NombreAccion, soloEsta = false) =>
-  `${REGLAS}\n\nPASO 2: la orden es ${accion}: ${AYUDA_ACCION[accion].que}\nEjemplo: ${AYUDA_ACCION[accion].ejemplo}\n${soloEsta ? `El mensaje pide más cosas: rellena SOLO la parte que es de tipo ${accion} y deja el resto para las otras órdenes.\n` : ''}Rellena la función orden_jev con lo que dijo el usuario.`;
+export const PROMPT_RELLENAR = (accion: NombreAccion, soloEsta = false, ordinal?: { k: number; n: number }) =>
+  `${REGLAS}\n\nPASO 2: la orden es ${accion}: ${AYUDA_ACCION[accion].que}\nEjemplo: ${AYUDA_ACCION[accion].ejemplo}\n${soloEsta ? `El mensaje pide más cosas: rellena SOLO la parte que es de tipo ${accion} y deja el resto para las otras órdenes.\n` : ''}${ordinal && ordinal.n > 1 ? `El mensaje pide ${ordinal.n} órdenes de este mismo tipo (${accion}): rellena SOLO la número ${ordinal.k}, en el orden en que el usuario las dice. Ejemplo: «abre el tejado y la fachada» → la 1 es el tejado y la 2 la fachada.\n` : ''}Rellena la función orden_jev con lo que dijo el usuario.`;
 
 /** Compatibilidad con los tests: el prompt del paso 1 para todas las acciones. */
 export const PROMPT_TRADUCTOR = PROMPT_ELEGIR_ACCION(ACCIONES_POR_CATEGORIA.general!);
@@ -161,17 +161,20 @@ export async function traducirMensaje(e: EntradaTraductor): Promise<SalidaTraduc
     .map((x) => normalizarAccionPublica(x))
     .filter((x): x is NombreAccion => Boolean(x) && x !== 'ACLARAR' && x !== 'CHARLA')
     .slice(0, 3);
-  const rellenar = async (a: NombreAccion, soloEsta: boolean): Promise<OrdenCruda | null> => {
+  const rellenar = async (a: NombreAccion, soloEsta: boolean, ordinal?: { k: number; n: number }): Promise<OrdenCruda | null> => {
     const tool = herramientaOrdenJev(a);
     if (!tool) return { accion: a };
-    const campos = await llamar('orden_jev', (st) => herramientaOrdenJev(a, st)!, mensajes(PROMPT_RELLENAR(a, soloEsta), e), 1200);
+    const campos = await llamar('orden_jev', (st) => herramientaOrdenJev(a, st)!, mensajes(PROMPT_RELLENAR(a, soloEsta, ordinal), e), 1200);
     return { ...(campos ?? {}), accion: a } as OrdenCruda;
   };
-  const principal = (await rellenar(accion, otrasAcciones.length > 0)) as OrdenCruda;
+  // Órdenes del MISMO tipo que la principal («dos obras», «dos gastos»): cada una se rellena aparte, en orden.
+  const mismas = otrasAcciones.filter((a) => a === accion).length;
+  const principal = (await rellenar(accion, otrasAcciones.length > 0, mismas ? { k: 1, n: mismas + 1 } : undefined)) as OrdenCruda;
   const otras: OrdenCruda[] = [];
+  let k = 1;
   for (const a of otrasAcciones) {
-    if (a === accion) continue;
-    const o = await rellenar(a, true);
+    if (a === accion) k += 1;
+    const o = await rellenar(a, true, a === accion ? { k, n: mismas + 1 } : undefined);
     if (o) otras.push(o);
   }
   return { orden: principal, continuaTarea, ...(otras.length ? { otras } : {}) };

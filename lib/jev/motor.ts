@@ -9,6 +9,7 @@ import { esRespuestaCorta, marcaOrden, ordenIdDelUltimoAsistente } from '@/lib/j
 import { clasificarIntencion, type EntradaIntencion, type Intencion, type SalidaIntencion } from '@/lib/jev/intencion';
 import { horasEnTexto, numerosDelMensaje } from '@/lib/jev/fechas';
 import { logJev } from '@/lib/jev/log';
+import { comprobarCoherencia } from '@/lib/jev/coherencia';
 import { normalizarCrudo } from '@/lib/jev/normalizar';
 import { prepararOrden, type CtxEjecutor } from '@/lib/jev/ejecutor';
 import {
@@ -413,6 +414,12 @@ async function ejecutarYResponder(ent: EntradaMotor, cruda: OrdenCruda | OrdenJe
   });
 
   if (r.tipo === 'pendiente') {
+    // Lo que se va a escribir tiene que ser lo que se enseña: si no coincide, no se propone.
+    const incoherente = comprobarCoherencia(r.accion.tool, r.accion.args, r.resumen);
+    if (incoherente) {
+      logJev('incoherencia', { tool: r.accion.tool, motivo: incoherente });
+      return { respuesta: `No preparo la acción: ${incoherente} No he guardado nada.` };
+    }
     const p = await crearPendiente(supabase, { businessId, userId, orden, accion: { ...r.accion, mensajes: estado.mensajes, ...(siguientes.length ? { siguientes } : {}) }, resumen: r.resumen });
     if (!p.ok) return { respuesta: `No he podido preparar la acción: ${p.error}` };
     await cerrarTarea(supabase, businessId, userId);
@@ -474,6 +481,13 @@ export async function confirmarOrdenJev(p: {
   }
   const motivo = p.validar?.(c.pendiente.accion) ?? null;
   if (motivo) return { respuesta: motivo };
+  // Última barrera: lo guardado en el servidor tiene que seguir diciendo lo mismo que el resumen que se enseñó.
+  const esLegacy = (c.pendiente.orden as { accion?: unknown } | null)?.accion === 'LEGACY'; // propuestas del camino antiguo: su resumen tiene otro formato
+  const incoherente = esLegacy ? null : comprobarCoherencia(c.pendiente.accion.tool, c.pendiente.accion.args, c.pendiente.resumen);
+  if (incoherente) {
+    logJev('incoherencia', { tool: c.pendiente.accion.tool, motivo: incoherente, momento: 'confirmar' });
+    return { respuesta: `No lo ejecuto: ${incoherente} No he guardado nada.` };
+  }
   // Atómico: solo una confirmación puede ganar (doble clic, dos pestañas).
   const ganada = await marcarConfirmada(p.supabase, c.pendiente.id, p.businessId, p.userId);
   if (!ganada) return { respuesta: 'Esa propuesta ya se ha usado. No hago nada.' };

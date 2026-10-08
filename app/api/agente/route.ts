@@ -79,6 +79,7 @@ import {
 } from '@/lib/agente/modules/calculo';
 import { cancelarOrdenJev, confirmarOrdenJev, procesarMensajeJev } from '@/lib/jev/motor';
 import { crearPendiente } from '@/lib/jev/pendientes';
+import { marcaOrden, sanearCharla } from '@/lib/jev/dialogo';
 import { applyPerfilioGuardrails } from '@/lib/agente/guardrails';
 import { modeloAgente, parametrosGeneracion } from '@/lib/agente/modelo';
 import {
@@ -1509,10 +1510,13 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
         accion: { tool: accionPendiente.tool, args: accionPendiente.args },
         resumen: accionPendiente.resumen,
       });
+      if (guardada.ok) respuesta += marcaOrden(guardada.id);
       accionPendiente = guardada.ok
         ? ({ tool: accionPendiente.tool, args: {}, resumen: accionPendiente.resumen, orden_id: guardada.id } as unknown as AccionPendiente)
         : null;
     }
+    // La charla (modelo sin herramientas) nunca puede simular una confirmación: sin orden pendiente real no puede decir «¿Lo hago?».
+    if (motorJev && !accionPendiente) respuesta = sanearCharla(respuesta);
 
     return NextResponse.json({
       respuesta,

@@ -532,7 +532,7 @@ describe('12 · presupuesto aceptado o facturado', () => {
     expect(p.respuesta).toMatch(/EXTRA de 120,00 €/);
     const antes = db.tablas.presupuestos.find((x) => x.id === IDS.presupuestoAinhoaPendiente)!.importe_total;
     await s.confirmar(p.accionPendiente!.orden_id);
-    expect(db.tablas.presupuestos.find((x) => x.es_extra === true)).toMatchObject({ parent_id: IDS.presupuestoAinhoaPendiente, importe_total: 120 });
+    expect(db.tablas.presupuestos.find((x) => x.es_extra === true)).toMatchObject({ parent_id: IDS.presupuestoAinhoaPendiente, importe_total: 145.2 }); // 120 + 21 % de IVA: como en todos los presupuestos
     expect(db.tablas.presupuestos.find((x) => x.id === IDS.presupuestoAinhoaPendiente)!.importe_total).toBe(antes);
   });
 });

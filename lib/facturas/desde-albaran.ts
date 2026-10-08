@@ -164,7 +164,7 @@ export async function crearFacturaDesdeAlbaran(
 
   let descripcion = texto(alb.descripcion_trabajos) ?? '';
   if (extraLineas.length > 0) {
-    const bloque = `Extras aceptados (IVA no incluido en importes de extra):\n${extraLineas.join('\n')}`;
+    const bloque = `Extras aceptados (importes con IVA incluido):\n${extraLineas.join('\n')}`;
     descripcion = descripcion ? `${descripcion}\n\n${bloque}` : bloque;
   }
 

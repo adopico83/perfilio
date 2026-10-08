@@ -180,7 +180,10 @@ const RE_CANT_PRECIO =
  */
 export function corregirPartidasConDictado(dictado: string, partidas: PartidaPresupuesto[]): PartidaPresupuesto[] {
   const out = partidas.map((p) => ({ ...p }));
-  for (const segmento of dictado.split(/[,;.\n]|\by\b/i)) {
+  // Los decimales con coma o punto («14,50») no parten el dictado: se protegen antes de trocearlo.
+  const protegido = dictado.replace(/(\d)[.,](?=\d{1,2}(?!\d))/g, '$1\u0001');
+  for (const trozo of protegido.split(/[,;.\n]|\by\b/i)) {
+    const segmento = trozo.replace(/\u0001/g, ',');
     const m = segmento.match(RE_CANT_PRECIO);
     if (!m) continue;
     const cantidad = aNumero(m[1]);

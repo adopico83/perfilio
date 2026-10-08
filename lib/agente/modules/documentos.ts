@@ -1,5 +1,6 @@
 import { ymdHoyMadrid } from '@/lib/fechas-madrid';
 import { DIAS_VENCIMIENTO_FACTURA, sumarDiasYmd } from '@/lib/facturas/desde-presupuesto';
+import { totalExtraConIva } from '@/lib/presupuestos/extra';
 import { insertarFacturaConNumeroCorrelativo } from '@/lib/facturas/numero';
 import { crearFacturaDesdeAlbaran } from '@/lib/facturas/desde-albaran';
 import { actualizarFactura } from '@/lib/facturas/editar';
@@ -1160,7 +1161,8 @@ export async function handleDocumentosAgent(
           parent_id: parent.id,
           es_extra: true,
           presupuesto_generado: descripcion,
-          importe_total: importeNum,
+          // Como en todos los presupuestos, `importe_total` lleva el IVA: el extra se da sin IVA (95) y se guarda con él (114,95).
+          importe_total: totalExtraConIva(importeNum),
           cliente_nombre: clienteNombreFinal,
           cliente_id: parent.cliente_id ?? null,
           fecha: ymdHoyMadrid(),
@@ -1174,7 +1176,7 @@ export async function handleDocumentosAgent(
       if (!extraCreado.ok) return { error: extraCreado.error };
 
       const baseMsg =
-        `Extra registrado correctamente: '${descripcion}' por ${impFmt}€, vinculado al presupuesto de ${clienteNombreFinal}.`;
+        `Extra registrado correctamente: '${descripcion}' por ${impFmt}€ + IVA (${totalExtraConIva(importeNum).toFixed(2)}€ con IVA), vinculado al presupuesto de ${clienteNombreFinal}.`;
 
       if (!notificar) {
         return { mensaje: baseMsg };
