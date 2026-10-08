@@ -106,7 +106,7 @@ export function resolverHoraTexto(texto: string | null | undefined): { ok: true;
     const franja = m[4] ?? (/pm$/.test(t) ? 'tarde' : /am$/.test(t) ? 'manana' : '');
     if (franja === 'tarde' || franja === 'noche') {
       if (h < 12) h += 12;
-    } else if (!franja && h >= 1 && h <= 7) {
+    } else if (!franja && h >= 1 && h <= 6) {
       h += 12; // «a las 5» en obra = las 17:00
     }
   }
@@ -144,11 +144,19 @@ export function resolverRangoTexto(texto: string | null | undefined, ahora: Date
 /** Números que dijo el usuario, con cifras («180»), con letras («dos», «treinta y cinco») o «y medio» («7 metros y medio»). */
 export function numerosDelMensaje(texto: string): number[] {
   const t = String(texto ?? '');
-  const out = [...numerosDelDictado(t), ...numerosEnLetras(t)];
   const c = letrasACifras(sinTildes(t));
-  for (const m of c.matchAll(/(\d+(?:[.,]\d+)?)\s*(?:metros?|m2|m²|m|ml|uds?|unidades?|kilos?|kg|litros?|horas?|h)?\s+y\s+(?:medio|media)\b/g)) out.push(Number(m[1]!.replace(',', '.')) + 0.5);
-  if (/\b(?:un\s+)?(?:metro|kilo|litro)\s+y\s+(?:medio|media)\b/.test(c)) out.push(1.5);
-  return out;
+  const medios: number[] = [];
+  // «7 metros y medio» es UN número (7,5): se quita del texto para que el 7 no cuente aparte.
+  let resto = c.replace(/(\d+(?:[.,]\d+)?)\s*(?:metros?|m2|m²|m|ml|uds?|unidades?|kilos?|kg|litros?|horas?|h)?\s+y\s+(?:medio|media)\b/g, (_x, n: string) => {
+    medios.push(Number(n.replace(',', '.')) + 0.5);
+    return ' ';
+  });
+  resto = resto.replace(/\b(?:un\s+)?(?:metro|kilo|litro)\s+y\s+(?:medio|media)\b/g, () => {
+    medios.push(1.5);
+    return ' ';
+  });
+  if (!medios.length) return [...numerosDelDictado(t), ...numerosEnLetras(t)];
+  return [...numerosDelDictado(resto), ...medios];
 }
 
 /** «180», «1.250,50», «dos», «180 euros» → número. null si no hay un importe claro. */
@@ -210,7 +218,7 @@ export function horasEnTexto(texto: string): number[] {
   // Un tramo («de 8 a 2 y media») se calcula entero: sus cifras no cuentan como horas sueltas.
   const tr = tramoHorasEnTexto(t);
   if (tr) {
-    const m = t.match(/\bde\s+(?:las\s+)?\d{1,2}[^]*?(?:a|hasta)\s+(?:las\s+)?\d{1,2}(?:[:h.]\d{2})?\s*(?:y media|y cuarto|menos cuarto)?(?:\s+(?:con|menos|descontando|quitando|sin contar)\s+(?:media hora|(?:una|1) hora y media|(?:una|1) hora|\d{1,3}\s*(?:min|minutos))(?:\s+(?:para|de)\s+(?:comer|descanso|almorzar|la comida))?)?/);
+    const m = t.match(/\bde\s+(?:las\s+)?\d{1,2}[^]*?(?:a|hasta)\s+(?:las\s+)?\d{1,2}(?:[:h.]\d{2})?(?:\s+(?:y media|y cuarto|menos cuarto))?(?:\s+(?:con|menos|descontando|quitando|sin contar)\s+(?:media hora|(?:una|1) hora y media|(?:una|1) hora|\d{1,3}\s*(?:min|minutos))(?:\s+(?:para|de)\s+(?:comer|descanso|almorzar|la comida))?)?/);
     if (m) {
       out.push(tr.horas);
       usados.push([m.index ?? 0, (m.index ?? 0) + m[0].length]);

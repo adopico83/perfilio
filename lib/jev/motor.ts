@@ -24,6 +24,7 @@ import {
   type EstadoTarea,
   type Tarea,
 } from '@/lib/jev/pendientes';
+import { modoIvaDelMensaje } from '@/lib/gastos-iva';
 import { traducirMensaje, type EntradaTraductor, type SalidaTraductor } from '@/lib/jev/traductor';
 import { preguntaConfirmacion } from '@/lib/agente/confirmacion';
 import { MENSAJE_NADA_PENDIENTE } from '@/lib/agente/orquestacion';
@@ -86,7 +87,16 @@ export function elegirOpcion(mensaje: string, opciones: Array<{ n: number; id: s
     const et = norm(o.etiqueta).split(/[^a-z0-9ñ]+/).filter(Boolean);
     return pals.every((w) => et.some((x) => x === w || (w.length >= 3 && x.startsWith(w))));
   });
-  return coinciden.length === 1 ? coinciden[0]! : null;
+  if (coinciden.length === 1) return coinciden[0]!;
+  // «Mendia, la otra no»: sobran palabras de relleno, pero SOLO una opción tiene alguna de las palabras dichas.
+  const relleno = new Set(['otra', 'otro', 'no', 'tampoco', 'solo', 'nada', 'sino', 'ya', 'seguro', 'justo', 'exacto']);
+  const util = pals.filter((w) => !relleno.has(w));
+  if (util.length === 0 || util.length === pals.length) return null;
+  const alguna = opciones.filter((o) => {
+    const et = norm(o.etiqueta).split(/[^a-z0-9ñ]+/).filter(Boolean);
+    return util.every((w) => et.some((x) => x === w || (w.length >= 3 && x.startsWith(w))));
+  });
+  return alguna.length === 1 ? alguna[0]! : null;
 }
 
 /** Une la corrección con la orden anterior: solo cambian los datos que el usuario ha vuelto a decir. */
@@ -341,7 +351,8 @@ async function responderPregunta(ent: EntradaMotor, tarea: Tarea, pq: NonNullabl
     const lista = pq.opciones.map((o) => `${o.n}. ${o.etiqueta}`).join('\n');
     return { respuesta: `No sé cuál de estas es «${mensaje.slice(0, 60)}». Dime el número o parte del nombre:\n${lista}`, opciones: pq.opciones };
   }
-  const campo = SLOT_A_CAMPO[pq.slot];
+  // Un hueco de la orden («horas_texto», «hora_texto», «fecha_texto»…) se rellena con la respuesta corta: «6 y media», «4», «a las 7 y media».
+  const campo = SLOT_A_CAMPO[pq.slot] ?? (/_texto$|^texto$/.test(pq.slot) ? pq.slot : undefined);
   if (campo && (pq.texto_slot || pq.slot !== 'dato')) {
     const resueltos = { ...tarea.estado.resueltos };
     delete resueltos[pq.slot];
@@ -350,6 +361,8 @@ async function responderPregunta(ent: EntradaMotor, tarea: Tarea, pq: NonNullabl
   }
   // IVA y demás: la respuesta se suma a los mensajes de la tarea y se vuelve a preparar la misma orden.
   if (pq.slot === 'iva') {
+    // «Súmale el IVA encima», «lo que has dicho, entero»: si no es una forma de IVA que el parser de datos reconoce, lo entiende el traductor.
+    if (modoIvaDelMensaje(mensaje) == null && !/\bexent[oa]s?\b/i.test(mensaje)) return null;
     return ejecutarYResponder(ent, tarea.orden, { ...tarea.estado, mensajes: [...tarea.estado.mensajes, mensaje], pregunta: null }, ahora);
   }
   return null;

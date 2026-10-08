@@ -101,7 +101,10 @@ async function resolverObraDeCliente(ctx: CtxResolver, texto: string, clienteId:
   const esCerrada = (o: O) => /cerrad|finaliz|termin/.test(norm(String(o.estado ?? '')));
   const todas = ((data ?? []) as O[]).filter((o) => cerradas || !esCerrada(o));
   if (todas.length === 0) return error(`Ese cliente no tiene ninguna obra${cerradas ? '' : ' abierta'}.`);
-  const pals = norm(texto).split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 3 && !ARTICULOS.has(w));
+  // «el tejado de Josu» con Josu ya conocido: el nombre del cliente no es parte del nombre de la obra.
+  const { data: cli } = await ctx.supabase.from('clientes').select('nombre').eq('id', clienteId).eq('business_id', ctx.businessId).maybeSingle();
+  const delCliente = new Set(norm(String((cli as { nombre?: string | null } | null)?.nombre ?? '')).split(/[^a-z0-9ñ]+/).filter(Boolean));
+  const pals = norm(texto).split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 3 && !ARTICULOS.has(w) && !delCliente.has(w));
   const coincide = (o: O) => pals.length === 0 || pals.every((w) => norm(`${o.nombre ?? ''} ${o.direccion ?? ''}`).split(/[^a-z0-9ñ]+/).some((x) => x.startsWith(w) || w.startsWith(x)));
   const etiqueta = (o: O) => `${o.nombre ?? 'Obra'}${o.direccion ? ` · ${o.direccion}` : ''}${esCerrada(o) ? ' (cerrada)' : ''}`;
   const coinc = todas.filter(coincide);
@@ -169,7 +172,15 @@ export async function resolverPresupuesto(ctx: CtxResolver, texto: string): Prom
   }
   // Un número explícito («el presu 8 de Mikel», «el 8») gana siempre sobre el nombre.
   const numero = numeroExplicito(t) ?? parseNumeroDocumento(t);
-  const r = await resolverPresupuestosPorTexto(ctx.supabase, ctx.businessId, numero != null ? { numero } : { clienteNombre: t });
+  let r = await resolverPresupuestosPorTexto(ctx.supabase, ctx.businessId, numero != null ? { numero } : { clienteNombre: t });
+  // «el presu del baño de Mikel»: si el texto entero no encaja con ningún cliente, se busca por el cliente («Mikel») y el tema desempata.
+  if (numero == null && r.status !== 'one' && r.status !== 'many') {
+    const m = t.match(/^(.*?)\s+(?:de|del|para)\s+(.+)$/i);
+    if (m) {
+      const r2 = await resolverPresupuestosPorTexto(ctx.supabase, ctx.businessId, { clienteNombre: m[2]!.trim() });
+      if (r2.status === 'one' || r2.status === 'many') r = r2;
+    }
+  }
   const f = toolFailDesdePresupuestoResolve(r, t);
   if (f.ok) return { ok: true, id: f.match.id, etiqueta: etiquetaPresupuesto(f.match), extra: f.match as unknown as Record<string, unknown> };
   if (r.status === 'many') {

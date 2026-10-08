@@ -9,6 +9,8 @@
  *   - ≥ `EVAL_UMBRAL` (0,95 por defecto) de órdenes correctas,
  *   - 0 datos inventados (importes, nombres que no están en el mensaje),
  *   - 0 escrituras antes del «Sí, hazlo».
+ * Además corre el BLOQUE DE PARÁFRASIS (`evals/parafrasis.ts`, ≥ 60 escenarios dichos de otra forma) con el clasificador de
+ * intención REAL y saca su porcentaje APARTE; también debe llegar al umbral.
  * Sin OPENAI_API_KEY se salta con un aviso. `EVAL_VECES=3` repite cada frase (el modelo no es 100 % determinista).
  */
 import type { SalidaMotor } from '@/lib/jev/motor';
@@ -17,6 +19,7 @@ import { ORDEN_POR_FRASE } from './ordenes-jev';
 import { FRASES_RONDA6 } from './ronda6';
 import { compararOrden } from './comparar-orden';
 import { ESCENARIOS_RONDA8, ejecutarEscenario } from './ronda8';
+import { PARAFRASIS_R9 } from './parafrasis';
 import { NEGOCIO_A, USUARIO, crearBaseSimulada } from './base-simulada';
 import { crearFakeDb } from '../__tests__/helpers/fake-db';
 
@@ -50,7 +53,7 @@ const MARCA_F = /<!--factura:(\{.*?\})-->/;
     const { crearRunToolJev } = await import('@/lib/jev/despacho');
 
     const lista = frases();
-    const filas: Array<{ frase: string; ok: boolean; motivos: string[]; inventados: string[]; escrituras: number }> = [];
+    const filas: Array<{ frase: string; ok: boolean; motivos: string[]; inventados: string[]; escrituras: number; parafrasis?: boolean }> = [];
     for (let v = 0; v < veces; v++) {
       for (const f of lista) {
         const db = crearFakeDb(crearBaseSimulada());
@@ -112,15 +115,36 @@ const MARCA_F = /<!--factura:(\{.*?\})-->/;
       }
     }
 
+    // BLOQUE DE PARÁFRASIS: lo mismo dicho de otra forma (cancelar, confirmar, corregir, varias órdenes, respuestas cortas,
+    // proveedor frente a cliente, dudas). El clasificador y el traductor son los REALES; su porcentaje sale aparte.
+    for (let v = 0; v < veces; v++) {
+      for (const esc of PARAFRASIS_R9) {
+        let problemas: string[];
+        try {
+          ({ problemas } = await ejecutarEscenario(esc, (e) => traducirMensaje(e)));
+        } catch (err) {
+          problemas = [`error: ${err instanceof Error ? err.message : String(err)}`];
+        }
+        filas.push({ frase: esc.nombre, ok: problemas.length === 0, motivos: problemas, inventados: [], escrituras: 0, parafrasis: true });
+      }
+    }
+
     const buenas = filas.filter((x) => x.ok).length;
     const pct = buenas / filas.length;
     const inventados = filas.filter((x) => x.inventados.length).length;
     const escrituras = filas.reduce((n, x) => n + x.escrituras, 0);
     const tabla = filas.map((x) => `${x.ok ? 'OK ' : 'KO '} ${x.frase}${x.ok ? '' : `\n      → ${x.motivos.join(' | ')}`}`).join('\n');
-    console.log(`\n${tabla}\n\nÓRDENES CORRECTAS: ${buenas}/${filas.length} (${(pct * 100).toFixed(1)} %) · frases con datos inventados: ${inventados} · escrituras sin «Sí»: ${escrituras}\n`);
+    const para = filas.filter((x) => x.parafrasis);
+    const paraBuenas = para.filter((x) => x.ok).length;
+    const paraPct = para.length ? paraBuenas / para.length : 1;
+    console.log(
+      `\n${tabla}\n\nÓRDENES CORRECTAS (TOTAL): ${buenas}/${filas.length} (${(pct * 100).toFixed(1)} %) · frases con datos inventados: ${inventados} · escrituras sin «Sí»: ${escrituras}` +
+        `\nBLOQUE DE PARÁFRASIS: ${paraBuenas}/${para.length} (${(paraPct * 100).toFixed(1)} %)\n`
+    );
     expect(inventados).toBe(0);
     expect(escrituras).toBe(0);
     expect(pct).toBeGreaterThanOrEqual(umbral);
+    expect(paraPct).toBeGreaterThanOrEqual(umbral);
   }, TIMEOUT_MS);
 });
 
