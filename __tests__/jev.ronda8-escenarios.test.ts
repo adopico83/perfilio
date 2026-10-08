@@ -1,5 +1,6 @@
 /** Los escenarios de la ronda 8 con el traductor SIMULADO (cada paso lleva la orden que debería salir). */
 import { ESCENARIOS_RONDA8, ejecutarEscenario } from '../evals/ronda8';
+import { clasificadorSimulado } from './helpers/clasificador-simulado';
 
 jest.mock('openai', () => ({ __esModule: true, default: jest.fn() }));
 jest.mock('@/lib/pdf/presupuesto-render', () => ({
@@ -15,10 +16,14 @@ jest.mock('@/lib/pdf/factura-render', () => ({
 
 describe('escenarios de la ronda 8 (traductor simulado)', () => {
   it.each(ESCENARIOS_RONDA8.map((e) => [e.nombre, e] as const))('%s', async (_n, esc) => {
-    const { problemas } = await ejecutarEscenario(esc, async (_e, paso) => {
-      if (!paso.orden) throw new Error('el paso no lleva orden simulada');
-      return { orden: paso.orden as never, continuaTarea: paso.continua === true, ...(paso.otras ? { otras: paso.otras as never } : {}) };
-    });
+    const { problemas } = await ejecutarEscenario(
+      esc,
+      async (_e, paso) => {
+        if (!paso.orden) throw new Error('el paso no lleva orden simulada');
+        return { orden: paso.orden as never, continuaTarea: paso.continua === true, ...(paso.otras ? { otras: paso.otras as never } : {}) };
+      },
+      async (e, paso) => (paso.intencion ? { intencion: paso.intencion, segura: true } : clasificadorSimulado(e))
+    );
     expect(problemas).toEqual([]);
   });
 });

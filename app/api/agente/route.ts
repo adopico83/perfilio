@@ -1157,7 +1157,8 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
 
     // Un «sí» escrito sin confirmación pendiente (el botón ya lo gestiona `confirmar_accion`) no lanza otra
     // acción: si el asistente no había preguntado nada, se contesta que no hay nada pendiente.
-    const afirmacionSuelta = esAfirmacionSuelta(mensajeTrim) && !hasBorradorActivo;
+    // Solo para el camino antiguo (AGENTE_MOTOR=legacy): con el motor .jev la intención la decide el clasificador.
+    const afirmacionSuelta = !motorJev && esAfirmacionSuelta(mensajeTrim) && !hasBorradorActivo;
     if (afirmacionSuelta && !asistentePreguntoAlgo(ultimoAsistenteHistorial?.content)) {
       return NextResponse.json({ respuesta: MENSAJE_NADA_PENDIENTE, email_pendiente: null, canvas: null, obra_modal: null });
     }

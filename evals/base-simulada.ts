@@ -158,7 +158,7 @@ export function crearBaseSimulada(): Record<string, Fila[]> {
     presupuesto_previews: [],
     agenda: [
       { id: 'ev-olabide', business_id: NEGOCIO_A, titulo: 'Visita obra Olabide', fecha: '2026-10-14', hora: '10:30' },
-      { id: 'ev-ane-lasa', business_id: NEGOCIO_A, titulo: 'Visita con Ane Lasa', fecha: '2026-10-20', hora: '09:00' },
+      { id: 'ev-ane-lasa', business_id: NEGOCIO_A, titulo: 'Visita con Ane Lasa', fecha: '2026-10-27', hora: '09:00' },
       { id: 'ev-mikel', business_id: NEGOCIO_A, titulo: 'Cita con Mikel Etxeberria', fecha: '2026-10-13', hora: '10:30' },
     ],
     memoria_negocio: [],

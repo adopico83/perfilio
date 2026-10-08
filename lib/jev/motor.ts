@@ -5,7 +5,9 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { completarOrden, etiquetaOrden, expandirOrden, type OrdenCruda, type OrdenJev } from '@/lib/jev/ordenes';
-import { esRechazo, esRespuestaCorta, marcaOrden, ordenIdDelUltimoAsistente } from '@/lib/jev/dialogo';
+import { esRespuestaCorta, marcaOrden, ordenIdDelUltimoAsistente } from '@/lib/jev/dialogo';
+import { clasificarIntencion, type EntradaIntencion, type Intencion, type SalidaIntencion } from '@/lib/jev/intencion';
+import { horasEnTexto, numerosDelMensaje } from '@/lib/jev/fechas';
 import { logJev } from '@/lib/jev/log';
 import { normalizarCrudo } from '@/lib/jev/normalizar';
 import { prepararOrden, type CtxEjecutor } from '@/lib/jev/ejecutor';
@@ -23,7 +25,7 @@ import {
 } from '@/lib/jev/pendientes';
 import { traducirMensaje, type EntradaTraductor, type SalidaTraductor } from '@/lib/jev/traductor';
 import { preguntaConfirmacion } from '@/lib/agente/confirmacion';
-import { esAfirmacionSuelta, MENSAJE_NADA_PENDIENTE } from '@/lib/agente/orquestacion';
+import { MENSAJE_NADA_PENDIENTE } from '@/lib/agente/orquestacion';
 
 export type OpcionUI = { n: number; id: string; etiqueta: string };
 
@@ -59,22 +61,31 @@ export type EntradaMotor = {
   fotosAdjuntas?: string[];
   /** Para tests: traductor simulado. */
   traducir?: (e: EntradaTraductor) => Promise<SalidaTraductor>;
+  /** Para tests: clasificador de intención simulado. */
+  clasificar?: (e: EntradaIntencion) => Promise<SalidaIntencion>;
 };
-
-/** Compatibilidad: «no» suelto. Las reglas completas están en `esRechazo` (lib/jev/dialogo.ts). */
-export const esNegacionSuelta = (m: string) => esRechazo(m);
 
 const norm = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
 
-/** «2», «la 2», «la segunda», o el texto de una etiqueta → la opción elegida (con ids que salieron del resolvedor). */
-export function elegirOpcion(mensaje: string, opciones: Array<{ n: number; id: string; etiqueta: string }>): { n: number; id: string; etiqueta: string } | null {
-  const t = norm(mensaje).replace(/[.!¡¿?]/g, '').trim();
+/**
+ * Elige una opción de una lista: por número («2», «la 2», «la segunda») o por PALABRAS (sin artículos ni acentos, todas las palabras
+ * dentro de UNA sola etiqueta: «la Zubizarreta», «Ane Lasa», «el de Hernani»). 'ninguna' si dice que ninguna; null si no encaja.
+ */
+export function elegirOpcion(mensaje: string, opciones: Array<{ n: number; id: string; etiqueta: string }>): { n: number; id: string; etiqueta: string } | 'ninguna' | null {
+  const t = norm(mensaje).replace(/[.!¡¿?,;:]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (/^(?:ninguna?|ninguno|sin obra)$/.test(t)) return 'ninguna';
   const ordinales: Record<string, number> = { primera: 1, primero: 1, segunda: 2, segundo: 2, tercera: 3, tercero: 3, cuarta: 4, cuarto: 4, quinta: 5, quinto: 5 };
-  const m = t.match(/^(?:la |el |opcion |la opcion |numero )?(\d{1,2})$/);
+  const m = t.match(/^(?:la |el |opcion |la opcion |numero |la numero )?(\d{1,2})$/);
   const n = m ? Number(m[1]) : ordinales[t.replace(/^(la |el )/, '')];
   if (n) return opciones.find((o) => o.n === n) ?? null;
-  const porTexto = opciones.filter((o) => t.length >= 3 && norm(o.etiqueta).includes(t));
-  return porTexto.length === 1 ? porTexto[0]! : null;
+  const vacias = new Set(['el', 'la', 'los', 'las', 'de', 'del', 'un', 'una', 'lo', 'al', 'es', 'ese', 'esa', 'esta', 'este', 'pues', 'pa', 'para', 'con', 'y', 'que', 'sera', 'seria', 'creo', 'diria', 'digo']);
+  const pals = t.split(' ').filter((w) => w && !vacias.has(w));
+  if (pals.length === 0) return null;
+  const coinciden = opciones.filter((o) => {
+    const et = norm(o.etiqueta).split(/[^a-z0-9ñ]+/).filter(Boolean);
+    return pals.every((w) => et.some((x) => x === w || (w.length >= 3 && x.startsWith(w))));
+  });
+  return coinciden.length === 1 ? coinciden[0]! : null;
 }
 
 /** Une la corrección con la orden anterior: solo cambian los datos que el usuario ha vuelto a decir. */
@@ -86,43 +97,63 @@ export function fusionarOrden(previa: OrdenCruda | OrdenJev, nueva: OrdenCruda |
   return { ...p, ...n } as OrdenCruda;
 }
 
-/** Qué campo de la orden rellena la respuesta a una pregunta del resolvedor («¿Lo doy de alta o es otro nombre?»). */
-const SLOT_A_CAMPO: Record<string, string> = {
-  cliente: 'cliente_texto',
-  obra: 'obra_texto',
-  presupuesto: 'presupuesto_texto',
-  factura: 'factura_texto',
-  albaran: 'albaran_texto',
-  operario: 'operario_texto',
-  evento: 'evento_texto',
-  proveedor: 'proveedor_texto',
-};
-
 const RE_NIF = /\b(?:[XYZ]\d{7}[A-Z]|\d{8}[A-Z]|[A-HJNPQRSUVW]\d{7}[0-9A-J])\b/i;
 
-const limpiarRespuestaDeHueco = (m: string) => m.trim().replace(/^(?:pues |es |ser[ií]a |con |a |para |de |el |la |lo de |lo del )+/i, '').replace(/[.!]+$/, '').trim();
 
 /** Frase corta que cuenta qué se hace después (varias órdenes en un mensaje). */
 const despues = (siguientes: OrdenCruda[]) =>
   siguientes.length ? `\n\nDespués te pregunto por: ${siguientes.map((o) => etiquetaOrden(o as Record<string, unknown>)).join('; ')}.` : '';
 
+/** Frase del aviso cuando una orden pendiente se deja sin hacer. */
+const AVISO_DESCARTADA = 'He dejado sin hacer lo que tenía pendiente. ';
+
+/**
+ * Un turno del chat. La IA ENTIENDE (clasificador de intención + traductor); este código DECIDE: solo se ejecuta lo que el
+ * servidor tiene guardado como pendiente, con la intención CONFIRMA y si el último mensaje del asistente fue la pregunta
+ * de ESA orden. Ante cualquier duda, no se hace nada y se vuelve a preguntar.
+ */
 export async function procesarMensajeJev(ent: EntradaMotor): Promise<SalidaMotor> {
   const { supabase, businessId, userId } = ent;
   const ahora = ent.ahora ?? new Date();
   const mensaje = ent.mensaje.trim();
   const viva = await pendienteVivaDelUsuario(supabase, businessId, userId);
   const tarea = await cargarTareaEnCurso(supabase, businessId, userId);
+  const pq = !viva ? tarea?.estado.pregunta ?? null : null;
 
-  // 1) «no», «mejor no», «no, ese ya lo apunté yo», «déjalo», «olvídalo», «cancela»: se cancela la pendiente y se cierra la
-  //    tarea en curso. Nunca confirma ni va al modelo como orden nueva (así «cancela» suelto no puede acabar en CITA_BORRAR).
-  if (esRechazo(mensaje)) {
+  // 0) ¿Qué quiere decir el usuario? Lo decide el clasificador (no listas de frases). Sin nada pendiente ni pregunta abierta y con un
+  //    mensaje largo solo puede ser una orden nueva: se ahorra la llamada.
+  const palabras = mensaje.split(/\s+/).filter(Boolean).length;
+  let intencion: Intencion = 'NUEVA';
+  let segura = true;
+  if (viva || tarea || palabras <= 8) {
+    const clasificar = ent.clasificar ?? clasificarIntencion;
+    const c = await clasificar({
+      mensaje,
+      resumenPendiente: viva?.resumen ?? null,
+      preguntaAbierta: pq?.texto ?? null,
+      ultimoAsistente: ent.ultimoAsistente ?? null,
+    });
+    intencion = c.intencion;
+    segura = c.segura;
+  }
+  // Con algo pendiente, una clasificación dudosa NUNCA ejecuta ni descarta: se vuelve a preguntar.
+  if (viva && !segura) {
+    logJev('si_sin_confirmacion', { motivo: 'intención dudosa con una orden pendiente', intencion });
+    return {
+      respuesta: `No estoy seguro de si quieres que lo haga. Tengo preparado esto:\n${viva.resumen}\n¿Lo hago o lo dejamos?${marcaOrden(viva.id)}`,
+      accionPendiente: { orden_id: viva.id, tool: viva.accion.tool, resumen: viva.resumen },
+    };
+  }
+
+  // 1) CANCELA: se cancela la pendiente y se cierra la tarea. No se propone NADA nuevo en este turno.
+  if (intencion === 'CANCELA') {
     if (viva) await cancelarPendiente(supabase, viva.id, businessId, userId);
     if (tarea) await cerrarTarea(supabase, businessId, userId);
     return { respuesta: viva || tarea ? 'Vale, no hago nada.' : 'Vale.' };
   }
 
-  // 2) Un «sí» escrito: solo confirma si el último mensaje del asistente fue la pregunta de confirmación de ESA orden.
-  if (esAfirmacionSuelta(mensaje)) {
+  // 2) CONFIRMA: solo ejecuta la orden pendiente real, y solo si el último mensaje del asistente fue la pregunta de ESA orden.
+  if (intencion === 'CONFIRMA') {
     if (viva) {
       if (ordenIdDelUltimoAsistente(ent.ultimoAsistente) === viva.id) {
         return confirmarOrdenJev({ supabase, businessId, userId, ordenId: viva.id, runTool: ent.runTool, validar: ent.validar, ahora });
@@ -143,115 +174,50 @@ export async function procesarMensajeJev(ent: EntradaMotor): Promise<SalidaMotor
       };
       return ejecutarYResponder(ent, { accion: 'CREAR_CLIENTE', nombre_texto: tarea.estado.pregunta.texto_slot } as OrdenCruda, estado, ahora);
     }
-    // El último mensaje era la confirmación de una orden que ya no está viva (cancelada, usada o caducada): no se hace nada.
-    if (!tarea && ordenIdDelUltimoAsistente(ent.ultimoAsistente)) return { respuesta: MENSAJE_NADA_PENDIENTE };
-    if (!tarea) {
-      const pregunto = /\?\s*$/.test(String(ent.ultimoAsistente ?? '').replace(/<!--[\s\S]*?-->/g, '').trim());
-      if (!pregunto) return { respuesta: MENSAJE_NADA_PENDIENTE };
-    }
+    // El último mensaje era la confirmación de una orden que ya no está viva (cancelada, usada o caducada), o no hay nada: no se hace nada.
+    return { respuesta: MENSAJE_NADA_PENDIENTE };
   }
 
-  // 3) Contesta a una pregunta con opciones («la 2»): se rellena el hueco SIN modelo y con el id del resolvedor.
-  if (!viva && tarea?.estado.pregunta?.opciones.length) {
-    const op = elegirOpcion(mensaje, tarea.estado.pregunta.opciones);
-    if (op) {
-      const estado: EstadoTarea = {
-        ...tarea.estado,
-        resueltos: { ...tarea.estado.resueltos, [tarea.estado.pregunta.slot]: { id: op.id, etiqueta: op.etiqueta.replace(/\s*\(.*$/, ''), texto: tarea.estado.pregunta.texto_slot } },
-        mensajes: [...tarea.estado.mensajes, mensaje],
-        pregunta: null,
-      };
-      return ejecutarYResponder(ent, tarea.orden, estado, ahora);
-    }
-    // «ninguna» / «sin obra» ante una lista de obras: se sigue sin ese dato (solo en los campos que son opcionales).
-    if (/^(?:ninguna?|sin obra|ninguna de (?:ellas|esas)|no es ninguna)[\s.!]*$/i.test(mensaje) && tarea.estado.pregunta.slot === 'obra') {
-      const orden = { ...(tarea.orden as Record<string, unknown>), obra_texto: undefined, sin_obra: 'si' } as unknown as OrdenCruda;
-      return ejecutarYResponder(ent, orden, { ...tarea.estado, resueltos: { ...tarea.estado.resueltos }, mensajes: [...tarea.estado.mensajes, mensaje], pregunta: null }, ahora);
-    }
+  // 3) RESPUESTA a una pregunta abierta de la tarea en curso: se rellena el hueco SIN inventar nada.
+  if (!viva && tarea && pq && (intencion === 'RESPUESTA' || intencion === 'CORRIGE')) {
+    const r = await responderPregunta(ent, tarea, pq, mensaje, ahora);
+    if (r) return r;
   }
 
-  // 4) Llega el dato que se pidió para seguir (NIF / dirección del cliente): se guarda en su ficha y la orden se retoma sola.
-  const retomar = !viva ? tarea?.estado.pregunta?.retomar : undefined;
-  if (tarea && retomar) {
-    const faltan = retomar.faltan?.length ? retomar.faltan : [retomar.campo];
-    const nif = faltan.includes('nif') ? mensaje.match(RE_NIF)?.[0] : undefined;
-    // Lo que queda del mensaje, quitado el NIF y las muletillas («su NIF es … y vive en …»), es la dirección.
-    let direccion: string | undefined;
-    if (faltan.includes('direccion')) {
-      const resto = mensaje
-        .replace(RE_NIF, ' ')
-        .replace(/\b(?:su|el|la|mi)?\s*(?:nif|cif|dni)\b\s*(?:es|:)?/gi, ' ')
-        .replace(/^[\s,.;:y]+/i, '')
-        .replace(/^(?:y\s+)?(?:vive(?:n)?\s+en|est[aá]\s+en|su\s+direcci[oó]n\s+es|la\s+direcci[oó]n\s+es|direcci[oó]n\s*(?:es|:)?|en|calle)\b[\s,:]*/i, (m0) => (/^calle/i.test(m0.trim()) ? 'Calle ' : ''))
-        .replace(/\s+/g, ' ')
-        .replace(/[.]+$/, '')
-        .trim();
-      if (resto.length >= 5 && esRespuestaCorta(resto, 16)) direccion = resto;
-    }
-    if (nif || direccion) {
-      const ordenDato = {
-        accion: 'ACTUALIZAR_CLIENTE',
-        cliente_texto: retomar.cliente,
-        ...(nif ? { nif_texto: nif.toUpperCase() } : {}),
-        ...(direccion ? { direccion_texto: direccion } : {}),
-      } as OrdenCruda;
-      const estado: EstadoTarea = {
-        resueltos: { cliente: { id: retomar.cliente_id, etiqueta: retomar.cliente, texto: retomar.cliente } },
-        // Los mensajes de la orden original viajan con el dato: al retomarla, sus importes siguen siendo «dichos».
-        mensajes: [...tarea.estado.mensajes, mensaje],
-        pregunta: null,
-        siguientes: [tarea.orden as OrdenCruda, ...(tarea.estado.siguientes ?? [])],
-      };
-      return ejecutarYResponder(ent, ordenDato, estado, ahora);
-    }
-  }
-
-  // 5) Respuesta corta a «¿Lo doy de alta o es otro nombre?»: es el nombre que sí existe → se rellena el hueco de la
-  //    orden original (no se pierde nada de lo que ya estaba dicho).
-  const pq = !viva ? tarea?.estado.pregunta : null;
-  if (tarea && pq && !pq.opciones.length && pq.texto_slot && SLOT_A_CAMPO[pq.slot] && esRespuestaCorta(mensaje, 6) && !esAfirmacionSuelta(mensaje)) {
-    const campo = SLOT_A_CAMPO[pq.slot]!;
-    const resueltos = { ...tarea.estado.resueltos };
-    delete resueltos[pq.slot];
-    const orden = { ...(tarea.orden as Record<string, unknown>), [campo]: limpiarRespuestaDeHueco(mensaje) } as OrdenCruda;
-    return ejecutarYResponder(ent, orden, { ...tarea.estado, resueltos, mensajes: [...tarea.estado.mensajes, mensaje], pregunta: null }, ahora);
-  }
-
-  // 6) Traducir el mensaje a una orden cerrada (si hay algo pendiente, el modelo la ve como «la orden anterior»).
+  // 4) Hay una orden pendiente y el usuario quiere CORREGIRLA (se fusiona con ella y se vuelve a enseñar) u otra cosa (se descarta).
   const traducir = ent.traducir ?? traducirMensaje;
-  const previa = (viva?.orden ?? tarea?.orden ?? null) as OrdenCruda | null;
+  const corrige = Boolean(viva) && (intencion === 'CORRIGE' || intencion === 'RESPUESTA');
+  const continuaTarea = !viva && Boolean(tarea) && (intencion === 'RESPUESTA' || intencion === 'CORRIGE');
+  const previa = (corrige ? viva!.orden : continuaTarea ? tarea!.orden : null) as OrdenCruda | null;
   const salida = await traducir({
     mensaje,
     categoria: ent.categoria,
     hoyTexto: ent.hoyTexto,
     tarea: previa,
-    pendiente: Boolean(viva),
+    pendiente: corrige,
     ultimoAsistente: ent.ultimoAsistente,
   });
   const cruda = normalizarCrudo(salida.orden) as OrdenCruda;
   const otras = (salida.otras ?? []).map((o) => normalizarCrudo(o) as OrdenCruda).filter((o) => o.accion);
 
-  // Hay una orden pendiente y el usuario no dijo «sí»: o corrige ESA orden (se fusiona y se vuelve a enseñar el resumen) o
-  // pide otra cosa (la pendiente se descarta, y se le dice). Nunca queda viva una propuesta que no ha vuelto a mirar.
   let aviso = '';
   let base: { orden: OrdenCruda | OrdenJev; estado: EstadoTarea } | null = null;
   let correccionDePendiente = false;
+  let presupuestoDeLaDescartada: string | null = null;
   if (viva) {
     await cancelarPendiente(supabase, viva.id, businessId, userId);
-    const misma = normalizarCrudo(viva.orden).accion === cruda.accion;
-    if (misma && salida.continuaTarea) {
+    presupuestoDeLaDescartada = typeof viva.accion.args?.presupuesto_id === 'string' ? (viva.accion.args.presupuesto_id as string) : null;
+    if (corrige && normalizarCrudo(viva.orden).accion === cruda.accion) {
       correccionDePendiente = true;
       base = { orden: viva.orden, estado: { resueltos: {}, mensajes: viva.accion.mensajes ?? [], pregunta: null, siguientes: viva.accion.siguientes } };
     } else {
-      aviso = 'He dejado sin hacer lo que tenía pendiente. ';
+      aviso = AVISO_DESCARTADA;
     }
   } else if (tarea) {
-    // Si acabamos de preguntar por un dato que faltaba (texto_slot vacío), la respuesta continúa esa tarea aunque el modelo
-    // no lo marque. Una orden NUEVA y larga no hereda huecos de la tarea anterior.
-    const preguntabaFalta = tarea.estado.pregunta != null && tarea.estado.pregunta.texto_slot === '' && tarea.estado.pregunta.opciones.length === 0;
-    const misma = normalizarCrudo(tarea.orden).accion === cruda.accion;
-    if (misma && (salida.continuaTarea || preguntabaFalta) && esRespuestaCorta(mensaje, 12)) {
+    if (continuaTarea && normalizarCrudo(tarea.orden).accion === cruda.accion) {
       base = { orden: tarea.orden, estado: { resueltos: { ...tarea.estado.resueltos }, mensajes: tarea.estado.mensajes, pregunta: null, siguientes: tarea.estado.siguientes } };
+    } else {
+      await cerrarTarea(supabase, businessId, userId);
     }
   }
 
@@ -269,8 +235,143 @@ export async function procesarMensajeJev(ent: EntradaMotor): Promise<SalidaMotor
     pregunta: null,
     siguientes: [...resto, ...(base?.estado.siguientes ?? [])],
   };
-  const r = await ejecutarYResponder(ent, primera!, estado, ahora, correccionDePendiente);
-  return aviso && !r.charla ? { ...r, respuesta: `${aviso}${r.respuesta}` } : r;
+  const entFinal = presupuestoDeLaDescartada ? { ...ent, ultimoPresupuestoId: presupuestoDeLaDescartada } : ent;
+  const r = await ejecutarYResponder(entFinal, primera!, estado, ahora, correccionDePendiente);
+
+  // Corregir sin cambiar nada no vuelve a proponer la misma orden idéntica.
+  if (corrige && viva && r.accionPendiente && r.accionPendiente.resumen === viva.resumen) {
+    await cancelarPendiente(supabase, r.accionPendiente.orden_id, businessId, userId);
+    return { respuesta: `No veo qué dato cambiar respecto a lo que tenía preparado. Dime qué quieres que cambie (o lo dejamos).` };
+  }
+
+  // Red de seguridad: si el mensaje trae datos que NINGUNA orden ha usado, se dice (no se calla).
+  let respuesta = `${aviso}${r.respuesta}`;
+  if (!r.charla && intencion !== 'RESPUESTA') {
+    const sinUsar = datosSinUsar(mensaje, todas);
+    if (sinUsar) {
+      logJev('datos_sin_usar', { dato: sinUsar });
+      respuesta = respuesta.replace(/(\n?<!--orden:[\w-]+-->)?$/, `\n\n⚠️ También has dicho «${sinUsar}» y eso no lo he preparado. Dímelo aparte cuando acabemos con esto.$1`);
+    }
+  }
+  return { ...r, respuesta };
+}
+
+/** Datos del mensaje (cifras) que ninguna orden ha recogido, con un trocito del mensaje para que se entienda. null si no sobra nada. */
+export function datosSinUsar(mensaje: string, ordenes: Array<Record<string, unknown>>): string | null {
+  const quitaPorcentajes = (t: string) => t.replace(/\d+(?:[.,]\d+)?\s?%/g, ' ');
+  const usados = new Set<number>();
+  const recoge = (v: unknown): void => {
+    if (typeof v === 'string') for (const n of [...numerosDelMensaje(quitaPorcentajes(v)), ...horasEnTexto(v)]) usados.add(Math.round(n * 100) / 100);
+    else if (Array.isArray(v)) v.forEach(recoge);
+    else if (v && typeof v === 'object') Object.values(v as Record<string, unknown>).forEach(recoge);
+  };
+  ordenes.forEach(recoge);
+  const texto = quitaPorcentajes(mensaje);
+  for (const m of texto.matchAll(/\d+(?:[.,]\d+)?/g)) {
+    const n = numerosDelMensaje(m[0])[0];
+    if (n == null || usados.has(Math.round(n * 100) / 100)) continue;
+    const ini = Math.max(0, (m.index ?? 0) - 25);
+    return texto.slice(ini, (m.index ?? 0) + m[0].length + 25).replace(/\s+/g, ' ').trim();
+  }
+  return null;
+}
+
+/** Slot de una pregunta del ejecutor → campo de la orden que rellena la respuesta. */
+const SLOT_A_CAMPO: Record<string, string> = {
+  cliente: 'cliente_texto',
+  obra: 'obra_texto',
+  presupuesto: 'presupuesto_texto',
+  factura: 'factura_texto',
+  albaran: 'albaran_texto',
+  operario: 'operario_texto',
+  evento: 'evento_texto',
+  proveedor: 'proveedor_texto',
+  horas: 'horas_texto',
+  hora: 'hora_texto',
+  fecha: 'fecha_texto',
+  importe: 'importe_texto',
+};
+
+const limpiarRespuestaDeHueco = (m: string) => m.trim().replace(/^(?:pues |es |ser[ií]a |con |a |para |de |el |la |lo de |lo del )+/i, '').replace(/[.!]+$/, '').trim();
+
+/**
+ * Contesta a la pregunta abierta de la tarea: elegir una opción (por número o por palabras), o rellenar el hueco de la orden con
+ * lo que dijo. Si no encaja, se REPREGUNTA (nunca va al traductor como orden nueva). null = sigue por el traductor
+ * (preguntas de partidas, IVA, etc., donde la respuesta es parte de una lista).
+ */
+async function responderPregunta(ent: EntradaMotor, tarea: Tarea, pq: NonNullable<EstadoTarea['pregunta']>, mensaje: string, ahora: Date): Promise<SalidaMotor | null> {
+  const { supabase, businessId, userId } = ent;
+  const orden = tarea.orden as Record<string, unknown>;
+  // Dato de la ficha del cliente que se pidió para seguir (NIF, dirección): se guarda y la orden se retoma sola.
+  if (pq.retomar) {
+    const r = datosDeFicha(mensaje, pq.retomar.faltan?.length ? pq.retomar.faltan : [pq.retomar.campo]);
+    if (!r.nif && !r.direccion) return null;
+    const ordenDato = {
+      accion: 'ACTUALIZAR_CLIENTE',
+      cliente_texto: pq.retomar.cliente,
+      ...(r.nif ? { nif_texto: r.nif } : {}),
+      ...(r.direccion ? { direccion_texto: r.direccion } : {}),
+    } as OrdenCruda;
+    const estado: EstadoTarea = {
+      resueltos: { cliente: { id: pq.retomar.cliente_id, etiqueta: pq.retomar.cliente, texto: pq.retomar.cliente } },
+      // Los mensajes de la orden original viajan con el dato: al retomarla, sus importes siguen siendo «dichos».
+      mensajes: [...tarea.estado.mensajes, mensaje],
+      pregunta: null,
+      siguientes: [tarea.orden as OrdenCruda, ...(tarea.estado.siguientes ?? [])],
+    };
+    return ejecutarYResponder(ent, ordenDato, estado, ahora);
+  }
+  if (pq.opciones.length) {
+    const op = elegirOpcion(mensaje, pq.opciones);
+    if (op === 'ninguna' && pq.slot === 'obra') {
+      const o = { ...orden, obra_texto: undefined, sin_obra: 'si' } as unknown as OrdenCruda;
+      return ejecutarYResponder(ent, o, { ...tarea.estado, resueltos: { ...tarea.estado.resueltos }, mensajes: [...tarea.estado.mensajes, mensaje], pregunta: null }, ahora);
+    }
+    if (op && op !== 'ninguna') {
+      const estado: EstadoTarea = {
+        ...tarea.estado,
+        resueltos: { ...tarea.estado.resueltos, [pq.slot]: { id: op.id, etiqueta: op.etiqueta.replace(/\s*\(.*$/, ''), texto: pq.texto_slot } },
+        mensajes: [...tarea.estado.mensajes, mensaje],
+        pregunta: null,
+      };
+      return ejecutarYResponder(ent, tarea.orden, estado, ahora);
+    }
+    // No encaja con ninguna opción: se repregunta con la misma lista. Nada se interpreta como orden nueva.
+    const lista = pq.opciones.map((o) => `${o.n}. ${o.etiqueta}`).join('\n');
+    return { respuesta: `No sé cuál de estas es «${mensaje.slice(0, 60)}». Dime el número o parte del nombre:\n${lista}`, opciones: pq.opciones };
+  }
+  const campo = SLOT_A_CAMPO[pq.slot];
+  if (campo && (pq.texto_slot || pq.slot !== 'dato')) {
+    const resueltos = { ...tarea.estado.resueltos };
+    delete resueltos[pq.slot];
+    const nueva = { ...orden, [campo]: limpiarRespuestaDeHueco(mensaje) } as OrdenCruda;
+    return ejecutarYResponder(ent, nueva, { ...tarea.estado, resueltos, mensajes: [...tarea.estado.mensajes, mensaje], pregunta: null }, ahora);
+  }
+  // IVA y demás: la respuesta se suma a los mensajes de la tarea y se vuelve a preparar la misma orden.
+  if (pq.slot === 'iva') {
+    return ejecutarYResponder(ent, tarea.orden, { ...tarea.estado, mensajes: [...tarea.estado.mensajes, mensaje], pregunta: null }, ahora);
+  }
+  return null;
+}
+
+/** NIF y dirección que trae una respuesta («44556677-L», «su NIF es … y vive en …»). Parsers de DATOS, no de frases. */
+export function datosDeFicha(mensaje: string, faltan: Array<'nif' | 'direccion'>): { nif?: string; direccion?: string } {
+  const out: { nif?: string; direccion?: string } = {};
+  const compacto = mensaje.replace(/(\d{7,8})[\s.-]+([A-Za-z])\b/g, '$1$2');
+  const nif = faltan.includes('nif') ? compacto.match(RE_NIF)?.[0] : undefined;
+  if (nif) out.nif = nif.toUpperCase();
+  if (faltan.includes('direccion')) {
+    const resto = compacto
+      .replace(RE_NIF, ' ')
+      .replace(/\b(?:su|el|la|mi)?\s*(?:nif|cif|dni)\b\s*(?:es|:)?/gi, ' ')
+      .replace(/^[\s,.;:y]+/i, '')
+      .replace(/^(?:y\s+)?(?:vive(?:n)?\s+en|est[aá]\s+en|su\s+direcci[oó]n\s+es|la\s+direcci[oó]n\s+es|direcci[oó]n\s*(?:es|:)?|en)\b[\s,:]*/i, '')
+      .replace(/\s+/g, ' ')
+      .replace(/[.]+$/, '')
+      .trim();
+    if (resto.length >= 5 && esRespuestaCorta(resto, 16)) out.direccion = resto;
+  }
+  return out;
 }
 
 /** Prepara UNA orden: pendiente de confirmación, pregunta, error o respuesta. Las órdenes que quedan por detrás se conservan. */

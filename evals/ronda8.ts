@@ -12,6 +12,7 @@ import { IDS, NEGOCIO_A, USUARIO } from './base-simulada';
 import { crearRunToolJev } from '@/lib/jev/despacho';
 import { confirmarOrdenJev, procesarMensajeJev, type SalidaMotor } from '@/lib/jev/motor';
 import type { EntradaTraductor, SalidaTraductor } from '@/lib/jev/traductor';
+import type { EntradaIntencion, Intencion, SalidaIntencion } from '@/lib/jev/intencion';
 import { MENSAJE_NADA_PENDIENTE } from '@/lib/agente/orquestacion';
 
 type Db = ReturnType<typeof crearFakeDb>;
@@ -23,6 +24,8 @@ export type PasoR8 =
       mensaje: string;
       /** Solo en el modo simulado: la orden que debería salir del traductor. */
       orden?: Record<string, unknown>;
+      /** Solo en el modo simulado: la intención que debería salir del clasificador (si no, el clasificador simulado decide). */
+      intencion?: Intencion;
       continua?: boolean;
       otras?: Array<Record<string, unknown>>;
       /** Categoría del router de intención. */
@@ -216,7 +219,9 @@ export const ESCENARIOS_RONDA8: EscenarioR8[] = [
 /** Corre un escenario completo. `traductor` real o simulado; devuelve los problemas (vacío = bien). */
 export async function ejecutarEscenario(
   esc: EscenarioR8,
-  traductor: (e: EntradaTraductor, paso: Extract<PasoR8, { mensaje: string }>) => Promise<SalidaTraductor>
+  traductor: (e: EntradaTraductor, paso: Extract<PasoR8, { mensaje: string }>) => Promise<SalidaTraductor>,
+  /** Sin clasificador se usa el REAL (eval); en los tests se pasa el simulado. */
+  clasificador?: (e: EntradaIntencion, paso: Extract<PasoR8, { mensaje: string }>) => Promise<SalidaIntencion>
 ): Promise<{ problemas: string[]; db: Db }> {
   const base = baseRonda5();
   esc.preparar?.(base);
@@ -251,6 +256,7 @@ export async function ejecutarEscenario(
         ultimoEventoId,
         runTool,
         traducir: (e) => traductor(e, paso),
+        ...(clasificador ? { clasificar: (e: EntradaIntencion) => clasificador(e, paso) } : {}),
       });
     }
     ultimoAsistente = r.respuesta;
