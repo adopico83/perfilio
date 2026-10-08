@@ -283,7 +283,7 @@ export async function procesarMensajeJev(ent: EntradaMotor): Promise<SalidaMotor
     const sinUsar = datosSinUsar(mensaje, todas);
     if (sinUsar) {
       logJev('datos_sin_usar', { dato: sinUsar });
-      respuesta = respuesta.replace(/(\n?<!--orden:[\w-]+-->)?$/, `\n\n⚠️ También has dicho «${sinUsar}» y eso no lo he preparado. Dímelo aparte cuando acabemos con esto.$1`);
+      respuesta = respuesta.replace(/(\n?<!--orden:[\w-]+-->)?$/, `\n\n⚠️ También me has dicho «${sinUsar}» y eso no lo he preparado. ¿Lo apunto después? Dímelo cuando acabemos con esto.$1`);
     }
   }
   return { ...r, respuesta };

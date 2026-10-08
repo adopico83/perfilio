@@ -376,15 +376,19 @@ describe('14 · antiduplicados de gastos', () => {
 describe('2 · red de seguridad: datos del mensaje que ninguna orden ha usado', () => {
   it('datosSinUsar', () => {
     expect(datosSinUsar('apunta en el diario que hemos cambiado 20 tejas y ponle 4 horas a Jon', [{ accion: 'DIARIO', texto: 'hemos cambiado 20 tejas' }])).toMatch(/4 horas a Jon/);
-    expect(datosSinUsar('ponle 8 horas a Iker', [{ accion: 'HORAS', horas_texto: '8' }])).toBeNull();
+    expect(datosSinUsar('ponle 8 horas a Iker', [{ accion: 'HORAS', operario_texto: 'Iker', horas_texto: '8' }])).toBeNull();
     expect(datosSinUsar('IVA al 21% de 100', [{ accion: 'GASTO', importe_texto: '100' }])).toBeNull();
+    // una cifra tirada en la descripción no cuenta como recogida; un nombre con mayúscula que ninguna orden lleva, tampoco
+    expect(datosSinUsar('apunta 87,40 de Saltoki y ponle 6 horas a Jon', [{ accion: 'GASTO', proveedor_texto: 'Saltoki', importe_texto: '87,40', descripcion_texto: '6 horas de Jon' }])).toMatch(/6 horas a Jon/);
+    expect(datosSinUsar('apunta 87,40 de Saltoki y de paso a Jon', [{ accion: 'GASTO', proveedor_texto: 'Saltoki', importe_texto: '87,40' }])).toMatch(/Jon/);
+    expect(datosSinUsar('Hola, apunta 87,40 de Saltoki. Gracias', [{ accion: 'GASTO', proveedor_texto: 'Saltoki', importe_texto: '87,40' }])).toBeNull();
     expect(datosSinUsar('dos enchufes a 35', [{ accion: 'PRESUPUESTO_PARTIDAS', anadir: [{ cantidad_texto: 'dos', precio_texto: '35' }] }])).toBeNull();
   });
   it('un diario con horas de alguien detrás: si el traductor se las deja, el agente AVISA en vez de callarlo', async () => {
     const s = sesion(crearFakeDb(baseRonda5()));
     const r = await s.di('apunta en el diario de Paqui que hemos cambiado 20 tejas y ponle 4 horas a Jon ahí', o({ accion: 'DIARIO', obra_texto: 'Paqui', texto: 'hemos cambiado 20 tejas' }), { categoria: 'diario' });
     expect(r.accionPendiente).toBeDefined();
-    expect(r.respuesta).toMatch(/También has dicho «.*4 horas a Jon.*» y eso no lo he preparado/);
+    expect(r.respuesta).toMatch(/También me has dicho «.*4 horas a Jon.*» y eso no lo he preparado\. ¿Lo apunto después\?/);
   });
 });
 
