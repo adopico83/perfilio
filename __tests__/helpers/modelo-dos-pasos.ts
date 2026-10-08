@@ -14,6 +14,8 @@ export function respuestaModelo(req: Req, orden: Record<string, unknown>, opcion
     const mensaje = u.match(/MENSAJE DEL USUARIO: ([\s\S]*)$/)?.[1] ?? '';
     return llamada('clasificar_intencion', clasificadorSimulado({ mensaje, resumenPendiente: resumen, preguntaAbierta: pregunta && !/ninguna\.?$/.test(pregunta) ? pregunta : null }));
   }
+  // El troceo con cobertura: el «modelo» devuelve el mensaje entero como UN trozo (no corta nada).
+  if (nombres.includes('trocear')) return llamada('trocear', { trozos: [String(req.messages?.find((m) => m.role === 'user')?.content ?? '')] });
   if (nombres.includes('elegir_accion')) return llamada('elegir_accion', { accion: orden.accion, continua_tarea: opciones.continua === true ? true : null });
   if (nombres.includes('orden_jev')) {
     const campos = Object.fromEntries(Object.entries(orden).filter(([k]) => k !== "accion"));

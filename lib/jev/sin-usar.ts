@@ -94,7 +94,8 @@ export function datoSinUsarDetalle(mensaje: string, ordenes: Array<Record<string
  * punto y coma, dos puntos y en «y» que une dos peticiones (no en «7 y media», «y cuarto» ni «y 30»).
  */
 export function clausulaEn(mensaje: string, indice: number): string {
-  const corte = /\s*(?:[,;:.]|\by\b(?!\s+(?:media|medio|cuarto|tres cuartos|\d)))\s*/g;
+  // La coma o el punto entre cifras («87,40», «1.250») es un decimal, no un corte.
+  const corte = /\s*(?:(?<!\d)[,.]|[,.](?!\d)|[;:]|\by\b(?!\s+(?:media|medio|cuarto|tres cuartos|\d)))\s*/g;
   let ini = 0;
   for (const m of mensaje.matchAll(corte)) {
     const fin = m.index ?? 0;
@@ -102,4 +103,15 @@ export function clausulaEn(mensaje: string, indice: number): string {
     ini = fin + m[0].length;
   }
   return mensaje.slice(ini).trim();
+}
+
+/** Los datos «duros» de un texto: sus cifras y sus nombres propios (palabras con mayúscula, también la primera). Para comparar trozos. */
+export function datosDurosDe(texto: string): Set<string> {
+  const out = new Set<string>();
+  for (const n of numerosDelMensaje(texto)) out.add(`#${Math.round(n * 100) / 100}`);
+  for (const m of texto.matchAll(/\b[A-ZÁÉÍÓÚÑ][\wáéíóúñÁÉÍÓÚÑ]{2,}/g)) {
+    const w = sinTildes(m[0]);
+    if (!NO_NOMBRES.has(w)) out.add(w);
+  }
+  return out;
 }

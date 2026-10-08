@@ -127,7 +127,7 @@ const MARCA_F = /<!--factura:(\{.*?\})-->/;
           const r = await ejecutarEscenario(esc, (e) => traducirMensaje(e));
           problemas = r.problemas;
           for (const m of escriturasIncorrectas(esc, r.db)) escriturasMal.push(`${esc.nombre}: ${m}`);
-          if (ordenPerdidaSinAviso(esc, r.respuestas)) perdidasSinAviso.push(esc.nombre);
+          if (ordenPerdidaSinAviso(esc, r.respuestas, r.avisos)) perdidasSinAviso.push(esc.nombre);
         } catch (err) {
           problemas = [`error: ${err instanceof Error ? err.message : String(err)}`];
         }

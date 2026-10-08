@@ -2,7 +2,9 @@
  * Traductor .jev: GPT-4o mini SOLO traduce el mensaje del usuario a UNA orden cerrada (función `orden_jev`).
  * No decide ids, fechas finales ni importes finales: copia literales. Todo lo demás lo hace el ejecutor.
  */
-import { clausulaEn, datoSinUsarDetalle, datosSinUsar } from '@/lib/jev/sin-usar';
+import { clausulaEn, datoSinUsarDetalle, datosDurosDe, datosSinUsar } from '@/lib/jev/sin-usar';
+import { claveOrden } from '@/lib/jev/cola';
+import { numerosDelMensaje } from '@/lib/jev/fechas';
 import OpenAI from 'openai';
 import { AGENTE_MODELO_POR_DEFECTO } from '@/lib/agente/modelo';
 import { logJev } from '@/lib/jev/log';
@@ -198,7 +200,7 @@ async function traducirUnaVez(e: EntradaTraductor, excluir: NombreAccion[] = [])
  * Traduce y se REVISA: si el mensaje trae cifras que ninguna orden recogió (el modelo eligió un tipo sin hueco para ellas o dejó
  * campos vacíos), se repite una vez diciéndole qué dejó fuera. Se queda con el segundo intento solo si recoge más datos.
  */
-export async function traducirMensaje(e: EntradaTraductor): Promise<SalidaTraductor> {
+async function traducirConRevision(e: EntradaTraductor): Promise<SalidaTraductor> {
   const primera = await traducirUnaVez(e);
   if (e.tarea || e.revision) return primera;
   const ordenes = [primera.orden, ...(primera.otras ?? [])] as Array<Record<string, unknown>>;
@@ -241,4 +243,152 @@ async function recogerCláusulaHuérfana(e: EntradaTraductor, salida: SalidaTrad
   const o = extra.orden as Record<string, unknown>;
   logJev('traduccion_incompleta', { dato: d.trozo, recogido: String(o.accion) });
   return { ...salida, otras: [...(salida.otras ?? []), extra.orden, ...(extra.otras ?? [])], rescate: true };
+}
+
+
+// ───────────────────────────── Troceo con cobertura ─────────────────────────────
+
+const PROMPT_TROCEAR = `Cortas un mensaje en TROZOS LITERALES, uno por cada petición distinta, con la función trocear.
+- Copia el texto EXACTO del mensaje, en el mismo orden. No añadas, quites ni cambies ninguna palabra ni cifra.
+- Una petición con varios datos o una lista (varias partidas, varias personas en horas, «de 8 a 2 y media») es UN solo trozo.
+- Si el mensaje es una sola petición, devuelve un solo trozo.`;
+
+const normTxt = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+const fichas = (s: string): string => normTxt(s).split(/[^a-z0-9ñ]+/).filter(Boolean).join(' ');
+
+/** ¿Los trozos, juntos y en orden, son EXACTAMENTE el mensaje (mismas palabras y cifras, sin sobrar ni faltar)? */
+export function reconstruye(mensaje: string, trozos: string[]): boolean {
+  return trozos.length > 0 && fichas(mensaje) === fichas(trozos.join(' '));
+}
+
+const llevaDatos = (t: string): boolean => /\d/.test(t) || /\s[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}/.test(t) || /^[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}\s+\S/.test(t);
+
+/** Los trozos que no llevan ningún dato («y de paso») se pegan al anterior (o al siguiente si es el primero). Nunca se separa «7 y media». */
+export function unirSinDatos(trozos: string[]): string[] {
+  const out: string[] = [];
+  let pendiente = '';
+  for (const t of trozos.map((x) => x.trim()).filter(Boolean)) {
+    if (!llevaDatos(t)) {
+      if (out.length) out[out.length - 1] = `${out[out.length - 1]} ${t}`;
+      else pendiente = `${pendiente} ${t}`.trim();
+      continue;
+    }
+    out.push(`${pendiente} ${t}`.trim());
+    pendiente = '';
+  }
+  if (pendiente) out.push(pendiente);
+  return out;
+}
+
+/** Pasa por el modelo el corte en trozos y lo VALIDA: si no reconstruye el mensaje tal cual, no vale (null). */
+export async function trocear(mensaje: string): Promise<string[] | null> {
+  const schema = { type: 'object', properties: { trozos: { type: 'array', items: { type: 'string' }, description: 'Trozos literales del mensaje, en orden.' } }, required: ['trozos'], additionalProperties: false };
+  let r: Record<string, unknown> | null = null;
+  try {
+    r = await llamar('trocear', (st) => herramienta('trocear', 'Corta el mensaje en trozos literales, uno por petición.', schema, st), [{ role: 'system', content: PROMPT_TROCEAR }, { role: 'user', content: mensaje }], 600);
+  } catch {
+    return null;
+  }
+  const trozos = Array.isArray(r?.trozos) ? (r!.trozos as unknown[]).map((x) => String(x ?? '').trim()).filter(Boolean) : [];
+  if (!reconstruye(mensaje, trozos)) {
+    logJev('troceo_invalido', { trozos: trozos.length });
+    return null;
+  }
+  return unirSinDatos(trozos);
+}
+
+/**
+ * ¿Merece la pena trocear? Solo si el mensaje es largo y trae varios datos duros (varias cifras, o cifras y nombres): una frase corta con
+ * una sola petición no necesita la llamada de más.
+ */
+export function merecePenaTrocear(m: string): boolean {
+  if (m.trim().length < 50) return false;
+  const cifras = new Set(numerosDelMensaje(m)).size;
+  const nombres = [...m.matchAll(/\b[A-ZÁÉÍÓÚÑ][\wáéíóúñÁÉÍÓÚÑ]{2,}/g)].length; // con repeticiones: «Paqui» dos veces = dos peticiones que lo nombran
+  return cifras >= 2 || cifras + nombres >= 3;
+}
+
+/** Palabras de datos de una orden (campos *_texto, sin los «basureros»): para saber si una orden inventada cabe en un trozo. */
+function datosPropios(o: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  const rec = (v: unknown, k = ''): void => {
+    if (typeof v === 'string') {
+      if (/_texto$/.test(k) && !['descripcion_texto', 'notas_texto', 'titulo_texto'].includes(k) && v.trim()) out.push(fichas(v));
+    } else if (Array.isArray(v)) v.forEach((x) => rec(x, k));
+    else if (v && typeof v === 'object') for (const [kk, x] of Object.entries(v as Record<string, unknown>)) rec(x, kk);
+  };
+  rec(o);
+  return out.filter(Boolean);
+}
+
+/**
+ * IDEA 1. Si el mensaje trae varias cifras, el modelo lo corta en trozos (uno por petición) y el CÓDIGO comprueba cada trozo:
+ *  - un trozo está cubierto si UNA orden recoge todos sus datos (cifras con su unidad y nombres);
+ *  - un trozo sin cubrir se traduce SOLO (probando otro tipo si el primero no sirve) y se añade como orden;
+ *  - una orden que no cubre ningún trozo y cuyos datos caben en un trozo rescatado se quita: era una invención del modelo.
+ * Si el corte no reconstruye el mensaje, se descarta y se sigue como estaba (el guardián final avisará de lo que falte).
+ */
+export async function cubrirPorTrozos(e: EntradaTraductor, salida: SalidaTraductor): Promise<SalidaTraductor> {
+  if (e.tarea || !merecePenaTrocear(e.mensaje)) return salida;
+  const todas = [salida.orden, ...(salida.otras ?? [])] as Array<Record<string, unknown>>;
+  if (todas.some((o) => o.accion === 'CHARLA' || o.accion === 'ACLARAR')) return salida;
+  const trozos = await trocear(e.mensaje);
+  if (!trozos || trozos.length < 2) return salida;
+
+  const cubre = (t: string, o: Record<string, unknown>) => datosSinUsar(t, [o]) === null;
+  // Datos PROPIOS de cada trozo: los que no salen en ningún otro («Paqui» compartido no distingue; «6» o «Jon» sí).
+  const datos = trozos.map((t) => datosDurosDe(t));
+  const propios = datos.map((d, i) => new Set([...d].filter((x) => datos.every((otro, j) => j === i || !otro.has(x)))));
+  const conPropios = trozos.map((_, i) => i).filter((i) => propios[i]!.size > 0);
+  const ocupadas = new Set<Record<string, unknown>>();
+  const sinCubrir: string[] = [];
+  for (const i of conPropios) {
+    const cubren = todas.filter((o) => cubre(trozos[i]!, o));
+    if (!cubren.length) sinCubrir.push(trozos[i]!);
+    cubren.forEach((o) => ocupadas.add(o));
+  }
+  // Un trozo sin datos propios (p. ej. «anota en el diario de Paqui que se ha picado el baño») necesita SU orden: una que no esté ya ocupada.
+  for (let i = 0; i < trozos.length; i++) {
+    if (propios[i]!.size === 0 && llevaDatos(trozos[i]!) && todas.every((o) => ocupadas.has(o))) sinCubrir.push(trozos[i]!);
+  }
+  if (!sinCubrir.length) return salida;
+
+  const nuevas: Array<Record<string, unknown>> = [];
+  const quitar = new Set<Record<string, unknown>>();
+  for (const t of sinCubrir) {
+    const excluir: NombreAccion[] = [];
+    let hallada: SalidaTraductor | null = null;
+    for (let intento = 0; intento < 2 && !hallada; intento++) {
+      const c = await traducirUnaVez({ ...e, mensaje: t, revision: undefined }, excluir);
+      const o = c.orden as Record<string, unknown>;
+      if (!o.accion || o.accion === 'ACLARAR' || o.accion === 'CHARLA') break;
+      const repetida = [...todas, ...nuevas].some((x) => claveOrden(x) === claveOrden(o));
+      if (cubre(t, o) && !repetida) hallada = c;
+      else excluir.push(o.accion as NombreAccion);
+    }
+    if (!hallada) continue;
+    nuevas.push(hallada.orden as Record<string, unknown>, ...((hallada.otras ?? []) as Array<Record<string, unknown>>));
+    // Las órdenes que no cubren NINGÚN trozo y cuyos datos caben en este son invenciones (el «gasto de 6 € a nombre de Jon»).
+    const textoTrozo = fichas(t);
+    for (const o of todas) {
+      if (trozos.some((x) => cubre(x, o))) continue;
+      const propios = datosPropios(o);
+      if (propios.length && propios.every((d) => textoTrozo.includes(d))) quitar.add(o);
+    }
+  }
+  if (!nuevas.length) return salida;
+  logJev('traduccion_incompleta', { dato: sinCubrir.join(' | ').slice(0, 120), recogido: nuevas.map((o) => String(o.accion)).join(',') });
+  const quedan = todas.filter((o) => !quitar.has(o));
+  const [principal, ...otras] = [...quedan, ...nuevas];
+  return { ...salida, orden: principal as OrdenCruda, otras: otras as OrdenCruda[], rescate: true };
+}
+
+/** Traduce un mensaje: dos pasos, revisión de datos sin usar y, si trae varias cifras, comprobación por trozos. Nunca lanza por esto último. */
+export async function traducirMensaje(e: EntradaTraductor): Promise<SalidaTraductor> {
+  const salida = await traducirConRevision(e);
+  try {
+    return await cubrirPorTrozos(e, salida);
+  } catch {
+    return salida;
+  }
 }

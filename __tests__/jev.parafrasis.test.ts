@@ -20,7 +20,7 @@ describe('bloque de paráfrasis (modelos simulados)', () => {
     expect(PARAFRASIS_R9.length).toBeGreaterThanOrEqual(70);
   });
   it.each(PARAFRASIS_R9.map((e) => [e.nombre, e] as const))('%s', async (_n, esc) => {
-    const { problemas, db, respuestas } = await ejecutarEscenario(
+    const { problemas, db, respuestas, avisos } = await ejecutarEscenario(
       esc,
       async (_e, paso) => {
         if (!paso.orden) throw new Error('el paso no lleva orden simulada');
@@ -30,6 +30,6 @@ describe('bloque de paráfrasis (modelos simulados)', () => {
     );
     expect(problemas).toEqual([]);
     expect(escriturasIncorrectas(esc, db)).toEqual([]);
-    expect(ordenPerdidaSinAviso(esc, respuestas)).toBe(false);
+    expect(ordenPerdidaSinAviso(esc, respuestas, avisos)).toBe(false);
   });
 });

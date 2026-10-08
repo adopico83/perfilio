@@ -226,13 +226,14 @@ export async function ejecutarEscenario(
   traductor: (e: EntradaTraductor, paso: Extract<PasoR8, { mensaje: string }>) => Promise<SalidaTraductor>,
   /** Sin clasificador se usa el REAL (eval); en los tests se pasa el simulado. */
   clasificador?: (e: EntradaIntencion, paso: Extract<PasoR8, { mensaje: string }>) => Promise<SalidaIntencion>
-): Promise<{ problemas: string[]; db: Db; respuestas: string[] }> {
+): Promise<{ problemas: string[]; db: Db; respuestas: string[]; avisos: string[][] }> {
   const base = baseRonda5();
   esc.preparar?.(base);
   const db = crearFakeDb(base);
   const runTool = crearRunToolJev({ supabase: db.client, businessId: NEGOCIO_A, userId: USUARIO });
   const problemas: string[] = [];
   const respuestas: string[] = [];
+  const avisos: string[][] = [];
   let ultimoAsistente: string | undefined;
   let ultimaOrdenId: string | null = null;
   let ultimoEventoId = esc.contexto?.ultimoEventoId ?? null;
@@ -266,6 +267,7 @@ export async function ejecutarEscenario(
     }
     ultimoAsistente = r.respuesta;
     respuestas.push(r.respuesta);
+    avisos.push(r.avisos ?? []);
     ultimaOrdenId = r.accionPendiente?.orden_id ?? null;
     const ev = (r.resultado as { evento_id?: unknown } | undefined)?.evento_id;
     if (typeof ev === 'string') ultimoEventoId = ev;
@@ -273,7 +275,7 @@ export async function ejecutarEscenario(
     for (const p of paso.ok?.(r, db) ?? []) problemas.push(`paso ${i + 1} ${nombrePaso}: ${p}`);
   }
   for (const p of esc.final?.(db) ?? []) problemas.push(`final: ${p}`);
-  return { problemas, db, respuestas };
+  return { problemas, db, respuestas, avisos };
 }
 
 /** Escrituras de un escenario por tabla (sin las órdenes pendientes, que son del propio motor). */
@@ -291,7 +293,9 @@ export function escriturasIncorrectas(esc: EscenarioR8, db: Db): string[] {
   return Object.entries(hechas).flatMap(([t, n]) => ((esc.maxEscrituras![t] ?? 0) < n ? [`guardó ${n} en «${t}» (máximo ${esc.maxEscrituras![t] ?? 0})`] : []));
 }
 
-/** ¿Perdió una orden sin avisar? (el primer turno de un escenario `varias` debe nombrar lo que queda o preguntar). */
-export function ordenPerdidaSinAviso(esc: EscenarioR8, respuestas: string[]): boolean {
-  return Boolean(esc.varias) && !/Después te pregunto|Después te preparo|También me has dicho|más de una cosa/.test(respuestas[0] ?? '');
+/** ¿Perdió una orden sin avisar? El primer turno de un escenario `varias` debe llevar un aviso (campo `avisos`) o decir qué queda en cola. */
+export function ordenPerdidaSinAviso(esc: EscenarioR8, respuestas: string[], avisos: string[][] = []): boolean {
+  if (!esc.varias) return false;
+  if ((avisos[0] ?? []).length > 0) return false;
+  return !/Después te pregunto/.test(respuestas[0] ?? '');
 }

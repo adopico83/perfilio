@@ -95,7 +95,7 @@ describe('todas las frases de Pino por el motor .jev', () => {
     // El modelo no ve ninguna tool de escritura: solo `elegir_accion` y `orden_jev`.
     const vistas = createMock.mock.calls.flatMap((c) => ((c[0] as { tools?: Array<{ function: { name: string } }> }).tools ?? []).map((t) => t.function.name));
     expect(vistas.length).toBeGreaterThan(0);
-    for (const n of vistas) expect(['clasificar_intencion', 'elegir_accion', 'orden_jev']).toContain(n);
+    for (const n of vistas) expect(['clasificar_intencion', 'elegir_accion', 'orden_jev', 'trocear']).toContain(n);
 
     switch (comportamiento) {
       case 'pide_confirmacion':

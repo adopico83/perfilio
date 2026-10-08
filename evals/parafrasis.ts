@@ -118,7 +118,7 @@ const variasHoras = (frase: string, orden: Record<string, unknown>, otras?: Arra
   nombre: `[paráfrasis · varias órdenes] «${frase}» → las dos órdenes, ninguna perdida`,
   pasos: [
     { mensaje: frase, intencion: 'VARIAS', orden, ...(otras ? { otras } : {}), categoria: 'operarios', ok: (r) => esperar(r.accionPendiente && /Aitor|Jon/.test(r.respuesta) && /Después te pregunto|Jon|Aitor/.test(r.respuesta), 'no preparó una y avisó de la otra') },
-    { confirmar: true, ok: (r) => esperar(r.accionPendiente, 'no preparó la segunda') },
+    { confirmar: true, ok: (r) => esperar(r.accionPendiente, `no preparó la segunda: «${r.respuesta.replace(/\n/g, ' ').slice(0, 220)}»`) },
     { confirmar: true },
   ],
   final: (db) => esperar(JSON.stringify(tabla(db, 'registros_jornada').map((x) => x.horas_reales).sort()) === JSON.stringify([6, 7.5]), `horas guardadas: ${JSON.stringify(tabla(db, 'registros_jornada').map((x) => x.horas_reales))}`),
@@ -136,7 +136,7 @@ const variasMixtas = (frase: string): EscenarioR8 => ({
       categoria: 'gastos',
       ok: (r) => esperar(r.accionPendiente && /Después te pregunto/.test(r.respuesta), `no avisó de la otra orden: «${r.respuesta.replace(/\n/g, ' ').slice(0, 160)}»`),
     },
-    { confirmar: true, ok: (r) => esperar(r.accionPendiente, 'no preparó la segunda') },
+    { confirmar: true, ok: (r) => esperar(r.accionPendiente, `no preparó la segunda: «${r.respuesta.replace(/\n/g, ' ').slice(0, 220)}»`) },
     { confirmar: true },
   ],
   final: (db) => esperar(tabla(db, 'gastos').length === 1 && tabla(db, 'registros_jornada').length === 1, `gastos ${tabla(db, 'gastos').length}, jornadas ${tabla(db, 'registros_jornada').length}`),
@@ -155,8 +155,8 @@ const mezcla = (frase: string, ordenes: OrdenSim[], esperado: Record<string, num
   varias: true,
   maxEscrituras: esperado,
   pasos: [
-    { mensaje: frase, intencion: 'VARIAS', orden: ordenes[0]!, otras: ordenes.slice(1), categoria, ok: (r) => esperar(r.accionPendiente, 'no preparó la primera') },
-    ...ordenes.slice(1).map((): PasoR8 => ({ confirmar: true, ok: (r) => esperar(r.accionPendiente, 'no preparó la siguiente') })),
+    { mensaje: frase, intencion: 'VARIAS', orden: ordenes[0]!, otras: ordenes.slice(1), categoria, ok: (r) => esperar(r.accionPendiente, `no preparó la primera: «${r.respuesta.replace(/\n/g, ' ').slice(0, 220)}»`) },
+    ...ordenes.slice(1).map((): PasoR8 => ({ confirmar: true, ok: (r) => esperar(r.accionPendiente, `no preparó la siguiente: «${r.respuesta.replace(/\n/g, ' ').slice(0, 220)}»`) })),
     { confirmar: true },
   ],
   final: (db) => Object.entries(esperado).flatMap(([t, n]) => esperar(tabla(db, t).length >= n && escriturasPorTablaN(db, t) === n, `«${t}»: ${escriturasPorTablaN(db, t)} guardadas en vez de ${n}`)),

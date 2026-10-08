@@ -1,5 +1,6 @@
 import { ACCIONES_POR_CATEGORIA, NOMBRES_ACCION, completarOrden, jsonSchemaAccion, jsonSchemaCampos, validarOrden, ORDENES } from '@/lib/jev/ordenes';
 import { clausulaEn } from '@/lib/jev/sin-usar';
+import { cubrirPorTrozos, reconstruye, unirSinDatos } from '@/lib/jev/traductor';
 import { normalizarAccionPublica } from '@/lib/jev/ordenes';
 import { construirMensajesTraductor, herramientaElegirAccion, herramientaOrdenJev, interpretarSalida, PROMPT_TRADUCTOR, traducirMensaje } from '@/lib/jev/traductor';
 
@@ -160,3 +161,63 @@ describe('revisión de datos sin usar', () => {
   });
 });
 
+
+describe('troceo con cobertura (idea 1)', () => {
+  const tc = (name: string, args: unknown) => ({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name, arguments: JSON.stringify(args) } }] } }] });
+  const MSG = 'apunta 87,40 de Saltoki para lo de Leire y de paso Jon 6 en lo de Paqui';
+  const gasto = { proveedor_texto: 'Saltoki', importe_texto: '87,40', iva_modo: 'incluido', obra_texto: 'Leire', cliente_texto: null };
+
+  /** «Modelo» malo: ante el mensaje entero devuelve DOS gastos (el segundo, una copia); solo acierta cuando recibe el trozo suelto. */
+  function modeloMalo(troceo: string[] | 'roto') {
+    createMock.mockReset();
+    createMock.mockImplementation(async (req: { tool_choice: { function: { name: string } }; messages: Array<{ role: string; content: string }> }) => {
+      const nombre = req.tool_choice.function.name;
+      const usuario = req.messages.find((m) => m.role === 'user')!.content;
+      const sistema = req.messages[0]!.content;
+      const trozoSuelto = usuario.length < MSG.length - 10;
+      if (nombre === 'trocear') return tc('trocear', { trozos: troceo === 'roto' ? ['otra cosa distinta'] : troceo });
+      if (nombre === 'elegir_accion') return trozoSuelto ? tc('elegir_accion', { accion: 'HORAS', continua_tarea: false, otras_acciones: null }) : tc('elegir_accion', { accion: 'GASTO', continua_tarea: false, otras_acciones: ['GASTO'] });
+      if (/la orden es HORAS/.test(sistema)) return tc('orden_jev', { operario_texto: 'Jon', horas_texto: '6', obra_texto: 'Paqui' });
+      return tc('orden_jev', gasto);
+    });
+  }
+
+  it('reconstruye(): los trozos tienen que ser el mensaje, sin sobrar ni faltar nada', () => {
+    expect(reconstruye(MSG, ['apunta 87,40 de Saltoki para lo de Leire', 'y de paso Jon 6 en lo de Paqui'])).toBe(true);
+    expect(reconstruye(MSG, ['apunta 87,40 de Saltoki para lo de Leire', 'Jon 6 en lo de Paqui'])).toBe(false);
+    expect(reconstruye(MSG, ['apunta 87,40 de Saltoki para lo de Leire y de paso Jon 7 en lo de Paqui'])).toBe(false);
+  });
+  it('unirSinDatos(): un trozo sin datos se pega al anterior; «7 y media» no se separa', () => {
+    expect(unirSinDatos(['apunta 87,40 de Saltoki', 'y de paso', 'Jon 6 en lo de Paqui'])).toEqual(['apunta 87,40 de Saltoki y de paso', 'Jon 6 en lo de Paqui']);
+    expect(unirSinDatos(['Aitor 7 y media'])).toEqual(['Aitor 7 y media']);
+  });
+  it('el segundo trozo se quedó sin orden (el modelo copió el gasto): se traduce SOLO y se añade; el gasto copiado no se guarda dos veces', async () => {
+    modeloMalo(['apunta 87,40 de Saltoki para lo de Leire', 'y de paso Jon 6 en lo de Paqui']);
+    process.env.OPENAI_API_KEY = 'k';
+    const s = await traducirMensaje({ mensaje: MSG, categoria: 'general', hoyTexto: 'martes' });
+    const todas = [s.orden, ...(s.otras ?? [])] as Array<Record<string, unknown>>;
+    expect(todas.filter((o) => o.accion === 'GASTO').length).toBe(1);
+    expect(todas.filter((o) => o.accion === 'HORAS')).toEqual([expect.objectContaining({ operario_texto: 'Jon', horas_texto: '6' })]);
+  });
+  it('si el corte no reconstruye el mensaje se descarta y se sigue sin él (no se pierde nada por un mal corte)', async () => {
+    modeloMalo('roto');
+    process.env.OPENAI_API_KEY = 'k';
+    const s = await traducirMensaje({ mensaje: MSG, categoria: 'general', hoyTexto: 'martes' });
+    expect(s.orden).toMatchObject({ accion: 'GASTO' });
+  });
+  it('con una sola cifra no se trocea (ni una llamada de más)', async () => {
+    modeloMalo(['x']);
+    process.env.OPENAI_API_KEY = 'k';
+    await traducirMensaje({ mensaje: 'apunta 87,40 de Saltoki para lo de Leire', categoria: 'general', hoyTexto: 'martes' });
+    expect(createMock.mock.calls.some((c) => (c[0] as { tool_choice: { function: { name: string } } }).tool_choice.function.name === 'trocear')).toBe(false);
+  });
+  it('una orden incompleta que no cubre ningún trozo se sustituye por la del trozo traducido solo (no quedan dos)', async () => {
+    modeloMalo(['apunta 87,40 de Saltoki para lo de Leire', 'y de paso Jon 6 en lo de Paqui']);
+    process.env.OPENAI_API_KEY = 'k';
+    const incompleta = { accion: 'HORAS', operario_texto: 'Jon', horas_texto: '6' }; // se dejó la obra: cubre ningún trozo entero
+    const s = await cubrirPorTrozos({ mensaje: MSG, categoria: 'general', hoyTexto: 'martes' }, { orden: { accion: 'GASTO', ...gasto } as never, otras: [incompleta as never], continuaTarea: false });
+    const horas = [s.orden, ...(s.otras ?? [])].filter((o) => (o as { accion: string }).accion === 'HORAS');
+    expect(horas).toEqual([expect.objectContaining({ operario_texto: 'Jon', horas_texto: '6', obra_texto: 'Paqui' })]);
+    expect(s.rescate).toBe(true);
+  });
+});

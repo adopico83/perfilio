@@ -26,6 +26,7 @@ import {
 } from '@/lib/jev/pendientes';
 import { modoIvaDelMensaje } from '@/lib/gastos-iva';
 import { validarPlan } from '@/lib/jev/roles';
+import { planInicial, siguienteDeLaCola, sinRepetidas, claveOrden } from '@/lib/jev/cola';
 import { datosSinUsar } from '@/lib/jev/sin-usar';
 import { traducirMensaje, type EntradaTraductor, type SalidaTraductor } from '@/lib/jev/traductor';
 import { preguntaConfirmacion } from '@/lib/agente/confirmacion';
@@ -44,6 +45,8 @@ export type SalidaMotor = {
   charla?: boolean;
   /** true si se ejecutó una acción (confirmación). */
   ejecutado?: boolean;
+  /** Avisos para el usuario (algo que no se ha preparado, una orden repetida que se salta…). La respuesta ya los lleva escritos; este campo es la fuente. */
+  avisos?: string[];
 };
 
 export type EntradaMotor = {
@@ -115,6 +118,9 @@ export { datosSinUsar };
 const RE_NIF = /\b(?:[XYZ]\d{7}[A-Z]|\d{8}[A-Z]|[A-HJNPQRSUVW]\d{7}[0-9A-J])\b/i;
 
 
+/** Aviso cuando una orden de la cola se salta porque ya está hecha o ya se enseñó (nada se descarta sin decirlo). */
+const avisoRepetida = (o: unknown) => `Me salto «${etiquetaOrden(o as Record<string, unknown>)}» porque ya lo tengo hecho o preparado: no lo repito.`;
+
 /** Frase corta que cuenta qué se hace después (varias órdenes en un mensaje). */
 const despues = (siguientes: OrdenCruda[]) =>
   siguientes.length ? `\n\nDespués te pregunto por: ${siguientes.map((o) => etiquetaOrden(o as Record<string, unknown>)).join('; ')}.` : '';
@@ -127,33 +133,41 @@ const AVISO_DESCARTADA = 'He dejado sin hacer lo que tenía pendiente. ';
  * servidor tiene guardado como pendiente, con la intención CONFIRMA y si el último mensaje del asistente fue la pregunta
  * de ESA orden. Ante cualquier duda, no se hace nada y se vuelve a preguntar.
  */
-type SalidaInterna = SalidaMotor & { _meta?: { ordenes: Array<Record<string, unknown>>; varias: boolean } };
+type SalidaInterna = SalidaMotor & { _meta?: { ordenes: Array<Record<string, unknown>>; varias: boolean; avisos: string[] } };
 
 export async function procesarMensajeJev(ent: EntradaMotor): Promise<SalidaMotor> {
   const { _meta, ...salida } = await procesarInterno(ent);
-  return _meta ? guardianFinal(ent.mensaje.trim(), salida, _meta.ordenes, _meta.varias) : salida;
+  return _meta ? guardianFinal(ent.mensaje.trim(), salida, _meta.ordenes, _meta.varias, _meta.avisos) : salida;
+}
+
+/** Escribe los avisos en la respuesta (siempre por aquí, antes de la marca de la orden) y los deja también en `avisos`. */
+export function conAvisos(salida: SalidaMotor, avisos: string[]): SalidaMotor {
+  const nuevos = avisos.filter((a) => a && !(salida.avisos ?? []).includes(a));
+  if (!nuevos.length) return salida;
+  const texto = nuevos.map((a) => `⚠️ ${a}`).join('\n');
+  const respuesta = salida.respuesta.replace(/(\n?<!--orden:[\w-]+-->)?$/, `\n\n${texto}$1`);
+  return { ...salida, respuesta, avisos: [...(salida.avisos ?? []), ...nuevos] };
 }
 
 /**
  * GUARDIÁN FINAL: único punto de salida de una petición traducida. Perder algo EN SILENCIO tiene que ser imposible: si el mensaje trae
- * una cifra (con su unidad) o un nombre que ninguna orden recoge, o pedía varias cosas y la respuesta no dice qué pasa con las demás,
- * la respuesta lo dice y pregunta. Preguntar de más no es un fallo; callar sí.
+ * una cifra (con su unidad) o un nombre que ninguna orden recoge, o pedía varias cosas y no se dice qué pasa con las demás, se avisa y se
+ * pregunta. Los avisos van en `avisos[]` (y escritos en la respuesta). Preguntar de más no es un fallo; callar sí.
  */
-export function guardianFinal(mensaje: string, salida: SalidaMotor, ordenes: Array<Record<string, unknown>>, varias: boolean): SalidaMotor {
-  const marca = /(\n?<!--orden:[\w-]+-->)?$/;
-  let respuesta = salida.respuesta;
+export function guardianFinal(mensaje: string, salida: SalidaMotor, ordenes: Array<Record<string, unknown>>, varias: boolean, previos: string[] = []): SalidaMotor {
+  const avisos = [...previos];
   const sinUsar = datosSinUsar(mensaje, ordenes);
-  if (sinUsar && !/También me has dicho|es un proveedor tuyo/.test(respuesta)) {
+  const yaExplicado = previos.some((a) => /proveedor tuyo/.test(a));
+  if (sinUsar && !yaExplicado) {
     logJev('datos_sin_usar', { dato: sinUsar });
-    respuesta = respuesta.replace(marca, `\n\n⚠️ También me has dicho «${sinUsar}» y eso no lo he preparado. ¿Lo apunto después? Dímelo cuando acabemos con esto.$1`);
-  } else if (ordenes.length > 1 && !/Después te pregunto|Después te preparo|También me has dicho|es un proveedor tuyo/.test(respuesta)) {
-    const resto = ordenes.slice(1).map((o) => etiquetaOrden(o));
-    respuesta = respuesta.replace(marca, `\n\nDespués te preparo: ${resto.join('; ')}.$1`);
-  } else if (varias && ordenes.length === 1 && !/También me has dicho|Después te pregunto/.test(respuesta)) {
+    avisos.push(`También me has dicho «${sinUsar}» y eso no lo he preparado. ¿Lo apunto después? Dímelo cuando acabemos con esto.`);
+  } else if (ordenes.length > 1 && !yaExplicado && !/Después te pregunto|Después te preparo/.test(salida.respuesta)) {
+    avisos.push(`Después te preparo: ${ordenes.slice(1).map((o) => etiquetaOrden(o)).join('; ')}.`);
+  } else if (varias && ordenes.length === 1 && !yaExplicado) {
     logJev('datos_sin_usar', { dato: 'varias órdenes, solo una preparada' });
-    respuesta = respuesta.replace(marca, `\n\n⚠️ Me has pedido más de una cosa y solo he preparado esta. ¿Qué más querías? Dímelo cuando acabemos con esto.$1`);
+    avisos.push('Me has pedido más de una cosa y solo he preparado esta. ¿Qué más querías? Dímelo cuando acabemos con esto.');
   }
-  return { ...salida, respuesta };
+  return conAvisos(salida, avisos);
 }
 
 async function procesarInterno(ent: EntradaMotor): Promise<SalidaInterna> {
@@ -253,15 +267,10 @@ async function procesarInterno(ent: EntradaMotor): Promise<SalidaInterna> {
     void _ignorado;
     cruda = { ...resto, accion: 'CITA_CREAR' } as unknown as OrdenCruda;
   }
-  const vistas = new Set([JSON.stringify(cruda)]);
-  // Una orden idéntica a otra del mismo mensaje es una copia del modelo, no otra petición: nunca se guarda dos veces.
-  const otras = (salida.otras ?? []).map((o) => normalizarCrudo(o) as OrdenCruda).filter((o) => {
-    if (!o.accion) return false;
-    const k = JSON.stringify(o);
-    if (vistas.has(k)) return false;
-    vistas.add(k);
-    return true;
-  });
+  // Una orden «igual» a otra del mismo mensaje (misma clave: tipo + datos, escritos como se escriban) es una copia del modelo, no otra
+  // petición: nunca se prepara ni se guarda dos veces.
+  const clavePrimera = claveOrden(cruda);
+  const otras = sinRepetidas((salida.otras ?? []).map((o) => normalizarCrudo(o) as OrdenCruda).filter((o) => o.accion)).ordenes.filter((o) => claveOrden(o) !== clavePrimera);
 
   let aviso = '';
   let base: { orden: OrdenCruda | OrdenJev; estado: EstadoTarea } | null = null;
@@ -272,7 +281,9 @@ async function procesarInterno(ent: EntradaMotor): Promise<SalidaInterna> {
     presupuestoDeLaDescartada = typeof viva.accion.args?.presupuesto_id === 'string' ? (viva.accion.args.presupuesto_id as string) : null;
     if (corrige && normalizarCrudo(viva.orden).accion === cruda.accion) {
       correccionDePendiente = true;
-      base = { orden: viva.orden, estado: { resueltos: {}, mensajes: viva.accion.mensajes ?? [], pregunta: null, siguientes: viva.accion.siguientes } };
+      const { [claveOrden(viva.orden)]: _vieja, ...planSinLaCorregida } = viva.accion.plan ?? {};
+      void _vieja;
+      base = { orden: viva.orden, estado: { resueltos: {}, mensajes: viva.accion.mensajes ?? [], pregunta: null, siguientes: viva.accion.siguientes, plan: planSinLaCorregida } };
     } else {
       aviso = AVISO_DESCARTADA;
     }
@@ -294,14 +305,16 @@ async function procesarInterno(ent: EntradaMotor): Promise<SalidaInterna> {
   const todas = plan.ordenes;
   if (todas.length === 0) {
     if (viva || tarea) await cerrarTarea(supabase, businessId, userId);
-    return { respuesta: `${aviso}${plan.avisos.join('\n')}` };
+    return { respuesta: `${aviso}${plan.avisos.map((a) => `⚠️ ${a}`).join('\n')}`, avisos: plan.avisos };
   }
   const [primera, ...resto] = todas;
+  const siguientesTodas = [...resto, ...(base?.estado.siguientes ?? [])];
   const estado: EstadoTarea = {
     resueltos: base?.estado.resueltos ?? {},
     mensajes: [...(base?.estado.mensajes ?? []), mensaje],
     pregunta: null,
-    siguientes: [...resto, ...(base?.estado.siguientes ?? [])],
+    siguientes: siguientesTodas,
+    plan: planInicial(primera, siguientesTodas, base?.estado.plan),
   };
   const entFinal = presupuestoDeLaDescartada ? { ...ent, ultimoPresupuestoId: presupuestoDeLaDescartada } : ent;
   const r = await ejecutarYResponder(entFinal, primera!, estado, ahora, correccionDePendiente);
@@ -313,10 +326,9 @@ async function procesarInterno(ent: EntradaMotor): Promise<SalidaInterna> {
   }
 
   // El aviso de lo que no se ha preparado lo pone el guardián final (`guardianFinal`), por un único camino.
-  let respuesta = `${aviso}${r.respuesta}`;
-  if (plan.avisos.length) respuesta = respuesta.replace(/(\n?<!--orden:[\w-]+-->)?$/, `\n\n⚠️ ${plan.avisos.join(' ')}$1`);
+  const respuesta = `${aviso}${r.respuesta}`;
   if (r.charla || intencion === 'RESPUESTA') return { ...r, respuesta };
-  return { ...r, respuesta, _meta: { ordenes: todas as Array<Record<string, unknown>>, varias: intencion === 'VARIAS' || otras.length > 0 || salida.rescate === true } };
+  return { ...r, respuesta, _meta: { ordenes: todas as Array<Record<string, unknown>>, varias: intencion === 'VARIAS' || otras.length > 0 || salida.rescate === true, avisos: plan.avisos } };
 }
 
 /** Slot de una pregunta del ejecutor → campo de la orden que rellena la respuesta. */
@@ -465,7 +477,7 @@ async function ejecutarYResponder(ent: EntradaMotor, cruda: OrdenCruda | OrdenJe
       logJev('incoherencia', { tool: r.accion.tool, motivo: incoherente });
       return { respuesta: `No preparo la acción: ${incoherente} No he guardado nada.` };
     }
-    const p = await crearPendiente(supabase, { businessId, userId, orden, accion: { ...r.accion, mensajes: estado.mensajes, ...(siguientes.length ? { siguientes } : {}) }, resumen: r.resumen });
+    const p = await crearPendiente(supabase, { businessId, userId, orden, accion: { ...r.accion, mensajes: estado.mensajes, ...(siguientes.length ? { siguientes } : {}), plan: planInicial(orden, siguientes, estado.plan) }, resumen: r.resumen });
     if (!p.ok) return { respuesta: `No he podido preparar la acción: ${p.error}` };
     await cerrarTarea(supabase, businessId, userId);
     return {
@@ -494,12 +506,13 @@ async function ejecutarYResponder(ent: EntradaMotor, cruda: OrdenCruda | OrdenJe
   await cerrarTarea(supabase, businessId, userId);
   const salida: SalidaMotor = { respuesta: r.texto, ...(r.extra ? { resultado: r.extra } : {}) };
   // Era una consulta y quedaban más órdenes en la misma frase: se sigue con la siguiente.
-  if (siguientes.length) {
-    const [sig, ...resto] = siguientes;
-    const s2 = await ejecutarYResponder(ent, sig!, { resueltos: {}, mensajes: estado.mensajes, pregunta: null, siguientes: resto }, ahora);
-    return { ...s2, respuesta: `${salida.respuesta}\n\n${s2.respuesta}`, resultado: salida.resultado ?? s2.resultado };
+  const plan = { ...(estado.plan ?? {}), [claveOrden(orden)]: 'hecha' as const };
+  const cola = siguienteDeLaCola(siguientes, plan);
+  if (cola.sig) {
+    const s2 = await ejecutarYResponder(ent, cola.sig, { resueltos: {}, mensajes: estado.mensajes, pregunta: null, siguientes: cola.resto, plan }, ahora);
+    return conAvisos({ ...s2, respuesta: `${salida.respuesta}\n\n${s2.respuesta}`, resultado: salida.resultado ?? s2.resultado }, cola.saltadas.map((o) => avisoRepetida(o)));
   }
-  return salida;
+  return conAvisos(salida, cola.saltadas.map((o) => avisoRepetida(o)));
 }
 
 /** «Sí, hazlo»: el servidor carga la orden pendiente y ejecuta EXACTAMENTE lo guardado (y mostrado). */
@@ -523,6 +536,12 @@ export async function confirmarOrdenJev(p: {
             ? 'Esa propuesta ya se ha usado o se ha cancelado. No hago nada.'
             : 'No encuentro esa propuesta. No hago nada.',
     };
+  }
+  // Una orden de la cola solo se confirma si ya se ENSEÑÓ (y una ya hecha no se repite).
+  const estadoCola = c.pendiente.accion.plan?.[claveOrden(c.pendiente.orden)];
+  if (estadoCola && estadoCola !== 'enseñada') {
+    logJev('si_sin_confirmacion', { motivo: `orden en estado ${estadoCola}` });
+    return { respuesta: 'Esa orden todavía no te la he enseñado (o ya está hecha). No hago nada.' };
   }
   const motivo = p.validar?.(c.pendiente.accion) ?? null;
   if (motivo) return { respuesta: motivo };
@@ -558,9 +577,13 @@ export async function confirmarOrdenJev(p: {
   const salida: SalidaMotor = { respuesta, resultado: eventoId && !fallo ? { ...o, evento_id: eventoId } : o, ejecutado: !fallo };
 
   // Lo que se pidió en la misma frase (otra persona en horas, retomar la factura tras guardar el NIF…): se prepara ahora.
+  // La cola sabe qué está hecho y qué ya se enseñó: una orden repetida NO se vuelve a preparar ni a guardar.
   const siguientes = c.pendiente.accion.siguientes ?? [];
+  const plan = { ...(c.pendiente.accion.plan ?? {}), [claveOrden(c.pendiente.orden)]: fallo ? ('en_cola' as const) : ('hecha' as const) };
   if (!fallo && siguientes.length) {
-    const [sig, ...resto] = siguientes;
+    const cola = siguienteDeLaCola(siguientes, plan);
+    const avisosCola = cola.saltadas.map((o) => avisoRepetida(o));
+    if (!cola.sig) return conAvisos(salida, avisosCola);
     const ent = {
       supabase: p.supabase,
       businessId: p.businessId,
@@ -570,8 +593,8 @@ export async function confirmarOrdenJev(p: {
       hoyTexto: '',
       runTool: p.runTool,
     } satisfies EntradaMotor;
-    const s2 = await ejecutarYResponder(ent, sig!, { resueltos: {}, mensajes: c.pendiente.accion.mensajes ?? [], pregunta: null, siguientes: resto }, p.ahora ?? new Date());
-    return { ...salida, respuesta: `${salida.respuesta}\n\n---\nSiguiente: ${s2.respuesta}`, accionPendiente: s2.accionPendiente, opciones: s2.opciones };
+    const s2 = await ejecutarYResponder(ent, cola.sig, { resueltos: {}, mensajes: c.pendiente.accion.mensajes ?? [], pregunta: null, siguientes: cola.resto, plan }, p.ahora ?? new Date());
+    return conAvisos({ ...salida, respuesta: `${salida.respuesta}\n\n---\nSiguiente: ${s2.respuesta}`, accionPendiente: s2.accionPendiente, opciones: s2.opciones }, avisosCola);
   }
   if (fallo && siguientes.length) {
     salida.respuesta += `\n\nComo esto no se ha hecho, no sigo con lo demás (${siguientes.map((x) => etiquetaOrden(x as Record<string, unknown>)).join('; ')}). Dímelo otra vez cuando quieras.`;
