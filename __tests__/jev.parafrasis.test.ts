@@ -30,6 +30,6 @@ describe('bloque de paráfrasis (modelos simulados)', () => {
     );
     expect(problemas).toEqual([]);
     expect(escriturasIncorrectas(esc, db)).toEqual([]);
-    expect(ordenPerdidaSinAviso(esc, respuestas, avisos)).toBe(false);
+    expect(ordenPerdidaSinAviso(esc, db, respuestas, avisos)).toBe(false);
   });
 });

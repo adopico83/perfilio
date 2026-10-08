@@ -225,6 +225,10 @@ async function procesarInterno(ent: EntradaMotor): Promise<SalidaInterna> {
         accionPendiente: { orden_id: viva.id, tool: viva.accion.tool, resumen: viva.resumen },
       };
     }
+    // «¿Apunto el gasto de Saltoki y también las 6 horas de Jon?» → «sí»: se prepara el plan entero (una orden por turno, cada una con su «Sí»).
+    if (!viva && tarea?.estado.pregunta?.slot === 'plan') {
+      return ejecutarYResponder(ent, tarea.orden, { ...tarea.estado, pregunta: null }, ahora);
+    }
     // «¿Lo doy de alta o es otro nombre?» → «sí»: se da de alta y después se retoma la orden original.
     if (tarea?.estado.pregunta?.alta && tarea.estado.pregunta.slot === 'cliente' && tarea.estado.pregunta.texto_slot) {
       const estado: EstadoTarea = {
@@ -259,7 +263,24 @@ async function procesarInterno(ent: EntradaMotor): Promise<SalidaInterna> {
     tarea: previa,
     pendiente: corrige,
     ultimoAsistente: ent.ultimoAsistente,
+    dobleLectura: true,
   });
+  // Dos lecturas que no coinciden (una ve dos órdenes y la otra una, o cifras distintas): no se guarda la mitad, se pregunta.
+  if (salida.desacuerdo) {
+    if (viva) await cancelarPendiente(supabase, viva.id, businessId, userId);
+    const plan = salida.desacuerdo.ordenes.flatMap((o) => expandirOrden(normalizarCrudo(o) as OrdenCruda));
+    const [p1, ...resto] = plan;
+    if (p1) {
+      await guardarTarea(supabase, {
+        businessId,
+        userId,
+        orden: p1,
+        estado: { resueltos: {}, mensajes: [mensaje], pregunta: { slot: 'plan', texto_slot: '', texto: salida.desacuerdo.pregunta, opciones: [] }, siguientes: resto, plan: planInicial(p1, resto) },
+      });
+      logJev('si_sin_confirmacion', { motivo: 'lecturas distintas: se pregunta antes de preparar' });
+      return { respuesta: `${viva ? AVISO_DESCARTADA : ''}${salida.desacuerdo.pregunta}` };
+    }
+  }
   let cruda = normalizarCrudo(salida.orden) as OrdenCruda;
   // Una cita PENDIENTE aún no existe: «ponla el miércoles» la corrige (CITA_CREAR), no mueve ninguna cita guardada.
   if (corrige && viva && normalizarCrudo(viva.orden).accion === 'CITA_CREAR' && cruda.accion === 'CITA_MOVER') {

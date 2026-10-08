@@ -28,6 +28,8 @@ export type PasoR8 =
       intencion?: Intencion;
       continua?: boolean;
       otras?: Array<Record<string, unknown>>;
+      /** El paso solo se da si lo último que dijo el asistente cumple esto (p. ej. contestar «sí» solo si preguntó «¿Apunto…?»). */
+      solo?: (ultimoAsistente: string) => boolean;
       /** Categoría del router de intención. */
       categoria?: string;
       ok?: (r: SalidaMotor, db: Db) => string[];
@@ -241,6 +243,7 @@ export async function ejecutarEscenario(
   const ahora = new Date('2026-10-06T10:00:00Z');
   const hoyTexto = 'martes, 6 de octubre de 2026';
   for (const [i, paso] of esc.pasos.entries()) {
+    if ('mensaje' in paso && paso.solo && !paso.solo(ultimoAsistente ?? '')) continue;
     let r: SalidaMotor;
     if ('confirmar' in paso) {
       if (!ultimaOrdenId) {
@@ -290,12 +293,25 @@ export function escriturasPorTabla(db: Db): Record<string, number> {
 export function escriturasIncorrectas(esc: EscenarioR8, db: Db): string[] {
   if (!esc.maxEscrituras) return [];
   const hechas = escriturasPorTabla(db);
-  return Object.entries(hechas).flatMap(([t, n]) => ((esc.maxEscrituras![t] ?? 0) < n ? [`guardó ${n} en «${t}» (máximo ${esc.maxEscrituras![t] ?? 0})`] : []));
+  return Object.entries(hechas).flatMap(([t, n]) => ((esc.maxEscrituras![t] ?? 0) < n ? [`guardó ${n} en «${t}» (máximo ${esc.maxEscrituras![t]  ?? 0})`] : []));
 }
 
-/** ¿Perdió una orden sin avisar? El primer turno de un escenario `varias` debe llevar un aviso (campo `avisos`) o decir qué queda en cola. */
-export function ordenPerdidaSinAviso(esc: EscenarioR8, respuestas: string[], avisos: string[][] = []): boolean {
-  if (!esc.varias) return false;
-  if ((avisos[0] ?? []).length > 0) return false;
-  return !/Después te pregunto/.test(respuestas[0] ?? '');
+/** Órdenes de un escenario `varias` que NO llegaron a guardarse (lo pedido está en `maxEscrituras`). */
+export function ordenesPerdidas(esc: EscenarioR8, db: Db): string[] {
+  if (!esc.varias || !esc.maxEscrituras) return [];
+  const hechas = escriturasPorTabla(db);
+  return Object.entries(esc.maxEscrituras).flatMap(([t, n]) => ((hechas[t] ?? 0) < n ? [`«${t}»: ${hechas[t] ?? 0} de ${n}`] : []));
+};
+
+/** ¿Alguna respuesta del escenario avisó (avisos[]), preguntó qué hacer con lo demás o dejó la orden en cola? */
+export function huboAviso(respuestas: string[], avisos: string[][] = []): boolean {
+  return avisos.some((a) => a.length > 0) || respuestas.some((r) => /Después te pregunto|¿Apunto /.test(r));
+}
+
+/**
+ * Una orden PERDIDA SIN AVISO es la que no se guardó y de la que nadie dijo nada en toda la conversación. El contador y el detalle usan
+ * esta misma definición: si el detalle dice que faltó una orden y no hubo aviso, aquí cuenta.
+ */
+export function ordenPerdidaSinAviso(esc: EscenarioR8, db: Db, respuestas: string[], avisos: string[][] = []): boolean {
+  return ordenesPerdidas(esc, db).length > 0 && !huboAviso(respuestas, avisos);
 }

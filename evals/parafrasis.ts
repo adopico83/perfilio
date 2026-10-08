@@ -117,7 +117,8 @@ const variasHoras = (frase: string, orden: Record<string, unknown>, otras?: Arra
   maxEscrituras: { gastos: 0, registros_jornada: 2 },
   nombre: `[paráfrasis · varias órdenes] «${frase}» → las dos órdenes, ninguna perdida`,
   pasos: [
-    { mensaje: frase, intencion: 'VARIAS', orden, ...(otras ? { otras } : {}), categoria: 'operarios', ok: (r) => esperar(r.accionPendiente && /Aitor|Jon/.test(r.respuesta) && /Después te pregunto|Jon|Aitor/.test(r.respuesta), 'no preparó una y avisó de la otra') },
+    { mensaje: frase, intencion: 'VARIAS', orden, ...(otras ? { otras } : {}), categoria: 'operarios', ok: (r) => esperar((r.accionPendiente && (/Después te pregunto/.test(r.respuesta) || (r.avisos?.length ?? 0) > 0)) || /¿Apunto /.test(r.respuesta), 'una orden sin aviso: no hay «Después te pregunto», ni avisos[], ni pregunta') },
+    { mensaje: 'sí', intencion: 'CONFIRMA', solo: (anterior) => /¿Apunto /.test(anterior), ok: (r) => esperar(r.accionPendiente, 'tras el «sí» no preparó la primera') },
     { confirmar: true, ok: (r) => esperar(r.accionPendiente, `no preparó la segunda: «${r.respuesta.replace(/\n/g, ' ').slice(0, 220)}»`) },
     { confirmar: true },
   ],
@@ -134,8 +135,9 @@ const variasMixtas = (frase: string): EscenarioR8 => ({
       orden: GASTO,
       otras: [{ accion: 'HORAS', operario_texto: 'Jon', horas_texto: '6', obra_texto: 'Paqui' }],
       categoria: 'gastos',
-      ok: (r) => esperar(r.accionPendiente && /Después te pregunto/.test(r.respuesta), `no avisó de la otra orden: «${r.respuesta.replace(/\n/g, ' ').slice(0, 160)}»`),
+      ok: (r) => esperar((r.accionPendiente && (/Después te pregunto/.test(r.respuesta) || (r.avisos?.length ?? 0) > 0)) || /¿Apunto /.test(r.respuesta), `una orden sin aviso: sin «Después te pregunto», sin avisos[] y sin pregunta: «${r.respuesta.replace(/\n/g, ' ').slice(0, 160)}»`),
     },
+    { mensaje: 'sí', intencion: 'CONFIRMA', solo: (anterior) => /¿Apunto /.test(anterior), ok: (r) => esperar(r.accionPendiente, 'tras el «sí» no preparó la primera') },
     { confirmar: true, ok: (r) => esperar(r.accionPendiente, `no preparó la segunda: «${r.respuesta.replace(/\n/g, ' ').slice(0, 220)}»`) },
     { confirmar: true },
   ],
@@ -155,7 +157,9 @@ const mezcla = (frase: string, ordenes: OrdenSim[], esperado: Record<string, num
   varias: true,
   maxEscrituras: esperado,
   pasos: [
-    { mensaje: frase, intencion: 'VARIAS', orden: ordenes[0]!, otras: ordenes.slice(1), categoria, ok: (r) => esperar(r.accionPendiente, `no preparó la primera: «${r.respuesta.replace(/\n/g, ' ').slice(0, 220)}»`) },
+    { mensaje: frase, intencion: 'VARIAS', orden: ordenes[0]!, otras: ordenes.slice(1), categoria, ok: (r) => esperar(r.accionPendiente || /¿Apunto /.test(r.respuesta), `no preparó la primera ni preguntó: «${r.respuesta.replace(/\n/g, ' ').slice(0, 220)}»`) },
+    // Si las dos lecturas no coincidieron, el agente pregunta «¿Apunto…?» y se contesta que sí.
+    { mensaje: 'sí', intencion: 'CONFIRMA', solo: (anterior) => /¿Apunto /.test(anterior), ok: (r) => esperar(r.accionPendiente, `tras el «sí» no preparó la primera: «${r.respuesta.replace(/\n/g, ' ').slice(0, 220)}»`) },
     ...ordenes.slice(1).map((): PasoR8 => ({ confirmar: true, ok: (r) => esperar(r.accionPendiente, `no preparó la siguiente: «${r.respuesta.replace(/\n/g, ' ').slice(0, 220)}»`) })),
     { confirmar: true },
   ],
