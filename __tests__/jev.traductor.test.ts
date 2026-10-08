@@ -1,4 +1,6 @@
 import { ACCIONES_POR_CATEGORIA, NOMBRES_ACCION, completarOrden, jsonSchemaAccion, jsonSchemaCampos, validarOrden, ORDENES } from '@/lib/jev/ordenes';
+import { clausulaEn } from '@/lib/jev/sin-usar';
+import { normalizarAccionPublica } from '@/lib/jev/ordenes';
 import { construirMensajesTraductor, herramientaElegirAccion, herramientaOrdenJev, interpretarSalida, PROMPT_TRADUCTOR, traducirMensaje } from '@/lib/jev/traductor';
 
 const createMock = jest.fn();
@@ -124,7 +126,37 @@ describe('revisión de datos sin usar', () => {
     const s = await traducirMensaje({ mensaje: 'Pon una partida de pintura de 30 metros a 8 euros en el presupuesto de Paqui', categoria: 'general', hoyTexto: 'martes' });
     expect(s.orden).toMatchObject({ accion: 'PRESUPUESTO_PARTIDAS', presupuesto_texto: 'Paqui' });
     const enumSegundo = createMock.mock.calls[2]![0].tools[0].function.parameters.properties.accion.enum as string[];
-    expect(enumSegundo).not.toContain('PRESUPUESTO_DICTADO');
+    expect(enumSegundo).not.toContain('PRESUPUESTO_NUEVO_CON_PARTIDAS_DICTADAS');
+  });
+  it('una cifra que sigue sin recogerse tras revisar: su cláusula se traduce sola y se añade como otra orden', async () => {
+    createMock.mockReset();
+    const gasto = { proveedor_texto: 'Saltoki', importe_texto: '87,40', iva_modo: 'incluido', obra_texto: 'Leire' };
+    createMock
+      // 1.er intento: el segundo tipo sale mal (otro gasto igual) y las horas se pierden
+      .mockResolvedValueOnce(tc('elegir_accion', { accion: 'GASTO', continua_tarea: false, otras_acciones: ['GASTO'] }))
+      .mockResolvedValueOnce(tc('orden_jev', gasto))
+      .mockResolvedValueOnce(tc('orden_jev', gasto))
+      // 2.º intento: igual
+      .mockResolvedValueOnce(tc('elegir_accion', { accion: 'GASTO', continua_tarea: false, otras_acciones: ['GASTO'] }))
+      .mockResolvedValueOnce(tc('orden_jev', gasto))
+      .mockResolvedValueOnce(tc('orden_jev', gasto))
+      // la cláusula huérfana, sola
+      .mockResolvedValueOnce(tc('elegir_accion', { accion: 'HORAS', continua_tarea: false }))
+      .mockResolvedValueOnce(tc('orden_jev', { operario_texto: 'Jon', horas_texto: '6', obra_texto: 'Paqui' }));
+    const s = await traducirMensaje({ mensaje: 'apunta 87,40 de Saltoki para lo de Leire y de paso ponle 6 horas a Jon en lo de Paqui', categoria: 'general', hoyTexto: 'martes' });
+    expect(s.orden).toMatchObject({ accion: 'GASTO' });
+    expect(s.otras).toEqual([expect.objectContaining({ accion: 'HORAS', operario_texto: 'Jon', horas_texto: '6' })]);
+  });
+  it('los tipos más confundibles tienen nombre autoexplicativo para el modelo y se deshace al leer', () => {
+    const enumP = (jsonSchemaAccion(ACCIONES_POR_CATEGORIA.general!) as { properties: { accion: { enum: string[] } } }).properties.accion.enum;
+    expect(enumP).toContain('FACTURA_LIBRE_CON_CLIENTE_E_IMPORTE');
+    expect(enumP).not.toContain('FACTURAR');
+    expect(normalizarAccionPublica('EDITAR_PRESUPUESTO_EXISTENTE_PARTIDAS')).toBe('PRESUPUESTO_PARTIDAS');
+    expect(normalizarAccionPublica('GASTO')).toBe('GASTO');
+  });
+  it('clausulaEn corta en comas y en «y» entre peticiones, no en «7 y media»', () => {
+    expect(clausulaEn('Aitor 7 y media y Jon el carpintero 6, y de paso ponle 3 a Iker', 'Aitor 7 y media y Jon el carpintero 6, y de paso ponle 3 a Iker'.indexOf('3 a'))).toBe('de paso ponle 3 a Iker');
+    expect(clausulaEn('Aitor 7 y media y Jon 6', 8)).toBe('Aitor 7 y media');
   });
 });
 

@@ -2,11 +2,11 @@
  * Traductor .jev: GPT-4o mini SOLO traduce el mensaje del usuario a UNA orden cerrada (función `orden_jev`).
  * No decide ids, fechas finales ni importes finales: copia literales. Todo lo demás lo hace el ejecutor.
  */
-import { datosSinUsar } from '@/lib/jev/sin-usar';
+import { clausulaEn, datoSinUsarDetalle, datosSinUsar } from '@/lib/jev/sin-usar';
 import OpenAI from 'openai';
 import { AGENTE_MODELO_POR_DEFECTO } from '@/lib/agente/modelo';
 import { logJev } from '@/lib/jev/log';
-import { ACCIONES_POR_CATEGORIA, AYUDA_ACCION, accionesDelModelo, jsonSchemaAccion, jsonSchemaCampos, normalizarAccionPublica, type NombreAccion, type OrdenCruda, type OrdenJev } from '@/lib/jev/ordenes';
+import { ACCIONES_POR_CATEGORIA, AYUDA_ACCION, accionesDelModelo, jsonSchemaAccion, jsonSchemaCampos, nombreParaModelo, normalizarAccionPublica, type NombreAccion, type OrdenCruda, type OrdenJev } from '@/lib/jev/ordenes';
 
 let cliente: OpenAI | null = null;
 function getOpenAI(): OpenAI {
@@ -51,8 +51,8 @@ Reglas:
 /** Paso 1: elegir el tipo de orden. */
 export const PROMPT_ELEGIR_ACCION = (acciones: NombreAccion[]) =>
   `${REGLAS}\n\nPASO 1: elige el tipo de orden con la función elegir_accion. Tipos:\n${accionesDelModelo(acciones)
-    .map((a) => `- ${a}: ${AYUDA_ACCION[a].que} Ej.: ${AYUDA_ACCION[a].ejemplo}`)
-    .join('\n')}\nSi dice «en/al presupuesto de <cliente>» (ya existe), añadir o quitar partidas es PRESUPUESTO_PARTIDAS; PRESUPUESTO_DICTADO es solo un presupuesto NUEVO. Con un cliente y un importe y sin nombrar presupuesto ni albarán, es CREAR_FACTURA (FACTURAR solo parte de un presupuesto o albarán que existe). CHARLA solo para saludos o gracias. Si falta un dato pero sabes qué quiere hacer, elige la acción (el sistema preguntará lo que falte). Borrar solo si lo pide claramente.`;
+    .map((a) => `- ${nombreParaModelo(a)}: ${AYUDA_ACCION[a].que} Ej.: ${AYUDA_ACCION[a].ejemplo}`)
+    .join('\n')}\nSi dice «en/al presupuesto de <cliente>» (ya existe), añadir o quitar partidas es EDITAR_PRESUPUESTO_EXISTENTE_PARTIDAS; PRESUPUESTO_NUEVO_CON_PARTIDAS_DICTADAS es solo un presupuesto NUEVO. Con un cliente y un importe y sin nombrar presupuesto ni albarán, es FACTURA_LIBRE_CON_CLIENTE_E_IMPORTE (FACTURA_DESDE_PRESUPUESTO_O_ALBARAN_EXISTENTE solo parte de un presupuesto o albarán que existe). CHARLA solo para saludos o gracias. Si falta un dato pero sabes qué quiere hacer, elige la acción (el sistema preguntará lo que falte). Borrar solo si lo pide claramente.`;
 
 /** Paso 2: rellenar los campos de la acción elegida. */
 export const PROMPT_RELLENAR = (accion: NombreAccion, soloEsta = false, ordinal?: { k: number; n: number }) =>
@@ -65,7 +65,7 @@ function contexto(e: EntradaTraductor): string {
   const partes: string[] = [];
   if (e.tarea && e.pendiente) {
     partes.push(
-      `ORDEN PENDIENTE DE CONFIRMAR (preparada, todavía NO guardada): ${JSON.stringify(e.tarea)}\nSi el usuario la corrige («espera, la encimera ponla a 230», «no, son 7 y media», «con Iker PRUEBA») devuelve la MISMA acción, COMPLETA y con el cambio (copia lo que no cambia), y continua_tarea true. Una orden pendiente se corrige con su misma acción, nunca con PRESUPUESTO_PARTIDAS (que es solo para presupuestos YA guardados). Si pide otra cosa distinta, continua_tarea null.`
+      `ORDEN PENDIENTE DE CONFIRMAR (preparada, todavía NO guardada): ${JSON.stringify(e.tarea)}\nSi el usuario la corrige («espera, la encimera ponla a 230», «no, son 7 y media», «con Iker PRUEBA») devuelve la MISMA acción, COMPLETA y con el cambio (copia lo que no cambia), y continua_tarea true. Una orden pendiente AÚN NO existe en el sistema: «ponla el jueves», «muévela», «cámbiala» significan corregir ESTA orden con su misma acción (una cita pendiente se corrige con CITA_CREAR, no con CITA_MOVER; nunca con PRESUPUESTO_PARTIDAS, que es solo para presupuestos YA guardados). Si pide otra cosa distinta, continua_tarea null.`
     );
   } else if (e.tarea) partes.push(`TAREA EN CURSO / PENDIENTE (orden anterior): ${JSON.stringify(e.tarea)}`);
   if (e.revision) partes.push(`REVISIÓN: en un primer intento ${e.revision} Todo dato que dijo el usuario (cifras, nombres, cantidades) debe quedar en algún campo de alguna orden; si el tipo de orden elegido no tiene dónde ponerlo, elige otro tipo que sí lo recoja.`);
@@ -209,5 +209,26 @@ export async function traducirMensaje(e: EntradaTraductor): Promise<SalidaTraduc
   const excluir = principalVacia ? [primera.orden.accion as NombreAccion] : [];
   const segunda = await traducirUnaVez({ ...e, revision: `dejaste fuera «${fuera}»${excluir.length ? ` y elegiste ${excluir[0]}, que no recogió nada` : ''}.` }, excluir);
   const fuera2 = datosSinUsar(e.mensaje, [segunda.orden, ...(segunda.otras ?? [])] as Array<Record<string, unknown>>);
-  return fuera2 === null ? segunda : primera;
+  const mejor = fuera2 === null ? segunda : primera;
+  if (fuera2 === null) return mejor;
+  return recogerCláusulaHuérfana(e, mejor);
+}
+
+/**
+ * Último recurso: si tras revisar sigue habiendo una cifra que ninguna orden recoge, la cláusula del mensaje a la que pertenece se
+ * traduce SOLA y se añade como otra orden (así «y de paso ponle 6 horas a Jon» nunca se pierde por un tipo mal elegido).
+ */
+async function recogerCláusulaHuérfana(e: EntradaTraductor, salida: SalidaTraductor): Promise<SalidaTraductor> {
+  const ordenes = [salida.orden, ...(salida.otras ?? [])] as Array<Record<string, unknown>>;
+  const d = datoSinUsarDetalle(e.mensaje, ordenes);
+  if (!d) return salida;
+  const clausula = clausulaEn(e.mensaje, d.indice);
+  if (!clausula || clausula.length >= e.mensaje.trim().length - 2) return salida;
+  const extra = await traducirUnaVez({ ...e, mensaje: clausula, revision: undefined });
+  const o = extra.orden as Record<string, unknown>;
+  if (!o.accion || o.accion === 'ACLARAR' || o.accion === 'CHARLA' || datosSinUsar(clausula, [o]) !== null) return salida;
+  if (ordenes.some((x) => JSON.stringify(x) === JSON.stringify(o))) return salida;
+  logJev('traduccion_incompleta', { dato: d.trozo, recogido: String(o.accion) });
+  // El dato se quita de las órdenes que lo tenían mal (copias) solo si eran idénticas a otra: aquí solo se AÑADE.
+  return { ...salida, otras: [...(salida.otras ?? []), extra.orden, ...(extra.otras ?? [])] };
 }

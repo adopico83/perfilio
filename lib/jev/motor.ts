@@ -150,6 +150,9 @@ export async function procesarMensajeJev(ent: EntradaMotor): Promise<SalidaMotor
     intencion = c.intencion;
     segura = c.segura;
   }
+  // Sin orden pendiente ni tarea en curso no hay a qué cancelar, corregir ni responder: un asentimiento (CONFIRMA) o una negativa (CANCELA) sueltos se atienden
+  // aparte sin tocar nada; responder o corregir es, en realidad, una petición nueva para el traductor.
+  if (!viva && !tarea && (intencion === 'RESPUESTA' || intencion === 'CORRIGE' || intencion === 'VARIAS')) intencion = 'NUEVA';
   // Con algo pendiente, una clasificación dudosa NUNCA ejecuta ni descarta: se vuelve a preguntar.
   if (viva && !segura && intencion !== 'CORRIGE') {
     logJev('si_sin_confirmacion', { motivo: 'intención dudosa con una orden pendiente', intencion });
@@ -213,7 +216,13 @@ export async function procesarMensajeJev(ent: EntradaMotor): Promise<SalidaMotor
     pendiente: corrige,
     ultimoAsistente: ent.ultimoAsistente,
   });
-  const cruda = normalizarCrudo(salida.orden) as OrdenCruda;
+  let cruda = normalizarCrudo(salida.orden) as OrdenCruda;
+  // Una cita PENDIENTE aún no existe: «ponla el miércoles» la corrige (CITA_CREAR), no mueve ninguna cita guardada.
+  if (corrige && viva && normalizarCrudo(viva.orden).accion === 'CITA_CREAR' && cruda.accion === 'CITA_MOVER') {
+    const { evento_texto: _ignorado, ...resto } = cruda as Record<string, unknown>;
+    void _ignorado;
+    cruda = { ...resto, accion: 'CITA_CREAR' } as unknown as OrdenCruda;
+  }
   const vistas = new Set([JSON.stringify(cruda)]);
   // Una orden idéntica a otra del mismo mensaje es una copia del modelo, no otra petición: nunca se guarda dos veces.
   const otras = (salida.otras ?? []).map((o) => normalizarCrudo(o) as OrdenCruda).filter((o) => {

@@ -483,3 +483,14 @@ describe('copias del modelo y dudas de intención', () => {
   });
 });
 
+describe('cita pendiente corregida por el modelo con CITA_MOVER', () => {
+  it('«ponla el miércoles» sobre una cita PENDIENTE la corrige, no busca una cita guardada', async () => {
+    const db = crearFakeDb(baseRonda5());
+    const s = sesion(db);
+    await s.di('apunta una cita con Paqui el lunes a las 10', o({ accion: 'CITA_CREAR', cliente_texto: 'Paqui', fecha_texto: 'el lunes', hora_texto: '10' }), { categoria: 'agenda' });
+    const r = await s.di('ponla el miércoles mejor', o({ accion: 'CITA_MOVER', evento_texto: 'Cita con Paqui', fecha_texto: 'el miércoles' }), { continua: true, intencion: 'CORRIGE', categoria: 'agenda' });
+    expect(r.respuesta).toContain('2026-10-07');
+    expect(r.accionPendiente).toBeDefined();
+  });
+});
+

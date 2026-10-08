@@ -459,6 +459,19 @@ function objetoEstricto(js: JS): JS {
   return { type: 'object', properties: out, required: Object.keys(out), additionalProperties: false };
 }
 
+/**
+ * Nombres que ve el MODELO para los tipos que más se confunden (un nombre que se explica solo elige mejor que «DICTADO» o «FACTURAR»).
+ * Dentro del código siguen los nombres de siempre: `normalizarAccionPublica` deshace el alias.
+ */
+const ALIAS_MODELO: Partial<Record<NombreAccion, string>> = {
+  PRESUPUESTO_DICTADO: 'PRESUPUESTO_NUEVO_CON_PARTIDAS_DICTADAS',
+  PRESUPUESTO_PARTIDAS: 'EDITAR_PRESUPUESTO_EXISTENTE_PARTIDAS',
+  FACTURAR: 'FACTURA_DESDE_PRESUPUESTO_O_ALBARAN_EXISTENTE',
+  CREAR_FACTURA: 'FACTURA_LIBRE_CON_CLIENTE_E_IMPORTE',
+};
+const DESDE_ALIAS = Object.fromEntries(Object.entries(ALIAS_MODELO).map(([k, v]) => [v, k])) as Record<string, NombreAccion>;
+export const nombreParaModelo = (a: NombreAccion): string => ALIAS_MODELO[a] ?? a;
+
 /** Acciones que ve el modelo: `CONSULTA_OBRA` no está (es CONSULTA_OBRAS con `obra_texto`). */
 export function accionesDelModelo(acciones: NombreAccion[]): NombreAccion[] {
   const l = new Set<NombreAccion>([...acciones, 'ACLARAR', 'CHARLA']);
@@ -471,11 +484,11 @@ export function jsonSchemaAccion(acciones: NombreAccion[]): JS {
   return {
     type: 'object',
     properties: {
-      accion: { type: 'string', enum: accionesDelModelo(acciones), description: 'El tipo de orden que pide el usuario.' },
+      accion: { type: 'string', enum: accionesDelModelo(acciones).map(nombreParaModelo), description: 'El tipo de orden que pide el usuario.' },
       continua_tarea: { type: ['boolean', 'null'], description: 'true solo si corrige o completa la TAREA EN CURSO o la orden PENDIENTE; si no, null.' },
       otras_acciones: {
         type: ['array', 'null'],
-        items: { type: 'string', enum: accionesDelModelo(acciones).filter((a) => a !== 'ACLARAR' && a !== 'CHARLA') },
+        items: { type: 'string', enum: accionesDelModelo(acciones).filter((a) => a !== 'ACLARAR' && a !== 'CHARLA').map(nombreParaModelo) },
         description: 'Solo si el mensaje pide VARIAS cosas: los tipos de las demás, en el orden en que las dice (repite el tipo si hay dos del mismo: dos obras, dos gastos). Varias personas en horas = una sola HORAS. Si no, null.',
       },
     },
@@ -497,7 +510,7 @@ export function jsonSchemaCampos(accion: NombreAccion): JS | null {
 
 /** Nombre de acción que viene del modelo → un `NombreAccion` válido (o null). */
 export function normalizarAccionPublica(v: unknown): NombreAccion | null {
-  const a = normalizarCrudo({ accion: v }).accion;
+  const a = normalizarCrudo({ accion: typeof v === 'string' && DESDE_ALIAS[v] ? DESDE_ALIAS[v] : v }).accion;
   return esAccion(a) ? a : null;
 }
 
