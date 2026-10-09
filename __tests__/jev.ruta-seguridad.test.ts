@@ -73,7 +73,8 @@ describe('ruta /api/agente con el motor .jev: la confirmación solo acepta el id
   it('un «sí» ESCRITO confirma solo la orden pendiente real (y si no hay, no hace nada)', async () => {
     const nada = await post({ mensaje: 'sí', historial: [{ role: 'assistant', content: 'Hecho.' }] });
     expect(String(nada.json.respuesta)).toMatch(/No tengo nada pendiente/);
-    expect(createMock).not.toHaveBeenCalled();
+    // El modelo solo clasifica la intención; no traduce ninguna orden con un «sí» suelto.
+    expect(createMock.mock.calls.flatMap((c) => (c[0] as { tools?: Array<{ function: { name: string } }> }).tools?.map((t) => t.function.name) ?? [])).toEqual(['clasificar_intencion']);
     const p = await post({ mensaje: 'cierra la obra de Paqui' });
     expect(obra().estado).toBe('en_curso');
     // El «sí» solo confirma si lo último que dijo el asistente fue la pregunta de confirmación de ESA orden.
@@ -95,9 +96,9 @@ describe('ruta /api/agente con el motor .jev: la confirmación solo acepta el id
   it('el modelo solo ve las funciones elegir_accion y orden_jev (ninguna tool de escritura)', async () => {
     await post({ mensaje: 'cierra la obra de Paqui' });
     const req = createMock.mock.calls[0]![0] as { tools: Array<{ function: { name: string } }> };
-    expect(req.tools.map((t) => t.function.name)).toEqual(['elegir_accion']);
+    expect(req.tools.map((t) => t.function.name)).toEqual(['clasificar_intencion']);
     const todas = createMock.mock.calls.flatMap((c) => (c[0] as typeof req).tools.map((t) => t.function.name));
-    expect(new Set(todas)).toEqual(new Set(['elegir_accion', 'orden_jev']));
+    expect(new Set(todas)).toEqual(new Set(['clasificar_intencion', 'elegir_accion', 'orden_jev']));
   });
   it('si el modelo devuelve una orden inventada, se pregunta (no se ejecuta)', async () => {
     ordenDelModelo = { accion: 'BORRAR_TODO' };

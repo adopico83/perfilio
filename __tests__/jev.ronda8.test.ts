@@ -5,7 +5,6 @@ import { crearFakeDb } from './helpers/fake-db';
 import { baseRonda5, sesion } from './helpers/jev-sesion';
 import { IDS, NEGOCIO_A } from '../evals/base-simulada';
 import type { OrdenJev } from '@/lib/jev/ordenes';
-import { esRechazo } from '@/lib/jev/dialogo';
 import { horasEnTexto, parseHorasTexto, numerosDelMensaje } from '@/lib/jev/fechas';
 import { numerosEnLetras, letrasACifras } from '@/lib/numeros-letras';
 import { MENSAJE_NADA_PENDIENTE } from '@/lib/agente/orquestacion';
@@ -30,12 +29,6 @@ const MSG_GASTO = 'gasto de 87,40 en Saltoki para lo de Leire';
 const GASTO = o({ accion: 'GASTO', proveedor_texto: 'Saltoki', importe_texto: '87,40', iva_modo: 'incluido', obra_texto: 'Leire' });
 
 describe('1 · negación y confirmación', () => {
-  it.each(['no', 'No.', 'mejor no', 'no, mejor no', 'no, ese ya lo apunté yo', 'ese ya lo apunté yo', 'déjalo', 'olvídalo', 'cancela', 'cancélalo', 'no hace falta', 'no lo hagas', 'anula', 'no gracias'])('«%s» es un rechazo', (m) => {
-    expect(esRechazo(m)).toBe(true);
-  });
-  it.each(['no, son 7 y media no 7', 'no, con Iker PRUEBA', 'no, a las 5', 'cancela la cita de Mikel', 'sí', 'vale', 'espera, la encimera ponla a 230', 'no, ponle 8 horas'])('«%s» NO es un rechazo', (m) => {
-    expect(esRechazo(m)).toBe(false);
-  });
   it.each(['no, mejor no', 'no, ese ya lo apunté yo', 'déjalo', 'olvídalo'])('«%s» cancela la pendiente y un «vale» posterior no ejecuta nada', async (rechazo) => {
     const db = crearFakeDb(baseRonda5());
     const s = sesion(db);
@@ -539,7 +532,7 @@ describe('12 · presupuesto aceptado o facturado', () => {
     expect(p.respuesta).toMatch(/EXTRA de 120,00 €/);
     const antes = db.tablas.presupuestos.find((x) => x.id === IDS.presupuestoAinhoaPendiente)!.importe_total;
     await s.confirmar(p.accionPendiente!.orden_id);
-    expect(db.tablas.presupuestos.find((x) => x.es_extra === true)).toMatchObject({ parent_id: IDS.presupuestoAinhoaPendiente, importe_total: 120 });
+    expect(db.tablas.presupuestos.find((x) => x.es_extra === true)).toMatchObject({ parent_id: IDS.presupuestoAinhoaPendiente, importe_total: 145.2 }); // 120 + 21 % de IVA: como en todos los presupuestos
     expect(db.tablas.presupuestos.find((x) => x.id === IDS.presupuestoAinhoaPendiente)!.importe_total).toBe(antes);
   });
 });

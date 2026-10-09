@@ -101,7 +101,10 @@ async function resolverObraDeCliente(ctx: CtxResolver, texto: string, clienteId:
   const esCerrada = (o: O) => /cerrad|finaliz|termin/.test(norm(String(o.estado ?? '')));
   const todas = ((data ?? []) as O[]).filter((o) => cerradas || !esCerrada(o));
   if (todas.length === 0) return error(`Ese cliente no tiene ninguna obra${cerradas ? '' : ' abierta'}.`);
-  const pals = norm(texto).split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 3 && !ARTICULOS.has(w));
+  // «el tejado de Josu» con Josu ya conocido: el nombre del cliente no es parte del nombre de la obra.
+  const { data: cli } = await ctx.supabase.from('clientes').select('nombre').eq('id', clienteId).eq('business_id', ctx.businessId).maybeSingle();
+  const delCliente = new Set(norm(String((cli as { nombre?: string | null } | null)?.nombre ?? '')).split(/[^a-z0-9ñ]+/).filter(Boolean));
+  const pals = norm(texto).split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 3 && !ARTICULOS.has(w) && !delCliente.has(w));
   const coincide = (o: O) => pals.length === 0 || pals.every((w) => norm(`${o.nombre ?? ''} ${o.direccion ?? ''}`).split(/[^a-z0-9ñ]+/).some((x) => x.startsWith(w) || w.startsWith(x)));
   const etiqueta = (o: O) => `${o.nombre ?? 'Obra'}${o.direccion ? ` · ${o.direccion}` : ''}${esCerrada(o) ? ' (cerrada)' : ''}`;
   const coinc = todas.filter(coincide);
@@ -114,13 +117,14 @@ async function resolverObraDeCliente(ctx: CtxResolver, texto: string, clienteId:
   );
 }
 
+const MULETILLAS = new Set(['pal', 'pa', 'del', 'por', 'sobre', 'para', 'ahi', 'alli', 'esa', 'ese', 'una', 'uno', 'ticket', 'factura', 'gasto', 'compra']);
 const ARTICULOS = new Set(['el', 'la', 'los', 'las', 'un', 'una', 'de', 'del', 'lo', 'obra', 'para']);
 
 /** «el baño de Unai» → obras de clientes que encajan con «Unai» cuyo nombre encaja con «baño». */
 async function obrasPorClienteYTema(ctx: CtxResolver, texto: string, cerradas: boolean): Promise<Resuelto | null> {
   const m = texto.match(/^(.*?)\s+(?:de|del|para)\s+(.+)$/i);
   if (!m) return null;
-  const tema = norm(m[1]!).split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 3 && !ARTICULOS.has(w));
+  const tema = norm(m[1]!).split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 3 && !ARTICULOS.has(w) && !MULETILLAS.has(w));
   const rc = await resolverClientesPorNombre(ctx.supabase, ctx.businessId, m[2]!.trim());
   const clientes = rc.status === 'one' ? [rc.match] : rc.status === 'many' ? rc.candidatos : [];
   if (clientes.length === 0) return null;
@@ -133,8 +137,10 @@ async function obrasPorClienteYTema(ctx: CtxResolver, texto: string, cerradas: b
   type O = { id: string; nombre: string | null; estado: string | null; direccion: string | null; cliente_id: string | null };
   const abiertas = ((data ?? []) as O[]).filter((o) => cerradas || !/cerrad|finaliz|termin/.test(norm(String(o.estado ?? ''))));
   if (abiertas.length === 0) return null;
-  const coincide = (o: O) => tema.every((w) => norm(String(o.nombre ?? '')).split(/[^a-z0-9ñ]+/).some((x) => x.startsWith(w) || w.startsWith(x)));
-  const candidatas = tema.length ? abiertas.filter(coincide) : abiertas;
+  // Puntuación por palabras del tema que aparecen en el nombre de la obra: gana la que más tenga (si es una sola).
+  const puntos = (o: O) => tema.filter((w) => norm(String(o.nombre ?? '')).split(/[^a-z0-9ñ]+/).some((x) => x.startsWith(w) || w.startsWith(x))).length;
+  const mejor = Math.max(0, ...abiertas.map(puntos));
+  const candidatas = tema.length && mejor > 0 ? abiertas.filter((o) => puntos(o) === mejor) : abiertas;
   const nombreCli = (o: O) => clientes.find((c) => c.id === o.cliente_id)?.nombre ?? '';
   const etiqueta = (o: O) => `${o.nombre ?? 'Obra'}${nombreCli(o) ? ` · ${nombreCli(o)}` : ''}`;
   if (candidatas.length === 1) return { ok: true, id: candidatas[0]!.id, etiqueta: candidatas[0]!.nombre ?? texto };
@@ -166,11 +172,47 @@ export async function resolverPresupuesto(ctx: CtxResolver, texto: string): Prom
   }
   // Un número explícito («el presu 8 de Mikel», «el 8») gana siempre sobre el nombre.
   const numero = numeroExplicito(t) ?? parseNumeroDocumento(t);
-  const r = await resolverPresupuestosPorTexto(ctx.supabase, ctx.businessId, numero != null ? { numero } : { clienteNombre: t });
+  let r = await resolverPresupuestosPorTexto(ctx.supabase, ctx.businessId, numero != null ? { numero } : { clienteNombre: t });
+  // «el presu del baño de Mikel»: si el texto entero no encaja con ningún cliente, se busca por el cliente («Mikel») y el tema desempata.
+  if (numero == null && r.status !== 'one' && r.status !== 'many') {
+    const m = t.match(/^(.*?)\s+(?:de|del|para)\s+(.+)$/i);
+    if (m) {
+      const r2 = await resolverPresupuestosPorTexto(ctx.supabase, ctx.businessId, { clienteNombre: m[2]!.trim() });
+      if (r2.status === 'one' || r2.status === 'many') r = r2;
+    }
+  }
   const f = toolFailDesdePresupuestoResolve(r, t);
   if (f.ok) return { ok: true, id: f.match.id, etiqueta: etiquetaPresupuesto(f.match), extra: f.match as unknown as Record<string, unknown> };
+  if (r.status === 'many') {
+    const d = await desempatarPresupuestos(ctx, r.candidatos, t);
+    if (d) return { ok: true, id: d.id, etiqueta: etiquetaPresupuesto(d), extra: d as unknown as Record<string, unknown> };
+  }
   if (f.candidatos?.length) return pregunta(f.error, f.candidatos);
   return error(f.error);
+}
+
+/**
+ * Varios presupuestos encajan con lo dicho: gana el que coincide por TEMA con la obra («el presu del baño de Mikel» = el de la
+ * obra del baño) si es único, o el último presupuesto tratado en la conversación si es uno de ellos. Si no, se pregunta.
+ */
+async function desempatarPresupuestos<T extends { id: string; cliente_nombre: string | null; numero_presupuesto?: number | null }>(ctx: CtxResolver, candidatos: T[], texto: string): Promise<T | null> {
+  const ids = candidatos.map((c) => c.id);
+  const { data } = await ctx.supabase.from('presupuestos').select('id, obra_id').eq('business_id', ctx.businessId).in('id', ids);
+  const obraDe = new Map(((data ?? []) as Array<{ id: string; obra_id: string | null }>).map((x) => [x.id, x.obra_id]));
+  const obraIds = [...new Set([...obraDe.values()].filter((x): x is string => Boolean(x)))];
+  if (obraIds.length) {
+    const { data: obras } = await ctx.supabase.from('obras').select('id, nombre').eq('business_id', ctx.businessId).in('id', obraIds);
+    const nombreObra = new Map(((obras ?? []) as Array<{ id: string; nombre: string | null }>).map((o) => [o.id, norm(String(o.nombre ?? ''))]));
+    const tema = norm(texto).split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 4 && !ARTICULOS.has(w) && !norm(candidatos.map((c) => c.cliente_nombre ?? '').join(' ')).split(/[^a-z0-9ñ]+/).includes(w) && !['presu', 'presupuesto', 'factura'].includes(w));
+    if (tema.length) {
+      const porTema = candidatos.filter((c) => {
+        const nom = nombreObra.get(String(obraDe.get(c.id) ?? '')) ?? '';
+        return tema.every((w) => nom.includes(w));
+      });
+      if (porTema.length === 1) return porTema[0]!;
+    }
+  }
+  return candidatos.find((c) => c.id === ctx.ultimoPresupuestoId) ?? null;
 }
 
 function etiquetaPresupuesto(p: { numero_presupuesto?: number | null; cliente_nombre: string | null }): string {
@@ -264,6 +306,9 @@ export async function resolverEvento(ctx: CtxResolver, texto: string, fechaYmd?:
   if (!fechaYmd && futuras.length > 0) filas = futuras;
   if (filas.length === 0) return error(`No encuentro ninguna cita que coincida con «${t}».`);
   if (filas.length === 1) return { ok: true, id: filas[0]!.id, etiqueta: etiqueta(filas[0]!), extra: filas[0] as unknown as Record<string, unknown> };
+  // Ante varias candidatas, gana la última cita tratada en la conversación si es una de ellas (se enseña igualmente antes del «Sí»).
+  const ultima = ctx.ultimoEventoId ? filas.find((e) => e.id === ctx.ultimoEventoId) : undefined;
+  if (ultima) return { ok: true, id: ultima.id, etiqueta: etiqueta(ultima), extra: ultima as unknown as Record<string, unknown> };
   const ops = filas.slice(0, 8).map((e) => ({ id: e.id, etiqueta: etiqueta(e) }));
   return pregunta(`Hay varias citas que encajan con «${t}». ¿Cuál es?\n${lista(ops)}`, ops);
 }

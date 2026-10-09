@@ -151,6 +151,8 @@ export const ORDENES = {
     cliente_texto: lit,
     obra_texto: lit,
     titulo_texto: lit,
+    /** Empresa o proveedor con quien se queda («los de Saneamientos»): va en las notas, nunca es un cliente. */
+    proveedor_texto: lit,
     fecha_texto: z.string().trim().min(1).max(80),
     hora_texto: lit,
     hora_fin_texto: lit,
@@ -357,20 +359,20 @@ export const AYUDA_ACCION: Record<NombreAccion, { que: string; ejemplo: string }
   CHARLA: { que: 'SOLO saludos, gracias o charla sin ninguna petición.', ejemplo: '«Hola, buenas»' },
   CREAR_CLIENTE: { que: 'Dar de alta un cliente nuevo.', ejemplo: '«crea el cliente Jon Arrieta, teléfono 600123123, de Irún» → nombre_texto «Jon Arrieta», telefono_texto «600123123», direccion_texto «Irún»' },
   ACTUALIZAR_CLIENTE: { que: 'Cambiar datos de un cliente que ya existe (NIF, dirección, teléfono, email).', ejemplo: '«el NIF de Ainhoa es 44444444B» → cliente_texto «Ainhoa», nif_texto «44444444B»' },
-  CREAR_OBRA: { que: 'Abrir/crear una obra nueva.', ejemplo: '«crea la obra Reforma baño Ane para Mikel Etxeberria» → nombre_texto «Reforma baño Ane», cliente_texto «Mikel Etxeberria»' },
+  CREAR_OBRA: { que: 'Abrir/crear una obra nueva (también «y la de la fachada? fachada PRUEBA Azpeitia pa Josu» tras haber abierto otra: es CREAR_OBRA, no una consulta).', ejemplo: '«ábrele dos obras a Josu: el tejado y la fachada» → accion CREAR_OBRA (nombre «el tejado», cliente «Josu») y otras_acciones [CREAR_OBRA] para la segunda; «crea la obra Reforma baño Ane para Mikel Etxeberria» → nombre_texto «Reforma baño Ane», cliente_texto «Mikel Etxeberria»' },
   CERRAR_OBRA: { que: 'Cerrar, pausar o reabrir una obra.', ejemplo: '«cierra la obra de Paqui» → obra_texto «Paqui», estado «cerrada»' },
   PRESUPUESTO_DICTADO: { que: 'Crear un presupuesto NUEVO para un cliente a partir de los trabajos que dicta.', ejemplo: '«presupuesto para Paqui: alicatar el baño, 12 metros a 40 euros» → cliente_texto «Paqui», partidas [{concepto_texto «alicatar el baño», cantidad_texto «12», unidad_texto «metros», precio_texto «40»}]' },
-  PRESUPUESTO_PARTIDAS: { que: 'Quitar, cambiar o añadir partidas de un presupuesto que YA existe (borrador).', ejemplo: '«pon 14 en vez de 12 metros de alicatado en el 11» → presupuesto_texto «11», cambiar [{partida_texto «alicatado», cantidad_texto «14», cantidad_anterior_texto «12»}]; «quítale la mampara al 11 y pon 2 metros más de alicatado» → presupuesto_texto «11», quitar_texto [«mampara»], cambiar [{partida_texto «alicatado», sumar_cantidad_texto «2»}]; «pon una partida de pintura de 30 metros a 8 euros en el presupuesto de Paqui» → presupuesto_texto «Paqui», anadir [{concepto_texto «pintura», cantidad_texto «30», unidad_texto «metros», precio_texto «8»}]; «pon 2 metros más de alicatado en el 11» → presupuesto_texto «11», cambiar [{partida_texto «alicatado», sumar_cantidad_texto «2»}] (SIEMPRE rellena cambiar con la partida existente y lo que cambia); «quítale la mampara» (sin decir cuál) → presupuesto_texto «ese»; «añádele dos enchufes a 35» → presupuesto_texto «ese», anadir [{concepto_texto «enchufes», cantidad_texto «dos», precio_texto «35»}]; «añádele colocar campana extractora 120 y quítale la fontanería» → anadir [{concepto_texto «colocar campana extractora», cantidad_texto «1», precio_texto «120»}], quitar_texto [«fontanería»]; «ponle 500» (sin decir a qué partida) → cambiar [{partida_texto null, precio_texto «500»}]' },
-  EXTRA_PRESUPUESTO: { que: 'Apuntar un trabajo EXTRA (nuevo) sobre un presupuesto ya aceptado o facturado, sin cambiar el original. Importe sin IVA.', ejemplo: '«extra en el 11: campana extractora, 120» → presupuesto_texto «11», descripcion_texto «campana extractora», importe_texto «120»' },
+  PRESUPUESTO_PARTIDAS: { que: 'Quitar, cambiar o añadir partidas de un presupuesto que YA existe (borrador).', ejemplo: '«pon 14 en vez de 12 metros de alicatado en el 11» → presupuesto_texto «11», cambiar [{partida_texto «alicatado», cantidad_texto «14», cantidad_anterior_texto «12»}]; «quítale la mampara al 11 y pon 2 metros más de alicatado» → presupuesto_texto «11», quitar_texto [«mampara»], cambiar [{partida_texto «alicatado», sumar_cantidad_texto «2»}]; «pon una partida de pintura de 30 metros a 8 euros en el presupuesto de Paqui» → presupuesto_texto «Paqui», anadir [{concepto_texto «pintura», cantidad_texto «30», unidad_texto «metros», precio_texto «8»}]; «pon 2 metros más de alicatado en el 11» → presupuesto_texto «11», cambiar [{partida_texto «alicatado», sumar_cantidad_texto «2»}] (SIEMPRE rellena cambiar con la partida existente y lo que cambia); «quítale la mampara» (sin decir cuál) → presupuesto_texto «ese»; «réstale 10 metros a lo de pintar» → cambiar [{partida_texto «pintar», sumar_cantidad_texto «-10»}] (NUNCA rellenes precio_texto si no lo dijo); «baja lo de pintar a 125» → cantidad_texto «125»; «añádele dos enchufes a 35» → presupuesto_texto «ese», anadir [{concepto_texto «enchufes», cantidad_texto «dos», precio_texto «35»}]; «añádele colocar campana extractora 120 y quítale la fontanería» → anadir [{concepto_texto «colocar campana extractora», cantidad_texto «1», precio_texto «120»}], quitar_texto [«fontanería»]; «ponle 500» (sin decir a qué partida) → cambiar [{partida_texto null, precio_texto «500»}]' },
+  EXTRA_PRESUPUESTO: { que: 'Apuntar un trabajo EXTRA (nuevo) sobre un presupuesto ya aceptado o facturado, sin cambiar el original. Importe sin IVA.', ejemplo: '«extra en el 11: campana extractora, 120» → presupuesto_texto «11», descripcion_texto «campana extractora», importe_texto «120»; «extra: toallero eléctrico, 95 más IVA» (sin decir a qué presupuesto) → presupuesto_texto «ese»; el importe es SIEMPRE la base sin IVA' },
   CAMBIAR_ESTADO_PRESUPUESTO: { que: 'Pasar un presupuesto a aceptado, rechazado, enviado…', ejemplo: '«pasa el presupuesto 7 a rechazado» → presupuesto_texto «7», estado «rechazado»' },
   FACTURAR: { que: 'Convertir en factura un presupuesto o un albarán QUE YA EXISTE (se identifica por número o cliente).', ejemplo: '«hazme la factura del presupuesto de García» → presupuesto_texto «García»; «factura el 11» → presupuesto_texto «11»; «hazme la factura del presu 7 de Mikel» → presupuesto_texto «7» (el número manda sobre el nombre); «factúrame ese presu» → presupuesto_texto «ese»; «factúrame el albarán 12» → albaran_texto «12»' },
   MARCAR_PAGADA: { que: 'Marcar una factura como pagada/cobrada.', ejemplo: '«marca la factura 3 como pagada» → factura_texto «3», estado «pagada»' },
   PDF_ENLACE: { que: 'Dar el PDF de un presupuesto o de una factura.', ejemplo: '«mándame el PDF de la factura 3» → documento «factura», ref_texto «3»' },
   DIARIO: { que: 'Anotar algo en el diario de una obra.', ejemplo: '«en el diario de Paqui: hoy se ha picado el baño» → obra_texto «Paqui», texto «hoy se ha picado el baño»' },
-  HORAS: { que: 'Apuntar horas trabajadas por uno o varios operarios en una obra.', ejemplo: '«ponle 8 horas a Iker en lo de Paqui» → operario_texto «Iker», horas_texto «8», obra_texto «Paqui»; «Aitor el pintor 7 y media y Jon el carpintero 6 en lo de Paqui» → operario_texto «Aitor el pintor», horas_texto «7 y media», mas_operarios [{operario_texto «Jon el carpintero», horas_texto «6»}], obra_texto «Paqui»' },
-  GASTO: { que: 'Registrar un gasto/ticket de compra.', ejemplo: '«180 más IVA en Saltoki para lo de Leire» → importe_texto «180», iva_modo «mas», proveedor_texto «Saltoki», obra_texto «Leire»' },
+  HORAS: { que: 'Apuntar horas trabajadas por uno o varios operarios en una obra.', ejemplo: '«Jon ayer estuvo de 8 a 2 y media en la fachada» → operario_texto «Jon», horas_texto «de 8 a 2 y media», fecha_texto «ayer», obra_texto «la fachada» (copia el tramo, el sistema calcula las horas); «a Aitor ponle media jornada» → horas_texto null (el sistema pregunta cuántas); «ponle 8 horas a Iker en lo de Paqui» → operario_texto «Iker», horas_texto «8», obra_texto «Paqui»; «Aitor el pintor 7 y media y Jon el carpintero 6 en lo de Paqui» → operario_texto «Aitor el pintor», horas_texto «7 y media», mas_operarios [{operario_texto «Jon el carpintero», horas_texto «6»}], obra_texto «Paqui»' },
+  GASTO: { que: 'Registrar un gasto/ticket de compra o una factura RECIBIDA de un proveedor («factura de Saneamientos Bidasoa 300 + IVA para la fachada de Josu» es un gasto de ese proveedor, no una factura a un cliente).', ejemplo: '«180 más IVA en Saltoki para lo de Leire» → importe_texto «180», iva_modo «mas», proveedor_texto «Saltoki», obra_texto «Leire»' },
   PROVEEDOR_CREAR: { que: 'Dar de alta un proveedor.', ejemplo: '«da de alta a Bricomart de Irún como proveedor» → nombre_texto «Bricomart», notas_texto «de Irún»' },
-  CITA_CREAR: { que: 'Crear una cita o recordatorio en la agenda.', ejemplo: '«visita mañana a las 10 con Ane» → titulo_texto «Visita con Ane», cliente_texto «Ane», fecha_texto «mañana», hora_texto «a las 10». La persona con quien es la cita va SIEMPRE en cliente_texto (aunque salga en el título); «visita con el de Maderas Oria» → cliente_texto «el de Maderas Oria»' },
+  CITA_CREAR: { que: 'Crear una cita o recordatorio en la agenda.', ejemplo: '«visita mañana a las 10 con Ane» → titulo_texto «Visita con Ane», cliente_texto «Ane», fecha_texto «mañana», hora_texto «a las 10». La persona con quien es la cita va SIEMPRE en cliente_texto (aunque salga en el título); si queda con una EMPRESA o proveedor («he quedado con los de Saneamientos en el tejado de Josu») → proveedor_texto «Saneamientos», cliente_texto «Josu», obra_texto «el tejado de Josu»; «a primera hora» → hora_texto «a primera hora» (el sistema pregunta la hora exacta); «visita con el de Maderas Oria» → cliente_texto «el de Maderas Oria»' },
   CITA_MOVER: { que: 'Mover una cita que ya existe a otro día u hora.', ejemplo: '«pasa lo de Mikel al viernes a la misma hora» → evento_texto «Mikel», fecha_texto «el viernes»' },
   CITA_BORRAR: { que: 'Borrar una cita (solo si lo pide claramente).', ejemplo: '«borra la cita de Mikel» → evento_texto «Mikel»' },
   CONSULTA_AGENDA: { que: 'Preguntar qué hay en la agenda en un rango de días.', ejemplo: '«¿qué tengo esta semana?» → rango_texto «esta semana»' },
@@ -389,7 +391,7 @@ const DESCRIPCION_CAMPO: Record<string, string> = {
   nombre_texto: 'El nombre tal como lo dijo («Jon PRUEBA Arrieta», «Reforma baño Ane»).',
   cliente_texto: 'El cliente tal como lo dijo («Paqui», «Mikel Etxeberria»).',
   obra_texto: 'La obra tal como la nombró, completa («Paqui», «lo de Leire», «Olabide 9», «el baño de Unai»).',
-  proveedor_texto: 'El proveedor o tienda tal como lo dijo («Saltoki»). Si no nombra tienda pero dice qué compró («85 de material»), pon esa palabra («Material»).',
+  proveedor_texto: 'El proveedor o tienda tal como lo dijo («Saltoki»). Si no nombra tienda pero dice qué compró («85 de material»), pon esa palabra («Material»). En una CITA: la empresa con quien queda («los de Saneamientos»).',
   operario_texto: 'La persona tal como la dijo, con su oficio si lo dijo («Iker», «Aitor el pintor»). No quites el oficio.',
   presupuesto_texto:
     'RELLÉNALO SIEMPRE que el usuario hable de un presupuesto, copiando la referencia tal cual: «el 11» → «11»; «el presupuesto de Paqui» / «en el de Paqui» → «Paqui»; si dice número Y nombre («el presu 7 de Mikel», «la factura 3 de Paqui») pon SOLO el número («7», «3»): el número manda; «ese», «ese presu», «el último» → «ese». Si el mensaje no dice cuál, pon «ese» (nunca un número que no esté en el mensaje).',
@@ -457,6 +459,19 @@ function objetoEstricto(js: JS): JS {
   return { type: 'object', properties: out, required: Object.keys(out), additionalProperties: false };
 }
 
+/**
+ * Nombres que ve el MODELO para los tipos que más se confunden (un nombre que se explica solo elige mejor que «DICTADO» o «FACTURAR»).
+ * Dentro del código siguen los nombres de siempre: `normalizarAccionPublica` deshace el alias.
+ */
+const ALIAS_MODELO: Partial<Record<NombreAccion, string>> = {
+  PRESUPUESTO_DICTADO: 'PRESUPUESTO_NUEVO_CON_PARTIDAS_DICTADAS',
+  PRESUPUESTO_PARTIDAS: 'EDITAR_PRESUPUESTO_EXISTENTE_PARTIDAS',
+  FACTURAR: 'FACTURA_DESDE_PRESUPUESTO_O_ALBARAN_EXISTENTE',
+  CREAR_FACTURA: 'FACTURA_LIBRE_CON_CLIENTE_E_IMPORTE',
+};
+const DESDE_ALIAS = Object.fromEntries(Object.entries(ALIAS_MODELO).map(([k, v]) => [v, k])) as Record<string, NombreAccion>;
+export const nombreParaModelo = (a: NombreAccion): string => ALIAS_MODELO[a] ?? a;
+
 /** Acciones que ve el modelo: `CONSULTA_OBRA` no está (es CONSULTA_OBRAS con `obra_texto`). */
 export function accionesDelModelo(acciones: NombreAccion[]): NombreAccion[] {
   const l = new Set<NombreAccion>([...acciones, 'ACLARAR', 'CHARLA']);
@@ -469,12 +484,12 @@ export function jsonSchemaAccion(acciones: NombreAccion[]): JS {
   return {
     type: 'object',
     properties: {
-      accion: { type: 'string', enum: accionesDelModelo(acciones), description: 'El tipo de orden que pide el usuario.' },
+      accion: { type: 'string', enum: accionesDelModelo(acciones).map(nombreParaModelo), description: 'El tipo de orden que pide el usuario.' },
       continua_tarea: { type: ['boolean', 'null'], description: 'true solo si corrige o completa la TAREA EN CURSO o la orden PENDIENTE; si no, null.' },
       otras_acciones: {
         type: ['array', 'null'],
-        items: { type: 'string', enum: accionesDelModelo(acciones).filter((a) => a !== 'ACLARAR' && a !== 'CHARLA') },
-        description: 'Solo si el mensaje pide VARIAS cosas de tipos DISTINTOS: los tipos de las demás, en orden. Varias personas en horas = una sola HORAS. Si no, null.',
+        items: { type: 'string', enum: accionesDelModelo(acciones).filter((a) => a !== 'ACLARAR' && a !== 'CHARLA').map(nombreParaModelo) },
+        description: 'Solo si el mensaje pide VARIAS cosas: los tipos de las demás, en el orden en que las dice (repite el tipo si hay dos del mismo: dos obras, dos gastos). Varias personas en horas = una sola HORAS. Si no, null.',
       },
     },
     required: ['accion', 'continua_tarea', 'otras_acciones'],
@@ -495,7 +510,7 @@ export function jsonSchemaCampos(accion: NombreAccion): JS | null {
 
 /** Nombre de acción que viene del modelo → un `NombreAccion` válido (o null). */
 export function normalizarAccionPublica(v: unknown): NombreAccion | null {
-  const a = normalizarCrudo({ accion: v }).accion;
+  const a = normalizarCrudo({ accion: typeof v === 'string' && DESDE_ALIAS[v] ? DESDE_ALIAS[v] : v }).accion;
   return esAccion(a) ? a : null;
 }
 

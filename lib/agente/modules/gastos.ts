@@ -959,6 +959,25 @@ export async function handleGastosAgent(
       const ivaR = r2Gasto(ivaFinal);
       const importeTotalR = r2Gasto(importeTotalFinal);
 
+      // Antiduplicados: solo es duplicado si coinciden proveedor, fecha, importe Y obra (y el concepto no es otro). Se AVISA antes del «Sí».
+      const duplicadoExistente = async (): Promise<{ id: string; descripcion: string | null } | null> => {
+        const { data: cand } = await supabase
+          .from('gastos')
+          .select('id, importe_total, obra_id, descripcion')
+          .eq('business_id', businessIdGasto)
+          .eq('proveedor', proveedorNombre)
+          .eq('fecha', fecha);
+        const normTxt = (t: unknown) => String(t ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 4);
+        const mias = normTxt(descripcionFinal);
+        const g = ((cand ?? []) as Array<{ id: string; importe_total?: unknown; obra_id?: string | null; descripcion?: string | null }>).find((x) => {
+          if (r2Gasto(Number(x.importe_total ?? 0)) !== importeTotalR) return false;
+          if (String(x.obra_id ?? '') !== String(obraIdFinal ?? '')) return false; // otra obra = otro gasto
+          const suyas = normTxt(x.descripcion);
+          return !(mias.length && suyas.length && !mias.some((w) => suyas.includes(w))); // conceptos sin nada en común = otro gasto
+        });
+        return g ? { id: g.id, descripcion: g.descripcion ?? null } : null;
+      };
+
       const soloVistaGasto = toolArgs.solo_vista_previa === true;
       if (soloVistaGasto) {
         const lineas = [
@@ -989,6 +1008,7 @@ export async function handleGastosAgent(
           const nombreCli = String((cliRow as { nombre?: string | null } | null)?.nombre ?? '').trim();
           if (nombreCli) lineas.push(`• Cliente: ${nombreCli}`);
         }
+        if (await duplicadoExistente()) lineas.push('⚠️ Ojo: ya hay un gasto igual (mismo proveedor, fecha, importe y obra). Si es el mismo, no lo confirmes; si es otro, confirma y se guarda igualmente.');
         return {
           mensaje: lineas.join('\n'),
           pendiente_confirmacion: true,
@@ -1009,25 +1029,15 @@ export async function handleGastosAgent(
         };
       }
 
-      const { data: candidatosDup, error: dupErr } = await supabase
-        .from('gastos')
-        .select('id, importe_total')
-        .eq('business_id', businessIdGasto)
-        .eq('proveedor', proveedorNombre)
-        .eq('fecha', fecha);
-
-      if (dupErr) {
-        return { error: dupErr.message };
-      }
-
-      const duplicado = (candidatosDup ?? []).some(
-        (g) => r2Gasto(Number((g as { importe_total?: unknown }).importe_total ?? 0)) === importeTotalR
-      );
-      if (duplicado) {
-        return {
-          mensaje: `Ya hay un gasto el ${fecha} para «${proveedorNombre}» con el mismo importe total (${importeTotalR.toFixed(2)} €). No se ha vuelto a insertar para evitar duplicados.`,
-          duplicado_evitado: true,
-        };
+      // Confirmado tras ver la vista previa (con su aviso de posible duplicado): se guarda. Sin vista previa, se protege.
+      if (toolArgs._resuelto !== true) {
+        const dup = await duplicadoExistente();
+        if (dup) {
+          return {
+            mensaje: `Ya hay un gasto el ${fecha} para «${proveedorNombre}» con el mismo importe total (${importeTotalR.toFixed(2)} €) y la misma obra. No se ha vuelto a insertar para evitar duplicados.`,
+            duplicado_evitado: true,
+          };
+        }
       }
 
       const filaGasto = {

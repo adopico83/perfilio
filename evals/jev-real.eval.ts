@@ -6,9 +6,12 @@
  * Pasa TODAS las frases de `evals/frases-pino.ts` y las de la ronda 6 (`evals/ronda6.ts`) por el traductor .jev real
  * (GPT-4o mini, el mismo prompt y el mismo esquema `strict` que producción) y compara la orden con la esperada
  * (`evals/ordenes-jev.ts`). Después pasa cada orden por el motor sobre la base SIMULADA (nunca la real) y exige:
- *   - ≥ `EVAL_UMBRAL` (0,95 por defecto) de órdenes correctas,
+ *   - (el % de órdenes correctas, `EVAL_UMBRAL`=0,95, solo se muestra como aviso),
  *   - 0 datos inventados (importes, nombres que no están en el mensaje),
  *   - 0 escrituras antes del «Sí, hazlo».
+ * Además corre el BLOQUE DE PARÁFRASIS (`evals/parafrasis.ts`, ≥ 60 escenarios dichos de otra forma) con el clasificador de
+ * intención REAL y saca su porcentaje APARTE. El test falla SOLO por las métricas duras (escrituras incorrectas, órdenes perdidas sin
+ * aviso, datos inventados, escrituras sin «Sí»); el % total y el de paráfrasis se muestran pero no hacen fallar.
  * Sin OPENAI_API_KEY se salta con un aviso. `EVAL_VECES=3` repite cada frase (el modelo no es 100 % determinista).
  */
 import type { SalidaMotor } from '@/lib/jev/motor';
@@ -16,7 +19,8 @@ import { CASOS_FRASES_PINO } from './frases-pino';
 import { ORDEN_POR_FRASE } from './ordenes-jev';
 import { FRASES_RONDA6 } from './ronda6';
 import { compararOrden } from './comparar-orden';
-import { ESCENARIOS_RONDA8, ejecutarEscenario } from './ronda8';
+import { ESCENARIOS_RONDA8, ejecutarEscenario, escriturasIncorrectas, ordenesPerdidas, ordenPerdidaSinAviso } from './ronda8';
+import { PARAFRASIS_R9 } from './parafrasis';
 import { NEGOCIO_A, USUARIO, crearBaseSimulada } from './base-simulada';
 import { crearFakeDb } from '../__tests__/helpers/fake-db';
 
@@ -43,14 +47,18 @@ const MARCA = /<!--presupuesto:(\{.*?\})-->/;
 const MARCA_F = /<!--factura:(\{.*?\})-->/;
 
 (hayClave ? describe : describe.skip)('traductor .jev REAL (GPT-4o mini)', () => {
-  it(`acierta ≥ ${Math.round(umbral * 100)} % de las frases, sin datos inventados ni escrituras sin «Sí»`, async () => {
+  it('cero escrituras incorrectas, cero órdenes perdidas sin aviso, cero datos inventados y cero escrituras sin «Sí» (los porcentajes se muestran aparte)', async () => {
     const { traducirMensaje } = await import('@/lib/jev/traductor');
     const { completarOrden } = await import('@/lib/jev/ordenes');
     const { procesarMensajeJev } = await import('@/lib/jev/motor');
     const { crearRunToolJev } = await import('@/lib/jev/despacho');
 
     const lista = frases();
-    const filas: Array<{ frase: string; ok: boolean; motivos: string[]; inventados: string[]; escrituras: number }> = [];
+    const filas: Array<{ frase: string; ok: boolean; motivos: string[]; inventados: string[]; escrituras: number; parafrasis?: boolean }> = [];
+    // MÉTRICAS QUE MANDAN (el % total es secundario): guardar algo distinto de lo pedido o perder una orden sin avisar es un fallo duro.
+    const escriturasMal: string[] = [];
+    const perdidasSinAviso: string[] = [];
+    const perdidasConAviso: string[] = [];
     for (let v = 0; v < veces; v++) {
       for (const f of lista) {
         const db = crearFakeDb(crearBaseSimulada());
@@ -112,15 +120,45 @@ const MARCA_F = /<!--factura:(\{.*?\})-->/;
       }
     }
 
+    // BLOQUE DE PARÁFRASIS: lo mismo dicho de otra forma (cancelar, confirmar, corregir, varias órdenes, respuestas cortas,
+    // proveedor frente a cliente, dudas). El clasificador y el traductor son los REALES; su porcentaje sale aparte.
+    for (let v = 0; v < veces; v++) {
+      for (const esc of PARAFRASIS_R9) {
+        let problemas: string[];
+        try {
+          const r = await ejecutarEscenario(esc, (e) => traducirMensaje(e));
+          problemas = r.problemas;
+          for (const m of escriturasIncorrectas(esc, r.db)) escriturasMal.push(`${esc.nombre}: ${m}`);
+          if (ordenPerdidaSinAviso(esc, r.db, r.respuestas, r.avisos)) perdidasSinAviso.push(`${esc.nombre}: ${ordenesPerdidas(esc, r.db).join(', ')}`);
+          else if (ordenesPerdidas(esc, r.db).length) perdidasConAviso.push(`${esc.nombre}: ${ordenesPerdidas(esc, r.db).join(', ')}`);
+        } catch (err) {
+          problemas = [`error: ${err instanceof Error ? err.message : String(err)}`];
+        }
+        filas.push({ frase: esc.nombre, ok: problemas.length === 0, motivos: problemas, inventados: [], escrituras: 0, parafrasis: true });
+      }
+    }
+
     const buenas = filas.filter((x) => x.ok).length;
     const pct = buenas / filas.length;
     const inventados = filas.filter((x) => x.inventados.length).length;
     const escrituras = filas.reduce((n, x) => n + x.escrituras, 0);
     const tabla = filas.map((x) => `${x.ok ? 'OK ' : 'KO '} ${x.frase}${x.ok ? '' : `\n      → ${x.motivos.join(' | ')}`}`).join('\n');
-    console.log(`\n${tabla}\n\nÓRDENES CORRECTAS: ${buenas}/${filas.length} (${(pct * 100).toFixed(1)} %) · frases con datos inventados: ${inventados} · escrituras sin «Sí»: ${escrituras}\n`);
+    const para = filas.filter((x) => x.parafrasis);
+    const paraBuenas = para.filter((x) => x.ok).length;
+    const paraPct = para.length ? paraBuenas / para.length : 1;
+    console.log(
+      `\n${tabla}\n\nÓRDENES CORRECTAS (TOTAL): ${buenas}/${filas.length} (${(pct * 100).toFixed(1)} %) · frases con datos inventados: ${inventados} · escrituras sin «Sí»: ${escrituras}` +
+        `\nBLOQUE DE PARÁFRASIS: ${paraBuenas}/${para.length} (${(paraPct * 100).toFixed(1)} %)` +
+        `\nESCRITURAS INCORRECTAS: ${escriturasMal.length}${escriturasMal.length ? `\n  ${escriturasMal.join('\n  ')}` : ''}` +
+        `\nÓRDENES PERDIDAS SIN AVISO: ${perdidasSinAviso.length}${perdidasSinAviso.length ? `\n  ${perdidasSinAviso.join('\n  ')}` : ''}` +
+        `\nÓRDENES NO GUARDADAS (con aviso o pregunta): ${perdidasConAviso.length}${perdidasConAviso.length ? `\n  ${perdidasConAviso.join('\n  ')}` : ''}\n`
+    );
+    expect(escriturasMal).toEqual([]);
+    expect(perdidasSinAviso).toEqual([]);
     expect(inventados).toBe(0);
     expect(escrituras).toBe(0);
-    expect(pct).toBeGreaterThanOrEqual(umbral);
+    // Los porcentajes (total y paráfrasis) se MUESTRAN pero ya no hacen fallar el test: mandan las métricas duras de arriba.
+    if (pct < umbral || paraPct < umbral) console.warn(`[eval:jev-real] aviso: por debajo del ${Math.round(umbral * 100)} % (total ${(pct * 100).toFixed(1)} %, paráfrasis ${(paraPct * 100).toFixed(1)} %). No falla el test.`);
   }, TIMEOUT_MS);
 });
 

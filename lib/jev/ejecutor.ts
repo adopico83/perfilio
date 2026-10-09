@@ -22,7 +22,7 @@ import {
   type Opcion,
   type Resuelto,
 } from '@/lib/jev/resolvedores';
-import { horasApareceEnTexto, importeApareceEnTexto, parseHorasTexto, parseImporteTexto, resolverFechaFutura, resolverFechaPasada, resolverHoraTexto, resolverRangoTexto } from '@/lib/jev/fechas';
+import { horasApareceEnTexto, importeApareceEnTexto, minutosRelativos, parseHorasTexto, parseImporteTexto, sumarMinutosHora, tramoHorasEnTexto, resolverFechaFutura, resolverFechaPasada, resolverHoraTexto, resolverRangoTexto } from '@/lib/jev/fechas';
 import { prepararAccionPendiente } from '@/lib/agente/confirmacion';
 import { corregirPartidasConDictado, validarPartidasContraDictado, type PartidaPresupuesto } from '@/lib/dictado-presupuesto';
 import { descripcionDelMensaje, modoIvaDelMensaje } from '@/lib/gastos-iva';
@@ -32,6 +32,7 @@ import { raizPalabra } from '@/lib/presupuestos/editar-partidas';
 import { datosExtraProveedor } from '@/lib/agente/confirmacion';
 import { generarLinkMaps } from '@/lib/maps';
 import { ymdHoyMadrid } from '@/lib/fechas-madrid';
+import { validarRoles } from '@/lib/jev/roles';
 
 export type CtxEjecutor = {
   supabase: SupabaseClient;
@@ -228,6 +229,12 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
   const dichos = ctx.mensajes;
   const todo = dichos.join('\n');
 
+  // CONTRATO DE ROLES: cada nombre tiene que estar del lado de la base de datos que pide su hueco (cliente / proveedor). Si no, no se prepara nada.
+  if (!ctx.modoMcp && !ctx.resueltos.cliente && !ctx.resueltos.proveedor) {
+    const fuera = await validarRoles(orden as Record<string, unknown>, ctx);
+    if (fuera) return pregunta(fuera, 'rol');
+  }
+
   switch (orden.accion) {
     case 'ACLARAR':
       return pregunta(orden.pregunta);
@@ -241,11 +248,15 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
       const filas = (data ?? []) as Array<{ id: string; nombre: string | null }>;
       const exacto = filas.find((c) => norm(String(c.nombre ?? '')) === norm(nombre));
       if (exacto) return texto(`Ya tienes un cliente llamado «${exacto.nombre}» (exactamente igual). No he creado otro. Si es otra persona, dime un nombre distinto.`);
+      // Parecido = todas las palabras de uno están en el otro (cualquier orden) o comparten dos. «Josu» ya está en «Josu PRUEBA Etxaniz».
+      const palabrasDe = (t: string) => norm(t).split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 3);
       const parecidos = filas
         .filter((c) => {
-          const a = new Set(norm(nombre).split(' '));
-          const b = norm(String(c.nombre ?? '')).split(' ');
-          return b.filter((w) => a.has(w)).length >= 2 && b.length > 0;
+          const a = palabrasDe(nombre);
+          const b = palabrasDe(String(c.nombre ?? ''));
+          if (!a.length || !b.length) return false;
+          const comunes = a.filter((w) => b.includes(w)).length;
+          return comunes >= 2 || comunes === a.length || comunes === b.length;
         })
         .map((c) => String(c.nombre))
         .slice(0, 3);
@@ -261,7 +272,7 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
         ctx,
         'crear_cliente',
         args,
-        `Voy a crear el cliente «${nombre}»${extra ? ` (${extra})` : ''}.${parecidos.length ? `\nℹ️ Ojo: ya hay clientes con un nombre parecido (${parecidos.join(', ')}). Se crea uno NUEVO.` : ''}`
+        `Voy a crear el cliente «${nombre}»${extra ? ` (${extra})` : ''}.${parecidos.length ? `\n⚠️ Ya hay clientes con un nombre parecido (${parecidos.join(', ')}). Si es el mismo, NO lo crees otra vez: dímelo y uso el que ya tienes. Si confirmas, se crea uno NUEVO.` : ''}`
       );
     }
     case 'ACTUALIZAR_CLIENTE': {
@@ -412,9 +423,16 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
         if (suma) {
           const n = num(suma.replace(/^\s*-/, ''), 'la cantidad a sumar');
           if (!n.ok) return n.r;
-          o.sumar_cantidad = /^\s*-/.test(suma) ? -n.n : n.n;
+          // «réstale 10 metros», «quita 10», «10 metros menos»: es un delta NEGATIVO aunque el modelo se olvide del signo.
+          const negativa = /\b(?:restale|resta|restar|quitale|quita|quitar|menos|bajale|reducele|reduce|descuentale)\b/.test(dichoNorm) && !/\b(?:mas|anade|anadele|suma|sumale|otros?|otras?|incrementa|sube)\b/.test(dichoNorm);
+          o.sumar_cantidad = /^\s*-/.test(suma) || negativa ? -Math.abs(n.n) : n.n;
         }
-        if (val(c.precio_texto)) { const n = num(c.precio_texto, 'el precio'); if (!n.ok) return n.r; o.precio_unitario = n.n; }
+        // Un precio que el usuario NO dijo no se rellena nunca: si hay otro cambio (cantidad, delta, nombre) se descarta; si era el único, se pregunta.
+        if (val(c.precio_texto)) {
+          const pn = parseImporteTexto(c.precio_texto);
+          if (pn != null && importeApareceEnTexto(pn, dichos)) o.precio_unitario = pn;
+          else if (!cant && !suma && !val(c.nuevo_nombre_texto)) return pregunta(`No veo el precio (${c.precio_texto}) en lo que me has dicho. ¿Cuál es?`, 'cantidad');
+        }
         if (val(c.nuevo_nombre_texto)) o.nuevo_concepto = val(c.nuevo_nombre_texto);
         cambiar.push(o);
       }
@@ -480,6 +498,8 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
         if (!alb.ok) return alb.resultado;
         return cerrar(ctx, 'convertir_albaran_a_factura', { albaran_id: alb.id }, '', true);
       }
+      // Nunca se ELIGE un presupuesto: sale de lo que se nombró (número o cliente) o de «ese» con un presupuesto tratado de verdad en la conversación.
+      if (!val(orden.presupuesto_texto) && !ctx.ultimoPresupuestoId) return pregunta('¿De qué presupuesto quieres la factura? Dime el número o el cliente.', 'presupuesto');
       const ref = val(orden.presupuesto_texto) || 'ese';
       const pres = await slot(ctx, 'presupuesto', ref, () => resolverPresupuesto(ctx, ref));
       if (!pres.ok) return pres.resultado;
@@ -511,7 +531,7 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
       const obra = await slot(ctx, 'obra', orden.obra_texto, () => resolverObra(ctx, orden.obra_texto));
       if (!obra.ok) return obra.resultado;
       const f = resolverFechaPasada(orden.fecha_texto, ctx.ahora);
-      if (!f.ok) return texto(f.error);
+      if (!f.ok) return pregunta(f.error, 'fecha');
       const { data: filaObra } = await ctx.supabase.from('obras').select('direccion').eq('id', obra.id).eq('business_id', ctx.businessId).maybeSingle();
       const dirObra = String((filaObra as { direccion?: string | null } | null)?.direccion ?? '').trim();
       const args: Record<string, unknown> = { obra_id: obra.id, obra_nombre: obra.etiqueta, texto: orden.texto.trim(), ...(dirObra ? { obra_direccion: dirObra } : {}) };
@@ -531,11 +551,13 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
       if (horas == null || horas <= 0 || horas > 24 || !horasApareceEnTexto(horas, dichos)) {
         return pregunta(`No veo cuántas horas son (${orden.horas_texto}). ¿Cuántas horas fueron?`, 'horas');
       }
+      const tr = tramoHorasEnTexto(`${orden.horas_texto} ${todo}`);
+      const detalleTramo = tr && Math.abs(tr.horas - horas) < 0.01 ? ` (de ${tr.desde} a ${tr.hasta}${tr.descanso ? `, descontando ${tr.descanso} min` : ''})` : '';
       const f = resolverFechaPasada(orden.fecha_texto, ctx.ahora);
-      if (!f.ok) return texto(f.error);
+      if (!f.ok) return pregunta(f.error, 'fecha');
       const args = { operario_nombre: op.etiqueta, obra_id: obra.id, horas_reales: horas, horas_convenio: horas, fecha: f.ymd, ...(val(orden.notas_texto) ? { notas: val(orden.notas_texto) } : {}) };
       const cliH = await clienteDeObra(ctx, obra.id);
-      return cerrar(ctx, 'registrar_jornada', args, `Voy a apuntar ${String(horas).replace('.', ',')} h a ${op.etiqueta} en la obra «${obra.etiqueta}» (cliente: ${cliH || '—'}) (${f.ymd === hoy ? 'hoy' : f.ymd}).`);
+      return cerrar(ctx, 'registrar_jornada', args, `Voy a apuntar ${String(horas).replace('.', ',')} h${detalleTramo} a ${op.etiqueta} en la obra «${obra.etiqueta}» (cliente: ${cliH || '—'}) (${f.ymd === hoy ? 'hoy' : f.ymd}).`);
     }
     case 'GASTO': {
       const n = parseImporteTexto(orden.importe_texto);
@@ -613,7 +635,7 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
         }
       }
       const f = resolverFechaPasada(orden.fecha_texto, ctx.ahora);
-      if (!f.ok) return texto(f.error);
+      if (!f.ok) return pregunta(f.error, 'fecha');
       const descripcion = val(orden.descripcion_texto) || descripcionDelMensaje(todo, provNombre);
       const categoria = orden.categoria ?? 'material';
       const args = {
@@ -689,8 +711,23 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
           obraNombre = obras[0]!.nombre;
         }
       }
+      // La obra de la cita pertenece a un cliente: si no se dijo (o no se pudo resolver), la cita se vincula a ese cliente.
+      if (obraId && !clienteId) {
+        const { data: filaObra } = await ctx.supabase.from('obras').select('cliente_id').eq('id', obraId).eq('business_id', ctx.businessId).maybeSingle();
+        const cid = (filaObra as { cliente_id?: string | null } | null)?.cliente_id;
+        if (cid) {
+          const { data: c } = await ctx.supabase.from('clientes').select('nombre').eq('id', cid).eq('business_id', ctx.businessId).maybeSingle();
+          clienteId = cid;
+          clienteNombre = String((c as { nombre?: string | null } | null)?.nombre ?? '');
+        }
+      }
+      // «he quedado con los de <proveedor> en el tejado de Josu»: el proveedor va en la nota; el cliente es el de la obra.
+      if (val(orden.proveedor_texto) && !conProveedor) {
+        const prov = await resolverProveedor(ctx, val(orden.proveedor_texto).replace(/^(?:los|las|el|la)\s+(?:de|del)\s+/i, ''));
+        conProveedor = prov.status === 'one' ? `${prov.nombre}${prov.telefono ? ` (tel. ${prov.telefono})` : ''}` : val(orden.proveedor_texto);
+      }
       const f = resolverFechaFutura(orden.fecha_texto, ctx.ahora, { permitirPasado: ctx.modoMcp === true });
-      if (!f.ok) return texto(f.error);
+      if (!f.ok) return pregunta(f.error, 'fecha');
       if (!val(orden.hora_texto)) return pregunta('¿A qué hora?', 'hora');
       const h = resolverHoraTexto(orden.hora_texto);
       if (!h.ok) return pregunta(h.error, 'hora');
@@ -719,11 +756,27 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
       return cerrar(ctx, 'crear_recordatorio', args, resumen);
     }
     case 'CITA_MOVER': {
-      const hDicha = val(orden.hora_texto) ? resolverHoraTexto(orden.hora_texto) : null;
-      if (hDicha && !hDicha.ok) return pregunta(hDicha.error, 'hora');
-      if (!val(orden.fecha_texto) && !hDicha) return pregunta('¿A qué día o a qué hora la paso?', 'fecha');
+      if (!val(orden.fecha_texto) && !val(orden.hora_texto)) return pregunta('¿A qué día o a qué hora la paso?', 'fecha');
       const ev = await slot(ctx, 'evento', orden.evento_texto, () => resolverEvento(ctx, orden.evento_texto, null, hoy));
       if (!ev.ok) return ev.resultado;
+      // La hora puede ser relativa a la de la cita («una hora más tarde», «media hora antes»).
+      let hDicha: ReturnType<typeof resolverHoraTexto> | null = null;
+      if (val(orden.hora_texto)) {
+        const rel = minutosRelativos(orden.hora_texto);
+        if (rel != null) {
+          let horaCita = String((ev.extra as { hora?: unknown } | undefined)?.hora ?? '');
+          if (!horaCita) {
+            const { data } = await ctx.supabase.from('agenda').select('hora').eq('id', ev.id).eq('business_id', ctx.businessId).maybeSingle();
+            horaCita = String((data as { hora?: string | null } | null)?.hora ?? '');
+          }
+          const nueva = horaCita ? sumarMinutosHora(horaCita, rel) : null;
+          if (!nueva) return pregunta('¿A qué hora exacta la paso? No puedo calcularla a partir de la hora actual de la cita.', 'hora');
+          hDicha = { ok: true, hora: nueva };
+        } else {
+          hDicha = resolverHoraTexto(orden.hora_texto);
+        }
+        if (!hDicha.ok) return pregunta(hDicha.error, 'hora');
+      }
       // Un día de la semana suelto («al jueves») se cuenta desde la fecha ACTUAL DE LA CITA (el jueves siguiente a ese
       // día), no desde hoy. «Mañana», «hoy», fechas concretas y «el 15» siguen contando desde hoy.
       let fDicha: ReturnType<typeof resolverFechaFutura> | null = null;
@@ -745,7 +798,7 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
             if (desdeCita.ok) fDicha = desdeCita;
           }
         }
-        if (!fDicha.ok) return texto(fDicha.error);
+        if (!fDicha.ok) return pregunta(fDicha.error, 'fecha');
       }
       const args: Record<string, unknown> = { evento_id: ev.id };
       if (fDicha?.ok) args.nueva_fecha = fDicha.ymd;
@@ -817,7 +870,22 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
     }
     case 'CREAR_FACTURA': {
       const cli = await slot(ctx, 'cliente', orden.cliente_texto, () => resolverCliente(ctx, orden.cliente_texto));
-      if (!cli.ok) return cli.resultado;
+      if (!cli.ok) {
+        // «factura de <proveedor que existe>» es una factura RECIBIDA: un GASTO, no una factura emitida a un cliente.
+        const r = cli.resultado;
+        if (r.tipo === 'pregunta' && r.alta) {
+          const prov = await resolverProveedor(ctx, orden.cliente_texto);
+          if (prov.status === 'one') {
+            const g = await prepararOrden(
+              { accion: 'GASTO', proveedor_texto: orden.cliente_texto, importe_texto: orden.importe_texto, iva_modo: orden.iva_modo, obra_texto: orden.obra_texto, descripcion_texto: orden.descripcion_texto } as OrdenJev,
+              ctx
+            );
+            if (g.tipo === 'pendiente') g.resumen = `ℹ️ «${prov.nombre}» es un proveedor tuyo: lo registro como GASTO (factura recibida), no como factura emitida a un cliente.\n${g.resumen}`;
+            return g;
+          }
+        }
+        return r;
+      }
       const n = parseImporteTexto(orden.importe_texto);
       if (n == null || n <= 0) return pregunta(`No entiendo el importe «${orden.importe_texto}». ¿Cuánto es la factura?`, 'importe');
       if (!importeApareceEnTexto(n, dichos)) return pregunta(`No veo el importe ${n} en lo que me has dicho. ¿Cuánto es la factura?`, 'importe');
@@ -839,6 +907,15 @@ export async function prepararOrden(orden: OrdenJev, ctx: CtxEjecutor): Promise<
         if (!o.ok) return o.resultado;
         obraId = o.id;
         obraNombre = o.etiqueta;
+      } else if (orden.sin_obra !== 'si' && val(orden.descripcion_texto)) {
+        // El concepto nombra una obra de ESE cliente («revisión del tejado» con Josu → su obra del tejado): se propone (se ve en el resumen).
+        const { data: obrasCli } = await ctx.supabase.from('obras').select('id, nombre').eq('business_id', ctx.businessId).eq('cliente_id', cli.id);
+        const pals = norm(val(orden.descripcion_texto)).split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 4).map(raizPalabra);
+        const coinc = ((obrasCli ?? []) as Array<{ id: string; nombre: string | null }>).filter((o) => norm(String(o.nombre ?? '')).split(/[^a-z0-9ñ]+/).map(raizPalabra).some((w) => w.length >= 4 && pals.includes(w)));
+        if (coinc.length === 1) {
+          obraId = coinc[0]!.id;
+          obraNombre = String(coinc[0]!.nombre ?? '');
+        }
       }
       const concepto = val(orden.descripcion_texto) || 'Trabajos realizados';
       return cerrar(

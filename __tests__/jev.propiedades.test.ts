@@ -1,3 +1,4 @@
+import { clasificadorSimulado } from './helpers/clasificador-simulado';
 import { crearFakeDb } from './helpers/fake-db';
 import { MARTES, baseRonda5, sesion } from './helpers/jev-sesion';
 import { IDS, NEGOCIO_A, NEGOCIO_B, USUARIO } from '../evals/base-simulada';
@@ -44,6 +45,7 @@ describe('PROPIEDAD: para toda orden confirmada, lo ejecutado == lo mostrado', (
     };
     const sesionEspia = (mensaje: string, orden: OrdenJev) =>
       procesarMensajeJev({
+        clasificar: async (e) => clasificadorSimulado(e),
         supabase: db.client, businessId: NEGOCIO_A, userId: USUARIO, mensaje, categoria: 'general', hoyTexto: 'martes', ahora: new Date(MARTES), runTool,
         traducir: async () => ({ orden, continuaTarea: false }),
       });

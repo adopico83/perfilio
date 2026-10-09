@@ -5,6 +5,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { OrdenCruda, OrdenJev } from '@/lib/jev/ordenes';
+import type { PlanCola } from '@/lib/jev/cola';
 
 const TABLA = 'jev_ordenes_pendientes';
 const MINUTOS_PENDIENTE = 30;
@@ -17,6 +18,8 @@ export type AccionResuelta = {
   mensajes?: string[];
   /** Órdenes que el usuario pidió en la misma frase o que hay que retomar después de esta («hago primero X; luego te pregunto Y»). */
   siguientes?: OrdenCruda[];
+  /** Estado de cada orden de la frase (en_cola / enseñada / hecha): una repetida no se prepara ni se guarda dos veces. */
+  plan?: PlanCola;
 };
 
 export type OrdenPendiente = {
@@ -45,6 +48,7 @@ export type EstadoTarea = {
   } | null;
   /** Órdenes que quedan por preparar tras esta (misma frase) o tras guardar un dato pedido. */
   siguientes?: OrdenCruda[];
+  plan?: PlanCola;
 };
 
 /** La orden de una tarea puede estar a medias (faltan datos): por eso es la orden cruda, que se completa con `completarOrden`. */

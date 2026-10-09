@@ -79,6 +79,7 @@ import {
 } from '@/lib/agente/modules/calculo';
 import { cancelarOrdenJev, confirmarOrdenJev, procesarMensajeJev } from '@/lib/jev/motor';
 import { crearPendiente } from '@/lib/jev/pendientes';
+import { marcaOrden, sanearCharla } from '@/lib/jev/dialogo';
 import { applyPerfilioGuardrails } from '@/lib/agente/guardrails';
 import { modeloAgente, parametrosGeneracion } from '@/lib/agente/modelo';
 import {
@@ -1157,7 +1158,8 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
 
     // Un «sí» escrito sin confirmación pendiente (el botón ya lo gestiona `confirmar_accion`) no lanza otra
     // acción: si el asistente no había preguntado nada, se contesta que no hay nada pendiente.
-    const afirmacionSuelta = esAfirmacionSuelta(mensajeTrim) && !hasBorradorActivo;
+    // Solo para el camino antiguo (AGENTE_MOTOR=legacy): con el motor .jev la intención la decide el clasificador.
+    const afirmacionSuelta = !motorJev && esAfirmacionSuelta(mensajeTrim) && !hasBorradorActivo;
     if (afirmacionSuelta && !asistentePreguntoAlgo(ultimoAsistenteHistorial?.content)) {
       return NextResponse.json({ respuesta: MENSAJE_NADA_PENDIENTE, email_pendiente: null, canvas: null, obra_modal: null });
     }
@@ -1508,10 +1510,13 @@ Al inicio de tu respuesta, antes de atender lo que pide el usuario, empieza con 
         accion: { tool: accionPendiente.tool, args: accionPendiente.args },
         resumen: accionPendiente.resumen,
       });
+      if (guardada.ok) respuesta += marcaOrden(guardada.id);
       accionPendiente = guardada.ok
         ? ({ tool: accionPendiente.tool, args: {}, resumen: accionPendiente.resumen, orden_id: guardada.id } as unknown as AccionPendiente)
         : null;
     }
+    // La charla (modelo sin herramientas) nunca puede simular una confirmación: sin orden pendiente real no puede decir «¿Lo hago?».
+    if (motorJev && !accionPendiente) respuesta = sanearCharla(respuesta);
 
     return NextResponse.json({
       respuesta,

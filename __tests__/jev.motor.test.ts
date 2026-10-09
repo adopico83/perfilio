@@ -117,8 +117,11 @@ describe('jev: mover «al jueves» (fallo 4) y «el lunes» tras una corrección
     const a = await s.di('cita con Mikel el lunes a las 5', { accion: 'CITA_CREAR', cliente_texto: 'Mikel PRUEBA Etxeberria', fecha_texto: 'el lunes', hora_texto: '17:00' });
     expect(a.accionPendiente).toBeDefined();
     // Corrige el cliente: el traductor solo trae lo nuevo (cliente); el resto se conserva de la tarea.
-    const antes = await s.di('cita con Mikel el lunes a las 5', { accion: 'CITA_CREAR', cliente_texto: 'Mikel PRUEBA Etxeberria', fecha_texto: 'el lunes', hora_texto: '17:00' });
-    expect(antes.respuesta).toContain('2026-10-12');
+    expect(a.respuesta).toContain('2026-10-12');
+    // Repetir lo mismo sin cambiar nada no vuelve a proponer la misma orden idéntica.
+    const igual = await s.di('cita con Mikel el lunes a las 5', { accion: 'CITA_CREAR', cliente_texto: 'Mikel PRUEBA Etxeberria', fecha_texto: 'el lunes', hora_texto: '17:00' }, { intencion: 'CORRIGE' });
+    expect(igual.respuesta).toMatch(/No veo qué dato cambiar/);
+    expect(igual.accionPendiente).toBeUndefined();
     // Tarea a medias: falta la hora → pregunta; luego se completa («a las 5») sin repetir el día.
     const b = await s.di('visita con Iker PRUEBA el lunes', { accion: 'CITA_CREAR', cliente_texto: 'Iker PRUEBA', fecha_texto: 'el lunes' });
     expect(b.respuesta).toMatch(/¿A qué hora\?/);

@@ -3,6 +3,8 @@ import { NEGOCIO_A, USUARIO, crearBaseSimulada } from '../../evals/base-simulada
 import { confirmarOrdenJev, procesarMensajeJev } from '@/lib/jev/motor';
 import { crearRunToolJev } from '@/lib/jev/despacho';
 import type { OrdenJev } from '@/lib/jev/ordenes';
+import type { Intencion } from '@/lib/jev/intencion';
+import { clasificadorSimulado } from './clasificador-simulado';
 
 export const MARTES = '2026-10-06T10:00:00Z';
 
@@ -30,10 +32,11 @@ export function sesion(db: ReturnType<typeof crearFakeDb>, ahora = MARTES) {
     cambiarReloj: (iso: string) => {
       reloj = new Date(iso);
     },
-    async di(mensaje: string, orden: OrdenJev, opciones: { continua?: boolean; categoria?: string; ultimoPresupuestoId?: string | null; ultimaFacturaId?: string | null; ultimoEventoId?: string | null; otras?: OrdenJev[] } = {}) {
+    async di(mensaje: string, orden: OrdenJev, opciones: { continua?: boolean; categoria?: string; ultimoPresupuestoId?: string | null; ultimaFacturaId?: string | null; ultimoEventoId?: string | null; otras?: OrdenJev[]; intencion?: Intencion; segura?: boolean } = {}) {
       const r = await procesarMensajeJev({
         ...base,
         ultimoAsistente,
+        clasificar: async (e) => (opciones.intencion ? { intencion: opciones.intencion, segura: opciones.segura !== false } : clasificadorSimulado(e)),
         mensaje,
         categoria: opciones.categoria ?? 'general',
         hoyTexto: 'martes 6 de octubre de 2026',
@@ -46,10 +49,11 @@ export function sesion(db: ReturnType<typeof crearFakeDb>, ahora = MARTES) {
       ultimoAsistente = r.respuesta;
       return r;
     },
-    async sinTraductor(mensaje: string) {
+    async sinTraductor(mensaje: string, intencion?: Intencion) {
       const r = await procesarMensajeJev({
         ...base,
         ultimoAsistente,
+        clasificar: async (e) => (intencion ? { intencion, segura: true } : clasificadorSimulado(e)),
         mensaje,
         categoria: 'general',
         hoyTexto: 'martes',

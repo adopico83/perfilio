@@ -12,6 +12,7 @@ import { IDS, NEGOCIO_A, USUARIO } from './base-simulada';
 import { crearRunToolJev } from '@/lib/jev/despacho';
 import { confirmarOrdenJev, procesarMensajeJev, type SalidaMotor } from '@/lib/jev/motor';
 import type { EntradaTraductor, SalidaTraductor } from '@/lib/jev/traductor';
+import type { EntradaIntencion, Intencion, SalidaIntencion } from '@/lib/jev/intencion';
 import { MENSAJE_NADA_PENDIENTE } from '@/lib/agente/orquestacion';
 
 type Db = ReturnType<typeof crearFakeDb>;
@@ -23,8 +24,12 @@ export type PasoR8 =
       mensaje: string;
       /** Solo en el modo simulado: la orden que debería salir del traductor. */
       orden?: Record<string, unknown>;
+      /** Solo en el modo simulado: la intención que debería salir del clasificador (si no, el clasificador simulado decide). */
+      intencion?: Intencion;
       continua?: boolean;
       otras?: Array<Record<string, unknown>>;
+      /** El paso solo se da si lo último que dijo el asistente cumple esto (p. ej. contestar «sí» solo si se preguntó algo). */
+      solo?: (ultimoAsistente: string) => boolean;
       /** Categoría del router de intención. */
       categoria?: string;
       ok?: (r: SalidaMotor, db: Db) => string[];
@@ -43,6 +48,10 @@ export type EscenarioR8 = {
   final?: (db: Db) => string[];
   /** Presupuesto/cita «recordados» al empezar (como las marcas del historial del chat). */
   contexto?: { ultimoPresupuestoId?: string; ultimoEventoId?: string };
+  /** El primer mensaje pide varias órdenes: si la respuesta no avisa de las demás, es una orden PERDIDA SIN AVISO. */
+  varias?: boolean;
+  /** Filas que, como mucho, puede haber guardado el escenario por tabla; guardar más (o en otra tabla) es una ESCRITURA INCORRECTA. */
+  maxEscrituras?: Record<string, number>;
 };
 
 const esperar = (cond: unknown, problema: string): string[] => (cond ? [] : [problema]);
@@ -216,13 +225,17 @@ export const ESCENARIOS_RONDA8: EscenarioR8[] = [
 /** Corre un escenario completo. `traductor` real o simulado; devuelve los problemas (vacío = bien). */
 export async function ejecutarEscenario(
   esc: EscenarioR8,
-  traductor: (e: EntradaTraductor, paso: Extract<PasoR8, { mensaje: string }>) => Promise<SalidaTraductor>
-): Promise<{ problemas: string[]; db: Db }> {
+  traductor: (e: EntradaTraductor, paso: Extract<PasoR8, { mensaje: string }>) => Promise<SalidaTraductor>,
+  /** Sin clasificador se usa el REAL (eval); en los tests se pasa el simulado. */
+  clasificador?: (e: EntradaIntencion, paso: Extract<PasoR8, { mensaje: string }>) => Promise<SalidaIntencion>
+): Promise<{ problemas: string[]; db: Db; respuestas: string[]; avisos: string[][] }> {
   const base = baseRonda5();
   esc.preparar?.(base);
   const db = crearFakeDb(base);
   const runTool = crearRunToolJev({ supabase: db.client, businessId: NEGOCIO_A, userId: USUARIO });
   const problemas: string[] = [];
+  const respuestas: string[] = [];
+  const avisos: string[][] = [];
   let ultimoAsistente: string | undefined;
   let ultimaOrdenId: string | null = null;
   let ultimoEventoId = esc.contexto?.ultimoEventoId ?? null;
@@ -230,6 +243,7 @@ export async function ejecutarEscenario(
   const ahora = new Date('2026-10-06T10:00:00Z');
   const hoyTexto = 'martes, 6 de octubre de 2026';
   for (const [i, paso] of esc.pasos.entries()) {
+    if ('mensaje' in paso && paso.solo && !paso.solo(ultimoAsistente ?? '')) continue;
     let r: SalidaMotor;
     if ('confirmar' in paso) {
       if (!ultimaOrdenId) {
@@ -251,9 +265,12 @@ export async function ejecutarEscenario(
         ultimoEventoId,
         runTool,
         traducir: (e) => traductor(e, paso),
+        ...(clasificador ? { clasificar: (e: EntradaIntencion) => clasificador(e, paso) } : {}),
       });
     }
     ultimoAsistente = r.respuesta;
+    respuestas.push(r.respuesta);
+    avisos.push(r.avisos ?? []);
     ultimaOrdenId = r.accionPendiente?.orden_id ?? null;
     const ev = (r.resultado as { evento_id?: unknown } | undefined)?.evento_id;
     if (typeof ev === 'string') ultimoEventoId = ev;
@@ -261,5 +278,40 @@ export async function ejecutarEscenario(
     for (const p of paso.ok?.(r, db) ?? []) problemas.push(`paso ${i + 1} ${nombrePaso}: ${p}`);
   }
   for (const p of esc.final?.(db) ?? []) problemas.push(`final: ${p}`);
-  return { problemas, db };
+  return { problemas, db, respuestas, avisos };
+}
+
+/** Escrituras de un escenario por tabla (sin las órdenes pendientes, que son del propio motor). */
+export function escriturasPorTabla(db: Db): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const i of db.inserts) if (i.tabla !== 'jev_ordenes_pendientes') out[i.tabla] = (out[i.tabla] ?? 0) + 1;
+  for (const u of db.updates) if (u.tabla !== 'jev_ordenes_pendientes') out[`${u.tabla}(update)`] = (out[`${u.tabla}(update)`] ?? 0) + 1;
+  return out;
+}
+
+/** ¿Guardó más de lo permitido (o en una tabla no permitida)? Devuelve los motivos. */
+export function escriturasIncorrectas(esc: EscenarioR8, db: Db): string[] {
+  if (!esc.maxEscrituras) return [];
+  const hechas = escriturasPorTabla(db);
+  return Object.entries(hechas).flatMap(([t, n]) => ((esc.maxEscrituras![t] ?? 0) < n ? [`guardó ${n} en «${t}» (máximo ${esc.maxEscrituras![t]  ?? 0})`] : []));
+}
+
+/** Órdenes de un escenario `varias` que NO llegaron a guardarse (lo pedido está en `maxEscrituras`). */
+export function ordenesPerdidas(esc: EscenarioR8, db: Db): string[] {
+  if (!esc.varias || !esc.maxEscrituras) return [];
+  const hechas = escriturasPorTabla(db);
+  return Object.entries(esc.maxEscrituras).flatMap(([t, n]) => ((hechas[t] ?? 0) < n ? [`«${t}»: ${hechas[t] ?? 0} de ${n}`] : []));
+};
+
+/** ¿Alguna respuesta del escenario avisó (avisos[]) o dejó la orden en cola? */
+export function huboAviso(respuestas: string[], avisos: string[][] = []): boolean {
+  return avisos.some((a) => a.length > 0) || respuestas.some((r) => /Después te pregunto/.test(r));
+}
+
+/**
+ * Una orden PERDIDA SIN AVISO es la que no se guardó y de la que nadie dijo nada en toda la conversación. El contador y el detalle usan
+ * esta misma definición: si el detalle dice que faltó una orden y no hubo aviso, aquí cuenta.
+ */
+export function ordenPerdidaSinAviso(esc: EscenarioR8, db: Db, respuestas: string[], avisos: string[][] = []): boolean {
+  return ordenesPerdidas(esc, db).length > 0 && !huboAviso(respuestas, avisos);
 }
