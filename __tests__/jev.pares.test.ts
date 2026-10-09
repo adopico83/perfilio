@@ -12,7 +12,6 @@ import { crearRunToolJev } from '@/lib/jev/despacho';
 import { confirmarOrdenJev, procesarMensajeJev } from '@/lib/jev/motor';
 import { traducirMensaje } from '@/lib/jev/traductor';
 import { escriturasPorTabla } from '../evals/ronda8';
-import { ACCIONES_POR_CATEGORIA, nombreParaModelo } from '@/lib/jev/ordenes';
 
 const createMock = jest.fn();
 jest.mock('openai', () => ({
@@ -45,7 +44,7 @@ const CATALOGO: Tipo[] = [
     orden: { accion: 'DIARIO', obra_texto: 'Paqui', texto: 'se ha picado el baño' },
     variante: { accion: 'DIARIO', obra_texto: 'Paqui', texto: 'Se ha picado el baño' } },
 ];
-type Modo = 'bien' | 'copia' | 'olvida' | 'dudosa';
+type Modo = 'bien' | 'copia' | 'olvida';
 const NEXOS = [' y de paso ', '; también ', ', ah y '];
 
 /** El «modelo»: ante el mensaje entero falla según `modo`; ante UNA frase suelta acierta. */
@@ -59,22 +58,15 @@ function modelo(modo: Modo, a: Tipo, b: Tipo, mensaje: string, nexo: string) {
     const sistema = req.messages[0]!.content;
     const entera = usuario === mensaje;
     if (nombre === 'trocear') return llamada('trocear', { trozos: [a.frase, `${nexo.trim()} ${b.frase}`.trim()] });
-    // La segunda lectura (idea 4) llega con las opciones en orden inverso.
-    const enumTool = (req as unknown as { tools: Array<{ function: { parameters: { properties: { accion: { enum: string[] } } } } }> }).tools[0]!.function.parameters.properties.accion?.enum ?? [];
-    const invertida = nombre === 'elegir_accion' && enumTool.length > 0 && enumTool[0] !== nombreParaModelo(ACCIONES_POR_CATEGORIA.general![0]!);
-    if (nombre === 'elegir_accion' && usuario === mensaje) usadas.orden = 0; // cada lectura empieza de cero
     if (nombre === 'elegir_accion') {
       const quien = [a, b].find((t) => usuario.includes(t.frase));
-      if (modo === 'dudosa' && invertida && !entera) return llamada('elegir_accion', { accion: 'ACLARAR', continua_tarea: null, otras_acciones: null });
       if (!entera) return llamada('elegir_accion', { accion: quien?.clave ?? 'ACLARAR', continua_tarea: null, otras_acciones: null });
-      if (modo === 'dudosa') return llamada('elegir_accion', { accion: a.clave, continua_tarea: null, otras_acciones: invertida ? null : [b.clave] });
       if (modo === 'bien') return llamada('elegir_accion', { accion: a.clave, continua_tarea: null, otras_acciones: [b.clave] });
       if (modo === 'copia') return llamada('elegir_accion', { accion: a.clave, continua_tarea: null, otras_acciones: [a.clave] });
       return llamada('elegir_accion', { accion: a.clave, continua_tarea: null, otras_acciones: null });
     }
     if (nombre === 'orden_jev') {
-      const tipo = [a, b].find((t) => new RegExp(`la orden es ${t.clave}\\b`).test(sistema));
-      if (!tipo) return llamada('orden_jev', { pregunta: '¿Qué necesitas?' });
+      const tipo = [a, b].find((t) => new RegExp(`la orden es ${t.clave}\\b`).test(sistema))!;
       const copia = modo === 'copia' && entera && ++usadas.orden > 1;
       const { accion: _a, ...campos } = copia ? tipo.variante : tipo.orden;
       void _a;
@@ -84,9 +76,8 @@ function modelo(modo: Modo, a: Tipo, b: Tipo, mensaje: string, nexo: string) {
   });
 }
 
-const escrituras = (d: ReturnType<typeof crearFakeDb>) => Object.values(escriturasPorTabla(d)).reduce((n, x) => n + x, 0);
 const pares: Array<[string, Tipo, Tipo, Modo, string]> = [];
-for (const a of CATALOGO) for (const b of CATALOGO) if (a !== b) for (const modo of ['bien', 'copia', 'olvida', 'dudosa'] as Modo[]) pares.push([`${a.clave} + ${b.clave} (${modo})`, a, b, modo, NEXOS[(pares.length) % NEXOS.length]!]);
+for (const a of CATALOGO) for (const b of CATALOGO) if (a !== b) for (const modo of ['bien', 'copia', 'olvida'] as Modo[]) pares.push([`${a.clave} + ${b.clave} (${modo})`, a, b, modo, NEXOS[(pares.length) % NEXOS.length]!]);
 
 describe('pares de órdenes con un modelo que falla: nada se pierde, nada se guarda dos veces, solo se escribe lo pedido', () => {
   it.each(pares)('%s', async (_n, a, b, modo, nexo) => {
@@ -99,13 +90,6 @@ describe('pares de órdenes con un modelo que falla: nada se pierde, nada se gua
     const avisos: string[] = [];
     let r = await procesarMensajeJev({ ...base, mensaje, categoria: 'general', hoyTexto: 'martes, 6 de octubre de 2026', ahora: new Date('2026-10-06T10:00:00Z'), clasificar: async () => ({ intencion: 'VARIAS', segura: true }), traducir: traducirMensaje });
     avisos.push(...(r.avisos ?? []));
-    if (modo === 'dudosa') {
-      // Las dos lecturas no coinciden (una ve dos órdenes y la otra una): NO se guarda la mitad, se pregunta con el plan entero.
-      expect(r.accionPendiente).toBeUndefined();
-      expect(r.respuesta).toMatch(/¿Apunto .* y también /);
-      expect(escrituras(db)).toBe(0);
-      r = await procesarMensajeJev({ ...base, mensaje: 'sí', categoria: 'general', hoyTexto: 'martes', ahora: new Date('2026-10-06T10:00:00Z'), clasificar: async () => ({ intencion: 'CONFIRMA', segura: true }), traducir: async () => { throw new Error('no debía traducir'); } });
-    }
     for (let i = 0; i < 4 && r.accionPendiente; i++) {
       r = await confirmarOrdenJev({ ...base, ordenId: r.accionPendiente.orden_id, ahora: new Date('2026-10-06T10:00:00Z') });
       avisos.push(...(r.avisos ?? []));

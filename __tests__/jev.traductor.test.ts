@@ -1,7 +1,7 @@
 import { ACCIONES_POR_CATEGORIA, NOMBRES_ACCION, completarOrden, jsonSchemaAccion, jsonSchemaCampos, validarOrden, ORDENES } from '@/lib/jev/ordenes';
 import { clausulaEn } from '@/lib/jev/sin-usar';
-import { cubrirPorTrozos, describirOrden, lecturasCoinciden, reconstruye, unirSinDatos } from '@/lib/jev/traductor';
-import { nombreParaModelo, normalizarAccionPublica } from '@/lib/jev/ordenes';
+import { cubrirPorTrozos, reconstruye, unirSinDatos } from '@/lib/jev/traductor';
+import { normalizarAccionPublica } from '@/lib/jev/ordenes';
 import { construirMensajesTraductor, herramientaElegirAccion, herramientaOrdenJev, interpretarSalida, PROMPT_TRADUCTOR, traducirMensaje } from '@/lib/jev/traductor';
 
 const createMock = jest.fn();
@@ -219,73 +219,5 @@ describe('troceo con cobertura (idea 1)', () => {
     const horas = [s.orden, ...(s.otras ?? [])].filter((o) => (o as { accion: string }).accion === 'HORAS');
     expect(horas).toEqual([expect.objectContaining({ operario_texto: 'Jon', horas_texto: '6', obra_texto: 'Paqui' })]);
     expect(s.rescate).toBe(true);
-  });
-});
-
-describe('dos lecturas para las órdenes que escriben (idea 4)', () => {
-  const tc = (name: string, args: unknown) => ({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name, arguments: JSON.stringify(args) } }] } }] });
-  const MSG = 'apunta 87,40 de Saltoki para lo de Leire y de paso ponle 6 horas a Jon en lo de Paqui';
-  const gasto = { proveedor_texto: 'Saltoki', importe_texto: '87,40', iva_modo: 'incluido', obra_texto: 'Leire' };
-  const horas = { operario_texto: 'Jon', horas_texto: '6', obra_texto: 'Paqui' };
-
-  /** `lecturaInvertida`: qué ve la segunda lectura (la que llega con las opciones en orden inverso). */
-  function modelo(lecturaInvertida: 'igual' | 'solo-gasto', consulta = false) {
-    createMock.mockReset();
-    createMock.mockImplementation(async (req: { tool_choice: { function: { name: string } }; tools: Array<{ function: { parameters: { properties: { accion: { enum: string[] } } } } }>; messages: Array<{ role: string; content: string }> }) => {
-      const nombre = req.tool_choice.function.name;
-      const sistema = req.messages[0]!.content;
-      const usuario = req.messages.find((m) => m.role === 'user')!.content;
-      if (nombre === 'trocear') return tc('trocear', { trozos: [usuario] });
-      if (nombre === 'elegir_accion') {
-        if (consulta) return tc('elegir_accion', { accion: 'CONSULTA_DIA', continua_tarea: null, otras_acciones: null });
-        const enumero = req.tools[0]!.function.parameters.properties.accion.enum;
-        const invertida = enumero[0] !== ACCIONES_POR_CATEGORIA.general![0] && enumero[0] !== nombreParaModelo(ACCIONES_POR_CATEGORIA.general![0]!);
-        const entera = usuario === MSG;
-        if (!entera) return tc('elegir_accion', { accion: invertida && lecturaInvertida === 'solo-gasto' ? 'ACLARAR' : usuario.includes('horas') ? 'HORAS' : 'GASTO', continua_tarea: null, otras_acciones: null });
-        return tc('elegir_accion', { accion: 'GASTO', continua_tarea: null, otras_acciones: invertida && lecturaInvertida === 'solo-gasto' ? null : ['HORAS'] });
-      }
-      if (nombre === 'orden_jev') return /la orden es HORAS/.test(sistema) ? tc('orden_jev', horas) : /la orden es ACLARAR/.test(sistema) ? tc('orden_jev', { pregunta: '¿?' }) : tc('orden_jev', gasto);
-      return { choices: [{ message: { content: 'Hola' } }] };
-    });
-  }
-
-  it('lecturasCoinciden: mismos tipos y mismas cifras (la hora escrita de otra forma no cuenta)', () => {
-    const a = { orden: { accion: 'CITA_CREAR', cliente_texto: 'Paqui', hora_texto: 'a las 10' } as never, continuaTarea: false };
-    const b = { orden: { accion: 'CITA_CREAR', cliente_texto: 'Paqui', hora_texto: '10:00' } as never, continuaTarea: false };
-    expect(lecturasCoinciden(a, b)).toBe(true);
-    const g = { orden: { accion: 'GASTO', importe_texto: '87,40' } as never, continuaTarea: false };
-    expect(lecturasCoinciden(g, { ...g, orden: { accion: 'GASTO', importe_texto: '87.40' } as never })).toBe(true);
-    expect(lecturasCoinciden(g, { ...g, orden: { accion: 'GASTO', importe_texto: '78,40' } as never })).toBe(false);
-    expect(lecturasCoinciden(g, { ...g, otras: [{ accion: 'HORAS', horas_texto: '6' } as never] })).toBe(false);
-  });
-  it('describirOrden', () => {
-    expect(describirOrden({ accion: 'GASTO', proveedor_texto: 'Saltoki', importe_texto: '87,40' })).toBe('el gasto de Saltoki (87,40)');
-    expect(describirOrden({ accion: 'HORAS', operario_texto: 'Jon', horas_texto: '6' })).toBe('las 6 horas de Jon');
-  });
-  it('las dos lecturas coinciden → se sigue sin preguntar', async () => {
-    modelo('igual');
-    process.env.OPENAI_API_KEY = 'k';
-    const s = await traducirMensaje({ mensaje: MSG, categoria: 'general', hoyTexto: 'martes', dobleLectura: true });
-    expect(s.desacuerdo).toBeUndefined();
-    expect([s.orden, ...(s.otras ?? [])].map((o) => (o as { accion: string }).accion).sort()).toEqual(['GASTO', 'HORAS']);
-  });
-  it('una lectura ve dos órdenes y la otra una → desacuerdo: se pregunta con el plan entero (no se guarda la mitad)', async () => {
-    modelo('solo-gasto');
-    process.env.OPENAI_API_KEY = 'k';
-    const s = await traducirMensaje({ mensaje: MSG, categoria: 'general', hoyTexto: 'martes', dobleLectura: true });
-    expect(s.desacuerdo?.pregunta).toBe('¿Apunto el gasto de Saltoki (87,40) y también las 6 horas de Jon?');
-    expect(s.desacuerdo?.ordenes.length).toBe(2);
-  });
-  it('sin dobleLectura (por defecto) hay una sola lectura', async () => {
-    modelo('solo-gasto');
-    process.env.OPENAI_API_KEY = 'k';
-    const s = await traducirMensaje({ mensaje: MSG, categoria: 'general', hoyTexto: 'martes' });
-    expect(s.desacuerdo).toBeUndefined();
-  });
-  it('una consulta no se lee dos veces', async () => {
-    modelo('igual', true);
-    process.env.OPENAI_API_KEY = 'k';
-    await traducirMensaje({ mensaje: '¿qué tengo hoy?', categoria: 'agenda', hoyTexto: 'martes', dobleLectura: true });
-    expect(createMock.mock.calls.filter((c) => (c[0] as { tool_choice: { function: { name: string } } }).tool_choice.function.name === 'elegir_accion').length).toBe(1);
   });
 });

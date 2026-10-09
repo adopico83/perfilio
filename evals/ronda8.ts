@@ -28,7 +28,7 @@ export type PasoR8 =
       intencion?: Intencion;
       continua?: boolean;
       otras?: Array<Record<string, unknown>>;
-      /** El paso solo se da si lo último que dijo el asistente cumple esto (p. ej. contestar «sí» solo si preguntó «¿Apunto…?»). */
+      /** El paso solo se da si lo último que dijo el asistente cumple esto (p. ej. contestar «sí» solo si se preguntó algo). */
       solo?: (ultimoAsistente: string) => boolean;
       /** Categoría del router de intención. */
       categoria?: string;
@@ -303,9 +303,9 @@ export function ordenesPerdidas(esc: EscenarioR8, db: Db): string[] {
   return Object.entries(esc.maxEscrituras).flatMap(([t, n]) => ((hechas[t] ?? 0) < n ? [`«${t}»: ${hechas[t] ?? 0} de ${n}`] : []));
 };
 
-/** ¿Alguna respuesta del escenario avisó (avisos[]), preguntó qué hacer con lo demás o dejó la orden en cola? */
+/** ¿Alguna respuesta del escenario avisó (avisos[]) o dejó la orden en cola? */
 export function huboAviso(respuestas: string[], avisos: string[][] = []): boolean {
-  return avisos.some((a) => a.length > 0) || respuestas.some((r) => /Después te pregunto|¿Apunto /.test(r));
+  return avisos.some((a) => a.length > 0) || respuestas.some((r) => /Después te pregunto/.test(r));
 }
 
 /**

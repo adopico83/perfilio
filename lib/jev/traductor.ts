@@ -8,7 +8,7 @@ import { numerosDelMensaje } from '@/lib/jev/fechas';
 import OpenAI from 'openai';
 import { AGENTE_MODELO_POR_DEFECTO } from '@/lib/agente/modelo';
 import { logJev } from '@/lib/jev/log';
-import { ACCIONES_POR_CATEGORIA, AYUDA_ACCION, accionesDelModelo, jsonSchemaAccion, etiquetaOrden, jsonSchemaCampos, nombreParaModelo, normalizarAccionPublica, type NombreAccion, type OrdenCruda, type OrdenJev } from '@/lib/jev/ordenes';
+import { ACCIONES_POR_CATEGORIA, AYUDA_ACCION, accionesDelModelo, jsonSchemaAccion, jsonSchemaCampos, nombreParaModelo, normalizarAccionPublica, type NombreAccion, type OrdenCruda, type OrdenJev } from '@/lib/jev/ordenes';
 
 let cliente: OpenAI | null = null;
 function getOpenAI(): OpenAI {
@@ -29,10 +29,6 @@ export type EntradaTraductor = {
   ultimoAsistente?: string;
   /** Uso interno: aviso del segundo intento (datos que el primero dejó fuera). */
   revision?: string;
-  /** Uso interno: lee con las opciones en orden inverso (la segunda lectura de la idea 4). */
-  invertir?: boolean;
-  /** Dos lecturas para las órdenes que escriben: si no coinciden, se pregunta en vez de guardar la mitad. El motor lo activa; por defecto no. */
-  dobleLectura?: boolean;
 };
 
 /**
@@ -46,8 +42,6 @@ export type SalidaTraductor = {
   otras?: Array<OrdenCruda | OrdenJev>;
   /** Una cláusula se rescató traduciéndola aparte (el motor lo cuenta al usuario). */
   rescate?: boolean;
-  /** Las dos lecturas no coinciden: lo que hay que preguntar y el plan más completo que se preparará si el usuario dice que sí. */
-  desacuerdo?: { pregunta: string; ordenes: Array<OrdenCruda | OrdenJev> };
 };
 
 const REGLAS = `Eres el TRADUCTOR de Perfilio (asistente de un negocio de obras y reformas). No haces nada: traduces lo que dice el usuario a una orden cerrada.
@@ -163,8 +157,7 @@ async function llamar(nombre: string, hacerTool: (estricto: boolean) => OpenAI.C
  * esquema plano de ~37 campos todos anulables, el modelo real dejaba a null campos que el usuario sí había dicho.
  */
 async function traducirUnaVez(e: EntradaTraductor, excluir: NombreAccion[] = []): Promise<SalidaTraductor> {
-  const todasAcciones = (ACCIONES_POR_CATEGORIA[e.categoria] ?? ACCIONES_POR_CATEGORIA.general!).filter((a) => !excluir.includes(a));
-  const acciones = e.invertir ? [...todasAcciones].reverse() : todasAcciones;
+  const acciones = (ACCIONES_POR_CATEGORIA[e.categoria] ?? ACCIONES_POR_CATEGORIA.general!).filter((a) => !excluir.includes(a));
   const paso1 = await llamar('elegir_accion', (st) => herramientaElegirAccion(e.categoria, st, acciones), mensajes(PROMPT_ELEGIR_ACCION(acciones), e), 120);
   const accion = normalizarAccionPublica(paso1?.accion);
   const continuaTarea = paso1?.continua_tarea === true;
@@ -390,93 +383,12 @@ export async function cubrirPorTrozos(e: EntradaTraductor, salida: SalidaTraduct
   return { ...salida, orden: principal as OrdenCruda, otras: otras as OrdenCruda[], rescate: true };
 }
 
-/** UNA lectura completa: dos pasos, revisión de datos sin usar y, si trae varios datos, comprobación por trozos. */
-async function leer(e: EntradaTraductor): Promise<SalidaTraductor> {
+/** Traduce un mensaje: dos pasos, revisión de datos sin usar y, si trae varias cifras, comprobación por trozos. Nunca lanza por esto último. */
+export async function traducirMensaje(e: EntradaTraductor): Promise<SalidaTraductor> {
   const salida = await traducirConRevision(e);
   try {
     return await cubrirPorTrozos(e, salida);
   } catch {
     return salida;
   }
-}
-
-const NO_ESCRIBEN = /^(?:CONSULTA_|PDF_ENLACE$|ACLARAR$|CHARLA$)/;
-const ordenesDe = (s: SalidaTraductor): Array<Record<string, unknown>> => [s.orden, ...(s.otras ?? [])] as Array<Record<string, unknown>>;
-const escribe = (s: SalidaTraductor): boolean => ordenesDe(s).some((o) => typeof o.accion === 'string' && !NO_ESCRIBEN.test(o.accion));
-
-/** Cifras (canónicas) que recogen unas órdenes: lo que no puede cambiar entre dos lecturas de lo mismo. */
-function cifrasDe(ordenes: Array<Record<string, unknown>>): string[] {
-  const out = new Set<string>();
-  const rec = (v: unknown, k = ''): void => {
-    if (typeof v === 'string') {
-      // La fecha y la hora se pueden escribir de muchas formas («a las 10», «10:00»): no cuentan como desacuerdo.
-      if (!['descripcion_texto', 'notas_texto', 'titulo_texto', 'fecha_texto', 'hora_texto'].includes(k)) for (const n of numerosDelMensaje(v)) out.add(String(Math.round(n * 100) / 100));
-    } else if (Array.isArray(v)) v.forEach((x) => rec(x, k));
-    else if (v && typeof v === 'object') for (const [kk, x] of Object.entries(v as Record<string, unknown>)) rec(x, kk);
-  };
-  ordenes.forEach((o) => rec(o));
-  return [...out].sort();
-}
-
-/**
- * ¿Dos lecturas del mismo mensaje dicen lo mismo? Mismos TIPOS de orden (con su cantidad: una lectura que ve dos órdenes y otra que ve una
- * es desacuerdo) y mismas CIFRAS. Los detalles opcionales (la obra, una descripción) pueden variar sin que sea un desacuerdo.
- */
-export function lecturasCoinciden(a: SalidaTraductor, b: SalidaTraductor): boolean {
-  const tipos = (s: SalidaTraductor) => ordenesDe(s).map((o) => String(o.accion)).sort().join(',');
-  return tipos(a) === tipos(b) && cifrasDe(ordenesDe(a)).join(',') === cifrasDe(ordenesDe(b)).join(',');
-}
-
-/** Cómo se llama una orden al preguntar («el gasto de Saltoki (87,40)», «las 6 horas de Jon»). */
-export function describirOrden(o: Record<string, unknown>): string {
-  const t = (k: string) => (typeof o[k] === 'string' ? String(o[k]).trim() : '');
-  switch (o.accion) {
-    case 'GASTO':
-      return `el gasto de ${t('proveedor_texto') || 'un proveedor'}${t('importe_texto') ? ` (${t('importe_texto')})` : ''}`;
-    case 'HORAS':
-      return `${t('horas_texto') ? `las ${t('horas_texto')} horas` : 'las horas'} de ${t('operario_texto') || 'otra persona'}`;
-    case 'CITA_CREAR':
-      return `la cita${t('cliente_texto') ? ` con ${t('cliente_texto')}` : ''}${t('fecha_texto') ? ` ${t('fecha_texto')}` : ''}`;
-    case 'DIARIO':
-      return `la nota del diario${t('obra_texto') ? ` de ${t('obra_texto')}` : ''}`;
-    case 'CREAR_FACTURA':
-      return `la factura${t('cliente_texto') ? ` a ${t('cliente_texto')}` : ''}${t('importe_texto') ? ` (${t('importe_texto')})` : ''}`;
-    case 'PRESUPUESTO_DICTADO':
-      return `el presupuesto nuevo${t('cliente_texto') ? ` para ${t('cliente_texto')}` : ''}`;
-    case 'PRESUPUESTO_PARTIDAS':
-      return `el cambio en el presupuesto${t('presupuesto_texto') ? ` de ${t('presupuesto_texto')}` : ''}`;
-    default:
-      return etiquetaOrden(o);
-  }
-}
-
-/**
- * IDEA 4. Para las órdenes que ESCRIBEN, el mensaje se lee dos veces (la segunda con las opciones en orden inverso). Si las dos lecturas
- * coinciden, se sigue. Si no, no se guarda la mitad: se pregunta («¿Apunto el gasto de Saltoki y también las 6 horas de Jon?») con el
- * plan más completo de las dos. Las consultas y la charla se leen una sola vez.
- */
-export async function traducirMensaje(e: EntradaTraductor): Promise<SalidaTraductor> {
-  const a = await leer(e);
-  if (!e.dobleLectura || e.tarea || e.invertir || !escribe(a)) return a;
-  let b: SalidaTraductor;
-  try {
-    b = await leer({ ...e, invertir: true });
-  } catch {
-    return a; // la segunda lectura no pudo hacerse: no se bloquea lo que ya se entendió
-  }
-  if (lecturasCoinciden(a, b)) return a;
-  const completa = ordenesDe(b).filter((o) => !NO_ESCRIBEN.test(String(o.accion))).length > ordenesDe(a).filter((o) => !NO_ESCRIBEN.test(String(o.accion))).length ? b : a;
-  const plan = ordenesDe(completa).filter((o) => !NO_ESCRIBEN.test(String(o.accion)));
-  if (!plan.length) return a;
-  const vistos = new Set<string>();
-  const unicos = plan.filter((o) => {
-    const k = claveOrden(o);
-    if (vistos.has(k)) return false;
-    vistos.add(k);
-    return true;
-  });
-  logJev('lecturas_distintas', { a: ordenesDe(a).map((o) => String(o.accion)).join(','), b: ordenesDe(b).map((o) => String(o.accion)).join(',') });
-  const lista = unicos.map(describirOrden);
-  const pregunta = lista.length > 1 ? `¿Apunto ${lista.slice(0, -1).join(', ')} y también ${lista[lista.length - 1]}?` : `¿Apunto ${lista[0]}?`;
-  return { ...a, desacuerdo: { pregunta, ordenes: unicos as OrdenCruda[] } };
 }
